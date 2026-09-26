@@ -3,6 +3,7 @@ const {app,BrowserWindow,ipcMain,dialog,Menu,shell,session,nativeTheme}=require(
 const path=require('node:path');
 const {ORIGIN,endpointValid,downloadChart}=require('./download');
 const {applicationMenu,canPreviewVisitor}=require('./app-menu');
+const {batchValid,downloadBatch}=require('./batch-download');
 let win,job=null,guest=null;
 function trusted(url){try{const u=new URL(url);return u.origin===ORIGIN&&!u.username&&!u.password;}catch{return false;}}
 function allowedSender(event){return win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame&&trusted(event.senderFrame.url);}
@@ -76,6 +77,18 @@ else{
    if(key==='f5'||(command&&key==='r')){event.preventDefault();win.webContents.reload();}
    else if(key==='f11'){event.preventDefault();win.setFullScreen(!win.isFullScreen());}
    else if(command&&['+','=','-','0'].includes(key)){event.preventDefault();const level=key==='0'?0:Math.max(-2,Math.min(3,win.webContents.getZoomLevel()+(key==='-'?-.5:.5)));win.webContents.setZoomLevel(level);}
+  });
+  ipcMain.handle('chartshub:download-batch',async(event,endpoints)=>{
+   if(!allowedSender(event)||!batchValid(endpoints))return {ok:false,error:'Sélection non autorisée.'};
+   if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
+   const controller=new AbortController();job=controller;
+   try{
+    const choice=await dialog.showOpenDialog(win,{title:'Choisir le dossier pour les '+endpoints.length+' charts',properties:['openDirectory','createDirectory']});
+    if(choice.canceled)return {ok:false,cancelled:true,results:[]};
+    if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
+    return await downloadBatch({endpoints,directory:choice.filePaths[0],fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>{if(allowedSender(event))event.sender.send('chartshub:progress',data);if(win&&!win.isDestroyed())win.setProgressBar(data.percent/100);}});
+   }catch(error){return {ok:false,error:error.message,cancelled:controller.signal.aborted};}
+   finally{job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
   ipcMain.handle('chartshub:download',async(event,endpoint)=>{
    if(!allowedSender(event)||!endpointValid(endpoint))return {ok:false,error:'Demande non autorisée.'};
