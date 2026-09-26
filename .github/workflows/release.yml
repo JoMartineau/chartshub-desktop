@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths-ignore: [".github/workflows/publish-desktop.yml", ".github/workflows/release.yml"]
 concurrency:
   group: desktop-release
   cancel-in-progress: false
