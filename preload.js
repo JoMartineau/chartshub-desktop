@@ -2,7 +2,7 @@
 const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
-  version:'0.1.8',
+  version:'0.1.9',
   downloadBatch:endpoints=>ipcRenderer.invoke('chartshub:download-batch',endpoints),
   downloadFolder:change=>ipcRenderer.invoke('chartshub:folder',change===true),
   download:endpoint=>ipcRenderer.invoke('chartshub:download',endpoint),
@@ -37,14 +37,21 @@ if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
   button.setAttribute('aria-haspopup','menu');
   button.addEventListener('mousedown',event=>event.preventDefault());
   button.addEventListener('click',()=>ipcRenderer.invoke('chartshub:menu',document.documentElement.lang.startsWith('fr')?'fr':'en'));
-  const fallback=document.createElement('div');fallback.className='theme-topbar';fallback.append(button);
+  const fullscreen=document.createElement('button');fullscreen.type='button';fullscreen.className='button button-ghost';
+  let isFullscreen=false;
+  const labelFullscreen=()=>{const fr=document.documentElement.lang.startsWith('fr');fullscreen.textContent=isFullscreen?(fr?'Quitter le plein écran':'Exit full screen'):(fr?'Plein écran':'Full screen');fullscreen.setAttribute('aria-pressed',String(isFullscreen));fullscreen.title='F11 · Esc';};
+  fullscreen.onclick=()=>ipcRenderer.invoke('chartshub:fullscreen',true);
+  ipcRenderer.on('chartshub:fullscreen-state',(_event,state)=>{isFullscreen=state;labelFullscreen();});
+  ipcRenderer.invoke('chartshub:fullscreen',false).then(state=>{isFullscreen=!!state;labelFullscreen();});
+  new MutationObserver(labelFullscreen).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});labelFullscreen();
+  const fallback=document.createElement('div');fallback.className='theme-topbar';fallback.append(button,fullscreen);
   if(caption)caption.after(fallback);else document.body.prepend(fallback);
   const observer=new MutationObserver(()=>{
    const bar=[...document.querySelectorAll('.theme-topbar')].find(el=>el!==fallback);
-   if(bar){bar.prepend(button);fallback.remove();if(caption)document.body.prepend(caption);observer.disconnect();}
+   if(bar){bar.prepend(button,fullscreen);fallback.remove();if(caption)document.body.prepend(caption);observer.disconnect();}
   });
   observer.observe(document.body,{childList:true,subtree:true});
   const bar=[...document.querySelectorAll('.theme-topbar')].find(el=>el!==fallback);
-  if(bar){bar.prepend(button);fallback.remove();if(caption)document.body.prepend(caption);observer.disconnect();}
+  if(bar){bar.prepend(button,fullscreen);fallback.remove();if(caption)document.body.prepend(caption);observer.disconnect();}
  });
 }

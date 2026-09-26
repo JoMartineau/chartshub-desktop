@@ -50,6 +50,12 @@ else{
    if(process.platform==='win32')win.setAccentColor(theme.accent);
    return theme;
   });
+  ipcMain.handle('chartshub:fullscreen',(event,toggle)=>{
+   if(!allowedSender(event)||typeof toggle!=='boolean')return;
+   if(toggle)win.setFullScreen(!win.isFullScreen());
+   return win.isFullScreen();
+  });
+  for(const eventName of ['enter-full-screen','leave-full-screen'])win.on(eventName,()=>win.webContents.send('chartshub:fullscreen-state',win.isFullScreen()));
   const administrator=async()=>{
    try{const response=await ses.fetch(ORIGIN+'/api/auth/me',{credentials:'include',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(5000)});return response.ok&&canPreviewVisitor((await response.json()).user);}catch{return false;}
   };
@@ -89,7 +95,8 @@ else{
   win.webContents.on('before-input-event',(event,input)=>{
    if(input.type!=='keyDown')return;
    const key=input.key.toLowerCase(),command=process.platform==='darwin'?input.meta:input.control;
-   if(key==='f5'||(command&&key==='r')){event.preventDefault();win.webContents.reload();}
+   if(key==='escape'&&win.isFullScreen()){event.preventDefault();win.setFullScreen(false);}
+   else if(key==='f5'||(command&&key==='r')){event.preventDefault();win.webContents.reload();}
    else if(key==='f11'){event.preventDefault();win.setFullScreen(!win.isFullScreen());}
    else if(command&&['+','=','-','0'].includes(key)){event.preventDefault();const level=key==='0'?0:Math.max(-2,Math.min(3,win.webContents.getZoomLevel()+(key==='-'?-.5:.5)));win.webContents.setZoomLevel(level);}
   });
