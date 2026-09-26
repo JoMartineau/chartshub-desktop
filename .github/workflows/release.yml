@@ -1,0 +1,82 @@
+name: Desktop release
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+permissions:
+  contents: read
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            platform: win32
+            arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: x64
+          - os: macos-latest
+            platform: darwin
+            arch: arm64
+          - os: macos-latest
+            platform: darwin
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: node build.mjs ${{ matrix.platform }} ${{ matrix.arch }}
+      - name: Archive Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/ChartsHub-win32-x64 -DestinationPath ChartsHub-win32-x64.zip
+      - name: Archive macOS
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          codesign --force --deep --sign - dist/ChartsHub-darwin-${{ matrix.arch }}/ChartsHub.app
+          ditto -c -k --sequesterRsrc --keepParent dist/ChartsHub-darwin-${{ matrix.arch }}/ChartsHub.app ChartsHub-darwin-${{ matrix.arch }}.zip
+      - name: Archive Linux
+        if: runner.os == 'Linux'
+        run: tar -czf ChartsHub-linux-x64.tar.gz -C dist ChartsHub-linux-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ChartsHub-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            ChartsHub-*.zip
+            ChartsHub-*.tar.gz
+          if-no-files-found: error
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+      - name: Prepare draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          VERSION="v$(node -p 'require("./package.json").version')"
+          cd release-assets
+          sha256sum ChartsHub-* > SHA256SUMS.txt
+          if ! gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release create "$VERSION" --target "$GITHUB_SHA" --draft --prerelease --title "ChartsHub $VERSION" --notes "Version expérimentale Windows, macOS et Linux. Archives non signées commercialement ; macOS non notarisé. Tester chaque système avant publication."
+          fi
+          test "$(gh release view "$VERSION" --json isDraft --jq .isDraft)" = true
+          gh release upload "$VERSION" ./* --clobber
