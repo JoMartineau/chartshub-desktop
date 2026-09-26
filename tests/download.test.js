@@ -3,6 +3,19 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {validateManifest,endpointValid,downloadChart,ORIGIN}=require('../download');
 const endpoint='/api/admin/charts/12345678-1234-1234-1234-123456789012/chartabcdefghij/download-manifest';
 const entry=(name='song.ini',value='[Song]\nname=Test')=>({parts:[name],size:Buffer.byteLength(value),sha256:crypto.createHash('sha256').update(value).digest('hex'),url:endpoint.replace('download-manifest','files/fileabcdefghijk')});
+test('song folders use artist and title, sanitize paths, and support older manifests',()=>{
+ const {songFolderName}=require('../download');
+ assert.equal(songFolderName({artist:'FALLING IN REVERSE',title:'Joseph'}),'FALLING IN REVERSE - Joseph');
+ assert.equal(songFolderName({title:'Song'},'[song]\nartist = Band\n'),'Band - Song');
+ assert.equal(songFolderName({artist:'<color=red>Band</color>',title:'A/B: C?'}),'Band - A_B_ C_');
+ assert.equal(songFolderName({title:'CON'}),'_CON');
+});
+test('repeated downloads preserve the original and add a numeric suffix',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-name-test-')),data='[Song]\nname=Test';
+ try{const options={endpoint,directory:root,signal:new AbortController().signal,fetcher:async url=>url.endsWith('download-manifest')?Response.json({artist:'Band',title:'Song',files:[entry()]}):new Response(data)};
+ const first=await downloadChart(options),second=await downloadChart(options);assert.equal(first.folderName,'Band - Song');assert.equal(second.folderName,'Band - Song (2)');assert.equal(fs.readFileSync(path.join(first.destination,'song.ini'),'utf8'),data);assert.deepEqual(fs.readdirSync(root).sort(),['Band - Song','Band - Song (2)']);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
 test('accepts only ChartsHub chart endpoints and safe scanned files',()=>{
  assert.equal(endpointValid(endpoint),true);
  for(const value of ['https://evil.test/'+endpoint,endpoint+'?url=evil',endpoint.replace('/admin/charts/','/admin/users/'),endpoint+'/../x'])assert.equal(endpointValid(value),false);

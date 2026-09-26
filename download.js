@@ -5,6 +5,14 @@ const {pipeline}=require('node:stream/promises');
 const ORIGIN='https://chartshub.ca',LIMIT=2000000000;
 function endpointValid(endpoint){return typeof endpoint==='string'&&/^\/api\/(?:admin\/)?charts\/[a-f0-9-]{36}\/[A-Za-z0-9_-]{10,200}\/download-manifest$/.test(endpoint);}
 function safePart(value){return typeof value==='string'&&value.length>0&&value.length<=150&&!/[<>:"/\\|?*\x00-\x1f\x7f]/.test(value)&&!/[. ]$/.test(value)&&!/^(?:\.{1,2}|CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(value);}
+function songFolderName(manifest,ini=''){
+ const field=key=>ini.match(new RegExp('^\\s*'+key+'\\s*=\\s*(.*?)\\s*$','im'))?.[1]||'';
+ const clean=value=>String(value||'').replace(/<[^>]*>/g,'').replace(/[<>:"/\\|?*\x00-\x1f\x7f]/g,'_').trim().replace(/[. ]+$/,'');
+ const artist=clean(manifest.artist||field('artist')),title=clean(manifest.title||field('name'))||'Chart';
+ let name=(artist?artist+' - ':'')+title;name=Array.from(name).slice(0,140).join('').replace(/[. ]+$/,'');
+ if(/^(?:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(name))name='_'+name;
+ return name||'Chart';
+}
 function validateManifest(manifest,endpoint){
  if(!endpointValid(endpoint)||!Array.isArray(manifest?.files)||!manifest.files.length||manifest.files.length>1000)throw Error('Liste des fichiers invalide.');
  let total=0;const paths=new Set(),prefix=endpoint.replace(/download-manifest$/,'files/');
@@ -34,7 +42,7 @@ async function downloadChart({endpoint,directory,fetcher,signal,progress=()=>{}}
  const root=await fsp.realpath(directory);
  const info=await fsp.stat(root);if(!info.isDirectory())throw Error('Choisissez un dossier.');
  const prefix=path.join(root,'.chartshub-partial-');
- const staging=await fsp.mkdtemp(prefix);let committed=false,saved=0,lastProgress=0;
+ const staging=await fsp.mkdtemp(prefix);let committed=false,saved=0,lastProgress=0,reserved;
  try{
   const files=[...manifest.files].sort((a,b)=>Number(!/\.(ini|chart|mid)$/i.test(a.parts.at(-1)))-Number(!/\.(ini|chart|mid)$/i.test(b.parts.at(-1)))||a.size-b.size);
   for(const file of files){
@@ -49,15 +57,19 @@ async function downloadChart({endpoint,directory,fetcher,signal,progress=()=>{}}
    saved+=bytes;
   }
   signal?.throwIfAborted();
-  const title=String(manifest.title||'Chart').replace(/<[^>]*>/g,'').replace(/[<>:"/\\|?*\x00-\x1f]/g,'_').replace(/[. ]+$/,'').slice(0,60)||'Chart';
-  const folderName=(endpoint.includes('/admin/')?'ChartsHub-review - ':'ChartsHub - ')+title+' - '+crypto.randomUUID();
-  const destination=path.join(root,folderName);
-  await fsp.rename(staging,destination);committed=true;
+  let ini='';const iniFile=manifest.files.find(f=>f.parts.length===1&&f.parts[0].toLowerCase()==='song.ini');
+  if(iniFile&&!manifest.artist){const handle=await fsp.open(path.join(staging,...iniFile.parts),'r');try{const buffer=Buffer.alloc(65536);const {bytesRead}=await handle.read(buffer,0,buffer.length,0);ini=buffer.subarray(0,bytesRead).toString('utf8');}finally{await handle.close();}}
+  const base=songFolderName(manifest,ini);let folderName,destination;
+  for(let n=1;;n++){signal?.throwIfAborted();folderName=base+(n===1?'':` (${n})`);destination=path.join(root,folderName);try{await fsp.mkdir(destination,{mode:0o700});reserved=destination;break;}catch(error){if(error.code!=='EEXIST')throw error;}}
+  // Reserve a fresh directory atomically so an existing song is never replaced.
+  for(const entry of await fsp.readdir(staging))await fsp.rename(path.join(staging,entry),path.join(destination,entry));
+  committed=true;
   progress({message:'Téléchargement terminé : '+folderName,percent:100});
   return {folderName,destination,files:manifest.files.length};
  }finally{
   // Only remove this operation's freshly created, verified child of the chosen root.
-  if(!committed&&path.dirname(staging)===root&&path.basename(staging).startsWith('.chartshub-partial-'))await fsp.rm(staging,{recursive:true,force:true});
+  if(path.dirname(staging)===root&&path.basename(staging).startsWith('.chartshub-partial-'))await fsp.rm(staging,{recursive:true,force:true});
+  if(!committed&&reserved&&path.dirname(reserved)===root)await fsp.rm(reserved,{recursive:true,force:true});
  }
 }
-module.exports={ORIGIN,endpointValid,safePart,validateManifest,downloadChart};
+module.exports={ORIGIN,endpointValid,safePart,validateManifest,downloadChart,songFolderName};

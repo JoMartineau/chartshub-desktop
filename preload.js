@@ -2,7 +2,7 @@
 const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
-  version:'0.1.5',
+  version:'0.1.6',
   downloadBatch:endpoints=>ipcRenderer.invoke('chartshub:download-batch',endpoints),
   download:endpoint=>ipcRenderer.invoke('chartshub:download',endpoint),
   cancel:()=>ipcRenderer.invoke('chartshub:cancel'),
