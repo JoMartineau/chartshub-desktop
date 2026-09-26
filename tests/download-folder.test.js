@@ -1,0 +1,5 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');const {folderPreferences}=require('../download-folder');
+test('export destination survives restart, can change, and missing folders request a new choice',async()=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'chartshub-folder-test-'));
+ try{const first=path.join(root,'Songs'),second=path.join(root,'Other');await fs.mkdir(first);await fs.mkdir(second);const config=path.join(root,'prefs');let prefs=folderPreferences(config);assert.equal(await prefs.get(),null);await prefs.set('catalogue',first);prefs=folderPreferences(config);assert.equal(await prefs.get(),await fs.realpath(first));await prefs.set('catalogue',second);assert.equal(await folderPreferences(config).get(),await fs.realpath(second));await fs.rmdir(second);assert.equal(await prefs.get(),null);assert.equal(await prefs.get('review'),null);}finally{await fs.rm(root,{recursive:true,force:true});}
+});

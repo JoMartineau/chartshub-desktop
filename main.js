@@ -4,6 +4,7 @@ const path=require('node:path');
 const {ORIGIN,endpointValid,downloadChart}=require('./download');
 const {applicationMenu,canPreviewVisitor}=require('./app-menu');
 const {batchValid,downloadBatch}=require('./batch-download');
+const {folderPreferences}=require('./download-folder');
 let win,job=null,guest=null;
 function trusted(url){try{const u=new URL(url);return u.origin===ORIGIN&&!u.username&&!u.password;}catch{return false;}}
 function allowedSender(event){return win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame&&trusted(event.senderFrame.url);}
@@ -28,6 +29,17 @@ else{
   const load=route=>win.loadURL(ORIGIN+route).catch(()=>dialog.showMessageBox(win,{type:'error',message:'Connexion à ChartsHub impossible.',detail:'Vérifiez votre connexion Internet, puis utilisez Ctrl+R (ou Cmd+R sur Mac).'}));
   Menu.setApplicationMenu(null);
   win.setMenuBarVisibility(false);
+  const folders=folderPreferences(app.getPath('userData'));
+  async function chooseFolder(kind,force=false){
+   const saved=await folders.get(kind);if(saved&&!force)return saved;
+   const choice=await dialog.showOpenDialog(win,{title:kind==='review'?'Dossier de vérification':'Dossier d’exportation des charts',defaultPath:saved||app.getPath('downloads'),properties:['openDirectory','createDirectory']});
+   return choice.canceled?null:folders.set(kind,choice.filePaths[0]);
+  }
+  ipcMain.handle('chartshub:folder',async(event,change)=>{
+   if(!allowedSender(event)||typeof change!=='boolean')return {ok:false};
+   if(job&&change)return {ok:false,error:'Attendez la fin du téléchargement pour changer le dossier.'};
+   try{const directory=change?await chooseFolder('catalogue',true):await folders.get('catalogue');return {ok:!!directory,folderName:directory?path.basename(directory):'',cancelled:change&&!directory};}catch(error){return {ok:false,error:error.message};}
+  });
   ipcMain.handle('chartshub:theme',(event,mode)=>{
    if(!allowedSender(event)||!['light','dark'].includes(mode))return;
    nativeTheme.themeSource=mode;
@@ -83,10 +95,10 @@ else{
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const controller=new AbortController();job=controller;
    try{
-    const choice=await dialog.showOpenDialog(win,{title:'Choisir le dossier pour les '+endpoints.length+' charts',properties:['openDirectory','createDirectory']});
-    if(choice.canceled)return {ok:false,cancelled:true,results:[]};
+    const directory=await chooseFolder('catalogue');
+    if(!directory)return {ok:false,cancelled:true,results:[]};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    return await downloadBatch({endpoints,directory:choice.filePaths[0],fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>{if(allowedSender(event))event.sender.send('chartshub:progress',data);if(win&&!win.isDestroyed())win.setProgressBar(data.percent/100);}});
+    return await downloadBatch({endpoints,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>{if(allowedSender(event))event.sender.send('chartshub:progress',data);if(win&&!win.isDestroyed())win.setProgressBar(data.percent/100);}});
    }catch(error){return {ok:false,error:error.message,cancelled:controller.signal.aborted};}
    finally{job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
@@ -96,10 +108,10 @@ else{
    const controller=new AbortController();job=controller;
    const timer=setTimeout(()=>controller.abort(),3600000);
    try{
-    const choice=await dialog.showOpenDialog(win,{title:endpoint.includes('/admin/')?'Choisir le dossier de vérification':'Choisir votre dossier de charts',properties:['openDirectory','createDirectory']});
-    if(choice.canceled)return {ok:false,cancelled:true};
+    const directory=await chooseFolder(endpoint.includes('/admin/')?'review':'catalogue');
+    if(!directory)return {ok:false,cancelled:true};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    const result=await downloadChart({endpoint,directory:choice.filePaths[0],fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>{if(allowedSender(event))event.sender.send('chartshub:progress',data);if(win&&!win.isDestroyed())win.setProgressBar(data.percent/100);}});
+    const result=await downloadChart({endpoint,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>{if(allowedSender(event))event.sender.send('chartshub:progress',data);if(win&&!win.isDestroyed())win.setProgressBar(data.percent/100);}});
     // Only a path produced by this download operation is passed to the OS.
     shell.showItemInFolder(result.destination);
     return {ok:true,folderName:result.folderName,files:result.files};
