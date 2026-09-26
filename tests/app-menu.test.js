@@ -1,5 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const {applicationMenu}=require('../app-menu');
+const {applicationMenu,canPreviewVisitor}=require('../app-menu');
+test('guest preview is offered only when supplied after verified administrator authorization',()=>{
+ for(const user of [null,{}, {emailVerified:true,staffRole:'moderator'},{emailVerified:false,staffRole:'administrator'}])assert.equal(canPreviewVisitor(user),false);
+ assert.equal(canPreviewVisitor({emailVerified:true,staffRole:'administrator'}),true);
+ assert.equal(applicationMenu({language:'fr'}).some(item=>item.label==='Voir comme visiteur'),false);
+ let opened=false;applicationMenu({language:'fr',visitorPreview:()=>opened=true}).find(item=>item.label==='Voir comme visiteur').click();assert.equal(opened,true);
+});
 test('application commands use fixed routes, bounded zoom and the normal close handler',()=>{
  let level=3,route,closed=false,cancelled=false;
  const menu=applicationMenu({language:'fr',load:value=>route=value,web:{getZoomLevel:()=>level,setZoomLevel:value=>level=value,reload(){}},close:()=>closed=true,cancel:()=>cancelled=true,downloading:true,toggleFullscreen(){}});

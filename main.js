@@ -2,8 +2,8 @@
 const {app,BrowserWindow,ipcMain,dialog,Menu,shell,session,nativeTheme}=require('electron');
 const path=require('node:path');
 const {ORIGIN,endpointValid,downloadChart}=require('./download');
-const {applicationMenu}=require('./app-menu');
-let win,job=null;
+const {applicationMenu,canPreviewVisitor}=require('./app-menu');
+let win,job=null,guest=null;
 function trusted(url){try{const u=new URL(url);return u.origin===ORIGIN&&!u.username&&!u.password;}catch{return false;}}
 function allowedSender(event){return win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame&&trusted(event.senderFrame.url);}
 async function external(url){
@@ -34,9 +34,41 @@ else{
    win.setBackgroundColor(color);
    if(process.platform==='win32')win.setTitleBarOverlay({color,symbolColor:mode==='light'?'#17263e':'#eef3ff',height:32});
   });
-  ipcMain.handle('chartshub:menu',(event,language)=>{
+  const administrator=async()=>{
+   try{const response=await ses.fetch(ORIGIN+'/api/auth/me',{credentials:'include',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(5000)});return response.ok&&canPreviewVisitor((await response.json()).user);}catch{return false;}
+  };
+  const openGuest=async()=>{
+   if(!await administrator())return;
+   if(guest&&!guest.isDestroyed()){guest.focus();return;}
+   const guestSession=session.fromPartition('guest-'+require('node:crypto').randomUUID());
+   guestSession.setPermissionRequestHandler((_web,_permission,callback)=>callback(false));
+   guestSession.setPermissionCheckHandler(()=>false);
+   guestSession.webRequest.onBeforeSendHeaders((details,callback)=>{
+    const headers={...details.requestHeaders};for(const key of Object.keys(headers))if(['cookie','authorization'].includes(key.toLowerCase()))delete headers[key];
+    const u=new URL(details.url);const cancel=u.origin===ORIGIN&&u.pathname.startsWith('/api/auth/')&&!['GET','HEAD','OPTIONS'].includes(details.method);
+    callback({cancel,requestHeaders:headers});
+   });
+   guestSession.webRequest.onHeadersReceived((details,callback)=>{
+    const headers={...details.responseHeaders};for(const key of Object.keys(headers))if(key.toLowerCase()==='set-cookie')delete headers[key];callback({responseHeaders:headers});
+   });
+   guestSession.on('will-download',event=>event.preventDefault());
+   guest=new BrowserWindow({width:1400,height:950,minWidth:720,minHeight:560,title:'ChartsHub — Visiteur',icon:path.join(__dirname,process.platform==='win32'?'icon.ico':'icon.png'),webPreferences:{session:guestSession,preload:path.join(__dirname,'guest-preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,webviewTag:false}});
+   guest.setMenuBarVisibility(false);
+   guest.webContents.setWindowOpenHandler(()=>({action:'deny'}));
+   guest.webContents.on('will-navigate',(event,url)=>{if(!trusted(url))event.preventDefault();});
+   guest.webContents.on('will-redirect',(event,url)=>{if(!trusted(url))event.preventDefault();});
+   guest.webContents.on('will-attach-webview',event=>event.preventDefault());
+   guest.on('closed',()=>{guest=null;void guestSession.clearStorageData();if(win&&!win.isDestroyed())win.focus();});
+   void guest.loadURL(ORIGIN+'/').catch(()=>{if(guest&&!guest.isDestroyed())guest.close();});
+  };
+  win.on('closed',()=>{if(guest&&!guest.isDestroyed())guest.close();});
+  ipcMain.handle('chartshub:close-guest',event=>{
+   if(guest&&!guest.isDestroyed()&&event.sender===guest.webContents&&event.senderFrame===guest.webContents.mainFrame&&trusted(event.senderFrame.url))guest.close();
+  });
+  ipcMain.handle('chartshub:menu',async(event,language)=>{
    if(!allowedSender(event)||!['fr','en'].includes(language))return;
-   Menu.buildFromTemplate(applicationMenu({language,load,web:win.webContents,close:()=>win.close(),cancel:()=>job?.abort(),downloading:Boolean(job),toggleFullscreen:()=>win.setFullScreen(!win.isFullScreen())})).popup({window:win});
+   const isAdmin=await administrator();if(!allowedSender(event))return;
+   Menu.buildFromTemplate(applicationMenu({language,load,visitorPreview:isAdmin?()=>void openGuest():undefined,web:win.webContents,close:()=>win.close(),cancel:()=>job?.abort(),downloading:Boolean(job),toggleFullscreen:()=>win.setFullScreen(!win.isFullScreen())})).popup({window:win});
   });
   win.webContents.on('before-input-event',(event,input)=>{
    if(input.type!=='keyDown')return;

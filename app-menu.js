@@ -1,9 +1,11 @@
 'use strict';
-function applicationMenu({language,load,web,close,cancel,downloading,toggleFullscreen}){
+function canPreviewVisitor(user){return user?.emailVerified===true&&user.staffRole==='administrator';}
+function applicationMenu({language,load,web,close,cancel,downloading,toggleFullscreen,visitorPreview}){
  const fr=language==='fr',t=(a,b)=>fr?a:b;
  return [
   {label:t('Catalogue','Catalogue'),click:()=>load('/')},
   {label:t('Mon compte','My account'),click:()=>load('/account.html')},
+  ...(visitorPreview?[{label:t('Voir comme visiteur','View as guest'),click:visitorPreview}]:[]),
   {type:'separator'},
   {label:t('Édition','Edit'),submenu:[
    {label:t('Annuler','Undo'),role:'undo'},{label:t('Rétablir','Redo'),role:'redo'},
@@ -19,4 +21,4 @@ function applicationMenu({language,load,web,close,cancel,downloading,toggleFulls
   {label:t('Quitter ChartsHub','Quit ChartsHub'),click:close}
  ];
 }
-module.exports={applicationMenu};
+module.exports={applicationMenu,canPreviewVisitor};
