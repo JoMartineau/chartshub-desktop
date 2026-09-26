@@ -5,6 +5,7 @@ const {ORIGIN,endpointValid,downloadChart}=require('./download');
 const {applicationMenu,canPreviewVisitor}=require('./app-menu');
 const {batchValid,downloadBatch}=require('./batch-download');
 const {folderPreferences}=require('./download-folder');
+const {windowTheme}=require('./window-theme');
 let win,job=null,guest=null;
 function trusted(url){try{const u=new URL(url);return u.origin===ORIGIN&&!u.username&&!u.password;}catch{return false;}}
 function allowedSender(event){return win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame&&trusted(event.senderFrame.url);}
@@ -21,7 +22,7 @@ else{
   ses.setPermissionRequestHandler((_web,permission,callback)=>callback(false));
   ses.setPermissionCheckHandler(()=>false);
   ses.on('will-download',(event)=>event.preventDefault());
-  win=new BrowserWindow({width:1400,height:950,minWidth:720,minHeight:560,title:'ChartsHub',...(process.platform==='win32'?{titleBarStyle:'hidden',titleBarOverlay:{color:'#090e19',symbolColor:'#eef3ff',height:32}}:{}),backgroundColor:'#090e19',icon:path.join(__dirname,process.platform==='win32'?'icon.ico':'icon.png'),webPreferences:{session:ses,preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false}});
+  win=new BrowserWindow({width:1400,height:950,minWidth:720,minHeight:560,title:'ChartsHub',...(process.platform==='darwin'?{titleBarStyle:'hiddenInset'}:{titleBarStyle:'hidden',titleBarOverlay:{color:'#090e19',symbolColor:'#eef3ff',height:36}}),backgroundColor:'#090e19',icon:path.join(__dirname,process.platform==='win32'?'icon.ico':'icon.png'),webPreferences:{session:ses,preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false}});
   win.webContents.setWindowOpenHandler(({url})=>{if(trusted(url))win.loadURL(url);else void external(url);return {action:'deny'};});
   win.webContents.on('will-navigate',(event,url)=>{if(!trusted(url)){event.preventDefault();void external(url);}});
   win.webContents.on('will-redirect',(event,url)=>{if(!trusted(url))event.preventDefault();});
@@ -40,12 +41,14 @@ else{
    if(job&&change)return {ok:false,error:'Attendez la fin du téléchargement pour changer le dossier.'};
    try{const directory=change?await chooseFolder('catalogue',true):await folders.get('catalogue');return {ok:!!directory,folderName:directory?path.basename(directory):'',cancelled:change&&!directory};}catch(error){return {ok:false,error:error.message};}
   });
-  ipcMain.handle('chartshub:theme',(event,mode)=>{
-   if(!allowedSender(event)||!['light','dark'].includes(mode))return;
-   nativeTheme.themeSource=mode;
-   const color=mode==='light'?'#f4f7fb':'#090e19';
-   win.setBackgroundColor(color);
-   if(process.platform==='win32')win.setTitleBarOverlay({color,symbolColor:mode==='light'?'#17263e':'#eef3ff',height:32});
+  ipcMain.handle('chartshub:theme',(event,value)=>{
+   if(!allowedSender(event))return;
+   const theme=windowTheme(value);if(!theme)return;
+   nativeTheme.themeSource=theme.mode;
+   win.setBackgroundColor(theme.color);
+   if(process.platform!=='darwin')win.setTitleBarOverlay({color:theme.color,symbolColor:theme.symbolColor,height:36});
+   if(process.platform==='win32')win.setAccentColor(theme.accent);
+   return theme;
   });
   const administrator=async()=>{
    try{const response=await ses.fetch(ORIGIN+'/api/auth/me',{credentials:'include',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(5000)});return response.ok&&canPreviewVisitor((await response.json()).user);}catch{return false;}

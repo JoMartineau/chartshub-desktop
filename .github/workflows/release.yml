@@ -68,7 +68,7 @@ jobs:
         with:
           path: release-assets
           merge-multiple: true
-      - name: Prepare draft release
+      - name: Publish tested release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -77,7 +77,8 @@ jobs:
           cd release-assets
           sha256sum ChartsHub-* > SHA256SUMS.txt
           if ! gh release view "$VERSION" >/dev/null 2>&1; then
-            gh release create "$VERSION" --target "$GITHUB_SHA" --draft --prerelease --title "ChartsHub $VERSION" --notes "Version expérimentale Windows, macOS et Linux. Archives non signées commercialement ; macOS non notarisé. Tester chaque système avant publication."
+            gh release create "$VERSION" --target "$GITHUB_SHA" --draft --prerelease --title "ChartsHub $VERSION" --notes "Version expérimentale Windows, macOS et Linux. Archives non signées commercialement ; macOS non notarisé. Contour et barre de titre assortis au thème."
           fi
           test "$(gh release view "$VERSION" --json isDraft --jq .isDraft)" = true
           gh release upload "$VERSION" ./* --clobber
+          gh release edit "$VERSION" --draft=false --prerelease

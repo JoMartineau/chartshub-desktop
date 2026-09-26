@@ -2,7 +2,7 @@
 const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
-  version:'0.1.7',
+  version:'0.1.8',
   downloadBatch:endpoints=>ipcRenderer.invoke('chartshub:download-batch',endpoints),
   downloadFolder:change=>ipcRenderer.invoke('chartshub:folder',change===true),
   download:endpoint=>ipcRenderer.invoke('chartshub:download',endpoint),
@@ -12,17 +12,23 @@ if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  // Mount in the site's utility bar; retain the focused text field for Edit actions.
  window.addEventListener('DOMContentLoaded',()=>{
   let caption;
-  if(process.platform==='win32'){
+  {
    caption=document.createElement('div');caption.textContent='ChartsHub';
    const logo=document.createElement('img');logo.src='https://chartshub.ca/assets/icon.svg';logo.alt='';logo.width=16;logo.height=16;logo.style.marginRight='8px';caption.prepend(logo);
-   Object.assign(caption.style,{height:'32px',minHeight:'32px',boxSizing:'border-box',padding:'0 150px 0 16px',display:'flex',alignItems:'center',font:'600 12px system-ui',position:'sticky',top:'0',zIndex:'10000',borderBottom:'2px solid',webkitAppRegion:'drag'});
+   Object.assign(caption.style,{height:'36px',minHeight:'36px',boxSizing:'border-box',padding:process.platform==='darwin'?'0 16px 0 90px':'0 150px 0 16px',display:'flex',alignItems:'center',font:'600 12px system-ui',position:'sticky',top:'0',zIndex:'10000',borderBottom:'1px solid',webkitAppRegion:'drag'});
    document.body.prepend(caption);
   }
-  let lastMode;
-  const syncFrame=()=>{
+  const outline=document.createElement('div');outline.setAttribute('aria-hidden','true');
+  Object.assign(outline.style,{position:'fixed',inset:'0',border:'1px solid',boxSizing:'border-box',pointerEvents:'none',zIndex:'2147483647'});document.body.append(outline);
+  let lastTheme='',revision=0;
+  const syncFrame=async()=>{
    const mode=document.documentElement.dataset.theme==='light'?'light':'dark';
-   if(mode!==lastMode){lastMode=mode;void ipcRenderer.invoke('chartshub:theme',mode);}
-   if(caption){caption.style.background=mode==='light'?'#f4f7fb':'#090e19';caption.style.color=mode==='light'?'#17263e':'#eef3ff';caption.style.borderBottomColor=getComputedStyle(document.documentElement).getPropertyValue('--blue').trim()||'#49bbff';}
+   const raw=getComputedStyle(document.documentElement).getPropertyValue('--blue').trim();
+   const accent=/^#[a-f0-9]{6}$/i.test(raw)?raw:'#4ebcff';
+   const key=mode+accent;if(key===lastTheme)return;lastTheme=key;const current=++revision;
+   try{const theme=await ipcRenderer.invoke('chartshub:theme',{mode,accent});if(!theme||current!==revision)return;
+    caption.style.background=theme.color;caption.style.color=theme.symbolColor;caption.style.borderBottomColor=theme.accent;outline.style.borderColor=theme.accent;
+   }catch{lastTheme='';}
   };
   new MutationObserver(syncFrame).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme','data-accent','style']});
   syncFrame();
