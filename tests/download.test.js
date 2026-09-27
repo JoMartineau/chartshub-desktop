@@ -39,3 +39,22 @@ test('mismatched bytes, refusal and cancellation clean only the new staging dire
  finally{fs.rmSync(root,{recursive:true,force:true});}
  }
 });
+
+test('published long names and deep safe paths follow the server manifest contract',async()=>{
+ const {safePart,validateDestination}=require('../download'),name='a'.repeat(151)+'.ogg';assert.equal(safePart(name),true);assert.equal(safePart('é'.repeat(128)),false);assert.equal(safePart('bad\x7fname'),false);
+ assert.equal(validateManifest({files:[{...entry(name,'data'),parts:['b'.repeat(180),name]}]},endpoint),4);
+ assert.throws(()=>validateDestination('C:\\'+'x'.repeat(32700),'Song',[entry(name)],'win32'),/destination trop long/);
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-long-name-'));
+ try{const result=await downloadChart({endpoint,directory:root,signal:new AbortController().signal,fetcher:async url=>url.endsWith('download-manifest')?Response.json({title:'T'.repeat(140),files:[entry(name,'data')]}):new Response('data')});assert.equal(fs.readFileSync(path.join(result.destination,name),'utf8'),'data');}finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('stalled manifest and file body time out, cancel streams and clean partial directories',async()=>{
+ for(const phase of ['manifest','body']){const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-stall-'));let cancelled=false;
+  try{await assert.rejects(downloadChart({endpoint,directory:root,idleTimeoutMs:30,signal:new AbortController().signal,fetcher:async url=>phase==='manifest'?new Promise(()=>{}):url.endsWith('download-manifest')?Response.json({title:'Test',files:[entry()]}):new Response(new ReadableStream({cancel(){cancelled=true;}}))}),/aucune donnée/);assert.deepEqual(fs.readdirSync(root),[]);if(phase==='body')assert.equal(cancelled,true);}finally{fs.rmSync(root,{recursive:true,force:true});}
+ }
+});
+
+test('ongoing file activity resets the idle deadline instead of limiting total duration',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-active-')),value='abcdefgh';
+ try{const result=await downloadChart({endpoint,directory:root,idleTimeoutMs:80,signal:new AbortController().signal,fetcher:async url=>url.endsWith('download-manifest')?Response.json({title:'Test',files:[entry('guitar.ogg',value)]}):new Response(new ReadableStream({start(controller){let index=0;const timer=setInterval(()=>{controller.enqueue(Buffer.from(value[index++]));if(index===value.length){clearInterval(timer);controller.close();}},20);}}))});assert.equal(fs.readFileSync(path.join(result.destination,'guitar.ogg'),'utf8'),value);}finally{fs.rmSync(root,{recursive:true,force:true});}
+});

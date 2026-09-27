@@ -6,6 +6,7 @@ const {applicationMenu,canPreviewVisitor}=require('./app-menu');
 const {batchValid,downloadBatch}=require('./batch-download');
 const {folderPreferences}=require('./download-folder');
 const {windowTheme}=require('./window-theme');
+const {createDownloadState}=require('./download-state');
 let win,job=null,guest=null;
 function trusted(url){try{const u=new URL(url);return u.origin===ORIGIN&&!u.username&&!u.password;}catch{return false;}}
 function allowedSender(event){return win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame&&trusted(event.senderFrame.url);}
@@ -30,6 +31,9 @@ else{
   const load=route=>win.loadURL(ORIGIN+route).catch(()=>dialog.showMessageBox(win,{type:'error',message:'Connexion à ChartsHub impossible.',detail:'Vérifiez votre connexion Internet, puis utilisez Ctrl+R (ou Cmd+R sur Mac).'}));
   Menu.setApplicationMenu(null);
   win.setMenuBarVisibility(false);
+  const downloads=createDownloadState(snapshot=>{if(win&&!win.isDestroyed()&&trusted(win.webContents.getURL()))win.webContents.send('chartshub:download-state',snapshot);});
+  const reportProgress=data=>{downloads.progress(data);if(win&&!win.isDestroyed()){if(trusted(win.webContents.getURL()))win.webContents.send('chartshub:progress',data);win.setProgressBar(data.percent/100);}};
+  ipcMain.handle('chartshub:download-state',event=>allowedSender(event)?downloads.snapshot():null);
   const folders=folderPreferences(app.getPath('userData'));
   async function chooseFolder(kind,force=false){
    const saved=await folders.get(kind);if(saved&&!force)return saved;
@@ -59,6 +63,11 @@ else{
   const administrator=async()=>{
    try{const response=await ses.fetch(ORIGIN+'/api/auth/me',{credentials:'include',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(5000)});return response.ok&&canPreviewVisitor((await response.json()).user);}catch{return false;}
   };
+  let adminAllowed=false,adminCheck=null,adminRevision=0;
+  const refreshAdministrator=()=>{if(adminCheck)return adminCheck;const current=adminRevision;adminCheck=administrator().then(value=>{if(current===adminRevision)adminAllowed=value;}).finally(()=>{adminCheck=null;if(current!==adminRevision)void refreshAdministrator();});return adminCheck;};
+  const resetAdministrator=()=>{adminAllowed=false;adminRevision++;void refreshAdministrator();};
+  win.webContents.on('did-finish-load',resetAdministrator);
+  ipcMain.handle('chartshub:account-changed',event=>{if(allowedSender(event))resetAdministrator();});
   const openGuest=async()=>{
    if(!await administrator())return;
    if(guest&&!guest.isDestroyed()){guest.focus();return;}
@@ -89,8 +98,8 @@ else{
   });
   ipcMain.handle('chartshub:menu',async(event,language)=>{
    if(!allowedSender(event)||!['fr','en'].includes(language))return;
-   const isAdmin=await administrator();if(!allowedSender(event))return;
-   Menu.buildFromTemplate(applicationMenu({language,load,visitorPreview:isAdmin?()=>void openGuest():undefined,web:win.webContents,close:()=>win.close(),cancel:()=>job?.abort(),downloading:Boolean(job),toggleFullscreen:()=>win.setFullScreen(!win.isFullScreen())})).popup({window:win});
+   void refreshAdministrator();
+   Menu.buildFromTemplate(applicationMenu({language,load,visitorPreview:adminAllowed?()=>void openGuest():undefined,web:win.webContents,close:()=>win.close(),cancel:()=>job?.abort(),downloading:Boolean(job),toggleFullscreen:()=>win.setFullScreen(!win.isFullScreen())})).popup({window:win});
   });
   win.webContents.on('before-input-event',(event,input)=>{
    if(input.type!=='keyDown')return;
@@ -104,29 +113,30 @@ else{
    if(!allowedSender(event)||!batchValid(endpoints))return {ok:false,error:'Sélection non autorisée.'};
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const controller=new AbortController();job=controller;
+   downloads.begin(endpoints,'batch');let result;
    try{
     const directory=await chooseFolder('catalogue');
-    if(!directory)return {ok:false,cancelled:true,results:[]};
+    if(!directory)return result={ok:false,cancelled:true,results:[]};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    return await downloadBatch({endpoints,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>{if(allowedSender(event))event.sender.send('chartshub:progress',data);if(win&&!win.isDestroyed())win.setProgressBar(data.percent/100);}});
-   }catch(error){return {ok:false,error:error.message,cancelled:controller.signal.aborted};}
-   finally{job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
+    return result=await downloadBatch({endpoints,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:reportProgress});
+   }catch(error){return result={ok:false,error:error.message,cancelled:controller.signal.aborted};}
+   finally{downloads.finish(result);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
   ipcMain.handle('chartshub:download',async(event,endpoint)=>{
    if(!allowedSender(event)||!endpointValid(endpoint))return {ok:false,error:'Demande non autorisée.'};
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const controller=new AbortController();job=controller;
-   const timer=setTimeout(()=>controller.abort(),3600000);
+   downloads.begin([endpoint],'single');let outcome;
    try{
     const directory=await chooseFolder(endpoint.includes('/admin/')?'review':'catalogue');
-    if(!directory)return {ok:false,cancelled:true};
+    if(!directory)return outcome={ok:false,cancelled:true};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    const result=await downloadChart({endpoint,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>{if(allowedSender(event))event.sender.send('chartshub:progress',data);if(win&&!win.isDestroyed())win.setProgressBar(data.percent/100);}});
+    const result=await downloadChart({endpoint,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress({...data,endpoint,itemPercent:data.percent})});
     // Only a path produced by this download operation is passed to the OS.
     shell.showItemInFolder(result.destination);
-    return {ok:true,folderName:result.folderName,files:result.files};
-   }catch(error){return controller.signal.aborted?{ok:false,cancelled:true}:{ok:false,error:error.message};}
-   finally{clearTimeout(timer);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
+    return outcome={ok:true,folderName:result.folderName,files:result.files};
+   }catch(error){return outcome=controller.signal.aborted?{ok:false,cancelled:true}:{ok:false,error:error.message};}
+   finally{downloads.finish(outcome);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
   ipcMain.handle('chartshub:cancel',event=>{if(allowedSender(event))job?.abort();});
   win.on('close',event=>{if(job){event.preventDefault();dialog.showMessageBox(win,{type:'question',buttons:['Continuer le téléchargement','Annuler et quitter'],defaultId:0,cancelId:0,message:'Un téléchargement est en cours.'}).then(({response})=>{if(response===1){job?.abort();const wait=setInterval(()=>{if(!job){clearInterval(wait);win.close();}},100);}});}});

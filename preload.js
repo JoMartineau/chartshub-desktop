@@ -2,7 +2,9 @@
 const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
-  version:'0.1.9',
+  version:'0.1.10',
+  downloadState:()=>ipcRenderer.invoke('chartshub:download-state'),
+  onDownloadState:callback=>{if(typeof callback!=='function')return ()=>{};const listener=(_event,data)=>callback(data);ipcRenderer.on('chartshub:download-state',listener);return ()=>ipcRenderer.removeListener('chartshub:download-state',listener);},
   downloadBatch:endpoints=>ipcRenderer.invoke('chartshub:download-batch',endpoints),
   downloadFolder:change=>ipcRenderer.invoke('chartshub:folder',change===true),
   download:endpoint=>ipcRenderer.invoke('chartshub:download',endpoint),
@@ -11,6 +13,7 @@ if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  });
  // Mount in the site's utility bar; retain the focused text field for Edit actions.
  window.addEventListener('DOMContentLoaded',()=>{
+  window.addEventListener('chartshub:accountchange',()=>ipcRenderer.invoke('chartshub:account-changed'));
   let caption;
   {
    caption=document.createElement('div');caption.textContent='ChartsHub';

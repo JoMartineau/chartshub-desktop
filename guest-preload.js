@@ -1,6 +1,7 @@
 'use strict';
-const {ipcRenderer}=require('electron');
+const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
+ contextBridge.exposeInMainWorld('ChartsHubGuestView',{returnToAccount:()=>ipcRenderer.invoke('chartshub:close-guest')});
  window.addEventListener('DOMContentLoaded',()=>{
   const bar=document.createElement('div'),text=document.createElement('span'),button=document.createElement('button');
   Object.assign(bar.style,{position:'sticky',top:'0',zIndex:'10001',display:'flex',flexWrap:'wrap',alignItems:'center',justifyContent:'space-between',gap:'12px',padding:'12px 20px',background:'#15263b',color:'#ffffff',borderBottom:'2px solid #49bbff',font:'14px system-ui'});
@@ -9,5 +10,7 @@ if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
   const translate=()=>{const fr=document.documentElement.lang.startsWith('fr');text.textContent=fr?'Vue visiteur — sans compte connecté':'Guest view — signed out';button.textContent=fr?'Revenir à Admin':'Return to Admin';};
   translate();new MutationObserver(translate).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
   bar.append(text,button);document.body.prepend(bar);
+  const reserveHeight=()=>document.documentElement.style.setProperty('--chartshub-guest-banner-height',Math.ceil(bar.getBoundingClientRect().height)+'px');
+  new ResizeObserver(reserveHeight).observe(bar);reserveHeight();
  });
 }
