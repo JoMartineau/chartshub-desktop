@@ -16,11 +16,13 @@ test('repeated downloads preserve the original and add a numeric suffix',async()
  const first=await downloadChart(options),second=await downloadChart(options);assert.equal(first.folderName,'Band - Song');assert.equal(second.folderName,'Band - Song (2)');assert.equal(fs.readFileSync(path.join(first.destination,'song.ini'),'utf8'),data);assert.deepEqual(fs.readdirSync(root).sort(),['Band - Song','Band - Song (2)']);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
-test('accepts only ChartsHub chart endpoints and safe scanned files',()=>{
+test('accepts only ChartsHub chart endpoints and safe files with an optional valid digest',()=>{
  assert.equal(endpointValid(endpoint),true);
  for(const value of ['https://evil.test/'+endpoint,endpoint+'?url=evil',endpoint.replace('/admin/charts/','/admin/users/'),endpoint+'/../x'])assert.equal(endpointValid(value),false);
  for(const parts of [['..','song.ini'],['C:','song.ini'],['CON.ini'],['desktop.ini'],['a.exe'],['song.ini '],['a\\b.ini']])assert.throws(()=>validateManifest({files:[{...entry(),parts}]},endpoint));
- assert.throws(()=>validateManifest({files:[{...entry(),sha256:undefined}]},endpoint));
+ assert.equal(validateManifest({files:[{...entry(),sha256:undefined}]},endpoint),entry().size);
+ for(const sha256 of [null,'',false,123,{},'0'.repeat(63),'0'.repeat(65),'z'.repeat(64)])assert.throws(()=>validateManifest({files:[{...entry(),sha256}]},endpoint),/SHA-256/);
+ assert.throws(()=>validateManifest({files:[null]},endpoint));
  assert.throws(()=>validateManifest({files:[entry(),entry('SONG.INI')]},endpoint));
  assert.throws(()=>validateManifest({files:[{...entry(),size:2000000001}]},endpoint));
 });
@@ -57,4 +59,71 @@ test('stalled manifest and file body time out, cancel streams and clean partial 
 test('ongoing file activity resets the idle deadline instead of limiting total duration',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-active-')),value='abcdefgh';
  try{const result=await downloadChart({endpoint,directory:root,idleTimeoutMs:80,signal:new AbortController().signal,fetcher:async url=>url.endsWith('download-manifest')?Response.json({title:'Test',files:[entry('guitar.ogg',value)]}):new Response(new ReadableStream({start(controller){let index=0;const timer=setInterval(()=>{controller.enqueue(Buffer.from(value[index++]));if(index===value.length){clearInterval(timer);controller.close();}},20);}}))});assert.equal(fs.readFileSync(path.join(result.destination,'guitar.ogg'),'utf8'),value);}finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('mixed modern inventories and hashed files download atomically, including videos',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-optional-hash-'));
+ const values=['[Song]\nname=Modern','notes content','audio bytes','video bytes',''];
+ const files=['song.ini','notes.chart','song.ogg','video.webm','readme.txt'].map((name,i)=>{const file={...entry(name,values[i]),url:endpoint.replace('download-manifest','files/fileabcdefghijk'+i)};if(i!==0)delete file.sha256;return file;});
+ try{const result=await downloadChart({endpoint,directory:root,fetcher:async url=>{
+  if(url.endsWith('download-manifest'))return Response.json({title:'Modern',files});
+  assert.deepEqual(fs.readdirSync(root).filter(name=>!name.startsWith('.chartshub-partial-')),[]);
+  return new Response(values[files.findIndex(file=>ORIGIN+file.url===url)]);
+ }});assert.equal(result.files,files.length);for(let i=0;i<files.length;i++)assert.equal(fs.readFileSync(path.join(result.destination,...files[i].parts),'utf8'),values[i]);assert.deepEqual(fs.readdirSync(root),['Modern']);}
+ finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
+test('unhashed files still require exact sizes and malformed hashes stop before any file request',async()=>{
+ for(const mode of ['short','long','malformed']){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-inventory-failure-'));fs.writeFileSync(path.join(root,'keep.txt'),'keep');let requests=0;
+  try{await assert.rejects(downloadChart({endpoint,directory:root,fetcher:async url=>{
+   requests++;if(url.endsWith('download-manifest'))return Response.json({title:'Test',files:[{...entry('video.webm','data'),sha256:mode==='malformed'?'bad':undefined}]});
+   return new Response(mode==='short'?'dat':'data extra');
+  }}),mode==='malformed'?/SHA-256 invalide/:/Taille incorrecte/);assert.equal(requests,mode==='malformed'?1:2);assert.deepEqual(fs.readdirSync(root),['keep.txt']);}
+  finally{fs.rmSync(root,{recursive:true,force:true});}
+ }
+});
+
+test('quota errors from manifest or file bodies explain the cause without retrying or exposing upstream details',async()=>{
+ for(const phase of ['manifest','file']){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-quota-error-'));fs.writeFileSync(path.join(root,'keep.txt'),'keep');let requests=0;
+  try{await assert.rejects(downloadChart({endpoint,directory:root,fetcher:async url=>{
+   requests++;if(phase==='file'&&url.endsWith('download-manifest'))return Response.json({title:'Test',files:[entry()]});
+   return Response.json({code:'DRIVE_DOWNLOAD_QUOTA',error:'SECRET https://drive.test/?key=private',retryAt:'2026-09-28T12:00:00Z'},{status:502});
+  }}),error=>{assert.match(error.message,/Quota de téléchargement Google Drive dépassé/);assert.doesNotMatch(error.message,/SECRET|private|scan|antivirus|HTTP 502/);assert.equal(error.code,'DRIVE_DOWNLOAD_QUOTA');assert.equal(error.retryAt,'2026-09-28T12:00:00.000Z');return true;});assert.equal(requests,phase==='manifest'?1:2);assert.deepEqual(fs.readdirSync(root),['keep.txt']);}
+  finally{fs.rmSync(root,{recursive:true,force:true});}
+ }
+});
+
+test('structured server error codes distinguish permissions, rate limits, configuration and changed files',async()=>{
+ const cases=[
+  ['DRIVE_PERMISSION_DENIED',/partage et ses autorisations/],['DRIVE_RATE_LIMIT',/limite temporairement les requêtes/],
+  ['DRIVE_AUTH_ERROR',/configuration Google Drive du serveur/],['DRIVE_NOT_FOUND',/introuvable/],
+  ['DRIVE_DOWNLOAD_RESTRICTED',/restrictions du fichier/],['DRIVE_ACCESS_DENIED',/sans préciser la cause/],
+  ['DRIVE_UNAVAILABLE',/temporairement indisponible/],['CHART_FILES_CHANGED',/Actualisez Google Drive depuis le tableau de bord/],
+  ['CHART_DOWNLOAD_BUSY',/Trop de téléchargements/],['CHART_DOWNLOAD_INTERRUPTED',/interrompu sur le serveur/]
+ ];
+ for(const [code,message] of cases)await assert.rejects(downloadChart({endpoint,directory:'unused',fetcher:async()=>Response.json({code,error:'RAW_PRIVATE_URL',retryAt:'not-a-date'},{status:502})}),error=>{assert.match(error.message,message);assert.doesNotMatch(error.message,/RAW_PRIVATE_URL|Connectez-vous|antivirus/);assert.equal(error.code,code);assert.equal(error.retryAt,undefined);return true;});
+ for(const code of ['__proto__','toString','UNKNOWN'])await assert.rejects(downloadChart({endpoint,directory:'unused',fetcher:async()=>Response.json({code,error:'RAW_PRIVATE_URL'},{status:502})}),error=>{assert.match(error.message,/HTTP 502/);assert.doesNotMatch(error.message,/RAW_PRIVATE_URL/);assert.equal(error.code,undefined);return true;});
+ await assert.rejects(downloadChart({endpoint,directory:'unused',fetcher:async()=>new Response('not allowed',{status:403})}),/Connectez-vous avec le compte autorisé/);
+});
+
+test('oversized and malformed error bodies are cancelled and never displayed',async()=>{
+ let cancelled=false,reads=0;
+ const stream=new ReadableStream({pull(controller){reads++;controller.enqueue(Buffer.alloc(8192,'x'));},cancel(){cancelled=true;}},{highWaterMark:0});
+ await assert.rejects(downloadChart({endpoint,directory:'unused',fetcher:async()=>new Response(stream,{status:502})}),/HTTP 502/);
+ assert.equal(cancelled,true);assert.equal(reads,3);
+ for(const body of ['<html>SECRET</html>','{"code":','null','"SECRET"'])await assert.rejects(downloadChart({endpoint,directory:'unused',fetcher:async()=>new Response(body,{status:502})}),error=>{assert.match(error.message,/HTTP 502/);assert.doesNotMatch(error.message,/SECRET|SyntaxError/);return true;});
+});
+
+test('error streams obey cancellation and idle timeouts in both download phases',async()=>{
+ for(const phase of ['manifest','file'])for(const mode of ['idle','cancel','broken']){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-error-stream-')),controller=new AbortController();fs.writeFileSync(path.join(root,'keep.txt'),'keep');let cancelled=false;
+  try{await assert.rejects(downloadChart({endpoint,directory:root,signal:controller.signal,idleTimeoutMs:30,fetcher:async url=>{
+   if(phase==='file'&&url.endsWith('download-manifest'))return Response.json({title:'Test',files:[entry()]});
+   const stream=new ReadableStream({start(source){if(mode==='broken')source.error(new Error('SECRET error stream'));if(mode==='cancel')setTimeout(()=>controller.abort(new Error('Annulation demandée.')),5);},cancel(){cancelled=true;}});
+   return new Response(stream,{status:502});
+  }}),error=>{assert.match(error.message,mode==='idle'?/aucune donnée/:mode==='cancel'?/Annulation demandée/:/HTTP 502/);assert.doesNotMatch(error.message,/SECRET/);return true;});assert.deepEqual(fs.readdirSync(root),['keep.txt']);if(mode!=='broken')assert.equal(cancelled,true);}
+  finally{fs.rmSync(root,{recursive:true,force:true});}
+ }
 });
