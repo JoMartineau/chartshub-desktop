@@ -11,5 +11,16 @@ test('batch events retain chart endpoint and individual percentage beside total 
 
 test('an idle chart fails precisely while remaining charts continue and can be retried',async()=>{
  const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),crypto=require('node:crypto'),root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-batch-idle-')),value='song';
- try{const result=await downloadBatch({endpoints:[endpoint(1),endpoint(2)],directory:root,idleTimeoutMs:30,signal:new AbortController().signal,fetcher:async url=>url.includes('chartabcdef1')?new Promise(()=>{}):url.endsWith('download-manifest')?Response.json({title:'Saved',files:[{parts:['song.ini'],size:4,sha256:crypto.createHash('sha256').update(value).digest('hex'),url:endpoint(2).replace('download-manifest','files/fileabcdefghijk')}]}):new Response(value)});assert.deepEqual(result.results.map(item=>item.ok),[false,true]);assert.match(result.results[0].error,/aucune donnée/);assert.equal(result.cancelled,false);assert.deepEqual(fs.readdirSync(root),['Saved']);}finally{fs.rmSync(root,{recursive:true,force:true});}
+ const {downloadChart}=require('../download');let stalled=true;
+ const options={directory:root,signal:new AbortController().signal,
+  // Only the deliberately stalled request uses an accelerated deadline. Real
+  // filesystem writes must not depend on finishing within 30 ms on a CI runner.
+  download:options=>downloadChart({...options,idleTimeoutMs:stalled&&options.endpoint===endpoint(1)?30:5000}),
+  fetcher:async url=>stalled&&url.includes('chartabcdef1')?new Promise(()=>{}):url.endsWith('download-manifest')?Response.json({title:'Saved',files:[{parts:['song.ini'],size:4,sha256:crypto.createHash('sha256').update(value).digest('hex'),url:new URL(url).pathname.replace('download-manifest','files/fileabcdefghijk')}]}):new Response(value)};
+ try{
+  const result=await downloadBatch({...options,endpoints:[endpoint(1),endpoint(2)]});
+  assert.deepEqual(result.results.map(item=>item.ok),[false,true]);assert.match(result.results[0].error,/aucune donnée/);assert.equal(result.cancelled,false);assert.deepEqual(fs.readdirSync(root),['Saved']);
+  stalled=false;const retried=await downloadBatch({...options,endpoints:[endpoint(1)]});
+  assert.equal(retried.ok,true);assert.deepEqual(fs.readdirSync(root).sort(),['Saved','Saved (2)']);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
