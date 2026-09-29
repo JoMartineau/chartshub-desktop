@@ -22,6 +22,13 @@ npm start
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la préversion correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives.
 
+### Version 0.1.13
+
+- Enregistrement des rapports du Chart Checker en JSON avec une fenêtre « Enregistrer sous » dans l'application.
+- Vérification du compte et de l'origine de la page avant l'export d'un rapport ; un changement de compte interrompt l'opération.
+- Correctifs de la version 0.1.12 inclus : vidéos reconnues par le site et progression des téléchargements liée au compte.
+- Compatibilité avec les téléchargements Google Drive et les archives R2 servis par l'API ChartsHub, dans le dossier d'exportation choisi.
+
 ### Version 0.1.11
 
 - Téléchargement des soumissions récentes pour vérification, y compris leurs vidéos.
@@ -39,3 +46,9 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 La première version est expérimentale. Les applications ne disposent pas d'une signature commerciale Windows ni d'une notarisation Apple. La compilation seule ne remplace pas un test de connexion et de téléchargement sur chaque système.
 
 Le code du site et sa base de données restent dans un dépôt privé séparé. Aucune licence de redistribution du code n'est accordée pour le moment ; les dépendances conservent leurs licences respectives.
+
+### Version 0.1.12 — audit du 28 septembre 2026
+
+Les exports natifs acceptent les dix formats vidéo déjà reconnus par le site. L’historique et la progression des téléchargements sont liés au compte : une déconnexion, un changement de compte ou une perte de droits efface cet état et interrompt le transfert associé. Une navigation du même compte conserve la progression après vérification de la session.
+
+Ces correctifs sont inclus dans la version 0.1.13.

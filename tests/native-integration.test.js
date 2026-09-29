@@ -13,6 +13,10 @@ test('native guest exposes only a return action and reserves the measured banner
  assert.equal(exposed.name,'ChartsHubGuestView');assert.deepEqual(Object.keys(exposed.value),['returnToAccount']);exposed.value.returnToAccount();assert.deepEqual(calls,['chartshub:close-guest']);ready();resize();assert.equal(styles.get('--chartshub-guest-banner-height'),'80px');
 });
 
-test('download snapshots remain restricted to the trusted main renderer IPC sender',()=>{
- const source=fs.readFileSync(path.join(__dirname,'../main.js'),'utf8'),match=source.match(/ipcMain\.handle\('chartshub:download-state',(event=>[^;]+)\);/);assert.ok(match);let reads=0;const c={allowedSender:()=>false,downloads:{snapshot(){reads++;return {revision:1};}}};vm.createContext(c);vm.runInContext('handler='+match[1],c);assert.equal(c.handler({}),null);assert.equal(reads,0);c.allowedSender=()=>true;assert.equal(c.handler({}).revision,1);assert.equal(reads,1);
+test('download snapshots require a trusted renderer before and after account revalidation',async()=>{
+ const source=fs.readFileSync(path.join(__dirname,'../main.js'),'utf8'),match=source.match(/ipcMain\.handle\('chartshub:download-state',(async event=>\{[^\n]+\})\);/);assert.ok(match);
+ let reads=0,checks=0;const c={allowedSender:()=>false,downloads:{refresh:async()=>{checks++;},snapshot(){reads++;return {revision:1};}}};vm.createContext(c);vm.runInContext('handler='+match[1],c);
+ assert.equal(await c.handler({}),null);assert.equal(checks,0);assert.equal(reads,0);
+ c.allowedSender=()=>true;assert.equal((await c.handler({})).revision,1);assert.equal(reads,1);assert.equal(checks,1);
+ c.downloads.refresh=async()=>{c.allowedSender=()=>false;};assert.equal(await c.handler({}),null);assert.equal(reads,1,'navigation during authentication cannot receive a private snapshot');
 });

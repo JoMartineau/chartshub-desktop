@@ -2,7 +2,8 @@
 const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
-  version:'0.1.11',
+  version:'0.1.13',
+  saveCheckerReport:payload=>ipcRenderer.invoke('chartshub:save-checker-report',payload),
   downloadState:()=>ipcRenderer.invoke('chartshub:download-state'),
   onDownloadState:callback=>{if(typeof callback!=='function')return ()=>{};const listener=(_event,data)=>callback(data);ipcRenderer.on('chartshub:download-state',listener);return ()=>ipcRenderer.removeListener('chartshub:download-state',listener);},
   downloadBatch:endpoints=>ipcRenderer.invoke('chartshub:download-batch',endpoints),

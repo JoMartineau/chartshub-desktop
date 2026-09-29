@@ -6,7 +6,7 @@ const {applicationMenu,canPreviewVisitor}=require('./app-menu');
 const {batchValid,downloadBatch}=require('./batch-download');
 const {folderPreferences}=require('./download-folder');
 const {windowTheme}=require('./window-theme');
-const {createDownloadState}=require('./download-state');
+const {createAccountBoundDownloads}=require('./download-state');
 let win,job=null,guest=null;
 function trusted(url){try{const u=new URL(url);return u.origin===ORIGIN&&!u.username&&!u.password;}catch{return false;}}
 function allowedSender(event){return win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame&&trusted(event.senderFrame.url);}
@@ -31,10 +31,23 @@ else{
   const load=route=>win.loadURL(ORIGIN+route).catch(()=>dialog.showMessageBox(win,{type:'error',message:'Connexion à ChartsHub impossible.',detail:'Vérifiez votre connexion Internet, puis utilisez Ctrl+R (ou Cmd+R sur Mac).'}));
   Menu.setApplicationMenu(null);
   win.setMenuBarVisibility(false);
-  const downloads=createDownloadState(snapshot=>{if(win&&!win.isDestroyed()&&trusted(win.webContents.getURL()))win.webContents.send('chartshub:download-state',snapshot);});
-  const reportProgress=data=>{downloads.progress(data);if(win&&!win.isDestroyed()){if(trusted(win.webContents.getURL()))win.webContents.send('chartshub:progress',data);win.setProgressBar(data.percent/100);}};
-  ipcMain.handle('chartshub:download-state',event=>allowedSender(event)?downloads.snapshot():null);
+  const readAccount=async()=>{
+   const response=await ses.fetch(ORIGIN+'/api/auth/me',{credentials:'include',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(5000)});
+   if(response.status===401)return null;
+   if(!response.ok)throw Error('Le compte ne peut pas être vérifié.');
+   const data=await response.json();if(!Object.hasOwn(data,'user'))throw Error('Réponse du compte invalide.');return data.user;
+  };
+  const downloads=createAccountBoundDownloads({readAccount,cancel:()=>job?.abort(),publish:snapshot=>{if(win&&!win.isDestroyed()&&trusted(win.webContents.getURL()))win.webContents.send('chartshub:download-state',snapshot);}});
+  const reportProgress=(token,data)=>{if(!downloads.progress(token,data))return;if(win&&!win.isDestroyed()){if(trusted(win.webContents.getURL()))win.webContents.send('chartshub:progress',data);win.setProgressBar(data.percent/100);}};
+  ipcMain.handle('chartshub:download-state',async event=>{if(!allowedSender(event))return null;await downloads.refresh();return allowedSender(event)?downloads.snapshot():null;});
   const folders=folderPreferences(app.getPath('userData'));
+  let reportSaving=false;
+  ipcMain.handle('chartshub:save-checker-report',async(event,payload)=>{
+   if(!allowedSender(event)||reportSaving)return {ok:false,error:'Export indisponible.'};reportSaving=true;
+   const revision=adminRevision;
+   try{return await require('./chart-checker-report').saveCheckerReport({payload,authorized:()=>allowedSender(event)&&revision===adminRevision,choose:()=>dialog.showSaveDialog(win,{title:'Enregistrer le rapport Chart Checker',defaultPath:path.join(app.getPath('downloads'),'chartshub-chart-checker.json'),filters:[{name:'Rapport JSON',extensions:['json']}],properties:['showOverwriteConfirmation']})});}
+   catch(error){return {ok:false,error:error.message};}finally{reportSaving=false;}
+  });
   async function chooseFolder(kind,force=false){
    const saved=await folders.get(kind);if(saved&&!force)return saved;
    const choice=await dialog.showOpenDialog(win,{title:kind==='review'?'Dossier de vérification':'Dossier d’exportation des charts',defaultPath:saved||app.getPath('downloads'),properties:['openDirectory','createDirectory']});
@@ -61,12 +74,14 @@ else{
   });
   for(const eventName of ['enter-full-screen','leave-full-screen'])win.on(eventName,()=>win.webContents.send('chartshub:fullscreen-state',win.isFullScreen()));
   const administrator=async()=>{
-   try{const response=await ses.fetch(ORIGIN+'/api/auth/me',{credentials:'include',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(5000)});return response.ok&&canPreviewVisitor((await response.json()).user);}catch{return false;}
+   const result=await downloads.refresh();return result.ok&&canPreviewVisitor(result.user);
   };
   let adminAllowed=false,adminCheck=null,adminRevision=0;
   const refreshAdministrator=()=>{if(adminCheck)return adminCheck;const current=adminRevision;adminCheck=administrator().then(value=>{if(current===adminRevision)adminAllowed=value;}).finally(()=>{adminCheck=null;if(current!==adminRevision)void refreshAdministrator();});return adminCheck;};
-  const resetAdministrator=()=>{adminAllowed=false;adminRevision++;void refreshAdministrator();};
+  const resetAdministrator=()=>{downloads.invalidate();adminAllowed=false;adminRevision++;void refreshAdministrator();};
+  win.webContents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace){downloads.invalidate();adminAllowed=false;adminRevision++;}});
   win.webContents.on('did-finish-load',resetAdministrator);
+  ses.cookies.on('changed',(_event,cookie)=>{if(cookie.name==='chartshub_session'&&cookie.domain.replace(/^\./,'')===new URL(ORIGIN).hostname)resetAdministrator();});
   ipcMain.handle('chartshub:account-changed',event=>{if(allowedSender(event))resetAdministrator();});
   const openGuest=async()=>{
    if(!await administrator())return;
@@ -113,30 +128,38 @@ else{
    if(!allowedSender(event)||!batchValid(endpoints))return {ok:false,error:'Sélection non autorisée.'};
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const controller=new AbortController();job=controller;
-   downloads.begin(endpoints,'batch');let result;
+   let result,token;
    try{
+    const account=await downloads.refresh();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
+    controller.signal.throwIfAborted();if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
+    token=downloads.begin(endpoints,'batch');
     const directory=await chooseFolder('catalogue');
     if(!directory)return result={ok:false,cancelled:true,results:[]};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    return result=await downloadBatch({endpoints,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:reportProgress});
+    result=await downloadBatch({endpoints,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data)});
+    await downloads.refresh();return downloads.current(token)?result:{ok:false,cancelled:true,results:[]};
    }catch(error){return result={ok:false,error:error.message,cancelled:controller.signal.aborted};}
-   finally{downloads.finish(result);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
+   finally{downloads.finish(token,result);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
   ipcMain.handle('chartshub:download',async(event,endpoint)=>{
    if(!allowedSender(event)||!endpointValid(endpoint))return {ok:false,error:'Demande non autorisée.'};
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const controller=new AbortController();job=controller;
-   downloads.begin([endpoint],'single');let outcome;
+   let outcome,token;
    try{
+    const account=await downloads.refresh();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
+    controller.signal.throwIfAborted();if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
+    token=downloads.begin([endpoint],'single');
     const directory=await chooseFolder(endpoint.includes('/admin/')?'review':'catalogue');
     if(!directory)return outcome={ok:false,cancelled:true};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    const result=await downloadChart({endpoint,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress({...data,endpoint,itemPercent:data.percent})});
+    const result=await downloadChart({endpoint,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,{...data,endpoint,itemPercent:data.percent})});
+    await downloads.refresh();if(!downloads.current(token))return outcome={ok:false,cancelled:true};
     // Only a path produced by this download operation is passed to the OS.
     shell.showItemInFolder(result.destination);
     return outcome={ok:true,folderName:result.folderName,files:result.files};
    }catch(error){return outcome=controller.signal.aborted?{ok:false,cancelled:true}:{ok:false,error:error.message};}
-   finally{downloads.finish(outcome);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
+   finally{downloads.finish(token,outcome);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
   ipcMain.handle('chartshub:cancel',event=>{if(allowedSender(event))job?.abort();});
   win.on('close',event=>{if(job){event.preventDefault();dialog.showMessageBox(win,{type:'question',buttons:['Continuer le téléchargement','Annuler et quitter'],defaultId:0,cancelId:0,message:'Un téléchargement est en cours.'}).then(({response})=>{if(response===1){job?.abort();const wait=setInterval(()=>{if(!job){clearInterval(wait);win.close();}},100);}});}});

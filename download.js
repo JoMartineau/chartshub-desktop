@@ -24,7 +24,7 @@ function validateManifest(manifest,endpoint){
   if(!Number.isSafeInteger(file.size)||file.size<0||typeof file.url!=='string'||!file.url.startsWith(prefix)||!/^[A-Za-z0-9_-]{10,200}$/.test(file.url.slice(prefix.length)))throw Error('Informations de téléchargement invalides. Actualisez la chart puis réessayez.');
   if(file.sha256!==undefined&&(typeof file.sha256!=='string'||!/^[a-f0-9]{64}$/.test(file.sha256)))throw Error('Empreinte SHA-256 invalide. Actualisez la chart puis réessayez.');
   const name=file.parts.at(-1);
-  if(!/\.(?:ini|chart|mid|midi|ogg|opus|mp3|wav|flac|aiff|aif|m4a|png|jpg|jpeg|webp|bmp|gif|mp4|webm|avi|mkv|txt|json)$/i.test(name)||(/\.ini$/i.test(name)&&name.toLowerCase()!=='song.ini'))throw Error('Type de fichier non pris en charge : '+name);
+  if(!/\.(?:ini|chart|mid|midi|ogg|opus|mp3|wav|flac|aiff|aif|m4a|png|jpg|jpeg|webp|bmp|gif|mp4|webm|avi|vp8|ogv|mpeg|mpg|mov|m4v|mkv|txt|json)$/i.test(name)||(/\.ini$/i.test(name)&&name.toLowerCase()!=='song.ini'))throw Error('Type de fichier non pris en charge : '+name);
   const key=file.parts.join('/').toLowerCase();if(paths.has(key))throw Error('Noms de fichiers en double.');paths.add(key);
   total+=file.size;if(total>LIMIT)throw Error('La chart dépasse la limite de 2 Go.');
  }

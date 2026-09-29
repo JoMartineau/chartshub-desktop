@@ -84,6 +84,24 @@ test('unhashed files still require exact sizes and malformed hashes stop before 
  }
 });
 
+test('native exports preserve every background video format offered by the site',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-video-formats-'));
+ const names=['song.ini','notes.chart','song.ogg',...['mp4','webm','avi','vp8','ogv','mpeg','mpg','mov','m4v','mkv'].map(ext=>'video.'+ext)];
+ const values=names.map(name=>Buffer.from('Original file bytes: '+name));
+ const files=names.map((name,i)=>({...entry(name,values[i]),url:endpoint.replace('download-manifest','files/fileabcdefghijk'+i)}));
+ const requested=[];
+ try{
+  const result=await downloadChart({endpoint,directory:root,fetcher:async url=>{
+   if(url.endsWith('download-manifest'))return Response.json({title:'All video formats',files});
+   const index=files.findIndex(file=>ORIGIN+file.url===url);assert.ok(index>=0);requested.push(index);return new Response(values[index]);
+  }});
+  assert.equal(result.files,names.length);assert.equal(requested.length,names.length);
+  for(let i=0;i<names.length;i++)assert.deepEqual(fs.readFileSync(path.join(result.destination,names[i])),values[i]);
+  assert.deepEqual(fs.readdirSync(root),[result.folderName]);
+  for(const name of ['video.webm.exe','video.js','autorun.ini'])assert.throws(()=>validateManifest({files:[entry(name)]},endpoint),/Type de fichier non pris en charge/);
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
+
 test('quota errors from manifest or file bodies explain the cause without retrying or exposing upstream details',async()=>{
  for(const phase of ['manifest','file']){
   const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-quota-error-'));fs.writeFileSync(path.join(root,'keep.txt'),'keep');let requests=0;
