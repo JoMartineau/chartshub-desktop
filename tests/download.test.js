@@ -126,6 +126,24 @@ test('structured server error codes distinguish permissions, rate limits, config
  await assert.rejects(downloadChart({endpoint,directory:'unused',fetcher:async()=>new Response('not allowed',{status:403})}),/Connectez-vous avec le compte autorisé/);
 });
 
+for(const [code,status,message] of [
+ ['ARCHIVE_NOT_READY',409,/Attendez la fin de l’import et de l’analyse antivirus/],
+ ['ARCHIVE_DOWNLOAD_FAILED',502,/temporairement indisponible.*support ChartsHub/],
+ ['CATALOGUE_CONFLICT',409,/a changé pendant le téléchargement.*version actuelle/],
+ ['ARCHIVE_INFECTED',409,/L’antivirus a bloqué cette archive.*doit corriger les fichiers/]
+])test('native R2 '+code+' explains the cause at manifest and file stages without exposing server details',async()=>{
+ for(const phase of ['manifest','file']){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-r2-error-'));fs.writeFileSync(path.join(root,'keep.txt'),'Existing chart');let requests=0;
+  try{
+   await assert.rejects(downloadChart({endpoint,directory:root,fetcher:async url=>{
+    requests++;if(phase==='file'&&url.endsWith('download-manifest'))return Response.json({title:'R2 chart',files:[entry()]});
+    return Response.json({code,error:'SECRET https://bucket.r2.example/archive.zip?key=private',cause:{message:'UPSTREAM_SECRET',url:'https://private.example/'},retryAt:'2026-10-01T12:00:00Z'},{status});
+   }}),error=>{assert.equal(error.code,code);assert.match(error.message,message);assert.doesNotMatch(error.message,/SECRET|private|r2\.example|HTTP|Connectez-vous/);assert.equal(error.cause,undefined);assert.equal(error.retryAt,undefined);if(phase==='file')assert.match(error.message,/^song\.ini : /);return true;});
+   assert.equal(requests,phase==='manifest'?1:2,'a failed archive is not retried automatically');assert.deepEqual(fs.readdirSync(root),['keep.txt']);assert.equal(fs.readFileSync(path.join(root,'keep.txt'),'utf8'),'Existing chart');
+  }finally{fs.rmSync(root,{recursive:true,force:true});}
+ }
+});
+
 test('oversized and malformed error bodies are cancelled and never displayed',async()=>{
  let cancelled=false,reads=0;
  const stream=new ReadableStream({pull(controller){reads++;controller.enqueue(Buffer.alloc(8192,'x'));},cancel(){cancelled=true;}},{highWaterMark:0});

@@ -22,6 +22,11 @@ npm start
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la préversion correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives.
 
+### Version 0.1.14
+
+- Messages français précisant pourquoi une archive R2 ne peut pas être téléchargée : import non terminé, archive indisponible, version modifiée ou blocage antivirus. Les détails privés du serveur restent masqués.
+- Le téléchargement natif conserve le dossier d’exportation et les vérifications de fichiers existants. Les nouvelles commandes de modération, dont la sélection individuelle des charts et leurs liens Google Drive, sont chargées depuis le site après le déploiement du correctif serveur.
+
 ### Version 0.1.13
 
 - Enregistrement des rapports du Chart Checker en JSON avec une fenêtre « Enregistrer sous » dans l'application.
