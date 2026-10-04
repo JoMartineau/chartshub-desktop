@@ -110,7 +110,7 @@ jobs:
           ASSETS=(ChartsHub-win32-x64.zip ChartsHub-linux-x64.tar.gz ChartsHub-darwin-arm64.zip ChartsHub-darwin-x64.zip)
           for ASSET in "${ASSETS[@]}"; do test -s "$ASSET"; done
           sha256sum "${ASSETS[@]}" > SHA256SUMS.txt
-          printf 'ChartsHub Desktop %s — préversion Windows, macOS et Linux.\n\n' "$VERSION" > RELEASE-NOTES.txt
+          printf 'ChartsHub Desktop %s — Windows, macOS et Linux.\n\n' "$VERSION" > RELEASE-NOTES.txt
           cat >> RELEASE-NOTES.txt <<'NOTES'
           - Catalogue et Companion réunis dans deux onglets de la même fenêtre.
           - Companion accessible avec un compte ChartsHub ordinaire ; les fonctions administratives conservent leurs contrôles d’accès.
@@ -121,9 +121,19 @@ jobs:
           Version expérimentale : Windows non signé commercialement, macOS non notarisé. Les fonctions ReShade et les filtres natifs nécessitent Windows x64.
           NOTES
           if ! gh release view "$VERSION" >/dev/null 2>&1; then
-            gh release create "$VERSION" --target "$GITHUB_SHA" --draft --prerelease --title "ChartsHub $VERSION" --notes-file RELEASE-NOTES.txt
+            gh release create "$VERSION" --target "$GITHUB_SHA" --draft --title "ChartsHub $VERSION" --notes-file RELEASE-NOTES.txt
+          fi
+          if test "$(gh release view "$VERSION" --json isDraft --jq .isDraft)" = false; then
+            # Published archives remain immutable. Updating release visibility
+            # must not replace downloads or move their existing tag.
+            gh api "repos/$GH_REPO/releases/tags/$VERSION" > PUBLISHED-RELEASE.json
+            for ASSET in "${ASSETS[@]}"; do
+              jq -e --arg name "$ASSET" '.assets | any(.name == $name and .state == "uploaded" and .size > 0)' PUBLISHED-RELEASE.json >/dev/null
+            done
+            gh release edit "$VERSION" --prerelease=false --latest --notes-file RELEASE-NOTES.txt
+            exit 0
           fi
           test "$(gh release view "$VERSION" --json isDraft --jq .isDraft)" = true
           gh release edit "$VERSION" --target "$GITHUB_SHA"
           gh release upload "$VERSION" "${ASSETS[@]}" SHA256SUMS.txt --clobber
-          gh release edit "$VERSION" --draft=false --prerelease --notes-file RELEASE-NOTES.txt
+          gh release edit "$VERSION" --draft=false --prerelease=false --latest --notes-file RELEASE-NOTES.txt
