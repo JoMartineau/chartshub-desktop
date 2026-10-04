@@ -1,0 +1,6 @@
+.zig-cache/
+*.o
+*.a
+bin/ChartsHubFilters.ini
+bin/ChartsHubFilters.status.ini
+bin/*.tmp

@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "NodeNext", "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"], "strict": true, "noEmitOnError": true,
+    "noUncheckedIndexedAccess": true, "skipLibCheck": true,
+    "rootDir": "companion/src", "outDir": "companion/dist",
+    "declaration": true, "sourceMap": true
+  },
+  "include": ["companion/src/**/*.ts"]
+}

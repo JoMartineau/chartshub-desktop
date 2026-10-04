@@ -1,0 +1,139 @@
+'use strict';
+const path = require('node:path');
+const fs = require('node:fs');
+function assetPath(root, value) {
+  let url, pathname;
+  try { url = new URL(value); pathname = decodeURIComponent(url.pathname); } catch { return null; }
+  if (url.protocol !== 'chartshub-companion:' || url.hostname !== 'app' || url.username || url.password || url.port || !/^\/(ui|dist)\//.test(pathname) || pathname.includes('\\') || pathname.includes('\0')) return null;
+  const candidate = path.resolve(root, '.' + pathname);
+  if (!candidate.startsWith(path.resolve(root) + path.sep)) return null;
+  if (!['ui','dist'].some(folder => candidate.startsWith(path.resolve(root, folder) + path.sep))) return null;
+  try {
+    const actual = fs.realpathSync(candidate), base = fs.realpathSync(root);
+    const folder = candidate.startsWith(path.resolve(root, 'ui') + path.sep) ? 'ui' : 'dist';
+    const allowed = fs.realpathSync(path.join(root, folder));
+    if (!allowed.startsWith(base + path.sep) || !actual.startsWith(allowed + path.sep)) return null;
+  } catch { return null; }
+  return candidate;
+}
+function trustedContentsSender(event, contents, page) {
+  if (!contents || contents.isDestroyed?.() || event.sender !== contents || event.senderFrame !== contents.mainFrame) return false;
+  try { const url = new URL(event.senderFrame.url); return url.href === 'chartshub-companion://app/ui/' + page; } catch { return false; }
+}
+function trustedSender(event, window, page) {
+  return !!window && !window.isDestroyed() && trustedContentsSender(event, window.webContents, page);
+}
+function trustedFiltersWidgetCommand(event, window, command) {
+  return ['filters.settings', 'filters.openPanel', 'reshade.command'].includes(command) && trustedSender(event, window, 'filters-widget.html');
+}
+function validCommand(command, payload, widgetIds) {
+  if (['mock.next', 'mock.reset', 'editor.undo', 'editor.redo'].includes(command)) return payload === undefined || payload === null;
+  if (['stream.copyUrl', 'library.chooseRoot', 'library.cancel', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+  if (command === 'reshade.setupPrepare') return Object.keys(payload).length === 1 && typeof payload.includeStarterEffects === 'boolean';
+  if (command === 'reshade.command') {
+    const keys = Object.keys(payload), only = allowed => keys.length === allowed.length && keys.every(key => allowed.includes(key));
+    const id = value => typeof value === 'string' && /^[A-Za-z0-9:_-]{1,128}$/.test(value);
+    if (payload.action === 'enabled') return only(['action', 'enabled']) && typeof payload.enabled === 'boolean';
+    if (payload.action === 'technique') return only(['action', 'id', 'enabled']) && id(payload.id) && typeof payload.enabled === 'boolean';
+    if (payload.action === 'selectEffect') return only(['action', 'effect']) && typeof payload.effect === 'string' && payload.effect.length > 0 && payload.effect.length <= 512 && !/[\x00-\x1f\x7f]/.test(payload.effect);
+    if (payload.action === 'uniform') return only(['action', 'id', 'values']) && id(payload.id) && Array.isArray(payload.values) && payload.values.length > 0 && payload.values.length <= 16 && payload.values.every(value => typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value)));
+    return payload.action === 'save' && only(['action']);
+  }
+  if (command === 'filters.widget') return typeof payload.enabled === 'boolean' && Object.keys(payload).every(key => key === 'enabled');
+  if (command === 'filters.settings') {
+    const ranges = { saturation: [0, 2], contrast: [.5, 2], gamma: [.5, 2.5], exposure: [-2, 2], sharpness: [0, 1], vignette: [0, 1] };
+    const settings = payload.settings;
+    return Object.keys(payload).length === 1 && !!settings && typeof settings === 'object' && !Array.isArray(settings)
+      && Object.keys(settings).length === 7 && typeof settings.enabled === 'boolean'
+      && Object.entries(ranges).every(([key, [min, max]]) => typeof settings[key] === 'number' && Number.isFinite(settings[key]) && settings[key] >= min && settings[key] <= max)
+      && Object.keys(settings).every(key => key === 'enabled' || Object.hasOwn(ranges, key));
+  }
+  if (command === 'clonehero.mode') return ['live', 'mock'].includes(payload.mode) && Object.keys(payload).every(key => key === 'mode');
+  if (command === 'widget.locked') return Number.isSafeInteger(payload.revision) && payload.revision >= 0 && widgetIds.includes(payload.id) && typeof payload.locked === 'boolean'
+    && Object.keys(payload).every(key => ['revision', 'id', 'locked'].includes(key));
+  if (['profile.save', 'profile.apply', 'profile.delete'].includes(command)) {
+    if (!Number.isSafeInteger(payload.profilesRevision) || payload.profilesRevision < 0) return false;
+    if (command !== 'profile.delete' && (!Number.isSafeInteger(payload.revision) || payload.revision < 0)) return false;
+    const validId = value => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(value);
+    if (command === 'profile.save') return (payload.id === undefined || validId(payload.id)) && typeof payload.name === 'string' && payload.name.trim().length > 0 && payload.name.length <= 40 && !/[\u0000-\u001f\u007f]/.test(payload.name)
+      && Object.keys(payload).every(key => ['revision', 'profilesRevision', 'id', 'name'].includes(key));
+    return validId(payload.id) && Object.keys(payload).every(key => ['profilesRevision', 'id', ...(command === 'profile.apply' ? ['revision'] : [])].includes(key));
+  }
+  if (command === 'widget.fontSize') return Number.isSafeInteger(payload.revision) && payload.revision >= 0
+    && widgetIds.includes(payload.id) && typeof payload.fontSize === 'number' && Number.isFinite(payload.fontSize) && payload.fontSize >= 8 && payload.fontSize <= 200
+    && Object.keys(payload).every(key => ['revision', 'id', 'fontSize'].includes(key));
+  if (command === 'downloads.enqueue') return typeof payload.chartId === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/.test(payload.chartId) && Object.keys(payload).every(key => key === 'chartId');
+  if (['downloads.pause', 'downloads.resume', 'downloads.cancel', 'downloads.retry', 'downloads.remove', 'downloads.openFolder'].includes(command)) return typeof payload.id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(payload.id) && Object.keys(payload).every(key => key === 'id');
+  if (command === 'catalogue.search') {
+    const textFields = ['query', 'artist', 'charter', 'genre', 'year', 'instrument', 'difficulty'];
+    return Object.keys(payload).every(key => [...textFields, 'verified', 'installed', 'page'].includes(key))
+      && textFields.every(key => typeof payload[key] === 'string' && payload[key].length <= (key === 'query' ? 200 : 128) && !/[\u0000-\u001f\u007f]/.test(payload[key]))
+      && ['all', 'yes'].includes(payload.verified) && ['all', 'linked', 'unlinked'].includes(payload.installed)
+      && Number.isSafeInteger(payload.page) && payload.page >= 1 && payload.page <= 1000;
+  }
+  if (command === 'catalogue.candidates') return typeof payload.localId === 'string' && /^[a-f0-9]{64}$/.test(payload.localId) && Object.keys(payload).every(key => key === 'localId');
+  if (command === 'catalogue.open') return typeof payload.chartId === 'string' && /^[A-Za-z0-9:._-]{1,512}$/.test(payload.chartId) && Object.keys(payload).every(key => key === 'chartId');
+  if (command === 'catalogue.link' || command === 'catalogue.unlink') return typeof payload.localId === 'string' && /^[a-f0-9]{64}$/.test(payload.localId)
+    && typeof payload.contextId === 'string' && /^[a-f0-9]{32}$/.test(payload.contextId)
+    && (command === 'catalogue.unlink' || (typeof payload.chartId === 'string' && /^[A-Za-z0-9:._-]{1,512}$/.test(payload.chartId)))
+    && Object.keys(payload).every(key => ['localId', 'contextId', ...(command === 'catalogue.link' ? ['chartId'] : [])].includes(key));
+  if (command === 'library.scan') return ['full','quick'].includes(payload.mode) && Object.keys(payload).every(key => key === 'mode');
+  if (command === 'library.prepareCleanup') return typeof payload.contextId === 'string' && /^[a-f0-9]{32}$/.test(payload.contextId)
+    && typeof payload.keepId === 'string' && /^[a-f0-9]{64}$/.test(payload.keepId)
+    && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && Object.keys(payload).every(key => ['contextId', 'revision', 'keepId'].includes(key));
+  if (command === 'library.recycleDuplicates') return typeof payload.planId === 'string' && /^[a-f0-9]{32}$/.test(payload.planId)
+    && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && Array.isArray(payload.ids) && payload.ids.length > 0
+    && payload.ids.every(id => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)) && new Set(payload.ids).size === payload.ids.length
+    && Object.keys(payload).every(key => ['planId', 'revision', 'ids'].includes(key));
+  if (command === 'library.compareDuplicates') return typeof payload.id === 'string' && /^[a-f0-9]{64}$/.test(payload.id)
+    && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && Object.keys(payload).every(key => ['id', 'revision'].includes(key));
+  if (command === 'library.chooseDuplicate') return typeof payload.contextId === 'string' && /^[a-f0-9]{32}$/.test(payload.contextId)
+    && (payload.id === null || (typeof payload.id === 'string' && /^[a-f0-9]{64}$/.test(payload.id)))
+    && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && Object.keys(payload).every(key => ['id', 'revision', 'contextId'].includes(key));
+  if (command === 'library.settings') return typeof payload.watch === 'boolean' && typeof payload.refreshOnStart === 'boolean' && Object.keys(payload).every(key => ['watch','refreshOnStart'].includes(key));
+  if (command === 'library.query') return typeof payload.query === 'string' && payload.query.length <= 200 && ['title','artist','charter'].includes(payload.sort)
+    && Number.isSafeInteger(payload.offset) && payload.offset >= 0
+    && Number.isSafeInteger(payload.limit) && payload.limit >= 1 && payload.limit <= 100
+    && (payload.audio === undefined || ['all','missing','present','unknown'].includes(payload.audio))
+    && (payload.duplicates === undefined || ['all','possible'].includes(payload.duplicates))
+    && Object.keys(payload).every(key => ['query','sort','offset','limit','audio','duplicates'].includes(key));
+  if (command === 'library.openFolder') return typeof payload.id === 'string' && /^[a-f0-9]{64}$/.test(payload.id) && Object.keys(payload).every(key => key === 'id');
+  if (command === 'mock.state') return ['idle','menu','loading','playing','paused','results'].includes(payload.state);
+  if (command === 'widget.enabled') return typeof payload.id === 'string' && widgetIds.includes(payload.id) && typeof payload.enabled === 'boolean';
+  if (command === 'overlay.enabled') return typeof payload.enabled === 'boolean';
+  if (command === 'stream.enabled') return typeof payload.enabled === 'boolean' && Object.keys(payload).every(key => key === 'enabled');
+  if (command === 'stream.settings') return Number.isSafeInteger(payload.revision) && payload.revision >= 0
+    && !!payload.settings && typeof payload.settings === 'object' && !Array.isArray(payload.settings)
+    && Object.keys(payload).every(key => key === 'revision' || key === 'settings')
+    && Object.keys(payload.settings).every(key => ['port','canvas','layout'].includes(key));
+  if (['theme.preset', 'theme.color', 'theme.effects', 'widget.appearance'].includes(command)) {
+    if (!Number.isSafeInteger(payload.revision) || payload.revision < 0) return false;
+    if (command === 'theme.preset') return ['chartshub','dark','light','neon','cyberpunk','retro','transparent','high-contrast'].includes(payload.id);
+    if (command === 'theme.color') return ['primary','secondary','accent','text','mutedText','background','border','progress','glow','shadow'].includes(payload.token) && typeof payload.color === 'string' && payload.color.length <= 128;
+    if (command === 'theme.effects') return !!payload.effects && typeof payload.effects === 'object' && !Array.isArray(payload.effects) && Object.keys(payload.effects).every(key => key === 'glow' || key === 'gradient');
+    return widgetIds.includes(payload.id) && !!payload.style && typeof payload.style === 'object' && !Array.isArray(payload.style)
+      && Object.keys(payload.style).every(key => ['colorMode','color','fontSize','fontWeight','backgroundColor','borderColor','glow','gradient','useSourceColors'].includes(key));
+  }
+  if (command === 'widget.layout') {
+    if (payload.destination !== undefined && payload.destination !== 'game' && payload.destination !== 'stream') return false;
+    if (!Number.isSafeInteger(payload.revision) || payload.revision < 0 || !Array.isArray(payload.items) || payload.items.length < 1 || payload.items.length > Math.min(100, widgetIds.length)) return false;
+    const ids = new Set();
+    return payload.items.every(item => {
+      if (!item || typeof item !== 'object' || Array.isArray(item) || !widgetIds.includes(item.id) || ids.has(item.id)) return false;
+      ids.add(item.id);
+      if (Object.keys(item).some(key => !['id', 'x', 'y', 'width', 'height'].includes(key))) return false;
+      if (![item.x, item.y, item.width, item.height].every(value => typeof value === 'number' && Number.isFinite(value))) return false;
+      return item.x >= 0 && item.y >= 0 && item.width >= 24 && item.height >= 16 && item.x + item.width <= 1280 && item.y + item.height <= 720;
+    });
+  }
+  if (command === 'widget.visibility') {
+    return Number.isSafeInteger(payload.revision) && payload.revision >= 0 && widgetIds.includes(payload.id) && typeof payload.game === 'boolean'
+      && (payload.stream === undefined || typeof payload.stream === 'boolean')
+      && Array.isArray(payload.gameplayVisibility) && payload.gameplayVisibility.length <= 2
+      && new Set(payload.gameplayVisibility).size === payload.gameplayVisibility.length
+      && payload.gameplayVisibility.every(state => state === 'playing' || state === 'paused');
+  }
+  return false;
+}
+module.exports = { assetPath, trustedSender, trustedContentsSender, trustedFiltersWidgetCommand, validCommand };

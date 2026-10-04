@@ -1,0 +1,61 @@
+FILTRES CLASSIQUES — CHARTSHUB COMPANION
+
+Pour les vrais effets ReShade, utiliser la section Effets ReShade et lire
+docs/RESHADE.txt (Effets-ReShade.txt dans la distribution Windows).
+
+Cette fonction utilise un moteur graphique ChartsHub indépendant de ReShade.
+Le panneau Filtres du jeu contrôle le module Windows Direct3D 11. Le mini
+widget donne accès aux réglages sans transformer les overlays de texte
+existants en fenêtres interactives.
+
+PREMIÈRE UTILISATION
+
+1. Ouvrir Clone Hero Companion, puis Filtres du jeu.
+2. Choisir le dossier contenant Clone Hero.exe et UnityPlayer.dll.
+3. Fermer Clone Hero, puis installer le module depuis le panneau.
+4. Relancer Clone Hero avec son moteur Direct3D 11.
+5. Activer les filtres et régler les curseurs dans le panneau ou le widget.
+
+L'installation conserve une copie du dxgi.dll précédent et des fichiers
+ChartsHubFilters déjà présents, avec leurs empreintes de vérification.
+ReShade.ini, ses presets et ses shaders restent dans le dossier. Le moteur
+ChartsHub n'utilise pas ces fichiers et ne charge pas les extensions ReShade.
+Les presets ReShade ne sont pas compatibles avec ce moteur.
+
+Pour retrouver le module précédent, fermer Clone Hero puis utiliser
+Restaurer dans le panneau. Les sauvegardes restent disponibles sur disque.
+Si un fichier ou sa sauvegarde a été remplacé depuis l'installation,
+la restauration s'arrête au lieu d'écraser cette nouvelle version.
+
+RÉGLAGES
+
+- Saturation : 0 à 2, valeur neutre 1.
+- Contraste : 0,5 à 2, valeur neutre 1.
+- Gamma : 0,5 à 2,5, valeur neutre 1.
+- Exposition : -2 à +2, valeur neutre 0.
+- Netteté : 0 à 1, désactivée à 0.
+- Vignette : 0 à 1, désactivée à 0.
+
+Les filtres sont désactivés par défaut. L'état du moteur est distinct des
+réglages souhaités : le panneau n'affiche la connexion au jeu que lorsqu'un
+module actif a effectivement signalé un rendu récent. Le fichier de réglages
+est relu par le module ; les changements ne nécessitent pas de relancer le jeu.
+
+PORTÉE
+
+Première version pour Windows x64 et Direct3D 11, images SDR. Direct3D 12,
+Vulkan, OpenGL, HDR et effets utilisant la profondeur ne sont pas pris en charge.
+La section concerne l'image du jeu ; les thèmes des widgets restent séparés.
+Chaque filtre ajoute du travail GPU. La fluidité doit être vérifiée dans
+Clone Hero sur la machine utilisée avant une utilisation en partie.
+
+Le module est une DLL DXGI de substitution. Son code et ses shaders sont
+propres à ChartsHub ; la bibliothèque de hooks MinHook est distribuée avec
+sa licence. Les sources, instructions de compilation et tests graphiques se
+trouvent dans native-filters. Ne pas remplacer le dxgi.dll d'une autre
+application avec ce module : la cible de cette version est Clone Hero.
+
+Les réglages de l'app sont enregistrés dans filters.json, dans son profil
+Companion. Un fichier invalide est conservé et bloque sa réécriture : fermer
+le Companion, le déplacer à part pour récupération puis rouvrir le panneau.
+Les anciens réglages des widgets et de la bibliothèque restent indépendants.

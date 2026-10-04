@@ -1,0 +1,92 @@
+EFFETS RESHADE DANS CHARTSHUB COMPANION 0.12
+
+Cette section utilise les vrais shaders .fx de votre installation ReShade.
+Le moteur ReShade reste nécessaire. ChartsHub apporte le panneau de réglages
+et un widget flottant ; il ne redistribue ni ReShade ni vos packs de shaders.
+
+INSTALLATION GUIDÉE
+
+1. Dans Filtres du jeu > Effets ReShade, choisissez le dossier qui contient
+   Clone Hero.exe (Windows 64 bits).
+2. Ouvrez l’assistant. Le pack de départ optionnel comprend ArcaneBloom,
+   FilmGrain et ChromaticAberration. Les effets restent désactivés au départ.
+3. Préparez les fichiers. ChartsHub télécharge le setup officiel ReShade 6.8.0
+   avec add-ons, vérifie son empreinte et extrait seulement le moteur 64 bits.
+   Il n’exécute pas le setup. Les effets sont téléchargés depuis leurs auteurs.
+4. Vérifiez le dossier affiché, fermez Clone Hero et cliquez Installer dans
+   Clone Hero. Le moteur, le pont ChartsHub et les effets choisis sont ajoutés.
+5. Lancez Clone Hero et recherchez Bloom pour activer le bloom et ses réglages.
+
+Le téléchargement peut être annulé. Une connexion Internet est nécessaire
+pour la préparation seulement. Aucun compte ReShade n’est requis.
+ReShade reste nécessaire, mais le joueur n’a pas à le télécharger manuellement.
+
+Une installation ReShade existante garde ses presets et ses shaders. Le pack
+de départ est isolé dans ChartsHub-ReShade-Shaders ; son chemin est ajouté à
+ReShade.ini seulement si le pack est choisi. Les fichiers remplacés sont
+conservés dans ChartsHub-ReShade-backup-<identifiant>, avec un manifeste.
+L’installation refuse un module graphique inconnu. Si les filtres classiques
+ChartsHub sont installés, utilisez d’abord leur restauration ou le bouton
+Connecter ReShade lorsque leur sauvegarde contient ReShade.
+
+Une erreur pendant la copie restaure les fichiers sauvegardés. Si cette
+restauration est interrompue, fermez le jeu puis préparez à nouveau :
+l’assistant vérifie la sauvegarde et récupère l’installation avant de continuer.
+Il conserve tout fichier modifié depuis l’interruption au lieu de l’écraser.
+
+CONNECTER UNE INSTALLATION RESHADE EXISTANTE
+
+1. Fermez Clone Hero avant l'installation du pont.
+2. Ouvrez Filtres du jeu > Effets ReShade et choisissez le dossier du jeu.
+3. Connectez ReShade à ChartsHub. Si le moteur indépendant ChartsHub avait
+   remplacé ReShade, sa sauvegarde vérifiée est restaurée automatiquement.
+4. Relancez Clone Hero. Attendez le chargement des effets ReShade.
+5. Recherchez un effet (par exemple Bloom), activez la technique voulue,
+   puis sélectionnez son fichier pour modifier ses paramètres.
+6. Utilisez le bouton d'enregistrement pour demander à ReShade de sauvegarder
+   le preset courant. Vous pouvez aussi enregistrer depuis son menu Home.
+   L’API ReShade enregistre les paramètres des effets activés (ou associés
+   à un raccourci). Activez un effet avant d’enregistrer ses nouveaux réglages.
+
+Le widget donne accès aux mêmes effets et réglages. Il reste distinct des
+widgets de statistiques du jeu. Le panneau ne coche pas tous les effets.
+Les noms et limites viennent des shaders ; plusieurs techniques peuvent
+porter le même nom et sont distinguées par leur fichier .fx.
+
+REQUIS ET LIMITES
+
+- Clone Hero Windows 64 bits, ReShade 6.8 avec prise en charge des add-ons.
+- Garder le mode Performance de ReShade désactivé pour régler les paramètres.
+- Si un ancien preset masque les nouveaux effets, désactiver le chargement
+  sélectif (SkipLoadingDisabledEffects=0 dans ReShade.ini), puis recharger.
+  NoReloadOnInit=1 empêche également le chargement initial des effets.
+  L’assistant conserve ces préférences dans les installations existantes.
+- Le catalogue contient les techniques chargées avec succès par ReShade.
+  Un shader absent, mal compilé ou dépendant de données indisponibles peut ne
+  pas fonctionner. Les réglages de préprocesseur restent dans le menu ReShade.
+- Les paramètres automatiques, cachés et les formes complexes non prises
+  en charge ne sont pas modifiables dans ChartsHub.
+- Les changements externes et rechargements sont relus. Une ancienne commande
+  ne réutilise pas un handle de shader détruit.
+- ReShade reçoit la demande d'enregistrement ; son API ne confirme pas les
+  erreurs d'écriture du preset. Vérifiez le menu ou journal ReShade si besoin.
+- Les performances dépendent des effets choisis. Commencez par un effet.
+
+FICHIERS
+
+Le bouton de connexion seul ajoute ChartsHubReShade.addon64 et son journal
+ChartsHubReShade.install.json, sans réécrire ReShade.ini, les .fx ou les presets.
+L’assistant ajoute aussi dxgi.dll, un journal ChartsHubReShade.setup.json et
+les fichiers présentés avant installation. En l’absence de ReShade.ini,
+il crée une configuration et un preset vide ChartsHub-ReShade-Preset.ini.
+Le bouton d'enregistrement sauvegarde seulement le preset ReShade courant.
+La sauvegarde de l'ancien module ChartsHub/ReShade est conservée dans le jeu.
+La communication passe par un canal Windows local réservé à votre compte.
+
+ReShade : https://reshade.me/
+API utilisée : https://github.com/crosire/reshade/tree/v6.8.0/include
+Bloom : https://github.com/luluco250/FXShaders (MIT)
+Grain / aberration chromatique : https://github.com/CeeJayDK/SweetFX (MIT)
+Les notices des shaders sont conservées dans ChartsHub-ReShade-Shaders/Licenses.
+Le téléchargement utilise des versions et empreintes fixes ; les shaders ne
+se mettent pas à jour automatiquement et vos modifications sont conservées.

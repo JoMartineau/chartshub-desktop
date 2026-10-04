@@ -1,0 +1,8 @@
+.zig-cache/
+test/runtime/
+test/runtime-starter/
+test/*.log
+*.o
+*.a
+bin/*.pdb
+bin/*.lib

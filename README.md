@@ -10,6 +10,17 @@ Le site doit disposer de l'intégration `ChartsHubDesktop`. L'application néces
 
 ## Développement
 
+Le Companion 0.12 ajoute un assistant qui télécharge ReShade depuis son site
+officiel et propose un pack bloom, grain et aberration chromatique. Le panneau
+et le widget contrôlent aussi vos effets existants. Voir [les instructions ReShade](docs/RESHADE.txt).
+
+La version 0.12.1 retire les plafonds de taille de la bibliothèque locale et
+des associations : le scan complet et la pagination prennent en charge les
+grandes collections, avec conservation du dernier index en cas d’interruption.
+Le pont natif se compile avec `reshade-bridge/build.ps1` ; le moteur classique
+indépendant reste disponible via `native-filters/build.ps1`. Les deux binaires
+sont nécessaires avant de construire la distribution Windows x64.
+
 Node.js 24 et npm sont nécessaires.
 
 ```sh
@@ -21,6 +32,17 @@ npm start
 ## Versions téléchargeables
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la préversion correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives.
+
+### Version 0.14.0 — préversion
+
+- Le catalogue et le Companion partagent la même fenêtre, avec deux onglets pour passer de l’un à l’autre.
+- Un compte ChartsHub ordinaire permet d’ouvrir le Companion. Les outils d’administration et de modération restent réservés aux comptes autorisés ; une déconnexion retire l’accès au Companion.
+- Les réglages des widgets, les dispositions, les associations de la bibliothèque et les préférences restent enregistrés localement sur cet ordinateur. Ils ne sont pas enregistrés dans le compte ChartsHub et ne suivent pas une connexion sur un autre appareil.
+- Les profils d’overlay et le verrouillage des widgets sont inclus. La bibliothèque travaille en arrière-plan et ne fixe plus de plafond de chansons ; la comparaison des doublons permet de choisir les copies identiques à envoyer à la Corbeille après confirmation.
+- Sous Windows x64, l’assistant installe ReShade depuis sa source officielle et propose trois effets optionnels : bloom, grain et aberration chromatique. Il conserve les presets existants. Le moteur classique de filtres reste également disponible.
+- Les archives Windows incluent les deux modules compilés et les notices MinHook, ReShade et nlohmann/json. La CI utilise Zig 0.14.1, téléchargé depuis ziglang.org et vérifié par SHA-256 avant compilation.
+
+Cette version conserve le statut expérimental des précédentes publications. Les fonctions ReShade et les filtres natifs sont propres à Windows x64 ; leur présence n’est pas annoncée comme prise en charge sur macOS ou Linux.
 
 ### Version 0.1.14
 

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>ChartsHub</title>
+  <link rel="stylesheet" href="shell.css">
+  <script src="shell.js" defer></script>
+</head>
+<body>
+  <div class="titlebar" aria-hidden="true"><span class="mark small">C</span><span>ChartsHub</span></div>
+  <header class="appnav">
+    <div class="brand"><span class="mark" aria-hidden="true">C</span><span>Charts<em>Hub</em></span></div>
+    <nav class="tabs" role="tablist" aria-label="Sections de ChartsHub">
+      <button id="catalogue-tab" class="tab" role="tab" aria-selected="true" data-tab="catalogue" aria-controls="content-state">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span>Catalogue</span><span class="tab-spinner" aria-hidden="true" hidden></span>
+      </button>
+      <button id="companion-tab" class="tab" role="tab" aria-selected="false" data-tab="companion" aria-controls="content-state" tabindex="-1" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10c2 0 3 2 3.5 4l1 6c.3 2-2 3-3.2 1.5L16 16H8l-2.3 2.5C4.3 20 2 19 2.5 17l1-6C4 9 5 7 7 7Z"/><path d="M7 10v5m-2.5-2.5h5M16 11h.01M18 14h.01"/></svg>
+        <span>Companion</span><span class="tab-spinner" aria-hidden="true" hidden></span>
+      </button>
+    </nav>
+    <span class="shortcut" aria-hidden="true" hidden>Ctrl + Tab</span>
+  </header>
+  <main id="content-state" class="content-state" role="tabpanel" aria-labelledby="catalogue-tab" aria-busy="true">
+    <div class="state-card" role="status" aria-live="polite">
+      <div class="state-icon" aria-hidden="true"><span class="spinner"></span></div>
+      <h1 id="state-title">Chargement du catalogue…</h1>
+      <p id="state-detail">Votre espace ChartsHub s’ouvre ici.</p>
+      <button id="retry" class="retry" hidden>Réessayer</button>
+    </div>
+  </main>
+</body>
+</html>

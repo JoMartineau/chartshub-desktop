@@ -1,6 +1,36 @@
 'use strict';
 const {app,BrowserWindow,ipcMain,dialog,Menu,shell,session,nativeTheme}=require('electron');
 const path=require('node:path');
+const {registerCompanionScheme,createCompanionHost}=require('./companion/host.cjs');
+const {createDesktopShell}=require('./desktop/controller.cjs');
+registerCompanionScheme();
+const profileIndex=process.argv.indexOf('--companion-profile');
+if(profileIndex>=0&&process.argv[profileIndex+1])app.setPath('userData',path.resolve(process.argv[profileIndex+1]));
+let desktop,web,companionHostPromise,closing=false,allowClose=false,companionAvailable=false;
+let loadCatalogue=()=>{},canOpenCompanion=async()=>false;
+let requestedTab=process.argv.includes('--companion')?'companion':'catalogue';
+const focusWindow=()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
+const openCompanion=async()=>{
+ if(!desktop||closing)return;
+ await desktop.ready;
+ if(closing)return;
+ if(!await canOpenCompanion()){if(!closing&&requestedTab==='companion')await selectTab('catalogue');return;}
+ if(closing||requestedTab!=='companion')return;
+ if(!companionHostPromise)companionHostPromise=createCompanionHost({embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
+ const host=await companionHostPromise;
+ if(closing||!companionAvailable||requestedTab!=='companion')return;
+ return host.open();
+};
+const showCompanion=()=>void selectTab('companion').catch(()=>dialog.showErrorBox('ChartsHub Companion','Le Companion ne peut pas démarrer. Vérifiez que la distribution est complète.'));
+async function selectTab(tab){
+ if(closing||!['catalogue','companion'].includes(tab))return;
+ requestedTab=tab;
+ if(tab==='companion')return openCompanion();
+ if(!desktop)return;
+ await desktop.ready;
+ if(closing||requestedTab!==tab)return;
+ desktop.showTab('catalogue');loadCatalogue();focusWindow();
+}
 const {ORIGIN,endpointValid,downloadChart}=require('./download');
 const {applicationMenu,canPreviewVisitor}=require('./app-menu');
 const {batchValid,downloadBatch}=require('./batch-download');
@@ -9,7 +39,7 @@ const {windowTheme}=require('./window-theme');
 const {createAccountBoundDownloads}=require('./download-state');
 let win,job=null,guest=null;
 function trusted(url){try{const u=new URL(url);return u.origin===ORIGIN&&!u.username&&!u.password;}catch{return false;}}
-function allowedSender(event){return win&&!win.isDestroyed()&&event.sender===win.webContents&&event.senderFrame===win.webContents.mainFrame&&trusted(event.senderFrame.url);}
+function allowedSender(event){return !closing&&win&&!win.isDestroyed()&&web&&!web.isDestroyed()&&event.sender===web&&event.senderFrame===web.mainFrame&&trusted(event.senderFrame.url);}
 async function external(url){
  try{const u=new URL(url);if(u.protocol!=='https:'||u.username||u.password)return;
  const {response}=await dialog.showMessageBox(win,{type:'question',buttons:['Annuler','Ouvrir dans le navigateur'],defaultId:0,cancelId:0,message:'Ouvrir ce lien externe ?',detail:u.href});if(response===1)await shell.openExternal(u.href);
@@ -17,18 +47,21 @@ async function external(url){
 }
 if(!app.requestSingleInstanceLock())app.quit();
 else{
- app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.focus();}});
+ app.on('second-instance',(_event,argv)=>{requestedTab=argv.includes('--companion')?'companion':'catalogue';if(desktop)void selectTab(requestedTab).catch(()=>dialog.showErrorBox('ChartsHub','Cet onglet ne peut pas être ouvert.'));});
  app.whenReady().then(()=>{
   const ses=session.fromPartition('persist:chartshub');
   ses.setPermissionRequestHandler((_web,permission,callback)=>callback(false));
   ses.setPermissionCheckHandler(()=>false);
   ses.on('will-download',(event)=>event.preventDefault());
-  win=new BrowserWindow({width:1400,height:950,minWidth:720,minHeight:560,title:'ChartsHub',...(process.platform==='darwin'?{titleBarStyle:'hiddenInset'}:{titleBarStyle:'hidden',titleBarOverlay:{color:'#090e19',symbolColor:'#eef3ff',height:36}}),backgroundColor:'#090e19',icon:path.join(__dirname,process.platform==='win32'?'icon.ico':'icon.png'),webPreferences:{session:ses,preload:path.join(__dirname,'preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false}});
-  win.webContents.setWindowOpenHandler(({url})=>{if(trusted(url))win.loadURL(url);else void external(url);return {action:'deny'};});
-  win.webContents.on('will-navigate',(event,url)=>{if(!trusted(url)){event.preventDefault();void external(url);}});
-  win.webContents.on('will-redirect',(event,url)=>{if(!trusted(url))event.preventDefault();});
-  win.webContents.on('will-attach-webview',event=>event.preventDefault());
-  const load=route=>win.loadURL(ORIGIN+route).catch(()=>dialog.showMessageBox(win,{type:'error',message:'Connexion à ChartsHub impossible.',detail:'Vérifiez votre connexion Internet, puis utilisez Ctrl+R (ou Cmd+R sur Mac).'}));
+  desktop=createDesktopShell({cataloguePreferences:{session:ses,preload:path.join(__dirname,'preload.js'),additionalArguments:['--chartshub-tabbed'],contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,backgroundThrottling:false},onSelectTab:selectTab});
+  win=desktop.window;web=desktop.catalogueView.webContents;
+  web.setWindowOpenHandler(({url})=>{if(trusted(url))void web.loadURL(url).catch(()=>{});else void external(url);return {action:'deny'};});
+  web.on('will-navigate',(event,url)=>{if(!trusted(url)){event.preventDefault();void external(url);}});
+  web.on('will-redirect',(event,url)=>{if(!trusted(url))event.preventDefault();});
+  web.on('will-attach-webview',event=>event.preventDefault());
+  let catalogueStarted=false;
+  const load=route=>{catalogueStarted=true;return web.loadURL(ORIGIN+route).catch(()=>{if(!closing&&!win.isDestroyed())return dialog.showMessageBox(win,{type:'error',message:'Connexion à ChartsHub impossible.',detail:'Vérifiez votre connexion Internet, puis utilisez Ctrl+R (ou Cmd+R sur Mac).'});});};
+  loadCatalogue=()=>{if(!catalogueStarted)void load('/');};
   Menu.setApplicationMenu(null);
   win.setMenuBarVisibility(false);
   const readAccount=async()=>{
@@ -37,9 +70,18 @@ else{
    if(!response.ok)throw Error('Le compte ne peut pas être vérifié.');
    const data=await response.json();if(!Object.hasOwn(data,'user'))throw Error('Réponse du compte invalide.');return data.user;
   };
-  const downloads=createAccountBoundDownloads({readAccount,cancel:()=>job?.abort(),publish:snapshot=>{if(win&&!win.isDestroyed()&&trusted(win.webContents.getURL()))win.webContents.send('chartshub:download-state',snapshot);}});
-  const reportProgress=(token,data)=>{if(!downloads.progress(token,data))return;if(win&&!win.isDestroyed()){if(trusted(win.webContents.getURL()))win.webContents.send('chartshub:progress',data);win.setProgressBar(data.percent/100);}};
-  ipcMain.handle('chartshub:download-state',async event=>{if(!allowedSender(event))return null;await downloads.refresh();return allowedSender(event)?downloads.snapshot():null;});
+  const catalogueAlive=()=>win&&!win.isDestroyed()&&web&&!web.isDestroyed();
+  const downloads=createAccountBoundDownloads({readAccount,cancel:()=>job?.abort(),publish:snapshot=>{if(catalogueAlive()&&trusted(web.getURL()))web.send('chartshub:download-state',snapshot);}});
+  let accountRevision=0;
+  const refreshAccount=async()=>{
+   const revision=accountRevision,result=await downloads.refresh();
+   if(!closing&&revision===accountRevision){companionAvailable=result.ok&&Boolean(result.user);desktop.setCompanionAvailable(companionAvailable);}
+   return result;
+  };
+  const invalidateAccount=()=>{accountRevision++;companionAvailable=false;desktop.setCompanionAvailable(false);downloads.invalidate();};
+  canOpenCompanion=async()=>{await refreshAccount();return companionAvailable&&!closing;};
+  const reportProgress=(token,data)=>{if(!downloads.progress(token,data))return;if(catalogueAlive()){if(trusted(web.getURL()))web.send('chartshub:progress',data);win.setProgressBar(data.percent/100);}};
+  ipcMain.handle('chartshub:download-state',async event=>{if(!allowedSender(event))return null;await refreshAccount();return allowedSender(event)?downloads.snapshot():null;});
   const folders=folderPreferences(app.getPath('userData'));
   let reportSaving=false;
   ipcMain.handle('chartshub:save-checker-report',async(event,payload)=>{
@@ -62,9 +104,7 @@ else{
    if(!allowedSender(event))return;
    const theme=windowTheme(value);if(!theme)return;
    nativeTheme.themeSource=theme.mode;
-   win.setBackgroundColor(theme.color);
-   if(process.platform!=='darwin')win.setTitleBarOverlay({color:theme.color,symbolColor:theme.symbolColor,height:36});
-   if(process.platform==='win32')win.setAccentColor(theme.accent);
+   desktop.setTheme(theme);
    return theme;
   });
   ipcMain.handle('chartshub:fullscreen',(event,toggle)=>{
@@ -72,19 +112,19 @@ else{
    if(toggle)win.setFullScreen(!win.isFullScreen());
    return win.isFullScreen();
   });
-  for(const eventName of ['enter-full-screen','leave-full-screen'])win.on(eventName,()=>win.webContents.send('chartshub:fullscreen-state',win.isFullScreen()));
+  for(const eventName of ['enter-full-screen','leave-full-screen'])win.on(eventName,()=>{if(catalogueAlive())web.send('chartshub:fullscreen-state',win.isFullScreen());});
   const administrator=async()=>{
-   const result=await downloads.refresh();return result.ok&&canPreviewVisitor(result.user);
+   const result=await refreshAccount();return result.ok&&canPreviewVisitor(result.user);
   };
   let adminAllowed=false,adminCheck=null,adminRevision=0;
   const refreshAdministrator=()=>{if(adminCheck)return adminCheck;const current=adminRevision;adminCheck=administrator().then(value=>{if(current===adminRevision)adminAllowed=value;}).finally(()=>{adminCheck=null;if(current!==adminRevision)void refreshAdministrator();});return adminCheck;};
-  const resetAdministrator=()=>{downloads.invalidate();adminAllowed=false;adminRevision++;void refreshAdministrator();};
-  win.webContents.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace){downloads.invalidate();adminAllowed=false;adminRevision++;}});
-  win.webContents.on('did-finish-load',resetAdministrator);
+  const resetAdministrator=()=>{invalidateAccount();adminAllowed=false;adminRevision++;void refreshAdministrator();};
+  web.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace){invalidateAccount();adminAllowed=false;adminRevision++;}});
+  web.on('did-finish-load',resetAdministrator);
   ses.cookies.on('changed',(_event,cookie)=>{if(cookie.name==='chartshub_session'&&cookie.domain.replace(/^\./,'')===new URL(ORIGIN).hostname)resetAdministrator();});
   ipcMain.handle('chartshub:account-changed',event=>{if(allowedSender(event))resetAdministrator();});
   const openGuest=async()=>{
-   if(!await administrator())return;
+   if(!await administrator()||closing||!win||win.isDestroyed())return;
    if(guest&&!guest.isDestroyed()){guest.focus();return;}
    const guestSession=session.fromPartition('guest-'+require('node:crypto').randomUUID());
    guestSession.setPermissionRequestHandler((_web,_permission,callback)=>callback(false));
@@ -114,15 +154,13 @@ else{
   ipcMain.handle('chartshub:menu',async(event,language)=>{
    if(!allowedSender(event)||!['fr','en'].includes(language))return;
    void refreshAdministrator();
-   Menu.buildFromTemplate(applicationMenu({language,load,visitorPreview:adminAllowed?()=>void openGuest():undefined,web:win.webContents,close:()=>win.close(),cancel:()=>job?.abort(),downloading:Boolean(job),toggleFullscreen:()=>win.setFullScreen(!win.isFullScreen())})).popup({window:win});
+   Menu.buildFromTemplate(applicationMenu({language,load,companion:companionAvailable?showCompanion:undefined,visitorPreview:adminAllowed?()=>void openGuest():undefined,web,close:()=>win.close(),cancel:()=>job?.abort(),downloading:Boolean(job),toggleFullscreen:()=>win.setFullScreen(!win.isFullScreen())})).popup({window:win});
   });
-  win.webContents.on('before-input-event',(event,input)=>{
+  web.on('before-input-event',(event,input)=>{
    if(input.type!=='keyDown')return;
    const key=input.key.toLowerCase(),command=process.platform==='darwin'?input.meta:input.control;
-   if(key==='escape'&&win.isFullScreen()){event.preventDefault();win.setFullScreen(false);}
-   else if(key==='f5'||(command&&key==='r')){event.preventDefault();win.webContents.reload();}
-   else if(key==='f11'){event.preventDefault();win.setFullScreen(!win.isFullScreen());}
-   else if(command&&['+','=','-','0'].includes(key)){event.preventDefault();const level=key==='0'?0:Math.max(-2,Math.min(3,win.webContents.getZoomLevel()+(key==='-'?-.5:.5)));win.webContents.setZoomLevel(level);}
+   if(key==='f5'||(command&&key==='r')){event.preventDefault();web.reload();}
+   else if(command&&['+','=','-','0'].includes(key)){event.preventDefault();const level=key==='0'?0:Math.max(-2,Math.min(3,web.getZoomLevel()+(key==='-'?-.5:.5)));web.setZoomLevel(level);}
   });
   ipcMain.handle('chartshub:download-batch',async(event,endpoints)=>{
    if(!allowedSender(event)||!batchValid(endpoints))return {ok:false,error:'Sélection non autorisée.'};
@@ -130,14 +168,14 @@ else{
    const controller=new AbortController();job=controller;
    let result,token;
    try{
-    const account=await downloads.refresh();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
+    const account=await refreshAccount();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
     controller.signal.throwIfAborted();if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
     token=downloads.begin(endpoints,'batch');
     const directory=await chooseFolder('catalogue');
     if(!directory)return result={ok:false,cancelled:true,results:[]};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
     result=await downloadBatch({endpoints,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data)});
-    await downloads.refresh();return downloads.current(token)?result:{ok:false,cancelled:true,results:[]};
+    await refreshAccount();return downloads.current(token)?result:{ok:false,cancelled:true,results:[]};
    }catch(error){return result={ok:false,error:error.message,cancelled:controller.signal.aborted};}
    finally{downloads.finish(token,result);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
@@ -147,14 +185,14 @@ else{
    const controller=new AbortController();job=controller;
    let outcome,token;
    try{
-    const account=await downloads.refresh();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
+    const account=await refreshAccount();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
     controller.signal.throwIfAborted();if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
     token=downloads.begin([endpoint],'single');
     const directory=await chooseFolder(endpoint.includes('/admin/')?'review':'catalogue');
     if(!directory)return outcome={ok:false,cancelled:true};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
     const result=await downloadChart({endpoint,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,{...data,endpoint,itemPercent:data.percent})});
-    await downloads.refresh();if(!downloads.current(token))return outcome={ok:false,cancelled:true};
+    await refreshAccount();if(!downloads.current(token))return outcome={ok:false,cancelled:true};
     // Only a path produced by this download operation is passed to the OS.
     shell.showItemInFolder(result.destination);
     return outcome={ok:true,folderName:result.folderName,files:result.files};
@@ -162,8 +200,27 @@ else{
    finally{downloads.finish(token,outcome);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
   ipcMain.handle('chartshub:cancel',event=>{if(allowedSender(event))job?.abort();});
-  win.on('close',event=>{if(job){event.preventDefault();dialog.showMessageBox(win,{type:'question',buttons:['Continuer le téléchargement','Annuler et quitter'],defaultId:0,cancelId:0,message:'Un téléchargement est en cours.'}).then(({response})=>{if(response===1){job?.abort();const wait=setInterval(()=>{if(!job){clearInterval(wait);win.close();}},100);}});}});
-  void load('/');
+  const finishClose=async()=>{
+   closing=true;
+   try{if(companionHostPromise)await (await companionHostPromise).dispose();}
+   catch(error){console.error('Companion shutdown:',error.message);}
+   finally{await desktop.dispose();allowClose=true;if(!win.isDestroyed())win.close();}
+  };
+  let closePrompt=false;
+  win.on('close',event=>{
+   if(allowClose)return;
+   event.preventDefault();if(closing||closePrompt)return;
+   if(!job){void finishClose();return;}
+   closePrompt=true;
+   void dialog.showMessageBox(win,{type:'question',buttons:['Continuer le téléchargement','Annuler et quitter'],defaultId:0,cancelId:0,message:'Un téléchargement est en cours.'}).then(async({response})=>{
+    if(response!==1)return;
+    job?.abort();
+    await new Promise(resolve=>{const wait=setInterval(()=>{if(!job){clearInterval(wait);resolve();}},100);});
+    await finishClose();
+   }).catch(error=>console.error('Window shutdown:',error.message)).finally(()=>{closePrompt=false;});
+  });
+  app.on('before-quit',event=>{if(!allowClose&&win&&!win.isDestroyed()){event.preventDefault();win.close();}});
+  void selectTab(requestedTab).catch(()=>dialog.showErrorBox('ChartsHub','Cet onglet ne peut pas être ouvert.'));
  });
  app.on('window-all-closed',()=>app.quit());
 }

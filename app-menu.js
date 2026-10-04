@@ -1,10 +1,11 @@
 'use strict';
 function canPreviewVisitor(user){return user?.emailVerified===true&&user.staffRole==='administrator';}
-function applicationMenu({language,load,web,close,cancel,downloading,toggleFullscreen,visitorPreview}){
+function applicationMenu({language,load,web,close,cancel,downloading,toggleFullscreen,visitorPreview,companion}){
  const fr=language==='fr',t=(a,b)=>fr?a:b;
  return [
   {label:t('Catalogue','Catalogue'),click:()=>load('/')},
   {label:t('Mon compte','My account'),click:()=>load('/account.html')},
+  ...(companion?[{label:t('Clone Hero Companion','Clone Hero Companion'),accelerator:'CommandOrControl+Shift+C',click:companion}]:[]),
   ...(visitorPreview?[{label:t('Voir comme visiteur','View as guest'),click:visitorPreview}]:[]),
   {type:'separator'},
   {label:t('Édition','Edit'),submenu:[

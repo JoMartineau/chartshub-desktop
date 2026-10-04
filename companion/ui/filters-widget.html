@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <title>ChartsHub · Filtres du jeu</title>
+  <link rel="stylesheet" href="./companion.css">
+</head>
+<body class="filters-widget-body">
+  <main id="filters-widget-panel" class="filters-widget-panel">
+    <label class="filters-widget-engine" for="filters-widget-engine"><span>Filtres du jeu</span><select id="filters-widget-engine"><option value="reshade">ReShade</option><option value="classic">ChartsHub classique</option></select></label>
+    <section id="reshade-widget-controls" class="reshade-mini">
+      <div class="filters-widget-heading"><strong>Effets ReShade</strong><label class="filters-switch"><input id="reshade-enabled" type="checkbox" disabled><span>Activer</span></label></div>
+      <span id="reshade-status" class="status-pill" role="status">Connexion…</span>
+      <label class="reshade-search" for="reshade-search"><span>Rechercher un effet</span><input id="reshade-search" type="search" placeholder="Bloom, grain…" autocomplete="off" disabled></label>
+      <p id="reshade-count" class="helper-text">Aucun effet reçu</p>
+      <div id="reshade-techniques" class="reshade-techniques" role="group" aria-label="Effets disponibles"></div>
+      <section class="reshade-parameters" aria-labelledby="reshade-effect-title"><h4 id="reshade-effect-title">Réglages de l’effet</h4><p id="reshade-effect-hint" class="helper-text">Sélectionnez un effet.</p><div id="reshade-uniforms"></div></section>
+      <div class="reshade-mini-actions"><button id="reshade-save" type="button" class="button secondary" disabled>Enregistrer le preset</button><button id="reshade-open-panel" type="button" class="button secondary" disabled>Tous les réglages</button></div>
+      <p id="reshade-feedback" class="clonehero-feedback" role="status" hidden></p>
+    </section>
+    <section id="filters-widget-legacy" hidden>
+    <div class="filters-widget-heading"><strong>Filtres du jeu</strong><label class="filters-switch"><input id="filters-enabled" type="checkbox" disabled><span>Activer</span></label></div>
+    <span id="filters-status" class="status-pill" role="status">Connexion…</span>
+    <label class="filters-widget-preset" for="filters-preset"><span>Style</span><select id="filters-preset" disabled><option value="neutral">Neutre</option><option value="vivid">Couleurs vives</option><option value="soft">Doux</option><option value="contrast">Contraste</option><option value="custom" disabled>Personnalisé</option></select></label>
+    <button id="filters-open-panel" type="button" class="button secondary" disabled>Ouvrir tous les réglages</button>
+    <p id="filters-feedback" class="clonehero-feedback" role="alert" hidden></p>
+    </section>
+  </main>
+  <script type="module" src="./filters-widget.js"></script>
+</body>
+</html>

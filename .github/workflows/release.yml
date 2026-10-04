@@ -3,7 +3,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths-ignore: [".github/workflows/publish-desktop.yml", ".github/workflows/release.yml"]
 concurrency:
   group: desktop-release
   cancel-in-progress: false
@@ -11,6 +10,8 @@ permissions:
   contents: read
 jobs:
   build:
+    name: Build ${{ matrix.platform }}-${{ matrix.arch }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -21,10 +22,10 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
-          - os: macos-latest
+          - os: macos-15
             platform: darwin
             arch: arm64
-          - os: macos-latest
+          - os: macos-15-intel
             platform: darwin
             arch: x64
     runs-on: ${{ matrix.os }}
@@ -33,9 +34,32 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          architecture: ${{ matrix.arch }}
           cache: npm
       - run: npm ci
-      - run: npm test
+      - name: Check native runner architecture
+        run: node -e "if(process.platform!=='${{ matrix.platform }}'||process.arch!=='${{ matrix.arch }}')throw Error('A native runner is required for this target')"
+      - name: Compile TypeScript and run tests
+        run: npm test
+      - name: Compile Windows filters and ReShade bridge
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zigArchive = Join-Path $env:RUNNER_TEMP 'zig-x86_64-windows-0.14.1.zip'
+          $zigDirectory = Join-Path $env:RUNNER_TEMP 'chartshub-toolchain'
+          # SHA-256 published at https://ziglang.org/download/index.json (0.14.1).
+          $expectedHash = '554f5378228923ffd558eac35e21af020c73789d87afeabf4bfd16f2e6feed2c'
+          Invoke-WebRequest -Uri 'https://ziglang.org/download/0.14.1/zig-x86_64-windows-0.14.1.zip' -OutFile $zigArchive
+          if ((Get-FileHash -LiteralPath $zigArchive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expectedHash) { throw 'Zig archive SHA-256 mismatch' }
+          Expand-Archive -LiteralPath $zigArchive -DestinationPath $zigDirectory
+          $zigExecutable = Join-Path $zigDirectory 'zig-x86_64-windows-0.14.1/zig.exe'
+          if ((& $zigExecutable version) -ne '0.14.1') { throw 'Unexpected Zig compiler version' }
+          & ./native-filters/build.ps1 -Zig $zigExecutable
+          & ./reshade-bridge/build.ps1 -Zig $zigExecutable
+          foreach ($required in @('native-filters/bin/dxgi.dll', 'native-filters/bin/MinHook-LICENSE.txt', 'reshade-bridge/bin/ChartsHubReShade.addon64', 'reshade-bridge/bin/ReShade-SDK-LICENSE.md', 'reshade-bridge/bin/nlohmann-LICENSE.MIT')) {
+            if (!(Test-Path -LiteralPath $required -PathType Leaf) -or (Get-Item -LiteralPath $required).Length -eq 0) { throw "Missing release dependency: $required" }
+          }
       - run: node build.mjs ${{ matrix.platform }} ${{ matrix.arch }}
       - name: Archive Windows
         if: runner.os == 'Windows'
@@ -46,7 +70,7 @@ jobs:
         shell: bash
         run: |
           codesign --force --deep --sign - dist/ChartsHub-darwin-${{ matrix.arch }}/ChartsHub.app
-          ditto -c -k --sequesterRsrc --keepParent dist/ChartsHub-darwin-${{ matrix.arch }}/ChartsHub.app ChartsHub-darwin-${{ matrix.arch }}.zip
+          ditto -c -k --sequesterRsrc --keepParent dist/ChartsHub-darwin-${{ matrix.arch }} ChartsHub-darwin-${{ matrix.arch }}.zip
       - name: Archive Linux
         if: runner.os == 'Linux'
         run: tar -czf ChartsHub-linux-x64.tar.gz -C dist ChartsHub-linux-x64
@@ -58,12 +82,17 @@ jobs:
             ChartsHub-*.tar.gz
           if-no-files-found: error
   release:
+    if: github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
@@ -71,14 +100,29 @@ jobs:
       - name: Publish tested release
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         shell: bash
         run: |
+          set -euo pipefail
           VERSION="v$(node -p 'require("./package.json").version')"
+          [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
           cd release-assets
-          sha256sum ChartsHub-* > SHA256SUMS.txt
+          ASSETS=(ChartsHub-win32-x64.zip ChartsHub-linux-x64.tar.gz ChartsHub-darwin-arm64.zip ChartsHub-darwin-x64.zip)
+          for ASSET in "${ASSETS[@]}"; do test -s "$ASSET"; done
+          sha256sum "${ASSETS[@]}" > SHA256SUMS.txt
+          printf 'ChartsHub Desktop %s — préversion Windows, macOS et Linux.\n\n' "$VERSION" > RELEASE-NOTES.txt
+          cat >> RELEASE-NOTES.txt <<'NOTES'
+          - Catalogue et Companion réunis dans deux onglets de la même fenêtre.
+          - Companion accessible avec un compte ChartsHub ordinaire ; les fonctions administratives conservent leurs contrôles d’accès.
+          - Réglages des widgets, dispositions, bibliothèque et préférences conservés localement sur cet ordinateur.
+          - Assistant ReShade et filtres natifs inclus pour Clone Hero sous Windows x64 ; pack d’effets optionnel téléchargé depuis ses sources officielles.
+
+          Téléchargez l’archive de votre système et consultez Lisez-moi.txt. Empreintes des quatre archives dans SHA256SUMS.txt.
+          Version expérimentale : Windows non signé commercialement, macOS non notarisé. Les fonctions ReShade et les filtres natifs nécessitent Windows x64.
+          NOTES
           if ! gh release view "$VERSION" >/dev/null 2>&1; then
-            gh release create "$VERSION" --target "$GITHUB_SHA" --draft --prerelease --title "ChartsHub $VERSION" --notes "Version expérimentale Windows, macOS et Linux. Archives non signées commercialement ; macOS non notarisé. Contour et barre de titre assortis au thème."
+            gh release create "$VERSION" --target "$GITHUB_SHA" --draft --prerelease --title "ChartsHub $VERSION" --notes-file RELEASE-NOTES.txt
           fi
           test "$(gh release view "$VERSION" --json isDraft --jq .isDraft)" = true
-          gh release upload "$VERSION" ./* --clobber
-          gh release edit "$VERSION" --draft=false --prerelease
+          gh release upload "$VERSION" "${ASSETS[@]}" SHA256SUMS.txt --clobber
+          gh release edit "$VERSION" --draft=false --prerelease --notes-file RELEASE-NOTES.txt

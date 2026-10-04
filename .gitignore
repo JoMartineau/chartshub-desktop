@@ -3,3 +3,12 @@ dist/
 *.log
 .env
 .env.*
+native-filters/bin/
+native-filters/.zig-cache/
+native-filters/zig-cache/
+native-filters/*.o
+reshade-bridge/bin/
+reshade-bridge/.zig-cache/
+reshade-bridge/zig-cache/
+reshade-bridge/*.o
+reshade-bridge/test-run/

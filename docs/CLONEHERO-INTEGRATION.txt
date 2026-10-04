@@ -1,0 +1,160 @@
+ChartsHub Companion 0.14.0 — Connexion réelle à Clone Hero
+
+Cette connexion lit l'export de texte natif de Clone Hero. Elle n'installe
+aucun mod, ne lit pas la mémoire du jeu et n'injecte aucun code. Elle ne
+modifie ni settings.ini ni currentsong.txt. ChartsHub Studio reste distinct.
+
+Ce document décrit la source « Direct Clone Hero ». Les effets visuels
+optionnels utilisent leur propre module dans le jeu ; leur installation et
+les commandes ReShade sont décrites dans FILTERS.txt et RESHADE.txt.
+Les bornes du cache de couleurs ci-dessous concernent cette source. La
+bibliothèque locale accepte les morceaux sans plafond total fixe et conserve
+ses propres contrôles de taille pour chaque fichier de métadonnées lu.
+
+MISE EN ROUTE
+1. Dans Clone Hero, activer Settings > General > Export Current Song.
+2. Le format attendu dans settings.ini est :
+     [streamer]
+     song_export = 1
+     custom_song_export = %s%n%a%n%c
+   %s correspond au titre, %a à l'artiste, %c au charter et %n à une
+   nouvelle ligne. Si nécessaire, configurer ce format dans les réglages
+   du jeu ; le Companion ne l'impose pas en écrivant dans ses fichiers.
+3. Dans Source des informations du Companion, choisir Direct Clone Hero,
+   puis utiliser la détection ou choisir currentsong.txt. Vérifier le chemin affiché.
+   Sur Windows, Documents peut être redirigé vers OneDrive ; ce n'est pas
+   nécessairement le dossier où se trouve Clone Hero.exe.
+4. Sur Windows, le morceau déjà en cours est repris si Clone Hero est
+   détecté et si son export appartient à cette session du jeu. Sinon,
+   démarrer une chanson après connexion de la source.
+   Le fichier peut être vide au menu. L'activation de l'option d'export
+   ne suffit pas à produire les informations avant de démarrer une chanson.
+5. Activer les widgets Titre, Artiste et Charter ainsi que la destination
+   souhaitée : fenêtre Jeu ou Stream / OBS. Garder En jeu dans leurs états
+   autorisés. La source OBS conserve son URL habituelle.
+
+DONNÉES DISPONIBLES
+Le format sur trois lignes fournit le titre, l'artiste et le charter.
+Les valeurs absentes ne sont pas remplacées par celles de la démonstration.
+Les noms sont du texte ; ils ne servent pas de code HTML ni de chemin à ouvrir.
+Les balises de couleur du charter sont converties en segments de texte
+bornés avec une couleur hexadécimale validée. Aucune balise HTML ni style
+arbitraire n'est exécuté. Si currentsong.txt ne conserve pas les couleurs,
+le Companion cherche le song.ini correspondant dans les dossiers [directories]
+pathN du settings.ini adjacent. Le champ charter, ou frets en son absence,
+conserve ses balises de couleur. Le titre, l'artiste et le nom complet du
+charter doivent correspondre après normalisation, sans changer l'orthographe
+du nom courant. Les couleurs d'une autre chanson ne sont jamais réutilisées.
+La première recherche parcourt les métadonnées en arrière-plan ; l'audio
+n'est pas lu. Pendant ce travail, l'export courant et son effacement au menu
+continuent de fonctionner. La fermeture ou un changement de chanson annule
+la recherche devenue inutile. Un index en mémoire et dans le profil local
+accélère les recherches suivantes ; les fichiers correspondants sont relus
+avant utilisation. Le cache charter-ini-index.json est limité à 32 Mio et
+30 minutes ; un changement des répertoires racines invalide aussi ce cache.
+Une première analyse peut prendre du temps sur une très grosse bibliothèque.
+Un fichier sans couleur ou plusieurs correspondances aux styles différents
+bloquent tout remplacement par un ancien export. Une recherche incomplète
+ne choisit pas arbitrairement parmi les fichiers déjà parcourus.
+Sans correspondance locale, le Companion peut consulter songs.json dans le
+même dossier que currentsong.txt pour cette même chart uniquement.
+Sans couleur disponible, le style du widget reste actif.
+Ce mécanisme s'applique à toutes les charts détectées sans liste de créateurs
+prédéfinie. L'analyse des song.ini accepte jusqu'à 100 000 fichiers de
+64 Kio chacun et un million d'entrées de répertoires, sans suivre les liens.
+Les song.ini trop gros ou non pris en charge sont ignorés. Le repli songs.json
+est limité à deux fichiers de 64 Mio / 100 000 entrées chacun. Sa lecture
+ne se répète pas à chaque image.
+Un export songs.json ancien peut manquer les charts récemment ajoutées :
+actualiser l'export JSON de la liste dans Clone Hero puis relancer le morceau
+ou reconnecter la source Direct.
+L'option « Couleurs du charter dans la chanson » du widget Créateur permet
+de revenir aux couleurs personnalisées ou au dégradé avec Appliquer au widget.
+OBS reçoit seulement les segments de texte et les couleurs, aucun chemin
+local ni contenu de la liste complète de chansons.
+
+L'instrument actuellement joué et la difficulté sélectionnée ne figurent pas
+dans cet export. Leurs widgets sont masqués en Direct. Les instruments
+disponibles d'une chart dans le catalogue ou song.ini ne prouvent pas lequel
+est actuellement joué et ne sont donc pas utilisés pour remplir ces widgets.
+
+Le fichier ne fournit ni état pause/lecture exact, ni écran menu/résultats,
+ni progression en temps réel. Le Companion utilise un état de compatibilité
+En jeu lorsque des données stables sont détectées. Il ne prétend pas observer
+la pause. En Direct, le filtre En jeu couvre aussi un morceau en pause ;
+le filtre Pause seul ne permet pas de sélectionner ces moments.
+La démonstration conserve les six états et les cinq widgets pour les essais.
+
+MISES À JOUR ET ANCIENNES DONNÉES
+La source lit le fichier environ toutes les 500 ms et attend deux lectures
+stables. Les écritures temporaires ou incomplètes ne doivent pas mélanger
+les métadonnées de deux chansons.
+Sur Windows, le Companion consulte uniquement la présence et l'heure de
+démarrage des processus Clone Hero / CloneHero, sans lire leur mémoire.
+Un export non vide présent à la connexion est accepté après deux lectures
+stables si sa date de modification est au moins celle d'une session active
+du jeu (tolérance de 5 ms). Cela permet d'ouvrir ou de reconnecter le
+Companion au milieu d'une chanson sans la relancer. Un changement de
+session retire l'ancien titre et vérifie de nouveau la date de l'export.
+Un export antérieur au démarrage du jeu reste masqué. Si le processus ne
+peut pas être vérifié, ou hors Windows, la source attend une nouvelle
+écriture du jeu. Une erreur de détection n'est pas assimilée à une fermeture.
+
+Quand le jeu vide currentsong.txt, les informations sont retirées de
+l'aperçu, de la fenêtre overlay et du flux OBS. Les notes officielles de
+Clone Hero décrivent cet effacement à l'écran des résultats et à la sortie
+d'une chanson. Un fichier absent ou illisible entraîne aussi le retrait
+des données et un diagnostic dans le panneau.
+
+Ce fichier n'est pas un signal périodique de présence du jeu. Une longue
+chanson ou une pause peut ne produire aucune nouvelle écriture ; une date
+de modification ancienne ne signifie donc pas que le jeu est arrêté.
+La fermeture confirmée du processus retire les données même si l'export
+reste non vide. Les vérifications de présence partagent un cache de deux
+secondes et sont limitées à 2,5 secondes par tentative. Si la détection du
+processus est indisponible, le fichier seul ne permet pas de déduire un
+crash. Passer en Démonstration retire alors la source live. La détection
+du processus ne fournit ni pause, ni écran précis, ni progression.
+
+DIAGNOSTIC
+Attente : aucun export stable appartenant à la session actuelle n'est
+disponible. Vérifier que le jeu est ouvert et suivre le diagnostic affiché.
+Si la session ne peut pas être détectée, démarrer une chanson après connexion.
+Fichier absent : contrôler le chemin choisi et le dossier Documents utilisé
+par Clone Hero, notamment en cas de redirection OneDrive.
+Export désactivé : activer Export Current Song dans le jeu.
+Format non pris en charge : utiliser %s%n%a%n%c. Aucun format personnalisé
+arbitraire n'est interprété en devinant quelles lignes représentent les champs.
+Erreur de lecture : contrôler l'accès au fichier et sa disponibilité locale.
+Le panneau présente le diagnostic de la source ; le flux OBS reste sans
+message d'erreur ou chemin de fichier incrusté dans l'image.
+
+VÉRIFICATION NATIVE ISOLÉE
+Le script tests/companion-clonehero-electron.cjs exporte verifyCloneHero.
+Il est appelé par le vérificateur Electron principal, avec un profil neuf
+et cloneHeroCandidates: [] ainsi qu'une sonde de processus simulée inconnue
+pour ne pas détecter la vraie installation.
+Il crée uniquement dans le dossier de test un faux settings.ini et un faux
+currentsong.txt. Il vérifie l'attente d'une écriture fraîche, les trois vrais
+champs dans le DOM natif et l'aperçu, l'absence d'instrument/difficulté,
+l'effacement lors d'un export vide, la taille du texte et les couleurs du
+charter, le retour aux cinq widgets de démo et
+l'absence de chemin local dans les messages du serveur OBS réel.
+Captures : companion-clonehero-live.png et companion-clonehero-overlay.png.
+Ce script ne remplace pas une vérification avec la version locale du jeu :
+démarrer une chanson, ouvrir le Companion en milieu de partie, mettre en
+pause, reprendre, puis revenir au menu et fermer le jeu.
+Le texte doit rester présent pendant la pause et disparaître quand l'export
+est vidé. Instrument et difficulté doivent rester masqués.
+
+SOURCES PRIMAIRES
+Export, activation et substitutions documentées :
+https://wiki.clonehero.net/books/guides-and-tutorials/page/general-guides
+Effacement de l'export aux résultats :
+https://clonehero.net/releases/v0.20.0/
+Correction de l'effacement à la sortie d'une chanson :
+https://clonehero.net/releases/v0.23.2/
+V1.1 annonce aussi %f et scorestats.json en fin de chanson :
+https://github.com/clonehero-game/releases/releases/tag/v1.1.0.6085-final
+Ces ajouts ne constituent pas un protocole documenté d'état live pour
+pause, instrument ou difficulté et ne sont pas utilisés par cette connexion.

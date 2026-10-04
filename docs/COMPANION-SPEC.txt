@@ -1,0 +1,3301 @@
+# ChartsHub Clone Hero Companion
+
+## Bibliothèque locale — version 0.14.0
+
+La bibliothèque ne fixe aucun plafond au nombre de morceaux, aux entrées
+parcourues ou à la taille totale de l'index. Les lectures de métadonnées
+individuelles restent bornées. L'analyse et les recherches fonctionnent dans
+un worker ; l'index est écrit par lots dans un fichier temporaire puis remplacé
+atomiquement. L'annulation conserve le dernier index confirmé.
+
+Les profils d'overlay et le verrouillage des widgets complètent les deux
+dispositions Jeu et Stream. Les effets du jeu et leur installation ReShade
+restent décrits dans docs/FILTERS.txt et docs/RESHADE.txt.
+
+Le parcours de nettoyage sélectif complète Installed Library : comparer les
+versions, enregistrer celle à conserver, vérifier l'audio et tous les fichiers,
+cocher explicitement chaque copie puis confirmer dans le dialogue natif
+Windows. Aucune case n'est présélectionnée et la version conservée est exclue.
+
+Seuls les dossiers complets identiques (mêmes chemins et mêmes octets pour tous
+les fichiers) ou les conteneurs .sng entièrement identiques sont admissibles.
+Tous les fichiers audio doivent être vérifiés. Une différence de métadonnées,
+de pochette ou de fichier supplémentaire conserve la version ; les comparaisons
+mixtes dossier/.sng, les contenus indisponibles et les cibles imbriquées sont
+bloqués. Le scanner ordinaire reste une lecture des métadonnées.
+
+La Corbeille reçoit uniquement les cibles cochées et revalidées. Aucun recours
+à la suppression définitive n'est autorisé en cas d'échec. L'interface conserve
+le bilan des réussites, échecs et annulations pendant l'actualisation automatique.
+Chaque plan est lié à l'index et au choix conservé et ne peut servir qu'une fois.
+
+Les tests de ce parcours utilisent des fixtures et une API Corbeille simulée.
+Ils n'envoient aucun fichier d'une bibliothèque réelle à la Corbeille et ne
+constituent pas une validation de l'interface native en fonctionnement.
+L'installation, la fusion de versions différentes et les autres étapes du
+plan ci-dessous restent distinctes de cette extension.
+
+## Vision générale
+
+Construire dans **ChartsHub Desktop App** un compagnon complet pour Clone Hero.
+
+Le système doit regrouper à terme :
+
+- Now Playing
+- Gameplay State Detection
+- Widget Builder
+- Game Overlay
+- Stream Overlay
+- OBS / Streamlabs
+- Themes
+- Custom Colors
+- Presets
+- Search
+- Installed Library
+- Full Scan
+- Quick Refresh
+- Downloads
+- Install to Clone Hero
+- Alternative Charts
+- Request System
+- Viewer Request Page
+- Installed Songs Browser
+- Request Queue
+- Next Request
+- QR Code
+- Twitch / YouTube Requests
+- History
+- Recently Played
+- Song Complete
+- Live Gameplay Statistics
+
+Mais l’architecture doit rester entièrement modulaire.
+
+---
+
+# Architecture fondamentale
+
+Ne pas construire un gros composant :
+
+```text
+HugeCloneHeroOverlay
+ ├── Now Playing
+ ├── Search
+ ├── Downloads
+ ├── Requests
+ ├── OBS
+ ├── Library
+ ├── Themes
+ └── History
+```
+
+Construire plutôt :
+
+```text
+EXTERNAL SOURCES
+        ↓
+INTEGRATIONS / ADAPTERS
+        ↓
+INDEPENDENT SERVICES
+        ↓
+TYPED EVENT BUS
+        ↓
+CENTRAL STATE
+        ↓
+WIDGET ENGINE
+        ↓
+RENDERERS
+```
+
+Architecture cible :
+
+```text
+Clone Hero ──────────────┐
+ChartsHub API ───────────┤
+Filesystem ──────────────┤
+Twitch ──────────────────┤
+YouTube ─────────────────┘
+            ↓
+       Integrations
+            ↓
+         Services
+            ↓
+      Typed Event Bus
+            ↓
+        State Store
+            ↓
+       Widget Engine
+        ↙          ↘
+Game Renderer   Stream Renderer
+                     ↓
+              Local Overlay Server
+                     ↓
+                    OBS
+```
+
+---
+
+# PRIORITÉ 0 — Fondations
+
+C’est la priorité absolue.
+
+Avant de développer l’interface avancée, créer :
+
+```text
+Types
+EventBus
+State Store
+Service Interfaces
+Service Container
+Widget Models
+Widget Registry
+Capability System
+Persistence
+Logging
+```
+
+Le but est de construire une base extensible avant les fonctionnalités.
+
+---
+
+# Structure proposée
+
+```text
+src/
+
+  core/
+    events/
+    state/
+    services/
+    types/
+    logging/
+
+  integrations/
+    clonehero/
+    chartshub/
+    filesystem/
+    twitch/
+    youtube/
+
+  widgets/
+    engine/
+    core/
+
+  overlay/
+    game/
+    stream/
+
+  library/
+
+  downloads/
+
+  requests/
+
+  settings/
+
+  storage/
+```
+
+---
+
+# PRIORITÉ 1 — Types communs
+
+Créer les modèles fondamentaux.
+
+## NowPlayingState
+
+```ts
+interface NowPlayingState {
+  songId?: string;
+
+  title?: string;
+  artist?: string;
+  album?: string;
+
+  charter?: string;
+  verifiedCharter?: boolean;
+
+  instrument?: string;
+  difficulty?: string;
+
+  bpm?: number;
+  noteCount?: number;
+
+  artworkUrl?: string;
+
+  score?: number;
+  accuracy?: number;
+  combo?: number;
+  maxCombo?: number;
+  misses?: number;
+
+  elapsedMs?: number;
+  durationMs?: number;
+}
+```
+
+---
+
+# Gameplay State
+
+Ajouter immédiatement un vrai état de gameplay.
+
+```ts
+type GameplayState =
+  | "idle"
+  | "menu"
+  | "loading"
+  | "playing"
+  | "paused"
+  | "results";
+```
+
+Créer également :
+
+```ts
+interface GameplaySessionState {
+  state: GameplayState;
+  isChartActive: boolean;
+}
+```
+
+---
+
+# Pourquoi GameplayState est important
+
+Ne pas déterminer la présence d’une chart uniquement avec :
+
+```text
+currentSong != null
+```
+
+Clone Hero pourrait conserver certaines métadonnées après la chanson.
+
+La visibilité des widgets doit dépendre du véritable état :
+
+```text
+menu
+loading
+playing
+paused
+results
+```
+
+---
+
+# PRIORITÉ 2 — Event Bus typé
+
+Créer :
+
+```text
+src/core/events/AppEvents.ts
+src/core/events/EventBus.ts
+```
+
+Exemple :
+
+```ts
+interface AppEvents {
+  "gameplay.stateChanged": GameplaySessionState;
+
+  "nowPlaying.changed": NowPlayingState;
+
+  "nowPlaying.cleared": undefined;
+
+  "library.updated": LibraryUpdate;
+
+  "download.updated": DownloadItem;
+
+  "request.added": RequestItem;
+
+  "request.queueChanged": RequestItem[];
+
+  "chart.installed": InstalledSong;
+
+  "theme.changed": WidgetTheme;
+}
+```
+
+Le typage doit empêcher les payloads incorrects.
+
+---
+
+# PRIORITÉ 3 — State Store
+
+Créer plusieurs slices indépendantes :
+
+```text
+state
+ ├── gameplay
+ ├── nowPlaying
+ ├── widgets
+ ├── themes
+ ├── presets
+ ├── library
+ ├── downloads
+ ├── requests
+ ├── history
+ ├── settings
+ └── serviceHealth
+```
+
+Ne pas créer un énorme state monolithique.
+
+---
+
+# PRIORITÉ 4 — Clone Hero Integration
+
+Créer une interface indépendante.
+
+```ts
+interface CloneHeroIntegration {
+  connect(): Promise<void>;
+
+  disconnect(): Promise<void>;
+
+  getCurrentSong():
+    Promise<RawCloneHeroSong | null>;
+
+  getGameplayState():
+    Promise<GameplaySessionState>;
+
+  subscribe(
+    listener: (event: CloneHeroEvent) => void
+  ): () => void;
+}
+```
+
+Le reste de ChartsHub ne doit pas connaître la méthode exacte utilisée pour récupérer les données.
+
+---
+
+# Mock Clone Hero
+
+Créer immédiatement :
+
+```text
+MockCloneHeroIntegration
+```
+
+Il doit pouvoir simuler :
+
+```text
+menu
+↓
+loading
+↓
+playing
+↓
+paused
+↓
+playing
+↓
+results
+↓
+menu
+```
+
+avec une chanson fictive.
+
+Cela permettra de développer sans lancer Clone Hero constamment.
+
+---
+
+# PRIORITÉ 5 — NowPlayingService
+
+Responsabilité :
+
+```text
+CloneHeroIntegration
+       ↓
+normalize
+       ↓
+NowPlayingState
+       ↓
+EventBus
+```
+
+Ne jamais rendre de React dans ce service.
+
+---
+
+# PRIORITÉ 6 — GameplaySessionService
+
+Créer un service séparé :
+
+```text
+GameplaySessionService
+```
+
+Responsable de déterminer :
+
+```text
+idle
+menu
+loading
+playing
+paused
+results
+```
+
+et d’émettre :
+
+```text
+gameplay.stateChanged
+```
+
+---
+
+# Now Playing Visibility
+
+Règle par défaut :
+
+```text
+playing → visible
+paused → visible
+loading → hidden
+menu → hidden
+idle → hidden
+results → configurable
+```
+
+Exemple :
+
+```ts
+const showNowPlaying =
+  gameplay.state === "playing" ||
+  gameplay.state === "paused";
+```
+
+---
+
+# Réglages Now Playing
+
+Prévoir :
+
+```text
+NOW PLAYING VISIBILITY
+
+☑ Show only while playing a chart
+☑ Keep visible while paused
+☐ Keep visible on result screen
+☑ Hide when returning to menu
+☑ Fade out when chart ends
+```
+
+---
+
+# Song Complete
+
+Si activé :
+
+```text
+playing
+↓
+results
+↓
+Song Complete Widget
+↓
+Fade Out
+↓
+menu
+```
+
+Sinon :
+
+```text
+playing
+↓
+results
+↓
+Fade Out
+```
+
+---
+
+# PRIORITÉ 7 — Widget Engine
+
+Créer :
+
+```text
+WidgetRegistry
+WidgetInstance
+WidgetRenderer
+WidgetSelectors
+WidgetErrorBoundary
+CapabilityResolver
+VisibilityResolver
+```
+
+---
+
+# Widget Definition
+
+```ts
+interface WidgetDefinition {
+  type: string;
+
+  version: number;
+
+  displayName: string;
+
+  category:
+    | "song"
+    | "gameplay"
+    | "requests"
+    | "downloads"
+    | "stream"
+    | "system";
+
+  defaultSize: {
+    width: number;
+    height: number;
+  };
+
+  defaultConfig:
+    Record<string, unknown>;
+
+  requiredCapabilities?: string[];
+}
+```
+
+---
+
+# Widget Instance
+
+```ts
+interface WidgetInstance {
+  id: string;
+
+  type: string;
+
+  enabled: boolean;
+
+  position: {
+    x: number;
+    y: number;
+  };
+
+  size: {
+    width: number;
+    height: number;
+  };
+
+  visibility: {
+    game: boolean;
+    stream: boolean;
+  };
+
+  gameplayVisibility?: GameplayState[];
+
+  style: WidgetStyle;
+
+  config:
+    Record<string, unknown>;
+}
+```
+
+---
+
+# Gameplay Visibility
+
+Exemple pour Now Playing :
+
+```json
+{
+  "gameplayVisibility": [
+    "playing",
+    "paused"
+  ]
+}
+```
+
+Exemple Request Queue :
+
+```json
+{
+  "gameplayVisibility": [
+    "menu",
+    "loading",
+    "playing",
+    "paused",
+    "results"
+  ]
+}
+```
+
+---
+
+# Visibility Resolver
+
+Créer :
+
+```text
+VisibilityResolver
+```
+
+Il vérifie :
+
+```text
+widget.enabled
++
+game visibility
++
+stream visibility
++
+gameplay state
++
+required capability
+```
+
+avant de rendre le widget.
+
+---
+
+# Premier groupe de widgets
+
+Créer :
+
+```text
+SongTitle
+Artist
+Charter
+Instrument
+Difficulty
+```
+
+Chaque widget doit être indépendant.
+
+---
+
+# Ne jamais faire
+
+Dans un widget :
+
+```text
+cloneHero.getCurrentSong()
+fetch(...)
+fs.readFile(...)
+Twitch.connect()
+```
+
+Un widget doit uniquement lire le State Store.
+
+---
+
+# PRIORITÉ 8 — Premier Game Overlay
+
+Créer :
+
+```text
+GameOverlay
+```
+
+Premier résultat attendu :
+
+```text
+Everlong
+Foo Fighters
+
+ExampleCharter
+Expert Guitar
+```
+
+Pendant la chanson uniquement.
+
+---
+
+# Comportement attendu
+
+## Menu
+
+```text
+Now Playing hidden
+```
+
+## Loading
+
+```text
+Now Playing hidden
+```
+
+## Playing
+
+```text
+Now Playing visible
+```
+
+## Paused
+
+```text
+Now Playing visible
+```
+
+## Results
+
+Selon préférence :
+
+```text
+Song Complete
+```
+
+ou :
+
+```text
+hidden
+```
+
+## Retour menu
+
+```text
+Now Playing hidden
+```
+
+---
+
+# PRIORITÉ 9 — Settings MVP
+
+Créer :
+
+```text
+☑ Song Title
+☑ Artist
+☑ Charter
+☑ Instrument
+☑ Difficulty
+```
+
+Les changements doivent être visibles immédiatement.
+
+---
+
+# PRIORITÉ 10 — Persistence
+
+Sauvegarder :
+
+```text
+widgets
+positions
+sizes
+enabled
+visibility
+gameplay visibility
+settings
+```
+
+Utiliser un format versionné :
+
+```json
+{
+  "version": 1,
+  "widgets": []
+}
+```
+
+---
+
+# PRIORITÉ 11 — Widget Builder
+
+Une fois le premier overlay stable :
+
+Ajouter :
+
+```text
+Drag & Drop
+Resize
+Snap
+Alignment
+Lock
+Z-index
+Duplicate
+Delete
+Multi-select
+Groups
+```
+
+---
+
+# Layout Engine
+
+Créer :
+
+```text
+WidgetLayoutEngine
+```
+
+Responsable de :
+
+- X
+- Y
+- width
+- height
+- scale
+- snap
+- alignment
+- z-index
+- canvas scaling
+- safe area
+
+Ne pas laisser chaque widget gérer son placement.
+
+---
+
+# Widget Groups
+
+Exemple :
+
+```text
+Main Now Playing Group
+
+ ├── Album Artwork
+ ├── Song Title
+ ├── Artist
+ ├── Charter
+ ├── Accuracy
+ └── Next Request
+```
+
+Les éléments restent techniquement indépendants.
+
+---
+
+# PRIORITÉ 12 — Theme Engine
+
+Créer :
+
+```text
+ThemeService
+ThemeResolver
+```
+
+Presets :
+
+- ChartsHub
+- Dark
+- Light
+- Neon
+- Cyberpunk
+- Retro
+- Transparent
+- High Contrast
+
+---
+
+# Custom Colors
+
+Permettre :
+
+```text
+Primary
+Secondary
+Accent
+Text
+Muted Text
+Background
+Border
+Progress
+Glow
+Shadow
+```
+
+Formats :
+
+```text
+HEX
+RGB
+HSL
+Alpha
+```
+
+---
+
+# Couleur custom par widget
+
+Exemple :
+
+```text
+Song Title
+
+Color Mode:
+○ Theme
+● Custom
+
+#FF4FD8
+```
+
+---
+
+# Style Resolution
+
+Ordre :
+
+```text
+Widget Default
+↓
+Global Theme
+↓
+Game / Stream Theme
+↓
+Widget Custom Style
+↓
+Conditional Style
+```
+
+---
+
+# PRIORITÉ 13 — Game / Stream séparation
+
+Chaque widget :
+
+```text
+☑ Game
+☑ Stream
+```
+
+Modes :
+
+```text
+Game Only
+Stream Only
+Game + Stream
+Hidden
+```
+
+---
+
+# Deux layouts
+
+Supporter :
+
+```text
+gameLayout
+streamLayout
+```
+
+Exemple :
+
+## Game
+
+```text
+Everlong
+98.72%
+```
+
+## Stream
+
+```text
+[ART]
+
+Everlong
+Foo Fighters
+ExampleCharter ✓
+
+Expert Guitar
+
+98.72% • 426x
+```
+
+---
+
+# PRIORITÉ 14 — OBS / Stream Renderer
+
+Créer :
+
+```text
+StreamRenderer
+↓
+LocalOverlayServer
+↓
+WebSocket
+↓
+OBS Browser Source
+```
+
+URL conceptuelle :
+
+```text
+http://127.0.0.1:<port>/overlay
+```
+
+---
+
+# Stream Preview
+
+Créer :
+
+```text
+[ GAME PREVIEW ]
+[ STREAM PREVIEW ]
+```
+
+---
+
+# Stream Canvas
+
+Supporter :
+
+```text
+1280×720
+1920×1080
+2560×1440
+3840×2160
+Custom
+```
+
+FPS :
+
+```text
+30
+60
+```
+
+---
+
+# Stream Idle Behavior
+
+Quand aucune chart n’est jouée :
+
+```text
+Stream Idle
+
+○ Hide everything
+● Show Requests
+○ Show custom Idle Widget
+```
+
+Cela permet de cacher Now Playing tout en gardant la Request Queue visible.
+
+---
+
+# PRIORITÉ 15 — Installed Library
+
+Créer :
+
+```text
+InstalledLibraryService
+```
+
+Fonctions :
+
+```text
+Full Scan
+Quick Refresh
+Installed Index
+Change Detection
+```
+
+---
+
+# Full Scan
+
+Bouton :
+
+```text
+[ SCAN LIBRARY ]
+```
+
+Analyse complète.
+
+---
+
+# Refresh
+
+Bouton :
+
+```text
+[ REFRESH ]
+```
+
+Détecte principalement :
+
+- nouvelles charts ;
+- charts supprimées ;
+- charts modifiées.
+
+---
+
+# UI Library
+
+```text
+INSTALLED LIBRARY
+
+1,857 songs
+
+[ SCAN LIBRARY ]
+[ REFRESH ]
+```
+
+---
+
+# Scan Progress
+
+```text
+Scanning...
+
+1,247 / 1,857
+
+█████████████──── 67%
+
+[ CANCEL ]
+```
+
+---
+
+# Résultat
+
+```text
+Library Updated
+
++18 added
+-3 removed
+12 modified
+
+1,872 installed
+```
+
+---
+
+# Auto Refresh
+
+Options :
+
+```text
+☑ Refresh at ChartsHub startup
+☑ Refresh after ChartsHub install
+☑ Detect filesystem changes
+☐ Full scan every startup
+```
+
+---
+
+# File Watcher
+
+Architecture :
+
+```text
+Clone Hero Songs Folder
+↓
+FileSystemWatcher
+↓
+LibraryChangeDetector
+↓
+InstalledLibraryService
+```
+
+Éviter le polling agressif.
+
+---
+
+# PRIORITÉ 16 — ChartsHub Matching
+
+Créer :
+
+```text
+ChartMatchingService
+```
+
+Responsable de relier :
+
+```text
+local chart
+↔
+ChartsHub chart
+```
+
+Cela permet :
+
+- Verified Charter
+- Chart ID
+- Alternative Charts
+- metadata
+
+---
+
+# PRIORITÉ 17 — Search
+
+Créer :
+
+```text
+SEARCH
+```
+
+Filtres :
+
+- Song
+- Artist
+- Charter
+- Instrument
+- Difficulty
+- Genre
+- Year
+- Verified
+- Installed
+- Not Installed
+
+---
+
+# Search Result
+
+```text
+Everlong
+Foo Fighters
+
+ExampleCharter ✓
+Expert Guitar
+
+✓ Installed
+
+[ VIEW ]
+[ DOWNLOAD ]
+[ INSTALL ]
+```
+
+---
+
+# PRIORITÉ 18 — Download Service
+
+Créer :
+
+```text
+DownloadService
+```
+
+Indépendant de l’installation.
+
+États :
+
+```text
+Queued
+Downloading
+Paused
+Completed
+Failed
+Cancelled
+```
+
+---
+
+# Download Queue
+
+```text
+Everlong
+████████████████ 100%
+
+The Pretender
+██████████░░░░░░ 64%
+
+Master of Puppets
+Waiting
+```
+
+---
+
+# Contrôles
+
+- Pause
+- Resume
+- Cancel
+- Retry
+- Remove
+- Open Folder
+
+---
+
+# PRIORITÉ 19 — Install Service
+
+Créer :
+
+```text
+ChartInstallService
+```
+
+Architecture :
+
+```text
+DownloadService
+↓
+DownloadedChart
+↓
+ChartValidator
+↓
+ChartInstallService
+↓
+InstalledLibraryService.refresh()
+```
+
+---
+
+# Anti-Duplicate
+
+```text
+Already Installed
+
+[ OPEN EXISTING ]
+[ REINSTALL ]
+[ CANCEL ]
+```
+
+---
+
+# Chart / Audio séparation
+
+Toujours afficher clairement :
+
+```text
+CHART
+✓ Available
+
+AUDIO
+Local
+External
+Unavailable
+```
+
+Ne pas confondre téléchargement de chart et téléchargement audio.
+
+---
+
+# PRIORITÉ 20 — Alternative Charts
+
+Depuis Now Playing :
+
+```text
+Everlong
+Foo Fighters
+
+4 other charts available
+
+[ VIEW ALTERNATIVES ]
+```
+
+---
+
+# PRIORITÉ 21 — Request System
+
+Créer :
+
+```text
+RequestQueueService
+```
+
+Il gère :
+
+- add
+- approve
+- reject
+- remove
+- reorder
+- playing
+- played
+
+---
+
+# Request Sources
+
+Architecture :
+
+```text
+ChartsHub Request Page ─┐
+Twitch ─────────────────┼→ RequestQueueService
+YouTube ────────────────┤
+Manual ─────────────────┘
+```
+
+via des adapters.
+
+---
+
+# Public Request Page
+
+Exemple :
+
+```text
+chartshub.ca/request/StreamerName
+```
+
+Le viewer n’a besoin d’installer aucun logiciel.
+
+---
+
+# Viewer Page
+
+```text
+Streamer: Alex
+
+1,857 songs available
+
+Search installed songs...
+
+Everlong
+Foo Fighters
+
+✓ Installed
+Expert Guitar
+
+[ REQUEST ]
+```
+
+---
+
+# Request Policy
+
+```text
+● Installed Songs Only
+○ Installed + Downloadable
+○ All ChartsHub Charts
+```
+
+Par défaut :
+
+```text
+Installed Songs Only
+```
+
+---
+
+# Request Approval
+
+```text
+○ Auto Accept
+● Streamer Approval
+○ Moderator Approval
+```
+
+---
+
+# Request Limits
+
+```text
+Max requests/viewer: 2
+Max queue: 50
+
+☑ Prevent duplicate songs
+☑ Prevent duplicate charts
+```
+
+---
+
+# Request Queue
+
+```text
+1. Through the Fire and Flames
+   Requested by Alex
+
+2. Everlong
+   Requested by Mike
+
+3. Master of Puppets
+   Requested by Sarah
+```
+
+---
+
+# PRIORITÉ 22 — Next Request Widget
+
+Créer comme widget indépendant.
+
+Ne pas coder Next Request dans Now Playing.
+
+---
+
+# Exemple
+
+```text
+NOW PLAYING
+
+Everlong
+Foo Fighters
+
+────────────
+
+NEXT REQUEST
+
+Through the Fire and Flames
+DragonForce
+Requested by Alex
+```
+
+Ils sont visuellement associés mais techniquement séparés.
+
+---
+
+# Next Request Options
+
+```text
+☑ Show under Now Playing
+☑ Hide when queue empty
+☑ Animate when changed
+☐ Show next 2 requests
+```
+
+---
+
+# Next Request Fields
+
+```text
+☑ Song
+☑ Artist
+☑ Requested By
+☑ Charter
+☐ Instrument
+☐ Difficulty
+☐ Queue Position
+☐ Artwork
+```
+
+---
+
+# Request Queue Stream Widget
+
+Créer également :
+
+```text
+SONG REQUESTS
+
+NEXT
+Through the Fire and Flames
+
+UP NEXT
+2. Everlong
+3. Master of Puppets
+4. Chop Suey!
+```
+
+---
+
+# PRIORITÉ 23 — QR Code
+
+Ajouter un widget :
+
+```text
+SONG REQUESTS OPEN
+
+[ QR CODE ]
+
+1,857 songs available
+```
+
+Le QR code ouvre la page Requests du streamer.
+
+---
+
+# PRIORITÉ 24 — Installed Library Sync pour les viewers
+
+Synchroniser seulement :
+
+```text
+chartId
+song
+artist
+charter
+instrument
+difficulty
+installed
+```
+
+Ne jamais synchroniser :
+
+- audio ;
+- chemins Windows ;
+- fichiers locaux ;
+- secrets ;
+- tokens.
+
+---
+
+# PRIORITÉ 25 — History
+
+Créer :
+
+```text
+HistoryService
+```
+
+Supporter :
+
+```text
+Recently Played
+Song Results
+```
+
+---
+
+# Recently Played
+
+```text
+Everlong
+Expert Guitar
+98.72%
+
+Master of Puppets
+Expert Guitar
+96.31%
+```
+
+---
+
+# PRIORITÉ 26 — Song Complete
+
+Créer un widget spécifique :
+
+```text
+SONG COMPLETE
+
+Everlong
+
+Accuracy: 98.72%
+Max Combo: 521x
+Misses: 3
+```
+
+Visible uniquement dans :
+
+```text
+results
+```
+
+---
+
+# PRIORITÉ 27 — Live Gameplay Data
+
+À développer plus tard, seulement si la récupération est fiable :
+
+- Score
+- Accuracy
+- Combo
+- Max Combo
+- Misses
+- Stars
+- FC
+- Note Streak
+
+Ne pas bloquer le MVP là-dessus.
+
+---
+
+# PRIORITÉ 28 — Twitch
+
+Après que les requests via ChartsHub fonctionnent.
+
+Créer :
+
+```text
+TwitchRequestAdapter
+```
+
+Commandes :
+
+```text
+!sr
+!request
+!queue
+!position
+```
+
+---
+
+# PRIORITÉ 29 — YouTube
+
+Même architecture :
+
+```text
+YouTubeRequestAdapter
+```
+
+RequestQueueService ne doit pas être modifié.
+
+---
+
+# PRIORITÉ 30 — Animations avancées
+
+Une fois les fonctionnalités stables :
+
+- Fade In
+- Fade Out
+- Slide
+- Scale
+- Song Change
+- Request Change
+- Miss Flash
+- Combo Update
+- Song Complete
+- Personal Best
+
+---
+
+# Conditional Colors
+
+Exemple :
+
+```text
+100% Accuracy → Gold
+99%+ → Green
+Combo Broken → Red
+Miss → Red Flash
+Personal Best → Gold
+```
+
+---
+
+# PRIORITÉ 31 — Undo / Redo
+
+Ajouter au Widget Builder :
+
+```text
+Ctrl+Z
+Ctrl+Shift+Z
+```
+
+Architecture :
+
+```text
+MoveWidgetCommand
+ResizeWidgetCommand
+DeleteWidgetCommand
+StyleWidgetCommand
+```
+
+---
+
+# PRIORITÉ 32 — Autosave
+
+Utiliser un debounce.
+
+```text
+Widget Changed
+↓
+500 ms
+↓
+Save
+```
+
+---
+
+# PRIORITÉ 33 — Error Isolation
+
+Chaque widget doit avoir :
+
+```text
+WidgetErrorBoundary
+```
+
+Un widget cassé ne doit jamais faire disparaître l’overlay complet.
+
+---
+
+# PRIORITÉ 34 — Graceful Degradation
+
+Si Internet tombe :
+
+```text
+Now Playing ✓
+Widgets ✓
+Game Overlay ✓
+Stream Overlay ✓
+Installed Library ✓
+History ✓
+Local Request Queue ✓
+```
+
+Mais :
+
+```text
+Search offline
+Downloads offline
+Remote requests offline
+```
+
+Pas de crash.
+
+---
+
+# Service Health
+
+Prévoir :
+
+```text
+Clone Hero: Ready
+ChartsHub API: Offline
+Library Watcher: Ready
+OBS: Ready
+Twitch: Disconnected
+```
+
+---
+
+# ORDRE DE DÉVELOPPEMENT RECOMMANDÉ
+
+## Milestone 1 — Architecture
+
+Créer :
+
+```text
+AppEvents
+EventBus
+GameplayState
+NowPlaying types
+State Store
+Service Interfaces
+Service Container
+CloneHeroIntegration interface
+MockCloneHeroIntegration
+NowPlayingService
+GameplaySessionService
+Logging minimal
+Tests de base
+```
+
+Objectif :
+
+Créer une chaîne de données indépendante de l’UI.
+
+```text
+Mock Clone Hero
+      ↓
+CloneHeroIntegration
+      ↓
+GameplaySessionService
+      ↓
+NowPlayingService
+      ↓
+Typed EventBus
+      ↓
+State Store
+```
+
+---
+
+## Milestone 2 — Premier overlay
+
+Créer :
+
+```text
+Widget Models
+Widget Registry
+Capability Resolver
+Visibility Resolver
+Widget Renderer
+Widget Error Boundary
+
+Song Title Widget
+Artist Widget
+Charter Widget
+Instrument Widget
+Difficulty Widget
+
+Game Overlay
+Settings MVP
+Persistence MVP
+```
+
+Valider :
+
+```text
+Menu → Now Playing hidden
+
+Loading → hidden
+
+Playing → visible
+
+Paused → visible
+
+Results → configurable
+
+Retour Menu → hidden
+```
+
+---
+
+# CRÉATION IMMÉDIATE — MILESTONE 1 + MILESTONE 2
+
+## Directive pour Codex
+
+**Implémenter maintenant Milestone 1 et Milestone 2 dans le projet ChartsHub existant.**
+
+Ne pas seulement créer un document ou des placeholders.
+
+Codex doit :
+
+1. inspecter l’architecture actuelle du projet ;
+2. réutiliser le framework, les conventions et les dépendances déjà présentes ;
+3. créer les nouveaux modules nécessaires ;
+4. connecter réellement les services ;
+5. créer les premiers widgets ;
+6. afficher un Game Overlay fonctionnel ;
+7. ajouter les tests nécessaires ;
+8. vérifier que le projet compile ;
+9. corriger les erreurs introduites ;
+10. ne pas développer les Milestones 3+ pendant cette tâche.
+
+---
+
+# Milestone 1 — Fichiers à créer ou adapter
+
+Adapter les chemins exacts à l’architecture existante du repo.
+
+Créer conceptuellement :
+
+```text
+src/core/events/AppEvents.ts
+src/core/events/EventBus.ts
+
+src/core/types/GameplayState.ts
+src/core/types/NowPlaying.ts
+src/core/types/ServiceHealth.ts
+
+src/core/state/AppState.ts
+src/core/state/createStore.ts
+src/core/state/selectors.ts
+
+src/core/services/ServiceContainer.ts
+src/core/services/NowPlayingService.ts
+src/core/services/GameplaySessionService.ts
+
+src/integrations/clonehero/CloneHeroIntegration.ts
+src/integrations/clonehero/CloneHeroTypes.ts
+src/integrations/clonehero/MockCloneHeroIntegration.ts
+
+src/core/logging/Logger.ts
+```
+
+Si le projet possède déjà :
+
+- un EventBus ;
+- Redux ;
+- Zustand ;
+- Context ;
+- un logger ;
+- un système DI ;
+- une couche IPC ;
+
+ne pas en créer un deuxième inutilement.
+
+Étendre l’infrastructure existante proprement.
+
+---
+
+# Milestone 1 — Gameplay State
+
+Implémenter :
+
+```ts
+export type GameplayState =
+  | "idle"
+  | "menu"
+  | "loading"
+  | "playing"
+  | "paused"
+  | "results";
+```
+
+et :
+
+```ts
+export interface GameplaySessionState {
+  state: GameplayState;
+  isChartActive: boolean;
+}
+```
+
+Valeur initiale recommandée :
+
+```text
+idle
+```
+
+---
+
+# Milestone 1 — NowPlaying State
+
+Implémenter le modèle normalisé :
+
+```ts
+export interface NowPlayingState {
+  songId?: string;
+
+  title?: string;
+  artist?: string;
+  album?: string;
+
+  charter?: string;
+
+  instrument?: string;
+  difficulty?: string;
+
+  bpm?: number;
+  noteCount?: number;
+
+  artworkUrl?: string;
+
+  elapsedMs?: number;
+  durationMs?: number;
+}
+```
+
+Ne pas utiliser directement les structures brutes de Clone Hero dans l’UI.
+
+---
+
+# Milestone 1 — Event Bus
+
+Implémenter un EventBus typé.
+
+Événements minimum :
+
+```ts
+interface AppEvents {
+  "gameplay.stateChanged": GameplaySessionState;
+
+  "nowPlaying.changed": NowPlayingState;
+
+  "nowPlaying.cleared": undefined;
+
+  "service.healthChanged": ServiceHealthEvent;
+}
+```
+
+API minimum :
+
+```text
+on
+emit
+unsubscribe
+```
+
+Les listeners doivent pouvoir être nettoyés correctement.
+
+---
+
+# Milestone 1 — MockCloneHeroIntegration
+
+Créer un vrai mode mock pour permettre de tester tout le pipeline.
+
+Il doit pouvoir simuler au minimum :
+
+```text
+MENU
+↓
+LOADING
+↓
+PLAYING
+↓
+PAUSED
+↓
+PLAYING
+↓
+RESULTS
+↓
+MENU
+```
+
+Données mock :
+
+```text
+Title:
+Everlong
+
+Artist:
+Foo Fighters
+
+Charter:
+ExampleCharter
+
+Instrument:
+Guitar
+
+Difficulty:
+Expert
+```
+
+Le scénario mock doit pouvoir être déclenché facilement en développement.
+
+Éviter un comportement aléatoire impossible à tester.
+
+---
+
+# Milestone 1 — GameplaySessionService
+
+Le service :
+
+```text
+CloneHeroIntegration
+↓
+GameplaySessionService
+↓
+gameplay.stateChanged
+```
+
+doit gérer les transitions de session.
+
+Il ne doit dépendre ni de React ni du Widget Engine.
+
+---
+
+# Milestone 1 — NowPlayingService
+
+Pipeline :
+
+```text
+CloneHero raw song
+↓
+normalization
+↓
+NowPlayingState
+↓
+nowPlaying.changed
+```
+
+Quand la chart n’est plus active :
+
+```text
+nowPlaying.cleared
+```
+
+doit pouvoir être émis afin d’éviter de conserver une ancienne chanson comme chanson active.
+
+---
+
+# Milestone 1 — Store
+
+Créer les slices minimales :
+
+```text
+gameplay
+nowPlaying
+serviceHealth
+widgets
+```
+
+État conceptuel :
+
+```ts
+interface AppState {
+  gameplay: GameplaySessionState;
+
+  nowPlaying:
+    | NowPlayingState
+    | null;
+
+  serviceHealth:
+    Record<string, ServiceHealth>;
+
+  widgets:
+    WidgetEngineState;
+}
+```
+
+---
+
+# Milestone 1 — Synchronisation Events → Store
+
+Créer une couche centrale de bootstrap.
+
+Ne pas connecter chaque composant manuellement à l’EventBus.
+
+Pipeline :
+
+```text
+Service
+↓
+EventBus
+↓
+Store bindings
+↓
+State
+```
+
+---
+
+# Milestone 1 — Service Container
+
+Initialiser les services une seule fois.
+
+Conceptuellement :
+
+```ts
+interface ServiceContainer {
+  cloneHero: CloneHeroIntegration;
+
+  gameplay:
+    GameplaySessionService;
+
+  nowPlaying:
+    NowPlayingService;
+}
+```
+
+Préparer l’architecture pour remplacer :
+
+```text
+MockCloneHeroIntegration
+```
+
+par :
+
+```text
+RealCloneHeroIntegration
+```
+
+plus tard.
+
+---
+
+# Milestone 1 — Logging
+
+Ajouter des logs minimum pour :
+
+```text
+Clone Hero integration started
+Clone Hero integration stopped
+
+Gameplay state changed
+Song detected
+Song cleared
+
+Service started
+Service error
+```
+
+Ne pas logger :
+
+```text
+tokens
+credentials
+private paths unnecessary to debugging
+```
+
+---
+
+# Milestone 1 — Tests
+
+Créer des tests pour :
+
+### EventBus
+
+```text
+emit
+receive
+unsubscribe
+```
+
+### GameplaySessionService
+
+```text
+menu
+→ loading
+→ playing
+→ paused
+→ results
+→ menu
+```
+
+### NowPlayingService
+
+Vérifier :
+
+```text
+raw Clone Hero song
+→ normalized state
+```
+
+et :
+
+```text
+chart ends
+→ nowPlaying cleared
+```
+
+---
+
+# Definition of Done — Milestone 1
+
+Milestone 1 est terminé seulement si :
+
+- le projet compile ;
+- le Mock Clone Hero fonctionne ;
+- les transitions GameplayState fonctionnent ;
+- NowPlayingState est normalisé ;
+- EventBus fonctionne ;
+- Store se met à jour ;
+- Services sont séparés de React ;
+- les tests passent ;
+- aucune fonctionnalité existante importante n’est cassée.
+
+---
+
+# CRÉATION MILESTONE 2 — Widget Engine + Game Overlay
+
+Après validation de Milestone 1, continuer immédiatement avec Milestone 2.
+
+Créer conceptuellement :
+
+```text
+src/core/types/Widget.ts
+
+src/widgets/engine/WidgetRegistry.ts
+src/widgets/engine/CapabilityResolver.ts
+src/widgets/engine/VisibilityResolver.ts
+src/widgets/engine/WidgetRenderer.tsx
+src/widgets/engine/WidgetErrorBoundary.tsx
+src/widgets/engine/WidgetSelectors.ts
+
+src/widgets/core/SongTitle/
+src/widgets/core/Artist/
+src/widgets/core/Charter/
+src/widgets/core/Instrument/
+src/widgets/core/Difficulty/
+
+src/overlay/game/GameOverlay.tsx
+
+src/settings/WidgetSettings.tsx
+
+src/storage/SettingsRepository.ts
+```
+
+---
+
+# Milestone 2 — Widget Model
+
+Créer :
+
+```ts
+interface WidgetInstance {
+  id: string;
+
+  type: string;
+
+  enabled: boolean;
+
+  position: {
+    x: number;
+    y: number;
+  };
+
+  size: {
+    width: number;
+    height: number;
+  };
+
+  visibility: {
+    game: boolean;
+    stream: boolean;
+  };
+
+  gameplayVisibility?: GameplayState[];
+
+  style: WidgetStyle;
+
+  config:
+    Record<string, unknown>;
+}
+```
+
+Chaque instance doit avoir un ID stable et unique.
+
+---
+
+# Milestone 2 — Widget Registry
+
+Le Registry doit permettre :
+
+```text
+register
+get
+getAll
+```
+
+Les composants doivent être enregistrés de façon modulaire.
+
+Ne pas créer un `switch(widget.type)` géant réparti dans le projet.
+
+---
+
+# Milestone 2 — Premiers widgets
+
+Créer exactement :
+
+```text
+SongTitleWidget
+ArtistWidget
+CharterWidget
+InstrumentWidget
+DifficultyWidget
+```
+
+Chaque widget doit posséder :
+
+```text
+definition
+component
+settings
+```
+
+lorsque pertinent.
+
+---
+
+# Song Title
+
+Exemple conceptuel :
+
+```tsx
+function SongTitleWidget() {
+  const title =
+    useWidgetSelector(
+      selectSongTitle
+    );
+
+  if (!title) {
+    return null;
+  }
+
+  return <div>{title}</div>;
+}
+```
+
+Même principe pour les autres.
+
+---
+
+# Milestone 2 — Capability Resolver
+
+Capabilities minimum :
+
+```text
+song.title
+song.artist
+song.charter
+song.instrument
+song.difficulty
+```
+
+Exemple :
+
+```text
+SongTitleWidget
+requires song.title
+```
+
+Si la donnée n’existe pas :
+
+```text
+widget hidden
+```
+
+Ne jamais afficher :
+
+```text
+undefined
+null
+N/A
+```
+
+par défaut.
+
+---
+
+# Milestone 2 — Visibility Resolver
+
+Le resolver doit prendre en compte :
+
+```text
+enabled
+destination game/stream
+GameplayState
+capabilities
+```
+
+Pour les widgets Now Playing :
+
+```text
+playing
+paused
+```
+
+par défaut.
+
+---
+
+# Milestone 2 — Game Overlay
+
+Créer un premier overlay fonctionnel.
+
+Pendant `playing` :
+
+```text
+Everlong
+Foo Fighters
+
+ExampleCharter
+Guitar • Expert
+```
+
+Le rendu peut être simple.
+
+Ne pas perdre du temps sur le design avancé pendant Milestone 2.
+
+---
+
+# Milestone 2 — Visibilité automatique
+
+Tester obligatoirement :
+
+## Idle
+
+```text
+hidden
+```
+
+## Menu
+
+```text
+hidden
+```
+
+## Loading
+
+```text
+hidden
+```
+
+## Playing
+
+```text
+visible
+```
+
+## Paused
+
+```text
+visible
+```
+
+## Results
+
+```text
+hidden par défaut
+```
+
+## Retour Menu
+
+```text
+hidden immédiatement
+```
+
+Aucune information de l’ancienne chart ne doit rester affichée.
+
+---
+
+# Milestone 2 — Settings MVP
+
+Créer une interface simple :
+
+```text
+NOW PLAYING
+
+☑ Song Title
+☑ Artist
+☑ Charter
+☑ Instrument
+☑ Difficulty
+```
+
+La modification doit être immédiate.
+
+Aucun redémarrage nécessaire.
+
+---
+
+# Milestone 2 — Persistence MVP
+
+Sauvegarder au minimum :
+
+```text
+enabled
+position
+size
+visibility.game
+visibility.stream
+gameplayVisibility
+```
+
+Format versionné :
+
+```json
+{
+  "version": 1,
+  "widgets": []
+}
+```
+
+---
+
+# Milestone 2 — Error Isolation
+
+Envelopper chaque widget avec :
+
+```text
+WidgetErrorBoundary
+```
+
+Tester volontairement une erreur dans un widget.
+
+Résultat attendu :
+
+```text
+Song Title ✓
+Artist ✓
+Charter ✕
+Instrument ✓
+Difficulty ✓
+```
+
+Le reste de l’overlay continue.
+
+---
+
+# Milestone 2 — Tests
+
+Ajouter des tests pour :
+
+### WidgetRegistry
+
+```text
+register widget
+retrieve widget
+list widgets
+handle duplicate registration
+handle unknown widget
+```
+
+### VisibilityResolver
+
+Tester :
+
+```text
+menu → false
+playing → true
+paused → true
+results → false
+```
+
+### CapabilityResolver
+
+Tester une donnée :
+
+```text
+available
+missing
+```
+
+### Settings Persistence
+
+Tester :
+
+```text
+disable Artist
+save
+reload
+Artist remains disabled
+```
+
+---
+
+# Definition of Done — Milestone 2
+
+Milestone 2 est terminé seulement si :
+
+- les 5 widgets sont enregistrés via WidgetRegistry ;
+- le Game Overlay les rend réellement ;
+- Now Playing apparaît uniquement pendant une chart ;
+- il reste visible en pause ;
+- il disparaît dans les menus ;
+- les widgets sont activables individuellement ;
+- les réglages sont persistants ;
+- un widget peut tomber en erreur sans casser l’overlay ;
+- les tests passent ;
+- le projet compile ;
+- aucun accès direct à Clone Hero n’existe dans un widget.
+
+---
+
+# Démonstration obligatoire après Milestone 1 + 2
+
+Créer un scénario Mock déterministe.
+
+## Étape 1
+
+```text
+MENU
+```
+
+Résultat :
+
+```text
+aucun Now Playing
+```
+
+## Étape 2
+
+```text
+LOADING
+```
+
+Résultat :
+
+```text
+aucun Now Playing
+```
+
+## Étape 3
+
+```text
+PLAYING
+```
+
+Résultat :
+
+```text
+Everlong
+Foo Fighters
+ExampleCharter
+Guitar
+Expert
+```
+
+## Étape 4
+
+Désactiver :
+
+```text
+Artist
+```
+
+Résultat :
+
+```text
+Everlong
+ExampleCharter
+Guitar
+Expert
+```
+
+## Étape 5
+
+```text
+PAUSED
+```
+
+Résultat :
+
+```text
+overlay toujours visible
+```
+
+## Étape 6
+
+```text
+RESULTS
+```
+
+Résultat par défaut :
+
+```text
+Now Playing hidden
+```
+
+## Étape 7
+
+```text
+MENU
+```
+
+Résultat :
+
+```text
+aucune donnée de la dernière chart affichée
+```
+
+---
+
+# Rapport demandé à Codex après implémentation
+
+À la fin de Milestone 1 + 2, Codex doit fournir un résumé court contenant :
+
+```text
+Files created
+Files modified
+
+Architecture decisions
+
+Tests added
+Tests passed
+
+Build/typecheck status
+
+Known limitations
+
+Anything intentionally deferred
+```
+
+Mentionner explicitement toute hypothèse faite sur l’intégration Clone Hero.
+
+---
+
+# Interdiction de scope creep pendant Milestone 1 + 2
+
+Ne pas implémenter encore :
+
+```text
+Drag & Drop avancé
+Themes avancés
+Custom Colors avancées
+OBS
+StreamRenderer
+Library Scanner
+Search
+Downloads
+Install
+Requests
+Twitch
+YouTube
+History
+Live Gameplay Metrics
+```
+
+Ces fonctionnalités restent dans le plan, mais ne doivent pas compliquer la fondation initiale.
+
+---
+
+# Milestone 3 — Widget Builder
+
+Après validation réelle de Milestone 1 + 2 :
+
+```text
+Drag & Drop
+Resize
+Snap
+Alignment
+Visibility
+Persistence avancée
+Game Preview
+Undo / Redo de base
+```
+
+---
+
+# Milestone 4 — Themes
+
+Ajouter :
+
+```text
+Theme Engine
+Presets
+Custom Colors
+Custom Component Colors
+Glow
+Gradient
+```
+
+---
+
+# Milestone 5 — Stream
+
+Créer :
+
+```text
+Stream Renderer
+Stream Preview
+Game / Stream Visibility
+OBS Browser Source
+WebSocket
+Transparent Background
+```
+
+---
+
+# Milestone 6 — Installed Library
+
+Créer :
+
+```text
+Full Scan
+Quick Refresh
+File Watcher
+Installed Index
+```
+
+---
+
+# Milestone 7 — ChartsHub Integration
+
+Ajouter :
+
+```text
+Chart Matching
+Verified Charter
+Artwork
+Search
+Alternative Charts
+```
+
+---
+
+# Milestone 8 — Downloads
+
+Créer :
+
+```text
+Download Manager
+Queue
+Pause
+Resume
+Cancel
+Retry
+```
+
+---
+
+# Milestone 9 — Install
+
+Créer :
+
+```text
+Chart Validator
+Duplicate Detection
+Install
+Auto Refresh Library
+```
+
+---
+
+# Milestone 10 — Requests
+
+Créer :
+
+```text
+RequestQueueService
+Manual Requests
+Approval
+Queue Management
+Next Request Widget
+```
+
+---
+
+# Milestone 11 — Public Requests
+
+Créer :
+
+```text
+Viewer Request Page
+Installed Songs Browser
+Request Button
+Queue Position
+QR Code
+```
+
+---
+
+# Milestone 12 — Stream Requests
+
+Créer :
+
+```text
+Request Queue Widget
+Next Request Stream Widget
+Requests Open Widget
+QR Widget
+```
+
+---
+
+# Milestone 13 — Results / History
+
+Créer :
+
+```text
+Song Complete
+Recently Played
+History
+```
+
+---
+
+# Milestone 14 — Gameplay Metrics
+
+Seulement ensuite :
+
+```text
+Score
+Accuracy
+Combo
+Misses
+Stars
+FC
+```
+
+---
+
+# Milestone 15 — Twitch / YouTube
+
+Créer les nouveaux adapters.
+
+Ne pas modifier le cœur du RequestQueueService.
+
+---
+
+# Première tâche concrète pour Codex
+
+Commencer maintenant par créer et connecter :
+
+```text
+1. AppEvents.ts
+2. EventBus.ts
+3. GameplayState.ts
+4. NowPlaying.ts
+5. ServiceHealth.ts
+6. AppState.ts
+7. createStore.ts
+8. selectors.ts
+9. CloneHeroIntegration.ts
+10. CloneHeroTypes.ts
+11. MockCloneHeroIntegration.ts
+12. GameplaySessionService.ts
+13. NowPlayingService.ts
+14. ServiceContainer.ts
+15. Logger.ts
+
+16. Widget.ts
+17. WidgetRegistry.ts
+18. CapabilityResolver.ts
+19. VisibilityResolver.ts
+20. WidgetSelectors.ts
+21. WidgetRenderer.tsx
+22. WidgetErrorBoundary.tsx
+
+23. SongTitleWidget
+24. ArtistWidget
+25. CharterWidget
+26. InstrumentWidget
+27. DifficultyWidget
+
+28. GameOverlay.tsx
+29. WidgetSettings.tsx
+30. SettingsRepository.ts
+
+31. Tests Milestone 1
+32. Tests Milestone 2
+```
+
+Puis connecter la chaîne :
+
+```text
+Mock Clone Hero
+→ GameplaySessionService
+→ NowPlayingService
+→ EventBus
+→ State Store
+→ Widget Selectors
+→ Widget Registry
+→ Visibility Resolver
+→ Widget Renderer
+→ Game Overlay
+```
+
+---
+
+# Test architectural
+
+Codex doit pouvoir répondre oui à :
+
+**Si la méthode de détection de Clone Hero change, peut-on remplacer uniquement CloneHeroIntegration ?**
+
+Oui.
+
+**Si on ajoute Twitch, faut-il modifier le Widget Engine ?**
+
+Non.
+
+**Si on ajoute un widget Viewer Count, faut-il modifier Now Playing ?**
+
+Non.
+
+**Si Next Request est affiché sous Now Playing, sont-ils quand même indépendants ?**
+
+Oui.
+
+**Si le joueur retourne au menu, Now Playing disparaît-il automatiquement ?**
+
+Oui.
+
+**Si un widget plante, l’overlay complet continue-t-il de fonctionner ?**
+
+Oui.
+
+**Les Milestones 1 + 2 peuvent-ils fonctionner entièrement avec MockCloneHeroIntegration ?**
+
+Oui.
+
+---
+
+# Règles obligatoires pour Codex
+
+1. Les widgets n’accèdent jamais directement aux integrations.
+2. Les widgets n’accèdent jamais directement au filesystem.
+3. Les widgets ne font pas de requêtes réseau.
+4. Les services métier ne dépendent jamais de React.
+5. Les renderers ne doivent pas connaître les détails de Clone Hero.
+6. Next Request reste indépendant de Now Playing.
+7. Game et Stream utilisent le même Widget Engine.
+8. La visibilité dépend d’un `GameplayState` réel.
+9. Aucun widget ne doit afficher `undefined`, `null` ou une erreur brute.
+10. La panne d’un service facultatif ne doit pas faire planter tout ChartsHub Companion.
+11. Toute nouvelle integration externe doit passer par un Adapter.
+12. Tout nouveau widget doit pouvoir être ajouté via le Widget Registry.
+13. Les tests doivent être ajoutés en même temps que les fondations.
+14. Milestone 1 + 2 doivent être fonctionnels avant de démarrer Milestone 3.
+15. Ne pas créer d’architecture parallèle si le projet possède déjà un équivalent réutilisable.
+
+---
+
+# Ce qu’il ne faut pas faire trop tôt
+
+Ne pas prioriser au début :
+
+- Twitch ;
+- YouTube ;
+- statistiques complexes ;
+- animations sophistiquées ;
+- marketplace de widgets ;
+- dizaines de presets ;
+- achievements ;
+- social features.
+
+Prioriser d’abord :
+
+```text
+Architecture
+↓
+Now Playing
+↓
+Gameplay State
+↓
+Widget Engine
+↓
+Builder
+↓
+Stream
+↓
+Library
+↓
+Search / Download / Install
+↓
+Requests
+```
+
+---
+
+# Résultat final visé
+
+Pendant une chart :
+
+```text
+┌──────────────────────────────────────────┐
+│ NOW PLAYING                              │
+│                                          │
+│ [ART] Everlong                           │
+│       Foo Fighters                       │
+│       ExampleCharter ✓                   │
+│                                          │
+│       Expert Guitar                      │
+│                                          │
+│ 98.72% • 426x                            │
+│                                          │
+│ ────────────────────────────────────     │
+│ NEXT REQUEST                             │
+│ Through the Fire and Flames              │
+│ DragonForce                              │
+│ Requested by Alex                        │
+└──────────────────────────────────────────┘
+```
+
+Retour dans le menu :
+
+```text
+Now Playing hidden
+```
+
+Mais le streamer peut conserver :
+
+```text
+SONG REQUESTS OPEN
+
+1,857 songs available
+
+[ QR CODE ]
+```
+
+---
+
+# Directive finale pour Codex
+
+Le projet doit être pensé comme une plateforme de widgets et de services.
+
+Pas comme un overlay.
+
+Modèle mental :
+
+```text
+Sources
+↓
+Adapters
+↓
+Services
+↓
+Events
+↓
+State
+↓
+Widgets
+↓
+Renderers
+```
+
+Le **Widget Engine ne doit jamais savoir comment les données ont été obtenues**.
+
+Le **service de données ne doit jamais savoir comment ses données vont être affichées**.
+
+Le **Gameplay State doit contrôler la visibilité contextuelle**, notamment pour cacher automatiquement Now Playing quand aucune chart n’est réellement jouée.
+
+## Action immédiate
+
+**Créer réellement Milestone 1 + Milestone 2 maintenant.**
+
+Ne pas commencer Milestone 3 tant que :
+
+```text
+architecture
++
+mock gameplay
++
+state
++
+widget registry
++
+visibility
++
+5 widgets
++
+game overlay
++
+settings
++
+persistence
++
+tests
+```
+
+ne sont pas fonctionnels et validés.
+
+C’est cette fondation qui doit guider toutes les phases suivantes.
