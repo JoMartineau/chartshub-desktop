@@ -31,9 +31,9 @@ npm start
 
 ## Versions téléchargeables
 
-Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la préversion correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives.
+Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la version correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives et le statut `Latest` pour l’affichage sur le dépôt. Une version déjà publiée conserve ses archives et son tag ; il faut augmenter le numéro de version pour distribuer un nouveau paquet.
 
-### Version 0.14.0 — préversion
+### Version 0.14.0
 
 - Le catalogue et le Companion partagent la même fenêtre, avec deux onglets pour passer de l’un à l’autre.
 - Un compte ChartsHub ordinaire permet d’ouvrir le Companion. Les outils d’administration et de modération restent réservés aux comptes autorisés ; une déconnexion retire l’accès au Companion.
