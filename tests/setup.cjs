@@ -7,7 +7,8 @@ const os = require('node:os');
 // pickers, so the application's anti-symlink checks remain fully exercised.
 // Preloading this before the test runner also passes the canonical environment
 // to its subprocesses and library workers; application startup never loads it.
-const directory = fs.realpathSync(os.tmpdir());
+// The native implementation also expands Windows 8.3 names such as RUNNER~1.
+const directory = fs.realpathSync.native(os.tmpdir());
 process.env.TMPDIR = directory;
 process.env.TEMP = directory;
 process.env.TMP = directory;
