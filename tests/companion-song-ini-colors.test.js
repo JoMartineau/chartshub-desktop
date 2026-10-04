@@ -175,8 +175,13 @@ test('cancellation never commits a partial index and a later lookup can complete
     return handle;
   } } });
   const resolve = factory(), controller = new AbortController();
-  const pending = resolve(song(), f.current, { signal: controller.signal }); await entered.promise;
-  controller.abort(); gate.resolve(); assert.deepEqual(await pending, { matched: false, ambiguous: true });
+  const pending = resolve(song(), f.current, { signal: controller.signal });
+  try {
+    await Promise.race([entered.promise, pending.then(() => { throw Error('The resolver finished before reaching the controlled metadata read.'); })]);
+    controller.abort(); gate.resolve(); assert.deepEqual(await pending, { matched: false, ambiguous: true });
+  } finally {
+    controller.abort(); gate.resolve(); await Promise.allSettled([pending]);
+  }
   assert.deepEqual(await resolve(song(), f.current), { matched: true, segments: [{ text: 'Charter', color: '#ff0000' }] });
   const aborted = new AbortController(); aborted.abort(); assert.deepEqual(await resolve(song(), f.current, { signal: aborted.signal }), { matched: false, ambiguous: true });
 });

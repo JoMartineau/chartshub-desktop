@@ -5,7 +5,7 @@ on:
     branches: [main]
 concurrency:
   group: desktop-release
-  cancel-in-progress: false
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -124,5 +124,6 @@ jobs:
             gh release create "$VERSION" --target "$GITHUB_SHA" --draft --prerelease --title "ChartsHub $VERSION" --notes-file RELEASE-NOTES.txt
           fi
           test "$(gh release view "$VERSION" --json isDraft --jq .isDraft)" = true
+          gh release edit "$VERSION" --target "$GITHUB_SHA"
           gh release upload "$VERSION" "${ASSETS[@]}" SHA256SUMS.txt --clobber
           gh release edit "$VERSION" --draft=false --prerelease --notes-file RELEASE-NOTES.txt
