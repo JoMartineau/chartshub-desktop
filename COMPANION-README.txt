@@ -1,3 +1,10 @@
+ChartsHub Desktop 0.14.3 — Catalogue et Companion
+
+NOUVEAUTÉS 0.14.3
+Le Companion suit automatiquement la langue Français / English choisie sur ChartsHub, sans redémarrage.
+La Bibliothèque locale peut vérifier tous les groupes de doublons en une seule opération, au-delà de la pagination.
+Aucune copie n’est supprimée automatiquement : la version à conserver, les copies à envoyer à la Corbeille et la confirmation restent explicites.
+
 ChartsHub Desktop 0.14.2 — Catalogue et Companion
 
 NOUVEAUTÉS 0.14.2
