@@ -145,6 +145,7 @@ export class DuplicateComparisonControls {
 
   private async choose(id: string | null): Promise<void> {
     const result = this.result;
+    let prepareAfterSave = false;
     if (!result || !this.state?.rootPath || this.disposed || this.loading || this.saving || this.opening || this.preparing || this.executing || this.needsReload || this.state.scanning || this.state.busy || !result.canChoose) return;
     if (id !== null && !result.variants.some(variant => variant.id === id && variant.notes.status === 'readable')) return;
     const serial = ++this.serial, root = this.state.rootPath, revision = this.state.revision;
@@ -155,13 +156,15 @@ export class DuplicateComparisonControls {
       if (!response?.ok) throw new Error(response?.error || 'Le choix n’a pas pu être enregistré. Rechargez la comparaison pour réessayer.');
       if (response.result?.contextId !== result.contextId || response.result.revision !== revision || response.result.preferredId !== id) throw new Error('La comparaison a changé. Rechargez-la avant de choisir une version.');
       result.preferredId = id;
-      this.feedback(id === null ? 'Choix effacé. Tous les fichiers restent en place.' : 'Version à conserver enregistrée. Tous les fichiers restent en place.');
+      prepareAfterSave = id !== null;
+      this.feedback(id === null ? 'Choix effacé. Tous les fichiers restent en place.' : 'Version à conserver enregistrée. Vérification automatique des autres versions…');
     } catch (error) {
       if (!this.current(serial, root, revision)) return;
       this.feedback(error instanceof Error ? error.message : 'Enregistrement indisponible. Rechargez la comparaison.', true); this.needsReload = true;
     } finally {
       if (this.current(serial, root, revision)) { this.saving = false; this.refreshAvailability(); }
     }
+    if (prepareAfterSave && this.current(serial, root, revision) && result.preferredId === id && !this.needsReload) await this.prepareCleanup();
   }
 
   private async openFolder(id: string): Promise<void> {
@@ -218,9 +221,14 @@ export class DuplicateComparisonControls {
         || new Set(plan.candidates.map(candidate => candidate.id)).size !== plan.candidates.length) {
         throw new Error('Ce plan de nettoyage est périmé ou invalide. Rechargez la comparaison.');
       }
-      this.cleanupPlan = plan; this.renderCleanup();
-      const eligible = plan.candidates.filter(candidate => this.eligible(candidate, plan)).length;
-      this.feedback(eligible ? `${number(eligible)} copies vérifiées disponibles. Cochez uniquement celles à envoyer à la Corbeille.` : 'Aucune copie ne peut être envoyée à la Corbeille. Consultez les raisons indiquées.');
+      this.cleanupPlan = plan;
+      const eligibleCandidates = plan.candidates.filter(candidate => this.eligible(candidate, plan));
+      for (const candidate of eligibleCandidates) this.cleanupSelection.add(candidate.id);
+      this.renderCleanup();
+      const eligible = eligibleCandidates.length, blocked = plan.candidates.length - eligible;
+      this.feedback(eligible
+        ? `${number(eligible)} autre(s) version(s) sûre(s) présélectionnée(s) pour la Corbeille.${blocked ? ` ${number(blocked)} version(s) protégée(s) car différente(s) ou non vérifiée(s).` : ''} Vérifiez puis confirmez la suppression.`
+        : 'Aucune autre version n’est suffisamment vérifiée pour être supprimée. Consultez les raisons indiquées.');
     } catch (error) {
       if (!this.current(serial, root, revision)) return;
       this.clearCleanup(); this.needsReload = true;
@@ -253,11 +261,12 @@ export class DuplicateComparisonControls {
     for (const [index, candidate] of plan.candidates.entries()) {
       const item = document.createElement('div'); item.className = 'library-cleanup-candidate'; item.dataset.cleanupId = candidate.id;
       const label = document.createElement('label'); label.className = 'library-cleanup-choice';
-      const check = document.createElement('input'); check.type = 'checkbox'; check.checked = false; check.className = 'library-cleanup-check';
+      const check = document.createElement('input'); check.type = 'checkbox'; check.className = 'library-cleanup-check';
       check.id = `library-cleanup-check-${index}`; check.dataset.cleanupId = candidate.id;
-      const caption = document.createElement('span'); caption.textContent = `Sélectionner cette copie : ${candidate.relativePath}`;
-      label.append(check, caption); item.append(label); details(candidate, item);
       const eligible = this.eligible(candidate, plan);
+      check.checked = eligible && this.cleanupSelection.has(candidate.id);
+      const caption = document.createElement('span'); caption.textContent = eligible ? `Supprimer cette copie : ${candidate.relativePath}` : `Suppression bloquée : ${candidate.relativePath}`;
+      label.append(check, caption); item.append(label); details(candidate, item);
       const reason = document.createElement('p'); reason.className = 'library-cleanup-reason'; reason.id = `library-cleanup-reason-${index}`;
       reason.textContent = eligible ? 'Notes, audio et tous les fichiers identiques à la version conservée.'
         : candidate.reason || 'Nettoyage bloqué : les fichiers et un audio présent doivent être entièrement vérifiés.';
@@ -353,11 +362,16 @@ export class DuplicateComparisonControls {
     this.element<HTMLButtonElement>('#library-comparison-close').disabled = this.executing;
     const prepare = this.element<HTMLButtonElement>('#library-cleanup-prepare');
     prepare.hidden = !this.result?.preferredId; prepare.disabled = !this.cleanupAvailable();
-    prepare.textContent = this.preparing ? 'Vérification des fichiers…' : 'Vérifier l’audio et préparer le nettoyage';
+    prepare.textContent = this.preparing ? 'Vérification des fichiers…' : this.cleanupPlan ? 'Revérifier les autres versions' : 'Vérifier l’audio et préparer le nettoyage';
     const recycle = this.element<HTMLButtonElement>('#library-cleanup-recycle');
-    recycle.disabled = !this.cleanupPlan || !this.cleanupAvailable() || !this.cleanupSelection.size;
-    recycle.textContent = `Envoyer ${number(this.cleanupSelection.size)} copies à la Corbeille`;
-    this.element('#library-cleanup-selection').textContent = `${number(this.cleanupSelection.size)} copie(s) sélectionnée(s). La version conservée est exclue.`;
+    const selected = this.cleanupSelection.size;
+    recycle.disabled = !this.cleanupPlan || !this.cleanupAvailable() || !selected;
+    recycle.textContent = selected === 1 ? 'Supprimer l’autre version' : selected > 1 ? `Supprimer les ${number(selected)} autres versions` : 'Aucune autre version sûre à supprimer';
+    this.element('#library-cleanup-selection').textContent = selected === 1
+      ? '1 autre version sera envoyée à la Corbeille. La version conservée est protégée.'
+      : selected > 1
+        ? `${number(selected)} autres versions seront envoyées à la Corbeille. La version conservée est protégée.`
+        : 'Aucune autre version sûre n’est sélectionnée. La version conservée est protégée.';
     for (const [id, check] of this.cleanupChecks) {
       const candidate = this.cleanupPlan?.candidates.find(value => value.id === id);
       check.disabled = !this.cleanupAvailable() || !this.cleanupPlan || !candidate || !this.eligible(candidate, this.cleanupPlan);
