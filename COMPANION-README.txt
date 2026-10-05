@@ -1,3 +1,9 @@
+ChartsHub Desktop 0.14.2 — Catalogue et Companion
+
+NOUVEAUTÉS 0.14.2
+Navigation Compte/Catalogue/Companion stabilisée sans clignotement de l’onglet Companion pendant la revalidation du même compte.
+Les déconnexions et changements réels de session continuent de retirer immédiatement l’accès.
+
 ChartsHub Desktop 0.14.1 — Catalogue et Companion
 
 NOUVEAUTÉS 0.14.1

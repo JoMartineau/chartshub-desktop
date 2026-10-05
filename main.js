@@ -119,10 +119,15 @@ else{
   let adminAllowed=false,adminCheck=null,adminRevision=0;
   const refreshAdministrator=()=>{if(adminCheck)return adminCheck;const current=adminRevision;adminCheck=administrator().then(value=>{if(current===adminRevision)adminAllowed=value;}).finally(()=>{adminCheck=null;if(current!==adminRevision)void refreshAdministrator();});return adminCheck;};
   const resetAdministrator=()=>{invalidateAccount();adminAllowed=false;adminRevision++;void refreshAdministrator();};
-  web.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace){invalidateAccount();adminAllowed=false;adminRevision++;}});
-  web.on('did-finish-load',resetAdministrator);
+  // Navigating between ChartsHub pages does not change the authenticated identity.
+  // Keep Companion visible while the current session is revalidated in the background.
+  // Cookie/account mutations still revoke access immediately.
+  const beginNavigationRevalidation=()=>{adminAllowed=false;adminRevision++;};
+  const finishNavigationRevalidation=()=>{void refreshAdministrator();};
+  web.on('did-start-navigation',(_event,_url,inPlace,mainFrame)=>{if(mainFrame&&!inPlace)beginNavigationRevalidation();});
+  web.on('did-finish-load',finishNavigationRevalidation);
   ses.cookies.on('changed',(_event,cookie)=>{if(cookie.name==='chartshub_session'&&cookie.domain.replace(/^\./,'')===new URL(ORIGIN).hostname)resetAdministrator();});
-  ipcMain.handle('chartshub:account-changed',event=>{if(allowedSender(event))resetAdministrator();});
+  ipcMain.handle('chartshub:account-changed',event=>{if(allowedSender(event)){beginNavigationRevalidation();void refreshAdministrator();}});
   const openGuest=async()=>{
    if(!await administrator()||closing||!win||win.isDestroyed())return;
    if(guest&&!guest.isDestroyed()){guest.focus();return;}
