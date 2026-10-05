@@ -33,6 +33,12 @@ npm start
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la version correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives et le statut `Latest` pour l’affichage sur le dépôt. Une version déjà publiée conserve ses archives et son tag ; il faut augmenter le numéro de version pour distribuer un nouveau paquet.
 
+### Version 0.14.4
+
+- Correction de la localisation English du Companion : les états dynamiques Clone Hero, ReShade et Filtres suivent maintenant complètement la langue choisie.
+- Les messages natifs comme « En attente d’un morceau », « Pont installé » et les états de préparation ReShade sont traduits sans redémarrage.
+- Les contenus utilisateur (titres, artistes, charters, chemins et noms de profils) restent inchangés.
+
 ### Version 0.14.3
 
 - Le Companion suit automatiquement la langue Français / English choisie sur ChartsHub et bascule sans redémarrage.

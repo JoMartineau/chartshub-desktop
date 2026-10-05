@@ -16,6 +16,7 @@ import { ProfileControls } from '../dist/settings/ProfileControls.js';
 
 const api = window.ChartsHubCompanion;
 const query = selector => document.querySelector(selector);
+const ui = value => window.ChartshubCompanionLanguage?.translate?.(value) ?? value;
 const controls = {
   state: query('#gameplay-state'), next: query('#step-mock'), reset: query('#reset-mock'),
   overlay: query('#overlay-enabled'), feedback: query('#action-feedback'),

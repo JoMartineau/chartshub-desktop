@@ -1,3 +1,10 @@
+ChartsHub Desktop 0.14.4 — Catalogue et Companion
+
+CORRECTIFS 0.14.4
+La localisation English du Companion couvre maintenant les états dynamiques Clone Hero, ReShade et Filtres.
+Les messages de service suivent la langue sélectionnée sans redémarrage.
+Les titres, artistes, charters, chemins et noms de profils ne sont jamais traduits.
+
 ChartsHub Desktop 0.14.3 — Catalogue et Companion
 
 NOUVEAUTÉS 0.14.3

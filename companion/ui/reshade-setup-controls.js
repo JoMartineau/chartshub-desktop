@@ -1,3 +1,4 @@
+const ui = value => typeof window !== 'undefined' ? (window.ChartshubCompanionLanguage?.translate?.(value) ?? value) : value;
 const stateLabels = { idle: 'À préparer', preparing: 'Téléchargement…', ready: 'Prêt à installer', installing: 'Installation…', complete: 'Installation terminée', error: 'À vérifier' };
 const setText = (node, value) => { if (node && node.textContent !== value) node.textContent = value; };
 const size = value => `${(Math.max(0, value) / 1048576).toLocaleString(document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US', { maximumFractionDigits: 1 })} Mo`;
@@ -53,15 +54,15 @@ export class ReShadeSetupControls {
     const presentation = setupPresentation(setup, source, this.includeStarterEffects);
     this.node('#reshade-setup').hidden = !visible;
     const toggle = this.node('#reshade-setup-toggle'); toggle.hidden = !source?.connected || busy || ['ready', 'error'].includes(state); toggle.setAttribute('aria-expanded', String(visible));
-    setText(toggle, visible ? 'Masquer l’assistant' : 'Installer ou mettre à jour ReShade');
-    setText(this.node('#reshade-setup-state'), installing ? 'Installation…' : preparing ? 'Téléchargement…' : presentation.label);
+    setText(toggle, ui(visible ? 'Masquer l’assistant' : 'Installer ou mettre à jour ReShade'));
+    setText(this.node('#reshade-setup-state'), ui(installing ? 'Installation…' : preparing ? 'Téléchargement…' : presentation.label));
     this.node('#reshade-setup-effects').checked = this.includeStarterEffects;
     this.node('#reshade-setup-effects').disabled = !setup || busy;
-    setText(this.node('#reshade-setup-message'), setup?.message || 'Choisissez le dossier du jeu ci-dessus pour commencer.');
+    setText(this.node('#reshade-setup-message'), ui(setup?.message || 'Choisissez le dossier du jeu ci-dessus pour commencer.'));
     const progress = setup?.progress;
     this.node('#reshade-setup-progress').hidden = !progress;
     if (progress) {
-      setText(this.node('#reshade-setup-progress-label'), progress.label || 'Téléchargement en cours');
+      setText(this.node('#reshade-setup-progress-label'), ui(progress.label || 'Téléchargement en cours'));
       const received = typeof progress.received === 'number' && Number.isFinite(progress.received) ? Math.max(0, progress.received) : 0;
       const total = typeof progress.total === 'number' && Number.isFinite(progress.total) && progress.total > 0 ? progress.total : 0;
       setText(this.node('#reshade-setup-progress-size'), total ? `${size(received)} / ${size(total)}` : size(received));
@@ -72,8 +73,8 @@ export class ReShadeSetupControls {
     const showReview = !!setup?.rootPath && (['ready', 'installing', 'complete'].includes(state) || !!setup?.files?.length);
     this.node('#reshade-setup-review').hidden = !showReview;
     setText(this.node('#reshade-setup-version'), `ReShade ${setup?.version || '—'}`);
-    setText(this.node('#reshade-setup-root'), setup?.rootPath || 'Aucun dossier sélectionné');
-    setText(this.node('#reshade-setup-ready-note'), state === 'complete' ? 'Relancez Clone Hero pour connecter ReShade et choisir vos effets.' : presentation.note);
+    setText(this.node('#reshade-setup-root'), setup?.rootPath || ui('Aucun dossier sélectionné'));
+    setText(this.node('#reshade-setup-ready-note'), ui(state === 'complete' ? 'Relancez Clone Hero pour connecter ReShade et choisir vos effets.' : presentation.note));
     const files = setup?.files || [], signature = JSON.stringify(files);
     if (signature !== this.fileSignature) {
       this.fileSignature = signature;
@@ -82,9 +83,9 @@ export class ReShadeSetupControls {
       this.node('#reshade-setup-files').replaceChildren(fragment);
     }
     const error = this.localError || setup?.error || '';
-    this.node('#reshade-setup-error').hidden = !error; setText(this.node('#reshade-setup-error'), error);
+    this.node('#reshade-setup-error').hidden = !error; setText(this.node('#reshade-setup-error'), ui(error));
     const prepare = this.node('#reshade-setup-prepare'); prepare.disabled = !setup || !source?.rootPath || !source.supported || busy || this.pending.has('reshade.setupCancel');
-    setText(prepare, ['ready', 'error', 'complete'].includes(state) ? 'Préparer de nouveau' : 'Préparer le téléchargement');
+    setText(prepare, ui(['ready', 'error', 'complete'].includes(state) ? 'Préparer de nouveau' : 'Préparer le téléchargement'));
     const install = this.node('#reshade-setup-install'); install.hidden = !['ready', 'installing'].includes(state); install.disabled = !presentation.canInstall || busy || this.pending.has('reshade.setupCancel');
     const cancel = this.node('#reshade-setup-cancel'); cancel.hidden = !preparing && state !== 'ready'; cancel.disabled = installing || this.pending.has('reshade.setupCancel');
   }

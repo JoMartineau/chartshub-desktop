@@ -1,3 +1,4 @@
+const ui = value => typeof window !== 'undefined' ? (window.ChartshubCompanionLanguage?.translate?.(value) ?? value) : value;
 export const DEFAULT_FILTER_SETTINGS = Object.freeze({ enabled: false, saturation: 1, contrast: 1, gamma: 1, exposure: 0, sharpness: 0, vignette: 0 });
 export const FILTER_PRESETS = Object.freeze({
   neutral: Object.freeze({ saturation: 1, contrast: 1, gamma: 1, exposure: 0, sharpness: 0, vignette: 0 }),
@@ -144,15 +145,15 @@ export class FiltersControls {
     const busy = this.busy || status?.busy;
     const presentation = filterPresentation(status);
     const badge = this.node('#filters-status');
-    badge.textContent = presentation.label;
+    badge.textContent = ui(presentation.label);
     badge.classList.toggle('is-visible', presentation.active);
     const message = this.node('#filters-message');
-    if (message) message.textContent = presentation.message;
+    if (message) message.textContent = ui(presentation.message);
     for (const element of this.root.querySelectorAll('button, input, select')) element.disabled = !status || !!busy;
     if (!this.mini) {
-      this.node('#filters-root').textContent = status?.rootPath || 'Aucun dossier sélectionné';
+      this.node('#filters-root').textContent = status?.rootPath || ui('Aucun dossier sélectionné');
       this.node('#filters-install').disabled = !status?.rootPath || !status.supported || !status.binaryAvailable || !!status.installed || !!status.restoreAvailable || !!status.running || !!busy;
-      this.node('#filters-install').textContent = status?.installed ? 'Module installé' : 'Installer le module';
+      this.node('#filters-install').textContent = ui(status?.installed ? 'Module installé' : 'Installer le module');
       this.node('#filters-restore').disabled = !(status?.installed || status?.restoreAvailable) || !!status.running || !!busy;
       this.node('#filters-widget').checked = !!this.snapshot?.filtersWidgetEnabled;
       this.node('#filters-install-note').textContent = status?.running

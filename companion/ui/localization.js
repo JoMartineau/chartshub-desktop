@@ -150,6 +150,48 @@
     ['Lorsqu’elles sont disponibles, elles remplacent la couleur et le dégradé du texte. Décochez pour utiliser votre style. Appliquez ensuite au widget.','When available, these replace the text color and gradient. Uncheck to use your own style, then apply it to the widget.'],
     ['Les effets suivent le thème tant que vous ne les modifiez pas ici. Une couleur de texte personnalisée remplace le dégradé global ; un dégradé propre au widget peut le réactiver. Revenir au thème conserve la position, la taille et la police.','Effects follow the theme until you change them here. A custom text color replaces the global gradient; a widget-specific gradient can enable it again. Returning to the theme keeps position, size and font.'],
     ['La démonstration utilise un scénario local. Choisissez Direct Clone Hero pour lire les informations exportées par le jeu.','The demo uses a local scenario. Choose Direct Clone Hero to read information exported by the game.'],
+    ['En attente d’un morceau','Waiting for a song'],['En attente','Waiting'],
+    ['Clone Hero est fermé. En attente d’une nouvelle session.','Clone Hero is closed. Waiting for a new session.'],
+    ['Aucun titre exporté. En attente d’un chart.','No title exported. Waiting for a chart.'],
+    ['Export présent. En attente d’une nouvelle écriture de Clone Hero pour éviter un ancien titre.','Export found. Waiting for a fresh Clone Hero update to avoid showing a stale title.'],
+    ['Nouvel export détecté. Vérification de sa stabilité.','New export detected. Checking stability.'],
+    ['Export actif : titre, artiste et charter disponibles. L’état de jeu et la pause restent inconnus.','Active export: title, artist and charter are available. Exact gameplay state and pause remain unknown.'],
+    ['La lecture de l’export Clone Hero a échoué.','Failed to read the Clone Hero export.'],['Vérification du fichier d’export natif.','Checking native export file.'],
+    ['Export natif détecté. La source est arrêtée.','Native export detected. The source is stopped.'],['La source Clone Hero est arrêtée.','The Clone Hero source is stopped.'],
+    ['Installé · en attente de ReShade','Installed · waiting for ReShade'],['Réinstaller l’intégration','Reinstall integration'],
+    ['Pont installé. Lancez Clone Hero pour afficher ses effets ReShade.','Bridge installed. Start Clone Hero to display ReShade effects.'],
+    ['Pont installé, en attente de ReShade. Le chargement des shaders peut prendre quelques secondes.','Bridge installed, waiting for ReShade. Loading shaders may take a few seconds.'],
+    ['ReShade connecté. Choisissez les effets à activer.','ReShade connected. Choose the effects to enable.'],['ReShade charge les effets du jeu.','ReShade is loading the game effects.'],
+    ['Choisissez le dossier de Clone Hero.','Choose the Clone Hero folder.'],['Le pont ReShade est disponible sur Windows 64 bits.','The ReShade bridge is available on 64-bit Windows.'],
+    ['Connectez ChartsHub pour rétablir ReShade et retrouver ses effets.','Connect ChartsHub to restore ReShade and access its effects.'],
+    ['ReShade est présent. Installez le pont pour le piloter depuis ChartsHub.','ReShade is present. Install the bridge to control it from ChartsHub.'],
+    ['ReShade avec prise en charge des add-ons est requis dans ce dossier.','ReShade with add-on support is required in this folder.'],
+    ['Préparez ReShade pour cette installation de Clone Hero.','Prepare ReShade for this Clone Hero installation.'],
+    ['À préparer','Needs preparation'],['Prêt à installer','Ready to install'],['Installation…','Installing…'],['Installation terminée','Installation complete'],['À vérifier','Needs attention'],['Déjà installé','Already installed'],
+    ['Masquer l’assistant','Hide setup assistant'],['Préparer de nouveau','Prepare again'],['Téléchargement en cours','Download in progress'],
+    ['Le dossier a changé. Préparez de nouveau l’installation pour la nouvelle cible.','The folder changed. Prepare the installation again for the new target.'],
+    ['Le choix du pack a changé. Préparez de nouveau le téléchargement.','The pack selection changed. Prepare the download again.'],
+    ['La version et les fichiers choisis sont déjà présents. Aucun fichier à installer.','The selected version and files are already present. Nothing to install.'],
+    ['Fermez Clone Hero pour installer ces fichiers.','Close Clone Hero before installing these files.'],
+    ['Actualisez l’état du jeu pour vérifier sa fermeture avant l’installation.','Refresh game status to confirm it is closed before installation.'],
+    ['Vérifiez le dossier et les fichiers, puis cliquez sur « Installer dans Clone Hero ».','Review the folder and files, then click “Install in Clone Hero”.'],
+    ['Relancez Clone Hero pour connecter ReShade et choisir vos effets.','Restart Clone Hero to connect ReShade and choose your effects.'],
+    ['Préparation annulée.','Preparation cancelled.'],['Vérification du dossier du jeu…','Checking the game folder…'],
+    ['Fichiers prêts. Fermez Clone Hero, puis installez dans le dossier affiché.','Files ready. Close Clone Hero, then install into the displayed folder.'],
+    ['ReShade et les fichiers choisis sont déjà installés.','ReShade and the selected files are already installed.'],
+    ['Bloom, grain, netteté…','Bloom, grain, sharpness…'],
+    ['Installé · effet non confirmé','Installed · effect not confirmed'],['Module prêt · filtres désactivés','Module ready · filters disabled'],
+    ['Transmission en cours','Applying change'],['Filtres actifs dans le jeu','Filters active in game'],['Module à installer','Module not installed'],['À configurer','Needs configuration'],
+    ['Lancez ou redémarrez Clone Hero pour charger le module. Son installation seule ne confirme pas que les effets sont appliqués.','Start or restart Clone Hero to load the module. Installation alone does not confirm that effects are being applied.'],
+    ['Le module répond ; la confirmation du changement d’activation est attendue.','The module is responding; waiting for the enable/disable change to be confirmed.'],
+    ['Le module ChartsHub confirme le traitement de l’image de Clone Hero.','The ChartsHub module confirms that it is processing the Clone Hero image.'],
+    ['Le module répond. Activez les filtres pour appliquer le style choisi.','The module is responding. Enable filters to apply the selected style.'],
+    ['Choisissez le dossier du jeu, puis installez le module ChartsHub.','Choose the game folder, then install the ChartsHub module.'],
+    ['En attente d’un morceau · consultez le diagnostic de la source.','Waiting for a song · see the source diagnostic.'],
+    ['Affichage du morceau exporté par Clone Hero.','Display the song exported by Clone Hero.'],
+    ['La lecture, la pause et les menus ne sont pas détectés.','Playing, pause and menus are not detected.'],
+    ['Le titre, l’artiste et le créateur proviennent de currentsong.txt. L’instrument, la difficulté et l’état exact du jeu ne sont pas fournis.','Title, artist and charter come from currentsong.txt. Instrument, difficulty and exact game state are not provided.'],
+    ['Source : export natif Clone Hero · lecture et pause indéterminées','Source: native Clone Hero export · playing and pause undetermined'],
     ['Source : Mock Clone Hero · Démonstration locale','Source: Mock Clone Hero · Local demo']
   ]);
 
@@ -275,7 +317,7 @@
     });
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: attrs });
   }
-  window.ChartshubCompanionLanguage = Object.freeze({ get: () => language, apply, refresh, t: (fr, en) => language === 'fr' ? fr : en });
+  window.ChartshubCompanionLanguage = Object.freeze({ get: () => language, apply, refresh, translate: source => language === 'fr' ? String(source ?? '') : english(String(source ?? '')), t: (fr, en) => language === 'fr' ? fr : en });
   document.documentElement.lang = language;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true }); else mount();
 })();
