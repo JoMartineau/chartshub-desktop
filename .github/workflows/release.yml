@@ -112,6 +112,9 @@ jobs:
           sha256sum "${ASSETS[@]}" > SHA256SUMS.txt
           printf 'ChartsHub Desktop %s — Windows, macOS et Linux.\n\n' "$VERSION" > RELEASE-NOTES.txt
           cat >> RELEASE-NOTES.txt <<'NOTES'
+          - Companion synchronisé avec la langue Français / English choisie sur ChartsHub, y compris les fenêtres natives, nombres et dates.
+          - Vérification globale de tous les groupes de doublons de la Bibliothèque locale, avec progression et statut par groupe ; aucune suppression automatique.
+          - Le nettoyage des doublons conserve le choix explicite de la version à garder, la sélection individuelle, la revalidation finale et la Corbeille Windows.
           - Navigation Compte/Catalogue/Companion stabilisée : plus de disparition temporaire de Companion pendant la revalidation du même compte.
           - Panneau Thème du Companion : couleur du bloom, intensité, rayon, flou, opacité et mode économique.
           - Sauvegarde locale du bloom, conservée après redémarrage ; notes, widgets et ReShade inchangés.
