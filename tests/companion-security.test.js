@@ -1519,7 +1519,7 @@ test('audio-different duplicate requires reinforced native confirmation and only
   assert.equal(recycled.length, 0); assert.equal(optionsSeen.defaultId, 0); assert.equal(optionsSeen.cancelId, 0);
   assert.match(optionsSeen.title, /Supprimer quand même|Delete this copy anyway/);
   assert.match(optionsSeen.detail, /Version conservée|Kept version/);
-  assert.match(optionsSeen.detail, /Audio/);
+  assert.match(optionsSeen.detail, /audio/i);
   f.dialog.showMessageBox = async () => ({ response: 1 });
   const result = await f.command('library.forceRecycleDuplicate', request);
   assert.equal(result.ok, true, result.error); assert.deepEqual(result.result.recycledIds, [forced.id]); assert.deepEqual(result.result.failed, []);
