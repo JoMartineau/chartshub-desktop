@@ -1,8 +1,10 @@
 'use strict';
 const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
+ const tabbed=process.argv.includes('--chartshub-tabbed');
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
-  version:'0.14.0',
+  version:'0.14.1',
+  layout:tabbed?'tabbed':'legacy',
   saveCheckerReport:payload=>ipcRenderer.invoke('chartshub:save-checker-report',payload),
   downloadState:()=>ipcRenderer.invoke('chartshub:download-state'),
   onDownloadState:callback=>{if(typeof callback!=='function')return ()=>{};const listener=(_event,data)=>callback(data);ipcRenderer.on('chartshub:download-state',listener);return ()=>ipcRenderer.removeListener('chartshub:download-state',listener);},
@@ -15,7 +17,6 @@ if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  // Mount in the site's utility bar; retain the focused text field for Edit actions.
  window.addEventListener('DOMContentLoaded',()=>{
   window.addEventListener('chartshub:accountchange',()=>ipcRenderer.invoke('chartshub:account-changed'));
-  const tabbed=process.argv.includes('--chartshub-tabbed');
   let caption;
   if(!tabbed){
    caption=document.createElement('div');caption.textContent='ChartsHub';

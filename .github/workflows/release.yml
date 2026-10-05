@@ -112,6 +112,9 @@ jobs:
           sha256sum "${ASSETS[@]}" > SHA256SUMS.txt
           printf 'ChartsHub Desktop %s — Windows, macOS et Linux.\n\n' "$VERSION" > RELEASE-NOTES.txt
           cat >> RELEASE-NOTES.txt <<'NOTES'
+          - Panneau Thème du Companion : couleur du bloom, intensité, rayon, flou, opacité et mode économique.
+          - Sauvegarde locale du bloom, conservée après redémarrage ; notes, widgets et ReShade inchangés.
+          - Correction de la barre de menu du catalogue dans la fenêtre à onglets.
           - Catalogue et Companion réunis dans deux onglets de la même fenêtre.
           - Companion accessible avec un compte ChartsHub ordinaire ; les fonctions administratives conservent leurs contrôles d’accès.
           - Réglages des widgets, dispositions, bibliothèque et préférences conservés localement sur cet ordinateur.
