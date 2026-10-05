@@ -1,9 +1,10 @@
 'use strict';
-const { BrowserWindow, WebContentsView, ipcMain } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain } = require('electron');
 const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { randomUUID } = require('node:crypto');
 const { windowTheme } = require('../window-theme');
+const { createUIBloomIpc } = require('./ui-bloom.cjs');
 
 const HEADER_HEIGHT = 108;
 const STATE_CHANNEL = 'chartshub-shell:state';
@@ -49,6 +50,13 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     try { return Boolean(contents && !contents.isDestroyed()); } catch { return false; }
   }
   const alive = view => Boolean(view && !deadViews.has(view) && contentsAlive(contentsByView.get(view)));
+  let bloom, bloomDisposed;
+  const mountBloom = () => bloom || (bloom = createUIBloomIpc({
+    ipcMain,
+    getContents: () => alive(companionView) ? contentsByView.get(companionView) : null,
+    isAvailable: () => !disposed && !window.isDestroyed() && companionAvailable,
+    getDirectory: () => path.join(app.getPath('userData'), 'companion')
+  }));
   function detach(view) {
     if (!view || window.isDestroyed()) return;
     // Electron may already have destroyed and detached the native View while
@@ -133,6 +141,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     });
     on(contents, 'did-finish-load', () => {
       if (!current() || !alive(view) || selected.error) return; selected.ready = true; selected.loading = false; publish();
+      if (name === 'companion') bloom?.notifyReady(contents);
     });
     on(contents, 'did-stop-loading', () => {
       if (!current() || !alive(view)) return;
@@ -166,7 +175,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     const url = contents.getURL();
     state.companion.ready = Boolean(url && url !== 'about:blank' && !contents.isLoading());
     state.companion.loading = !state.companion.ready; state.companion.error = null;
-    observeView('companion', view); publish(); return true;
+    observeView('companion', view); publish(); mountBloom().notifyReady(contents); return true;
   }
   function setTheme(value) {
     const validated = windowTheme(value);
@@ -183,13 +192,15 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     if (typeof value !== 'boolean') throw TypeError('Invalid Companion availability');
     if (disposed) return null;
     companionAvailable = value;
+    if (value && alive(companionView)) bloom?.notifyReady(contentsByView.get(companionView));
     if (!value && activeTab === 'companion') void selectTab('catalogue');
     else publish();
     return snapshot();
   }
   function dispose() {
-    if (disposed) return;
+    if (disposed) return bloomDisposed;
     disposed = true;
+    bloomDisposed = bloom?.dispose();
     ipcMain.removeHandler(STATE_CHANNEL); ipcMain.removeHandler(SELECT_CHANNEL);
     for (const remove of listeners.splice(0)) {
       try { remove(); } catch { /* Native emitter may already be gone. */ }
@@ -197,6 +208,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     for (const view of [catalogueView, companionView]) detach(view);
     if (contentsAlive(catalogueWeb)) catalogueWeb.close({ waitForBeforeUnload: false });
     // Companion's host may still own overlays or pending persistence work.
+    return bloomDisposed;
   }
 
   shellWeb.setWindowOpenHandler(() => ({ action: 'deny' }));
