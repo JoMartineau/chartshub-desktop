@@ -49,7 +49,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
         if (current !== connection) return;
         if (message.type === 'recycle') {
           const parent = connection.pending.get(message.requestId);
-          const allowed = !connection.stopping && !connection.recycling && parent?.method === 'recycleDuplicates'
+          const allowed = !connection.stopping && !connection.recycling && ['recycleDuplicates', 'forceRecycleDuplicate'].includes(parent?.method)
             && Number.isSafeInteger(message.id) && message.id > 0 && !connection.recycleIds.has(message.id)
             && typeof recycle === 'function' && typeof message.target === 'string' && path.isAbsolute(message.target) && !message.target.includes('\0');
           const reply = ok => { try { worker.postMessage({ type: 'recycle-result', id: message.id, ok }); } catch {} };
@@ -135,7 +135,8 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     selectRoot: root => call('selectRoot', [root]), configure: options => call('configure', [options]),
     requestScan: mode => call('requestScan', [mode]), cancel: () => call('cancel', []),
     compareDuplicates: options => call('compareDuplicates', [options]), chooseDuplicate: options => call('chooseDuplicate', [options]),
-    prepareCleanup: options => call('prepareCleanup', [options]), cleanupReview: options => call('cleanupReview', [options]), recycleDuplicates: options => call('recycleDuplicates', [options]),
+    prepareCleanup: options => call('prepareCleanup', [options]), cleanupReview: options => call('cleanupReview', [options]), cleanupForceReview: options => call('cleanupForceReview', [options]),
+    recycleDuplicates: options => call('recycleDuplicates', [options]), forceRecycleDuplicate: options => call('forceRecycleDuplicate', [options]),
     query: options => call('query', [options]), resolveSongFolder: id => call('resolveSongFolder', [id])
   };
 }
