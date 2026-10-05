@@ -24,3 +24,10 @@ test('native Theme panel follows the synchronized document language',()=>{
  assert.match(bloom,/window\.addEventListener\('chartshub:languagechange', translate\)/);
  assert.ok(bloom.includes("button('open', 'Theme', 'Thème')"));
 });
+
+test('direct duplicate cleanup labels are available in both French and English',()=>{
+ const source=read('companion/src/settings/DuplicateComparisonControls.ts'),locale=read('companion/ui/localization.js'),html=read('companion/ui/index.html');
+ for(const phrase of ['Supprimer l’autre version','Supprimer les ','Aucune autre version sûre à supprimer','Revérifier les autres versions'])assert.ok(source.includes(phrase),phrase);
+ for(const phrase of ['Delete the other version','Delete the ','No other safe version to delete','Recheck other versions','Delete this copy:','Deletion blocked:'])assert.ok(locale.includes(phrase),phrase);
+ assert.match(html,/copies sûres sont présélectionnées/);
+});

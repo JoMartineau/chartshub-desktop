@@ -33,6 +33,13 @@ npm start
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la version correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives et le statut `Latest` pour l’affichage sur le dépôt. Une version déjà publiée conserve ses archives et son tag ; il faut augmenter le numéro de version pour distribuer un nouveau paquet.
 
+### Version 0.14.5
+
+- Dans Doublons, choisir « Conserver cette version » lance automatiquement la vérification des autres copies du groupe.
+- Les copies sûres sont présélectionnées ; le bouton devient « Supprimer l’autre version » ou « Supprimer les X autres versions ».
+- Les copies dont l’audio ou les fichiers sont différents, absents ou non vérifiés restent bloquées et ne peuvent pas être envoyées à la Corbeille.
+- La version conservée reste protégée et la confirmation Windows est toujours obligatoire avant tout déplacement vers la Corbeille.
+
 ### Version 0.14.4
 
 - Correction de la localisation English du Companion : les états dynamiques Clone Hero, ReShade et Filtres suivent maintenant complètement la langue choisie.

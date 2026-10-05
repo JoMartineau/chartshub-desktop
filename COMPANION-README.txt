@@ -1,3 +1,10 @@
+ChartsHub Desktop 0.14.5 — Catalogue et Companion
+
+NOUVEAUTÉS 0.14.5
+Dans Doublons, choisir la version à conserver lance automatiquement la vérification des autres copies.
+Les copies sûres sont présélectionnées et proposées directement à la Corbeille ; les copies différentes ou non vérifiées restent bloquées.
+La confirmation Windows et la protection de la version conservée restent obligatoires.
+
 ChartsHub Desktop 0.14.4 — Catalogue et Companion
 
 CORRECTIFS 0.14.4
