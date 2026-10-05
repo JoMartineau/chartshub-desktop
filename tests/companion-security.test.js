@@ -63,7 +63,7 @@ test('filter mini widget is permitted only filter controls and opening the main 
   const window = { webContents, isDestroyed: () => false };
   const event = { sender: webContents, senderFrame: frame };
   for (const command of ['filters.settings', 'filters.openPanel', 'reshade.command']) assert.equal(trustedFiltersWidgetCommand(event, window, command), true);
-  for (const command of ['filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.widget', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupPrepare', 'reshade.setupInstall', 'reshade.setupCancel', 'library.openFolder', 'library.compareDuplicates', 'library.chooseDuplicate', 'library.prepareCleanup', 'library.recycleDuplicates', 'profile.save', 'profile.apply', 'profile.delete', 'widget.locked', 'overlay.enabled']) assert.equal(trustedFiltersWidgetCommand(event, window, command), false);
+  for (const command of ['filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.widget', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupPrepare', 'reshade.setupInstall', 'reshade.setupCancel', 'library.openFolder', 'library.compareDuplicates', 'library.chooseDuplicate', 'library.prepareCleanup', 'library.recycleDuplicates', 'library.forceRecycleDuplicate', 'profile.save', 'profile.apply', 'profile.delete', 'widget.locked', 'overlay.enabled']) assert.equal(trustedFiltersWidgetCommand(event, window, command), false);
   assert.equal(trustedFiltersWidgetCommand({ ...event, senderFrame: { ...frame } }, window, 'filters.settings'), false);
   frame.url = 'chartshub-companion://app/ui/overlay.html';
   assert.equal(trustedFiltersWidgetCommand(event, window, 'filters.settings'), false);
@@ -1439,13 +1439,15 @@ test('duplicate comparisons cross the worker and keep a durable preference witho
 });
 
 
-test('cleanup IPC accepts only revision-bound plans and unique chart IDs', () => {
+test('cleanup IPC accepts only revision-bound plans and explicit force-delete chart IDs', () => {
   const planId = 'a'.repeat(32), contextId = 'b'.repeat(32), keepId = 'c'.repeat(64), id = 'd'.repeat(64);
-  const prepare = { contextId, revision: 1, keepId }, execute = { planId, revision: 1, ids: [id] };
+  const prepare = { contextId, revision: 1, keepId }, execute = { planId, revision: 1, ids: [id] }, force = { planId, revision: 1, id };
   assert.equal(validCommand('library.prepareCleanup', prepare, []), true);
   assert.equal(validCommand('library.recycleDuplicates', execute, []), true);
+  assert.equal(validCommand('library.forceRecycleDuplicate', force, []), true);
   for (const patch of [{ path: 'C:/private' }, { keepId: '../notes.chart' }, { revision: -1 }, { contextId: 'x' }]) assert.equal(validCommand('library.prepareCleanup', { ...prepare, ...patch }, []), false);
   for (const patch of [{ path: 'C:/private' }, { ids: [] }, { ids: [id, id] }, { ids: ['../notes.chart'] }, { revision: NaN }, { planId: 'x' }, { permanent: true }]) assert.equal(validCommand('library.recycleDuplicates', { ...execute, ...patch }, []), false);
+  for (const patch of [{ path: 'C:/private' }, { id: '../notes.chart' }, { revision: NaN }, { planId: 'x' }, { permanent: true }, { ids: [id] }]) assert.equal(validCommand('library.forceRecycleDuplicate', { ...force, ...patch }, []), false);
   assert.equal(validCommand('library.cleanupReview', execute, []), false);
 });
 
