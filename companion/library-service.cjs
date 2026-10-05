@@ -375,6 +375,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   }
   return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, verifyAllDuplicates, resolveSongFolder, matchingSnapshot,
     prepareCleanup: options => cleanupOperation('prepare', options), cleanupReview: options => cleanupOperation('review', options),
-    recycleDuplicates: options => cleanupOperation('execute', options) };
+    cleanupForceReview: options => cleanupOperation('forceReview', options), recycleDuplicates: options => cleanupOperation('execute', options),
+    forceRecycleDuplicate: options => cleanupOperation('forceExecute', options) };
 }
 module.exports = { createInstalledLibraryService };
