@@ -33,6 +33,12 @@ npm start
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la version correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives et le statut `Latest` pour l’affichage sur le dépôt. Une version déjà publiée conserve ses archives et son tag ; il faut augmenter le numéro de version pour distribuer un nouveau paquet.
 
+### Version 0.14.2
+
+- Navigation Compte/Catalogue/Companion stabilisée : Companion reste visible pendant la revalidation du même compte.
+- Les changements réels de session, déconnexions et échecs de vérification continuent de retirer immédiatement l’accès Companion.
+- Les indicateurs de chargement des onglets gardent une largeur fixe pour éviter les déplacements visuels.
+
 ### Version 0.14.1
 
 - Panneau **Thème** dans le Companion : bloom optionnel, couleur HEX/RVB, intensité, rayon, flou, opacité et mode économique.
