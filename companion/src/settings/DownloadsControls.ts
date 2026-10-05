@@ -23,8 +23,9 @@ const actions: DownloadAction[] = ['pause', 'resume', 'retry', 'cancel', 'openFo
 const amount = (value: number): number => Math.max(0, Number.isFinite(value) ? value : 0);
 const bytes = (value: number): string => {
   const size = amount(value), unit = size >= 1024 ** 3 ? 3 : size >= 1024 ** 2 ? 2 : size >= 1024 ? 1 : 0;
-  return `${(size / 1024 ** unit).toLocaleString('fr-FR', { maximumFractionDigits: unit ? 1 : 0 })} ${['o', 'Kio', 'Mio', 'Gio'][unit]}`;
+  return `${(size / 1024 ** unit).toLocaleString(locale(), { maximumFractionDigits: unit ? 1 : 0 })} ${['o', 'Kio', 'Mio', 'Gio'][unit]}`;
 };
+const locale = (): string => typeof document === 'undefined' || document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US';
 const setText = (element: HTMLElement, value: string): void => { if (element.textContent !== value) element.textContent = value; };
 
 /** Retains each queue row across progress updates and ignores unrelated gameplay snapshots. */
@@ -102,10 +103,10 @@ export class DownloadsControls {
     const summary = this.summary, items = summary?.items ?? [];
     const root = this.element('#downloads-root'); setText(root, summary?.rootPath || 'Aucun dossier sélectionné'); root.title = summary?.rootPath || '';
     this.element<HTMLButtonElement>('#downloads-choose-root').disabled = !summary || this.choosingRoot;
-    setText(this.element('#downloads-count'), `${items.length.toLocaleString('fr-FR')} téléchargement${items.length > 1 ? 's' : ''}`);
+    setText(this.element('#downloads-count'), `${items.length.toLocaleString(locale())} téléchargement${items.length > 1 ? 's' : ''}`);
     this.element('#downloads-empty').hidden = items.length > 0;
     const groups: [DownloadState, string, string][] = [['Downloading', 'en cours', 'en cours'], ['Queued', 'en attente', 'en attente'], ['Paused', 'en pause', 'en pause'], ['Completed', 'terminé', 'terminés'], ['Failed', 'en échec', 'en échec'], ['Cancelled', 'annulé', 'annulés']];
-    const counts = groups.map(([state, singular, plural]) => { const total = items.filter(item => item.state === state).length; return total ? `${total.toLocaleString('fr-FR')} ${total > 1 ? plural : singular}` : ''; }).filter(Boolean);
+    const counts = groups.map(([state, singular, plural]) => { const total = items.filter(item => item.state === state).length; return total ? `${total.toLocaleString(locale())} ${total > 1 ? plural : singular}` : ''; }).filter(Boolean);
     setText(this.element('#downloads-status'), counts.join(' · ') || 'La file est vide.');
     const error = this.element('#downloads-error'); setText(error, summary?.error || ''); error.hidden = !summary?.error;
   }
@@ -151,7 +152,7 @@ export class DownloadsControls {
       const percentage = total && total > 0 ? Math.min(100, Math.floor(received / total * 100)) : null;
       const transferred = `${bytes(received)}${total !== null ? ` / ${bytes(total)}` : ' reçus'}${percentage !== null ? ` · ${percentage} %` : ''}`;
       setText(row.bytes, transferred);
-      setText(row.files, totalFiles !== null ? `${completed.toLocaleString('fr-FR')} / ${totalFiles.toLocaleString('fr-FR')} fichier${totalFiles > 1 ? 's' : ''}` : `${completed.toLocaleString('fr-FR')} fichier${completed > 1 ? 's' : ''} terminé${completed > 1 ? 's' : ''}`);
+      setText(row.files, totalFiles !== null ? `${completed.toLocaleString(locale())} / ${totalFiles.toLocaleString(locale())} fichier${totalFiles > 1 ? 's' : ''}` : `${completed.toLocaleString(locale())} fichier${completed > 1 ? 's' : ''} terminé${completed > 1 ? 's' : ''}`);
       if (item.state === 'Completed') { row.progress.max = 1; row.progress.value = 1; }
       else if (total && total > 0) { row.progress.max = total; row.progress.value = Math.min(received, total); }
       else if (item.state === 'Downloading') { row.progress.removeAttribute('value'); }

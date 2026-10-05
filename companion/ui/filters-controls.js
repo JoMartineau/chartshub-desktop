@@ -136,7 +136,7 @@ export class FiltersControls {
     for (const key of Object.keys(FILTER_PRESETS.neutral)) {
       const input = this.node(`#filters-${key}`), output = this.node(`#filters-${key}-value`);
       if (input) input.value = this.settings[key];
-      if (output) output.textContent = ['sharpness', 'vignette'].includes(key) ? `${Math.round(this.settings[key] * 100)} %` : `${this.settings[key].toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${key === 'exposure' ? ' EV' : ''}`;
+      if (output) output.textContent = ['sharpness', 'vignette'].includes(key) ? `${Math.round(this.settings[key] * 100)} %` : `${this.settings[key].toLocaleString(document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${key === 'exposure' ? ' EV' : ''}`;
     }
   }
   render() {

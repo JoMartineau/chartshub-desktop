@@ -1,6 +1,6 @@
 const stateLabels = { idle: 'À préparer', preparing: 'Téléchargement…', ready: 'Prêt à installer', installing: 'Installation…', complete: 'Installation terminée', error: 'À vérifier' };
 const setText = (node, value) => { if (node && node.textContent !== value) node.textContent = value; };
-const size = value => `${(Math.max(0, value) / 1048576).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} Mo`;
+const size = value => `${(Math.max(0, value) / 1048576).toLocaleString(document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US', { maximumFractionDigits: 1 })} Mo`;
 
 export function setupPresentation(setup, source, includeStarterEffects) {
   const state = setup?.state || 'idle';

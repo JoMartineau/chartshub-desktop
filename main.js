@@ -6,7 +6,7 @@ const {createDesktopShell}=require('./desktop/controller.cjs');
 registerCompanionScheme();
 const profileIndex=process.argv.indexOf('--companion-profile');
 if(profileIndex>=0&&process.argv[profileIndex+1])app.setPath('userData',path.resolve(process.argv[profileIndex+1]));
-let desktop,web,companionHostPromise,closing=false,allowClose=false,companionAvailable=false;
+let desktop,web,companionHostPromise,closing=false,allowClose=false,companionAvailable=false,companionLanguage='en';
 let loadCatalogue=()=>{},canOpenCompanion=async()=>false;
 let requestedTab=process.argv.includes('--companion')?'companion':'catalogue';
 const focusWindow=()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
@@ -18,6 +18,7 @@ const openCompanion=async()=>{
  if(closing||requestedTab!=='companion')return;
  if(!companionHostPromise)companionHostPromise=createCompanionHost({embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
  const host=await companionHostPromise;
+ host.setLanguage?.(companionLanguage);
  if(closing||!companionAvailable||requestedTab!=='companion')return;
  return host.open();
 };
@@ -128,6 +129,12 @@ else{
   web.on('did-finish-load',finishNavigationRevalidation);
   ses.cookies.on('changed',(_event,cookie)=>{if(cookie.name==='chartshub_session'&&cookie.domain.replace(/^\./,'')===new URL(ORIGIN).hostname)resetAdministrator();});
   ipcMain.handle('chartshub:account-changed',event=>{if(allowedSender(event)){beginNavigationRevalidation();void refreshAdministrator();}});
+  ipcMain.handle('chartshub:language',(event,value)=>{
+   if(!allowedSender(event)||!['fr','en'].includes(value))return false;
+   companionLanguage=value;
+   if(companionHostPromise)void companionHostPromise.then(host=>host.setLanguage(value)).catch(()=>{});
+   return true;
+  });
   const openGuest=async()=>{
    if(!await administrator()||closing||!win||win.isDestroyed())return;
    if(guest&&!guest.isDestroyed()){guest.focus();return;}

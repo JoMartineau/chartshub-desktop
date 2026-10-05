@@ -26,7 +26,8 @@ interface ComparisonOptions {
   feedback: (message: string) => void;
 }
 const display = (value: string): string => value?.trim() ? value : '—';
-const number = (value: number): string => Math.max(0, Math.trunc(value || 0)).toLocaleString('fr-FR');
+const locale = (): string => typeof document === 'undefined' || document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US';
+const number = (value: number): string => Math.max(0, Math.trunc(value || 0)).toLocaleString(locale());
 const format = (value: string | null): string => value === 'chart' ? '.chart' : value === 'midi' ? 'MIDI' : value === 'sng' ? '.sng' : 'Non vérifié';
 
 /** A comparison is bound to one committed index revision, independently of list filters. */
@@ -328,7 +329,7 @@ export class DuplicateComparisonControls {
       field('Fichier de notes', format(variant.notes.format));
       field('Taille des notes', variant.notes.bytes === null ? 'Non vérifiée' : `${number(variant.notes.bytes)} octets`);
       const modified = variant.notes.modifiedAt ? new Date(variant.notes.modifiedAt) : null;
-      field('Fichier modifié le', modified && !Number.isNaN(modified.getTime()) ? modified.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'medium' }) : 'Non vérifié');
+      field('Fichier modifié le', modified && !Number.isNaN(modified.getTime()) ? modified.toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'medium' }) : 'Non vérifié');
       field('État des notes', variant.notes.status === 'readable' ? 'Lisibles' : variant.notes.status === 'unsupported' ? 'Format non pris en charge' : 'Indisponibles');
       const group = document.createElement('p'); group.className = 'library-note-group';
       group.textContent = variant.notes.status !== 'readable' || variant.noteGroup === null ? 'Notes non vérifiées' : variant.identicalCount > 1 ? `Notes identiques · groupe ${number(variant.noteGroup)} (${number(variant.identicalCount)} versions)` : `Notes vérifiées · groupe ${number(variant.noteGroup)}`;

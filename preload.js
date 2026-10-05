@@ -12,11 +12,17 @@ if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
   downloadFolder:change=>ipcRenderer.invoke('chartshub:folder',change===true),
   download:endpoint=>ipcRenderer.invoke('chartshub:download',endpoint),
   cancel:()=>ipcRenderer.invoke('chartshub:cancel'),
+  language:value=>ipcRenderer.invoke('chartshub:language',value),
   onProgress:callback=>{if(typeof callback!=='function')return ()=>{};const listener=(_event,data)=>callback(data);ipcRenderer.on('chartshub:progress',listener);return ()=>ipcRenderer.removeListener('chartshub:progress',listener);}
  });
  // Mount in the site's utility bar; retain the focused text field for Edit actions.
  window.addEventListener('DOMContentLoaded',()=>{
   window.addEventListener('chartshub:accountchange',()=>ipcRenderer.invoke('chartshub:account-changed'));
+  let lastLanguage='';
+  const syncLanguage=()=>{const value=document.documentElement.lang.startsWith('fr')?'fr':'en';if(value===lastLanguage)return;lastLanguage=value;void ipcRenderer.invoke('chartshub:language',value);};
+  window.addEventListener('chartshub:languagechange',syncLanguage);
+  new MutationObserver(syncLanguage).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
+  syncLanguage();
   let caption;
   if(!tabbed){
    caption=document.createElement('div');caption.textContent='ChartsHub';

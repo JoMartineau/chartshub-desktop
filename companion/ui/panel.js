@@ -128,6 +128,7 @@ async function changeSource(name, payload) {
 
 function applySnapshot(snapshot) {
   if (disposed || !snapshot?.state) return;
+  if (snapshot.language === 'fr' || snapshot.language === 'en') window.ChartshubCompanionLanguage?.apply(snapshot.language);
   currentSnapshot = snapshot;
   receivedSnapshot = true;
   const { state } = snapshot;
@@ -169,6 +170,7 @@ function applySnapshot(snapshot) {
   query('#persistence-feedback').textContent = snapshot.persistenceError
     ? 'Les réglages n’ont pas pu être enregistrés. Vos changements restent actifs pendant cette session.' : '';
   query('#settings-status').textContent = snapshot.persistenceError ? 'Enregistrement indisponible' : 'Réglages enregistrés automatiquement';
+  window.ChartshubCompanionLanguage?.refresh();
 }
 
 function updatePreviewStatus() {
@@ -228,7 +230,7 @@ function syncPreviewDestination(destination, canvas) {
   surface.classList.toggle('is-stream-preview', streaming);
   query('#preview-screen-label').textContent = streaming ? 'CANVAS STREAM · FOND TRANSPARENT' : 'ÉCRAN DE JEU';
   query('#preview-canvas-caption').textContent = streaming
-    ? `Stream · ${width.toLocaleString('fr-FR')} × ${height.toLocaleString('fr-FR')} · ${canvas?.fps ?? 60} i/s`
+    ? `Stream · ${width.toLocaleString(document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US')} × ${height.toLocaleString(document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US')} · ${canvas?.fps ?? 60} i/s`
     : 'Jeu · 1 280 × 720';
   document.body.dataset.previewDestination = destination;
 }

@@ -36,7 +36,8 @@ interface LibraryRow {
 type Sort = 'title' | 'artist' | 'charter';
 type AudioFilter = 'all' | 'missing' | 'present' | 'unknown';
 type DuplicateFilter = 'all' | 'possible';
-const count = (value: number): string => Math.max(0, Math.trunc(value || 0)).toLocaleString('fr-FR');
+const locale = (): string => typeof document === 'undefined' || document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US';
+const count = (value: number): string => Math.max(0, Math.trunc(value || 0)).toLocaleString(locale());
 const text = (value: unknown, fallback = '—'): string => typeof value === 'string' && value.trim() ? value : fallback;
 
 /** Reads paginated index results; gameplay-only snapshots never requery the library. */
@@ -301,7 +302,7 @@ export class LibraryControls {
     this.element('#library-progress-meter').hidden = !scanning;
     for (const key of ['visited', 'processed', 'discovered'] as const) this.element(`#library-progress-${key}`).textContent = count(summary.progress[key]);
     const date = summary.lastScanAt === null ? null : new Date(summary.lastScanAt);
-    this.element('#library-last-scan').textContent = date && !Number.isNaN(date.getTime()) ? `Dernière analyse : ${date.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}` : 'Aucune analyse effectuée';
+    this.element('#library-last-scan').textContent = date && !Number.isNaN(date.getTime()) ? `Dernière analyse : ${date.toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })}` : 'Aucune analyse effectuée';
     this.element('#library-changes').textContent = `+${count(summary.changes.added)} ajouté${summary.changes.added > 1 ? 's' : ''} · −${count(summary.changes.removed)} supprimé${summary.changes.removed > 1 ? 's' : ''} · ${count(summary.changes.modified)} modifié${summary.changes.modified > 1 ? 's' : ''}`;
     this.element('#library-watcher').textContent = summary.watcher === 'watching' ? 'Changements du dossier surveillés' : summary.watcher === 'unavailable' ? 'Détection indisponible · utilisez Actualiser' : 'Détection désactivée';
     const warnings = this.element('#library-warnings'); warnings.hidden = !summary.warningCount && !summary.skippedCount;

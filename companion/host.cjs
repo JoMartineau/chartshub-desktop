@@ -46,6 +46,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let reshade = null, reshadeRefresh = null, reshadePickerOpen = false, reshadeConfirmationOpen = false;
   let reshadeSetup = null, reshadeSetupStarting = false;
   let lifecycleRevision = 0;
+  let language = 'fr';
+  const tr = (fr, en) => language === 'fr' ? fr : en;
   let preferredProfileId = null;
   const profileWrites = new Set();
   const logger = Object.fromEntries(['info','warn','error'].map(level => [level, message => {
@@ -114,7 +116,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   }
   function harden(window, page) { window.setMenuBarVisibility(false); hardenContents(window.webContents, page); }
   const streamStatus = () => streamServer?.status() ?? { enabled: false, url: null, clients: 0, error: streamError };
-  const snapshot = () => ({ state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const snapshot = () => ({ language, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   // The interactive filter widget receives no song library, paths, logs or stream access URL.
   const filtersWidgetSnapshot = () => {
     const status = filters?.status();
@@ -139,6 +141,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   }
   function panelAlive() { return !!panel && !panel.isDestroyed() && !!panelContents && !panelContents.isDestroyed?.(); }
   function publishPanel(value) { if (panelAlive() && !panelContents.isLoading()) panelContents.send('companion:changed', value ?? snapshot()); }
+  function setLanguage(value) { if (!['fr','en'].includes(value) || language === value) return language; language=value; publishPanel(); return language; }
   const unsubscribe = services.store.subscribe(publish);
   // The index and expensive work stay in a worker. Progress only updates the panel,
   // without waking either overlay or exposing library paths to the OBS server.
@@ -220,7 +223,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const owner = panel, revision = lifecycleRevision;
     reshadePickerOpen = true;
     try {
-      const choice = await dialog.showOpenDialog(owner, { title: 'Choisir Clone Hero avec ReShade', properties: ['openDirectory'], ...(reshade.status().rootPath ? { defaultPath: reshade.status().rootPath } : {}) });
+      const choice = await dialog.showOpenDialog(owner, { title: tr('Choisir Clone Hero avec ReShade', 'Choose Clone Hero with ReShade'), properties: ['openDirectory'], ...(reshade.status().rootPath ? { defaultPath: reshade.status().rootPath } : {}) });
       if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: false, error: 'Le panneau a été fermé.' };
       if (choice.canceled || choice.filePaths.length !== 1) return { ok: true, cancelled: true };
       await reshade.selectRoot(choice.filePaths[0]);
@@ -236,7 +239,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: false, error: 'Le panneau a été fermé.' };
       const status = reshade.status();
       if (!status.rootPath || status.busy || status.running !== false || !status.supported || !status.binaryAvailable) return { ok: false, error: status.running === true ? 'Fermez Clone Hero avant d’installer l’intégration ReShade.' : status.running !== false ? 'L’état de Clone Hero ne peut pas être vérifié. Actualisez l’état avant l’installation.' : status.message || 'L’intégration ReShade ne peut pas être installée dans cet état.' };
-      const choice = await dialog.showMessageBox(owner, { type: 'question', title: 'Connecter les effets ReShade', message: 'Installer l’intégration ReShade dans ce dossier ?', detail: `${status.rootPath}\n\nChartsHubReShade.addon64 sera installé dans ce dossier. Si le moteur ChartsHub classique remplace votre ancien ReShade, sa sauvegarde sera restaurée. Vos effets ne seront pas tous activés : vous les choisirez dans le panneau. Relancez Clone Hero pour établir la connexion.`, buttons: ['Annuler', 'Installer'], defaultId: 0, cancelId: 0, noLink: true });
+      const choice = await dialog.showMessageBox(owner, { type: 'question', title: tr('Connecter les effets ReShade', 'Connect ReShade effects'), message: tr('Installer l’intégration ReShade dans ce dossier ?', 'Install the ReShade integration in this folder?'), detail: tr(`${status.rootPath}\n\nChartsHubReShade.addon64 sera installé dans ce dossier. Si le moteur ChartsHub classique remplace votre ancien ReShade, sa sauvegarde sera restaurée. Vos effets ne seront pas tous activés : vous les choisirez dans le panneau. Relancez Clone Hero pour établir la connexion.`, `${status.rootPath}\n\nChartsHubReShade.addon64 will be installed in this folder. If the classic ChartsHub engine replaced your previous ReShade installation, its backup will be restored. Effects will not all be enabled automatically: choose them in the panel. Restart Clone Hero to establish the connection.`), buttons: [tr('Annuler', 'Cancel'), tr('Installer', 'Install')], defaultId: 0, cancelId: 0, noLink: true });
       if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed() || status.rootPath !== reshade.status().rootPath) return { ok: false, error: 'Le panneau ou le dossier a changé.' };
       if (choice.response !== 1) return { ok: true, cancelled: true };
       await reshade.install();
@@ -249,7 +252,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const owner = panel, revision = lifecycleRevision;
     filtersPickerOpen = true;
     try {
-      const choice = await dialog.showOpenDialog(owner, { title: 'Choisir le dossier contenant Clone Hero.exe', properties: ['openDirectory'], ...(filters.status().rootPath ? { defaultPath: filters.status().rootPath } : {}) });
+      const choice = await dialog.showOpenDialog(owner, { title: tr('Choisir le dossier contenant Clone Hero.exe', 'Choose the folder containing Clone Hero.exe'), properties: ['openDirectory'], ...(filters.status().rootPath ? { defaultPath: filters.status().rootPath } : {}) });
       if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: false, error: 'Le panneau a été fermé.' };
       if (choice.canceled || choice.filePaths.length !== 1) return { ok: true, cancelled: true };
       await filters.selectRoot(choice.filePaths[0]);
@@ -266,7 +269,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       const status = filters.status();
       if (!status.rootPath || status.busy || status.running === true || (action === 'install' && (!status.supported || !status.binaryAvailable))) return { ok: false, error: status.running ? 'Fermez Clone Hero avant de modifier son module de filtres.' : status.message || 'Le module ne peut pas être modifié dans cet état.' };
       const install = action === 'install';
-      const choice = await dialog.showMessageBox(owner, { type: 'question', title: install ? 'Installer les filtres ChartsHub' : 'Restaurer le module précédent', message: install ? 'Installer le module ChartsHub dans ce dossier ?' : 'Retirer le module ChartsHub et restaurer la sauvegarde ?', detail: `${status.rootPath}\n\n${install ? 'Le fichier dxgi.dll sera installé dans ce dossier. Le module précédent sera sauvegardé avant remplacement. Les filtres prendront effet au prochain lancement de Clone Hero.' : 'Le fichier dxgi.dll de ChartsHub sera retiré. La sauvegarde du module précédent, si elle existe, sera remise à sa place.'}`, buttons: ['Annuler', install ? 'Installer' : 'Restaurer'], defaultId: 0, cancelId: 0, noLink: true });
+      const choice = await dialog.showMessageBox(owner, { type: 'question', title: install ? tr('Installer les filtres ChartsHub', 'Install ChartsHub filters') : tr('Restaurer le module précédent', 'Restore previous module'), message: install ? tr('Installer le module ChartsHub dans ce dossier ?', 'Install the ChartsHub module in this folder?') : tr('Retirer le module ChartsHub et restaurer la sauvegarde ?', 'Remove the ChartsHub module and restore the backup?'), detail: install ? tr(`${status.rootPath}\n\nLe fichier dxgi.dll sera installé dans ce dossier. Le module précédent sera sauvegardé avant remplacement. Les filtres prendront effet au prochain lancement de Clone Hero.`, `${status.rootPath}\n\ndxgi.dll will be installed in this folder. The previous module will be backed up before replacement. Filters will take effect the next time Clone Hero starts.`) : tr(`${status.rootPath}\n\nLe fichier dxgi.dll de ChartsHub sera retiré. La sauvegarde du module précédent, si elle existe, sera remise à sa place.`, `${status.rootPath}\n\nThe ChartsHub dxgi.dll will be removed. The previous module backup, if available, will be restored.`), buttons: [tr('Annuler', 'Cancel'), install ? tr('Installer', 'Install') : tr('Restaurer', 'Restore')], defaultId: 0, cancelId: 0, noLink: true });
       if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed() || status.rootPath !== filters.status().rootPath) return { ok: false, error: 'Le panneau ou le dossier a changé.' };
       if (choice.response !== 1) return { ok: true, cancelled: true };
       await filters[action]();
@@ -278,7 +281,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const owner = panel, revision = lifecycleRevision;
     downloadPickerOpen = true;
     try {
-      const choice = await dialog.showOpenDialog(owner, { title: 'Choisir le dossier de téléchargements ChartsHub', properties: ['openDirectory', 'createDirectory'], ...(downloads.status().rootPath ? { defaultPath: downloads.status().rootPath } : {}) });
+      const choice = await dialog.showOpenDialog(owner, { title: tr('Choisir le dossier de téléchargements ChartsHub', 'Choose ChartsHub download folder'), properties: ['openDirectory', 'createDirectory'], ...(downloads.status().rootPath ? { defaultPath: downloads.status().rootPath } : {}) });
       if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed()) throw Object.assign(Error('Le panneau a été fermé.'), { code: 'DOWNLOAD_SAFE' });
       if (choice.canceled || choice.filePaths.length !== 1) return false;
       await downloads.selectRoot(choice.filePaths[0]);
@@ -450,7 +453,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         cloneHeroPickerOpen = true;
         const owner = panel, revision = lifecycleRevision;
         try {
-          const choice = await dialog.showOpenDialog(owner, { title: 'Choisir currentsong.txt de Clone Hero', properties: ['openFile'], filters: [{ name: 'Export Clone Hero', extensions: ['txt'] }], ...(integration.status().filePath ? { defaultPath: integration.status().filePath } : {}) });
+          const choice = await dialog.showOpenDialog(owner, { title: tr('Choisir currentsong.txt de Clone Hero', 'Choose Clone Hero currentsong.txt'), properties: ['openFile'], filters: [{ name: 'Export Clone Hero', extensions: ['txt'] }], ...(integration.status().filePath ? { defaultPath: integration.status().filePath } : {}) });
           if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: false, error: 'Le panneau a été fermé.' };
           if (choice.canceled || choice.filePaths.length !== 1) return { ok: true, cancelled: true };
           await integration.selectFile(choice.filePaths[0]);
@@ -525,10 +528,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
           const review = await library.cleanupReview(request);
           const root = library.status().settings.rootPath;
           if (disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
-          const choice = await dialog.showMessageBox(owner, { type: 'warning', title: 'Envoyer les copies à la Corbeille Windows',
-            message: `Envoyer ${review.candidates.length} copie(s) sélectionnée(s) à la Corbeille ?`,
-            detail: `Version conservée : ${review.keep.targetRelativePath}\n\nCopies sélectionnées :\n${review.candidates.map(item => `${item.kind === 'folder' ? 'Dossier entier' : 'Fichier SNG'} : ${item.targetRelativePath}`).join('\n')}\n\nLes dossiers sont déplacés avec tous leurs fichiers. Aucune suppression définitive ne sera utilisée si la Corbeille est indisponible.`,
-            buttons: ['Annuler', 'Envoyer à la Corbeille'], defaultId: 0, cancelId: 0, noLink: true });
+          const choice = await dialog.showMessageBox(owner, { type: 'warning', title: tr('Envoyer les copies à la Corbeille Windows', 'Send copies to Windows Recycle Bin'),
+            message: tr(`Envoyer ${review.candidates.length} copie(s) sélectionnée(s) à la Corbeille ?`, `Send ${review.candidates.length} selected copy/copies to the Recycle Bin?`),
+            detail: tr(`Version conservée : ${review.keep.targetRelativePath}\n\nCopies sélectionnées :\n${review.candidates.map(item => `${item.kind === 'folder' ? 'Dossier entier' : 'Fichier SNG'} : ${item.targetRelativePath}`).join('\n')}\n\nLes dossiers sont déplacés avec tous leurs fichiers. Aucune suppression définitive ne sera utilisée si la Corbeille est indisponible.`, `Kept version: ${review.keep.targetRelativePath}\n\nSelected copies:\n${review.candidates.map(item => `${item.kind === 'folder' ? 'Entire folder' : 'SNG file'} : ${item.targetRelativePath}`).join('\n')}\n\nFolders are moved with all their files. Permanent deletion is never used if the Recycle Bin is unavailable.`),
+            buttons: [tr('Annuler', 'Cancel'), tr('Envoyer à la Corbeille', 'Send to Recycle Bin')], defaultId: 0, cancelId: 0, noLink: true });
           if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
           cleanupApproval = { owner, lifecycle, root, targets: new Set(review.candidates.map(item => path.resolve(root, item.targetRelativePath))) };
           cleanupTask = library.recycleDuplicates(request);
@@ -539,7 +542,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         const owner = panel, revision = lifecycleRevision;
         rootPickerOpen = true;
         try {
-          const choice = await dialog.showOpenDialog(owner, { title: 'Choisir le dossier de chansons Clone Hero', properties: ['openDirectory'], ...(library.status().settings.rootPath ? { defaultPath: library.status().settings.rootPath } : {}) });
+          const choice = await dialog.showOpenDialog(owner, { title: tr('Choisir le dossier de chansons Clone Hero', 'Choose Clone Hero Songs folder'), properties: ['openDirectory'], ...(library.status().settings.rootPath ? { defaultPath: library.status().settings.rootPath } : {}) });
           if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: false, error: 'Le panneau a été fermé.' };
           if (!choice.canceled && choice.filePaths.length === 1) await library.selectRoot(choice.filePaths[0]);
         } finally { rootPickerOpen = false; }
@@ -642,8 +645,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
       await downloads.start();
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
-      const window = embedded?.ownerWindow ?? new BrowserWindow({ width: 1250, height: 850, minWidth: 900, minHeight: 660, show: false, title: 'ChartsHub — Clone Hero Companion', backgroundColor: '#10121a', icon: path.join(__dirname, '..', 'icon.ico'), webPreferences: preferences });
-      const view = embedded ? new WebContentsView({ webPreferences: preferences }) : null;
+      const panelPreferences = { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`] };
+      const window = embedded?.ownerWindow ?? new BrowserWindow({ width: 1250, height: 850, minWidth: 900, minHeight: 660, show: false, title: 'ChartsHub — Clone Hero Companion', backgroundColor: '#10121a', icon: path.join(__dirname, '..', 'icon.ico'), webPreferences: panelPreferences });
+      const view = embedded ? new WebContentsView({ webPreferences: panelPreferences }) : null;
       const contents = view?.webContents ?? window.webContents;
       panel = window;
       panelContents = contents;
@@ -703,7 +707,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     })();
     return disposeTask;
   }
-  return { open, stop, snapshot, services, integration, registry, setOverlay, setStream, setFiltersWidget, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
+  return { open, stop, snapshot, services, integration, registry, setLanguage, setOverlay, setStream, setFiltersWidget, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
     getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, dispose
   };
 }
