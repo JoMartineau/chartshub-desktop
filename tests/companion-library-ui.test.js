@@ -384,25 +384,27 @@ test('cleanup preselects safe copies while unsafe copies and the keeper remain p
   assert.equal(cleanupCheck(ui, 'd').checked, true, 'all safe copies are preselected on a fresh plan');
 });
 
-test('audio-different copy stays unselected and offers a separate delete-anyway action', async t => {
-  const ui = await preparedCleanup(t, cleanupPlan({ candidates: [
-    cleanupTarget('b', { eligible: false, forceable: true, audio: { status: 'verified', count: 1, bytes: 2565590 }, reason: 'Les fichiers audio sont absents, différents ou non vérifiés.' })
-  ] }));
-  const candidate = ui.get('#library-cleanup-candidates').children[0];
-  const check = cleanupCheck(ui, 'b');
-  assert.equal(check.checked, false); assert.equal(check.disabled, true);
-  assert.match(candidate.textContent, /audio est différent/i);
-  const force = candidate.querySelector('.library-cleanup-force');
-  assert.ok(force); assert.equal(force.textContent, 'Supprimer quand même');
-  assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
-  force.click(); const request = await ui.request(3);
-  assert.deepEqual({ name: request.name, payload: request.payload }, {
-    name: 'library.forceRecycleDuplicate', payload: { planId: 'a'.repeat(32), revision: 1, id: variantId('b') }
-  });
-  assert.equal(ui.get('#library-comparison-close').disabled, true);
-  request.resolve({ ok: true, cancelled: true }); await tick();
-  assert.match(ui.get('#library-cleanup-result').textContent, /annulée.*Aucun fichier envoyé/s);
-  assert.equal(ui.get('#library-cleanup-plan').hidden, true);
+test('verified but different copy stays unselected and offers a separate delete-anyway action', async t => {
+  for (const reason of ['Les fichiers audio sont absents, différents ou non vérifiés.', 'Cette version contient des fichiers différents ou supplémentaires.']) {
+    const ui = await preparedCleanup(t, cleanupPlan({ candidates: [
+      cleanupTarget('b', { eligible: false, forceable: true, audio: { status: 'verified', count: 1, bytes: 2565590 }, reason })
+    ] }));
+    const candidate = ui.get('#library-cleanup-candidates').children[0];
+    const check = cleanupCheck(ui, 'b');
+    assert.equal(check.checked, false); assert.equal(check.disabled, true);
+    assert.match(candidate.textContent, /copie est entièrement vérifiée/i);
+    const force = candidate.querySelector('.library-cleanup-force');
+    assert.ok(force); assert.equal(force.textContent, 'Supprimer quand même');
+    assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+    force.click(); const request = await ui.request(3);
+    assert.deepEqual({ name: request.name, payload: request.payload }, {
+      name: 'library.forceRecycleDuplicate', payload: { planId: 'a'.repeat(32), revision: 1, id: variantId('b') }
+    });
+    assert.equal(ui.get('#library-comparison-close').disabled, true);
+    request.resolve({ ok: true, cancelled: true }); await tick();
+    assert.match(ui.get('#library-cleanup-result').textContent, /annulée.*Aucun fichier envoyé/s);
+    assert.equal(ui.get('#library-cleanup-plan').hidden, true);
+  }
 });
 
 test('missing or unavailable audio remains visibly blocked even if a malformed candidate says eligible', async t => {

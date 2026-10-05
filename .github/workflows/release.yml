@@ -112,6 +112,7 @@ jobs:
           sha256sum "${ASSETS[@]}" > SHA256SUMS.txt
           printf 'ChartsHub Desktop %s — Windows, macOS et Linux.\n\n' "$VERSION" > RELEASE-NOTES.txt
           cat >> RELEASE-NOTES.txt <<'NOTES'
+          - Doublons v0.14.7 : « Supprimer quand même » est disponible pour une copie entièrement vérifiée ayant les mêmes notes, même si l’audio ou certains fichiers non audio diffèrent ; les cas non vérifiés ou dangereux restent bloqués.
           - Doublons v0.14.6 : « Supprimer quand même » permet, après avertissement renforcé, d’envoyer à la Corbeille une copie dont seul l’audio vérifié diffère ; les notes et fichiers non audio doivent être identiques et la version conservée reste protégée.
           - Doublons v0.14.5 : choisir la version à garder vérifie et présélectionne automatiquement les autres copies sûres ; les copies différentes ou non vérifiées restent protégées et la confirmation Windows est obligatoire.
           - Correctif v0.14.4 : les états dynamiques Clone Hero, ReShade et Filtres suivent complètement Français / English sans laisser de texte français en mode English.

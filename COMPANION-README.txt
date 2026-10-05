@@ -1,3 +1,9 @@
+ChartsHub Desktop 0.14.7 — Catalogue et Companion
+
+CORRECTIFS 0.14.7
+« Supprimer quand même » peut maintenant être utilisé pour une copie entièrement vérifiée ayant les mêmes notes même si l’audio ou certains fichiers non audio diffèrent.
+Les cas non vérifiés, dangereux ou modifiés restent bloqués. La confirmation Windows et la Corbeille restent obligatoires.
+
 ChartsHub Desktop 0.14.6 — Catalogue et Companion
 
 NOUVEAUTÉS 0.14.6
