@@ -86,6 +86,9 @@ function validCommand(command, payload, widgetIds) {
     && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && Array.isArray(payload.ids) && payload.ids.length > 0
     && payload.ids.every(id => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)) && new Set(payload.ids).size === payload.ids.length
     && Object.keys(payload).every(key => ['planId', 'revision', 'ids'].includes(key));
+  if (command === 'library.forceRecycleDuplicate') return typeof payload.planId === 'string' && /^[a-f0-9]{32}$/.test(payload.planId)
+    && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && typeof payload.id === 'string' && /^[a-f0-9]{64}$/.test(payload.id)
+    && Object.keys(payload).every(key => ['planId', 'revision', 'id'].includes(key));
   if (command === 'library.compareDuplicates') return typeof payload.id === 'string' && /^[a-f0-9]{64}$/.test(payload.id)
     && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && Object.keys(payload).every(key => ['id', 'revision'].includes(key));
   if (command === 'library.chooseDuplicate') return typeof payload.contextId === 'string' && /^[a-f0-9]{32}$/.test(payload.contextId)

@@ -33,6 +33,12 @@ npm start
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la version correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives et le statut `Latest` pour l’affichage sur le dépôt. Une version déjà publiée conserve ses archives et son tag ; il faut augmenter le numéro de version pour distribuer un nouveau paquet.
 
+### Version 0.14.6
+
+- Dans Doublons, une copie dont seul l’audio diffère peut maintenant être supprimée manuellement avec « Supprimer quand même ».
+- Cette action n’est jamais présélectionnée : les notes et tous les fichiers non audio doivent être strictement identiques, l’audio des deux versions doit être vérifié et la cible doit rester sûre dans Songs.
+- Une confirmation Windows renforcée rappelle l’audio différent avant l’envoi à la Corbeille. La version conservée reste protégée et aucune suppression définitive n’est utilisée.
+
 ### Version 0.14.5
 
 - Dans Doublons, choisir « Conserver cette version » lance automatiquement la vérification des autres copies du groupe.

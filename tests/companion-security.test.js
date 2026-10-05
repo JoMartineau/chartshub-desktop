@@ -63,7 +63,7 @@ test('filter mini widget is permitted only filter controls and opening the main 
   const window = { webContents, isDestroyed: () => false };
   const event = { sender: webContents, senderFrame: frame };
   for (const command of ['filters.settings', 'filters.openPanel', 'reshade.command']) assert.equal(trustedFiltersWidgetCommand(event, window, command), true);
-  for (const command of ['filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.widget', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupPrepare', 'reshade.setupInstall', 'reshade.setupCancel', 'library.openFolder', 'library.compareDuplicates', 'library.chooseDuplicate', 'library.prepareCleanup', 'library.recycleDuplicates', 'profile.save', 'profile.apply', 'profile.delete', 'widget.locked', 'overlay.enabled']) assert.equal(trustedFiltersWidgetCommand(event, window, command), false);
+  for (const command of ['filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.widget', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupPrepare', 'reshade.setupInstall', 'reshade.setupCancel', 'library.openFolder', 'library.compareDuplicates', 'library.chooseDuplicate', 'library.prepareCleanup', 'library.recycleDuplicates', 'library.forceRecycleDuplicate', 'profile.save', 'profile.apply', 'profile.delete', 'widget.locked', 'overlay.enabled']) assert.equal(trustedFiltersWidgetCommand(event, window, command), false);
   assert.equal(trustedFiltersWidgetCommand({ ...event, senderFrame: { ...frame } }, window, 'filters.settings'), false);
   frame.url = 'chartshub-companion://app/ui/overlay.html';
   assert.equal(trustedFiltersWidgetCommand(event, window, 'filters.settings'), false);
@@ -1439,23 +1439,25 @@ test('duplicate comparisons cross the worker and keep a durable preference witho
 });
 
 
-test('cleanup IPC accepts only revision-bound plans and unique chart IDs', () => {
+test('cleanup IPC accepts only revision-bound plans and explicit force-delete chart IDs', () => {
   const planId = 'a'.repeat(32), contextId = 'b'.repeat(32), keepId = 'c'.repeat(64), id = 'd'.repeat(64);
-  const prepare = { contextId, revision: 1, keepId }, execute = { planId, revision: 1, ids: [id] };
+  const prepare = { contextId, revision: 1, keepId }, execute = { planId, revision: 1, ids: [id] }, force = { planId, revision: 1, id };
   assert.equal(validCommand('library.prepareCleanup', prepare, []), true);
   assert.equal(validCommand('library.recycleDuplicates', execute, []), true);
+  assert.equal(validCommand('library.forceRecycleDuplicate', force, []), true);
   for (const patch of [{ path: 'C:/private' }, { keepId: '../notes.chart' }, { revision: -1 }, { contextId: 'x' }]) assert.equal(validCommand('library.prepareCleanup', { ...prepare, ...patch }, []), false);
   for (const patch of [{ path: 'C:/private' }, { ids: [] }, { ids: [id, id] }, { ids: ['../notes.chart'] }, { revision: NaN }, { planId: 'x' }, { permanent: true }]) assert.equal(validCommand('library.recycleDuplicates', { ...execute, ...patch }, []), false);
+  for (const patch of [{ path: 'C:/private' }, { id: '../notes.chart' }, { revision: NaN }, { planId: 'x' }, { permanent: true }, { ids: [id] }]) assert.equal(validCommand('library.forceRecycleDuplicate', { ...force, ...patch }, []), false);
   assert.equal(validCommand('library.cleanupReview', execute, []), false);
 });
 
-async function cleanupHostFixture(t) {
+async function cleanupHostFixture(t, { differentAudio = false } = {}) {
   const f = await hostFixture(t), fs = require('node:fs/promises'), songs = path.join(f.directory, 'Songs');
   for (const name of ['A', 'B', 'C']) {
     const folder = path.join(songs, name); await fs.mkdir(folder, { recursive: true });
     await fs.writeFile(path.join(folder, 'song.ini'), '[song]\nname = Example\nartist = Band\ncharter = Creator\n');
     await fs.writeFile(path.join(folder, 'notes.chart'), '[Song]\n{}\n[ExpertSingle]\n{\n0 = N 0 0\n}');
-    await fs.writeFile(path.join(folder, 'song.ogg'), 'fixture-audio-bytes');
+    await fs.writeFile(path.join(folder, 'song.ogg'), differentAudio && name === 'B' ? 'different-audio-bytes' : 'fixture-audio-bytes');
   }
   const panel = await f.host.open();
   const command = (name, payload) => f.handlers.get('companion:command')(f.eventFor(panel), name, payload);
@@ -1469,8 +1471,9 @@ async function cleanupHostFixture(t) {
   const contextId = compared.result.contextId;
   assert.equal((await command('library.chooseDuplicate', { contextId, revision, id: keepId })).ok, true);
   const prepared = await command('library.prepareCleanup', { contextId, revision, keepId }); assert.equal(prepared.ok, true, prepared.error);
-  assert.ok(prepared.result.candidates.every(item => item.eligible));
-  const payload = { planId: prepared.result.planId, revision, ids: prepared.result.candidates.map(item => item.id) };
+  if (differentAudio) { assert.equal(prepared.result.candidates.filter(item => item.forceable).length, 1); assert.equal(prepared.result.candidates.filter(item => item.eligible).length, 1); }
+  else assert.ok(prepared.result.candidates.every(item => item.eligible));
+  const payload = { planId: prepared.result.planId, revision, ids: prepared.result.candidates.filter(item => item.eligible).map(item => item.id) };
   return { ...f, fs, songs, panel, command, plan: prepared.result, payload };
 }
 
@@ -1501,6 +1504,29 @@ test('native cleanup defaults to cancel and recycles only the explicitly selecte
   assert.equal((await f.command('library.recycleDuplicates', selection)).ok, false, 'a consumed plan cannot run again');
 });
 
+
+test('audio-different duplicate requires reinforced native confirmation and only then reaches the Recycle Bin', async t => {
+  const f = await cleanupHostFixture(t, { differentAudio: true }), recycled = [];
+  const forced = f.plan.candidates.find(item => item.forceable);
+  assert.ok(forced); assert.equal(forced.eligible, false);
+  const request = { planId: f.plan.planId, revision: f.plan.revision, id: forced.id };
+  const directReview = await f.host.library.cleanupForceReview(request); assert.deepEqual(directReview.candidates.map(item => item.id), [forced.id]);
+  f.shell.trashItem = async target => { recycled.push(target); await f.fs.rename(target, path.join(f.directory, 'fake-force-recycle-' + path.basename(target))); };
+  let optionsSeen;
+  f.dialog.showMessageBox = async (owner, options) => {
+    assert.equal(owner, f.panel); optionsSeen = options; return { response: 0 };
+  };
+  assert.deepEqual(await f.command('library.forceRecycleDuplicate', request), { ok: true, cancelled: true });
+  assert.equal(recycled.length, 0); assert.equal(optionsSeen.defaultId, 0); assert.equal(optionsSeen.cancelId, 0);
+  assert.match(optionsSeen.title, /Supprimer quand même|Delete this copy anyway/);
+  assert.match(optionsSeen.detail, /Version conservée|Kept version/);
+  assert.match(optionsSeen.detail, /audio/i);
+  f.dialog.showMessageBox = async () => ({ response: 1 });
+  const result = await f.command('library.forceRecycleDuplicate', request);
+  assert.equal(result.ok, true, result.error); assert.deepEqual(result.result.recycledIds, [forced.id]); assert.deepEqual(result.result.failed, []);
+  assert.equal(recycled.length, 1);
+  const remaining = (await f.fs.readdir(f.songs)).sort(); assert.deepEqual(remaining, ['A', 'C']);
+});
 
 test('cleanup refuses a copy whose audio changes while native confirmation is open', async t => {
   const f = await cleanupHostFixture(t); let recycled = 0;

@@ -64,19 +64,19 @@ test('complete folder comparison covers exact notes, song audio, previews and ev
   assert.equal(a.notes.sha256, digest(chart)); assert.equal(a.audio.status, 'verified'); assert.equal(a.audio.count, 1);
   assert.equal(a.audio.bytes, audio.length + 7); assert.equal(a.entryCount, 5);
   assert.equal(a.totalBytes, chart.length + audio.length + 7 + 3 + 12);
-  assert.equal(a.bundleHash, b.bundleHash); assert.equal(a.audio.digest, b.audio.digest);
+  assert.equal(a.bundleHash, b.bundleHash); assert.equal(a.audio.digest, b.audio.digest); assert.equal(a.nonAudioHash, b.nonAudioHash);
   assert.notDeepEqual(a.identity, b.identity); assert.doesNotThrow(() => JSON.stringify(a.identity));
   assert.ok(!JSON.stringify(a).includes(f.root));
 
   await f.write('B/song.ogg', Buffer.from('Different audio'));
   const changedAudio = await f.inspect('B/notes.chart');
-  assert.equal(changedAudio.notes.sha256, a.notes.sha256); assert.notEqual(changedAudio.audio.digest, a.audio.digest); assert.notEqual(changedAudio.bundleHash, a.bundleHash);
+  assert.equal(changedAudio.notes.sha256, a.notes.sha256); assert.notEqual(changedAudio.audio.digest, a.audio.digest); assert.notEqual(changedAudio.bundleHash, a.bundleHash); assert.equal(changedAudio.nonAudioHash, a.nonAudioHash);
   await f.write('B/song.ogg', audio); await f.write('B/preview.ogg', Buffer.from('new preview'));
   const changedPreview = await f.inspect('B/notes.chart');
-  assert.notEqual(changedPreview.audio.digest, a.audio.digest); assert.notEqual(changedPreview.bundleHash, a.bundleHash);
+  assert.notEqual(changedPreview.audio.digest, a.audio.digest); assert.notEqual(changedPreview.bundleHash, a.bundleHash); assert.equal(changedPreview.nonAudioHash, a.nonAudioHash);
   await f.write('B/preview.ogg', Buffer.from('preview')); await f.write('B/album.png', Buffer.from('other art'));
   const changedExtra = await f.inspect('B/notes.chart');
-  assert.equal(changedExtra.audio.digest, a.audio.digest); assert.notEqual(changedExtra.bundleHash, a.bundleHash);
+  assert.equal(changedExtra.audio.digest, a.audio.digest); assert.notEqual(changedExtra.bundleHash, a.bundleHash); assert.notEqual(changedExtra.nonAudioHash, a.nonAudioHash);
   await f.write('B/album.png', Buffer.from('art')); await fs.rename(path.join(f.root, 'B', 'album.png'), path.join(f.root, 'B', 'cover.png'));
   assert.notEqual((await f.inspect('B/notes.chart')).bundleHash, a.bundleHash);
 });
@@ -144,7 +144,7 @@ test('SNG verification hashes decoded notes/audio while conservatively preservin
   for (const name of ['A.sng', 'B.sng']) await f.write(name, sng(members).bytes);
   await f.write('remasked.sng', sng(members, { seed: 7 }).bytes);
   const a = await f.inspect('A.sng', 'sng'), b = await f.inspect('B.sng', 'sng'), plain = await f.inspect('plain/notes.chart');
-  assert.equal(a.status, 'verified'); assert.equal(a.kind, 'sng'); assert.equal(a.targetRelativePath, 'A.sng');
+  assert.equal(a.status, 'verified'); assert.equal(a.kind, 'sng'); assert.equal(a.targetRelativePath, 'A.sng'); assert.equal(a.nonAudioHash, null);
   assert.deepEqual(a.notes, plain.notes); assert.deepEqual(a.audio, plain.audio); assert.equal(a.bundleHash, b.bundleHash);
   assert.equal(a.bundleHash, digest(sng(members).bytes)); assert.equal(a.totalBytes, sng(members).bytes.length); assert.equal(a.entryCount, members.length);
   const remasked = await f.inspect('remasked.sng', 'sng');

@@ -520,6 +520,25 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         return { ok: true, result: await library.verifyAllDuplicates() };
       } else if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate' || command === 'library.prepareCleanup') {
         return { ok: true, result: await library[command.slice('library.'.length)](payload) };
+      } else if (command === 'library.forceRecycleDuplicate') {
+        const owner = panel, lifecycle = lifecycleRevision;
+        const request = { planId: payload.planId, revision: payload.revision, id: payload.id };
+        cleanupDialogOpen = true;
+        try {
+          const review = await library.cleanupForceReview(request);
+          const root = library.status().settings.rootPath;
+          if (disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
+          const candidate = review.candidates[0];
+          const choice = await dialog.showMessageBox(owner, { type: 'warning',
+            title: tr('Supprimer quand même cette copie ?', 'Delete this copy anyway?'),
+            message: tr('L’audio de cette copie est différent de la version conservée.', 'This copy has different audio from the kept version.'),
+            detail: tr(`Version conservée : ${review.keep.targetRelativePath}\n\nCopie à supprimer : ${candidate.targetRelativePath}\nAudio conservé : ${review.keep.audio.bytes} octets\nAudio de la copie : ${candidate.audio.bytes} octets\n\nCette copie complète sera envoyée à la Corbeille Windows. Cette action n’est pas automatique et aucune suppression définitive ne sera utilisée.`, `Kept version: ${review.keep.targetRelativePath}\n\nCopy to delete: ${candidate.targetRelativePath}\nKept audio: ${review.keep.audio.bytes} bytes\nCopy audio: ${candidate.audio.bytes} bytes\n\nThis complete copy will be sent to the Windows Recycle Bin. This action is not automatic and permanent deletion is never used.`),
+            buttons: [tr('Annuler', 'Cancel'), tr('Supprimer quand même', 'Delete anyway')], defaultId: 0, cancelId: 0, noLink: true });
+          if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
+          cleanupApproval = { owner, lifecycle, root, targets: new Set([path.resolve(root, candidate.targetRelativePath)]) };
+          cleanupTask = library.forceRecycleDuplicate(request);
+          return { ok: true, result: await cleanupTask };
+        } finally { cleanupApproval = null; cleanupTask = null; cleanupDialogOpen = false; }
       } else if (command === 'library.recycleDuplicates') {
         const owner = panel, lifecycle = lifecycleRevision;
         const request = { planId: payload.planId, revision: payload.revision, ids: [...payload.ids] };
@@ -585,7 +604,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       return { ok: true, revision: editorRevision };
     } catch (error) {
       logger.error('Companion command failed');
-      if (['library.prepareCleanup', 'library.recycleDuplicates', 'library.verifyAllDuplicates'].includes(command) || error?.code === 'LIBRARY_CLEANUP_SAFE') {
+      if (['library.prepareCleanup', 'library.recycleDuplicates', 'library.forceRecycleDuplicate', 'library.verifyAllDuplicates'].includes(command) || error?.code === 'LIBRARY_CLEANUP_SAFE') {
         return { ok: false, error: ['LIBRARY_CLEANUP_SAFE', 'LIBRARY_COMPARISON_SAFE'].includes(error?.code) ? error.message : 'Le nettoyage n’a pas pu être terminé. Vérifiez les copies puis relancez la vérification.' };
       }
       if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate') {

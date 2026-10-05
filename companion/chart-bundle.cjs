@@ -179,7 +179,7 @@ async function inspectChartBundle({ rootPath, relativePath, format, signal } = {
   const kind = format === 'sng' ? 'sng' : 'folder'; let targetRelativePath = null;
   const unavailable = (status, reason) => ({ status, reason, kind, targetRelativePath,
     notes: { format: format === 'chart' || format === 'midi' ? format : null, sha256: null, bytes: null },
-    audio: { status: 'unavailable', count: 0, bytes: 0, digest: null }, bundleHash: null, totalBytes: null, entryCount: 0, identity: null });
+    audio: { status: 'unavailable', count: 0, bytes: 0, digest: null }, nonAudioHash: null, bundleHash: null, totalBytes: null, entryCount: 0, identity: null });
   if (!Object.hasOwn(FORMATS, format) || typeof relativePath !== 'string' || path.posix.extname(relativePath).toLowerCase() !== FORMATS[format]) return unavailable('unsupported', 'unsupported-format');
   try {
     if (typeof rootPath !== 'string' || !path.isAbsolute(rootPath) || !validRelative(relativePath)) fail('unsafe-path');
@@ -191,7 +191,7 @@ async function inspectChartBundle({ rootPath, relativePath, format, signal } = {
     const ancestry = await inspectPath(root, targetRelativePath, kind, signal), leaf = ancestry[ancestry.length - 1];
     const identity = { version: 1, targetRelativePath, kind,
       ancestors: ancestry.slice(0, -1).map(entry => descriptor(entry.stat, false)), target: descriptor(leaf.stat), files: [] };
-    let notes, audio, bundleHash, totalBytes, entryCount;
+    let notes, audio, nonAudioHash = null, bundleHash, totalBytes, entryCount;
     if (kind === 'sng') {
       if (leaf.stat.size > BigInt(Number.MAX_SAFE_INTEGER)) fail('unavailable-file');
       const result = await openRead(target, leaf.stat, signal, async (read, size) => {
@@ -200,10 +200,10 @@ async function inspectChartBundle({ rootPath, relativePath, format, signal } = {
         const noteHash = await hashRange(read, index.notes.position, index.notes.bytes, signal, index.mask), members = [];
         for (const member of index.members.filter(entry => AUDIO.test(entry.name))) members.push({ ...member,
           sha256: await hashRange(read, member.position, member.bytes, signal, index.mask) });
-        return { notes: { format: index.notes.format, sha256: noteHash, bytes: index.notes.bytes }, audio: audioSummary(members),
+        return { notes: { format: index.notes.format, sha256: noteHash, bytes: index.notes.bytes }, audio: audioSummary(members), nonAudioHash: null,
           bundleHash: await hashRange(read, 0, size, signal), totalBytes: size, entryCount: index.members.length };
       });
-      ({ notes, audio, bundleHash, totalBytes, entryCount } = result);
+      ({ notes, audio, nonAudioHash, bundleHash, totalBytes, entryCount } = result);
     } else {
       const names = (await fs.readdir(target)).sort(sortNames); abort(signal);
       const normalized = new Set(), files = [], entries = [];
@@ -232,12 +232,14 @@ async function inspectChartBundle({ rootPath, relativePath, format, signal } = {
       const finalNames = (await fs.readdir(target)).sort(sortNames); abort(signal);
       if (JSON.stringify(names) !== JSON.stringify(finalNames)) fail('changed-bundle');
       identity.files = files.map(file => ({ name: file.name, ...descriptor(file.stat) }));
-      audio = audioSummary(entries); bundleHash = manifestDigest('chartshub-folder-v1', entries);
+      audio = audioSummary(entries);
+      nonAudioHash = manifestDigest('chartshub-nonaudio-v1', entries.filter(entry => !AUDIO.test(entry.name)));
+      bundleHash = manifestDigest('chartshub-folder-v1', entries);
       totalBytes = entries.reduce((sum, entry) => sum + entry.bytes, 0); entryCount = entries.length;
       if (!Number.isSafeInteger(totalBytes)) fail('unavailable-file');
     }
     await inspectPath(root, targetRelativePath, kind, signal, ancestry); abort(signal);
-    return { status: 'verified', reason: null, kind, targetRelativePath, notes, audio, bundleHash, totalBytes, entryCount, identity };
+    return { status: 'verified', reason: null, kind, targetRelativePath, notes, audio, nonAudioHash, bundleHash, totalBytes, entryCount, identity };
   } catch (error) {
     abort(signal);
     if (error?.name === 'AbortError') throw error;

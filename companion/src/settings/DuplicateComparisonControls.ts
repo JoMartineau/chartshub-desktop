@@ -17,7 +17,7 @@ interface CleanupTarget {
 }
 interface CleanupPlan {
   planId: string; contextId: string; revision: number; keepId: string; keep: CleanupTarget;
-  candidates: (CleanupTarget & { eligible: boolean; reason: string | null })[];
+  candidates: (CleanupTarget & { eligible: boolean; forceable: boolean; reason: string | null })[];
 }
 interface CleanupResult { recycledIds: string[]; failed: { id: string; reason: string }[]; cancelled: boolean; refreshRequested: boolean; }
 interface ComparisonOptions {
@@ -50,6 +50,7 @@ export class DuplicateComparisonControls {
   private readonly cleanupSelection = new Set<string>();
   private cleanupAbort = new AbortController();
   private readonly cleanupChecks = new Map<string, HTMLInputElement>();
+  private readonly cleanupForceButtons = new Map<string, HTMLButtonElement>();
   private needsReload = false;
   private disposed = false;
 
@@ -85,7 +86,7 @@ export class DuplicateComparisonControls {
     void this.load();
   }
 
-  dispose(): void { this.disposed = true; this.serial++; this.executionSerial++; this.abort.abort(); this.cardAbort.abort(); this.cleanupAbort.abort(); this.cards.clear(); this.cleanupChecks.clear(); }
+  dispose(): void { this.disposed = true; this.serial++; this.executionSerial++; this.abort.abort(); this.cardAbort.abort(); this.cleanupAbort.abort(); this.cards.clear(); this.cleanupChecks.clear(); this.cleanupForceButtons.clear(); }
 
   private element<T extends HTMLElement = HTMLElement>(selector: string): T {
     const element = this.options.root.querySelector<T>(selector);
@@ -179,7 +180,7 @@ export class DuplicateComparisonControls {
   }
 
   private clearCleanup(): void {
-    this.cleanupPlan = null; this.cleanupSelection.clear(); this.cleanupChecks.clear();
+    this.cleanupPlan = null; this.cleanupSelection.clear(); this.cleanupChecks.clear(); this.cleanupForceButtons.clear();
     this.cleanupAbort.abort(); this.cleanupAbort = new AbortController();
     this.element('#library-cleanup-plan').hidden = true;
     this.element('#library-cleanup-keep').textContent = '';
@@ -216,7 +217,7 @@ export class DuplicateComparisonControls {
         && Number.isFinite(target.audio.count) && target.audio.count >= 0 && Number.isFinite(target.audio.bytes) && target.audio.bytes >= 0;
       if (plan.contextId !== comparison.contextId || plan.revision !== revision || plan.keepId !== keepId || !/^[a-f0-9]{32}$/i.test(plan.planId)
         || !validTarget(plan.keep) || plan.keep.id !== keepId || !Array.isArray(plan.candidates)
-        || plan.candidates.some(candidate => !validTarget(candidate) || candidate.id === keepId || typeof candidate.eligible !== 'boolean'
+        || plan.candidates.some(candidate => !validTarget(candidate) || candidate.id === keepId || typeof candidate.eligible !== 'boolean' || typeof candidate.forceable !== 'boolean'
           || (candidate.reason !== null && typeof candidate.reason !== 'string'))
         || new Set(plan.candidates.map(candidate => candidate.id)).size !== plan.candidates.length) {
         throw new Error('Ce plan de nettoyage est périmé ou invalide. Rechargez la comparaison.');
@@ -225,10 +226,13 @@ export class DuplicateComparisonControls {
       const eligibleCandidates = plan.candidates.filter(candidate => this.eligible(candidate, plan));
       for (const candidate of eligibleCandidates) this.cleanupSelection.add(candidate.id);
       this.renderCleanup();
-      const eligible = eligibleCandidates.length, blocked = plan.candidates.length - eligible;
+      const eligible = eligibleCandidates.length, forceable = plan.candidates.filter(candidate => candidate.forceable).length;
+      const blocked = plan.candidates.length - eligible - forceable;
       this.feedback(eligible
-        ? `${number(eligible)} autre(s) version(s) sûre(s) présélectionnée(s) pour la Corbeille.${blocked ? ` ${number(blocked)} version(s) protégée(s) car différente(s) ou non vérifiée(s).` : ''} Vérifiez puis confirmez la suppression.`
-        : 'Aucune autre version n’est suffisamment vérifiée pour être supprimée. Consultez les raisons indiquées.');
+        ? `${number(eligible)} autre(s) version(s) sûre(s) présélectionnée(s) pour la Corbeille.${forceable ? ` ${number(forceable)} version(s) avec audio différent peuvent être supprimées manuellement.` : ''}${blocked ? ` ${number(blocked)} version(s) restent protégées.` : ''} Vérifiez puis confirmez la suppression.`
+        : forceable
+          ? `${number(forceable)} autre(s) version(s) ont les mêmes notes et fichiers non audio, mais un audio différent. Utilisez « Supprimer quand même » uniquement si vous voulez réellement perdre cet audio.`
+          : 'Aucune autre version n’est suffisamment vérifiée pour être supprimée. Consultez les raisons indiquées.');
     } catch (error) {
       if (!this.current(serial, root, revision)) return;
       this.clearCleanup(); this.needsReload = true;
@@ -269,8 +273,16 @@ export class DuplicateComparisonControls {
       label.append(check, caption); item.append(label); details(candidate, item);
       const reason = document.createElement('p'); reason.className = 'library-cleanup-reason'; reason.id = `library-cleanup-reason-${index}`;
       reason.textContent = eligible ? 'Notes, audio et tous les fichiers identiques à la version conservée.'
+        : candidate.forceable ? 'Les notes et les fichiers non audio sont identiques, mais l’audio est différent. Cette copie ne sera jamais présélectionnée.'
         : candidate.reason || 'Nettoyage bloqué : les fichiers et un audio présent doivent être entièrement vérifiés.';
-      check.setAttribute('aria-describedby', reason.id); item.append(reason); container.append(item);
+      check.setAttribute('aria-describedby', reason.id); item.append(reason);
+      if (!eligible && candidate.forceable) {
+        const force = document.createElement('button'); force.type = 'button'; force.className = 'button secondary library-cleanup-force';
+        force.textContent = 'Supprimer quand même'; force.setAttribute('aria-label', `Supprimer quand même cette copie : ${candidate.relativePath}`);
+        force.addEventListener('click', () => { void this.forceRecycle(candidate.id); }, { signal: this.cleanupAbort.signal });
+        item.append(force); this.cleanupForceButtons.set(candidate.id, force);
+      }
+      container.append(item);
       check.addEventListener('change', () => {
         if (this.cleanupPlan !== plan || !this.cleanupAvailable() || !eligible || check.disabled) { check.checked = this.cleanupSelection.has(candidate.id); return; }
         if (check.checked) this.cleanupSelection.add(candidate.id); else this.cleanupSelection.delete(candidate.id);
@@ -314,6 +326,44 @@ export class DuplicateComparisonControls {
     } catch (error) {
       if (this.disposed || execution !== this.executionSerial) return;
       this.cleanupFeedback(error instanceof Error ? error.message : 'Nettoyage indisponible. Actualisez la bibliothèque avant de réessayer.', true);
+      if (this.current(serial, root, revision)) this.needsReload = true;
+    } finally {
+      if (!this.disposed && execution === this.executionSerial) { this.executing = false; this.clearCleanup(); this.refreshAvailability(); }
+    }
+  }
+
+  private async forceRecycle(id: string): Promise<void> {
+    const plan = this.cleanupPlan, candidate = plan?.candidates.find(value => value.id === id);
+    if (!plan || !candidate?.forceable || candidate.eligible || !this.cleanupAvailable() || !this.state?.rootPath || plan.keepId !== this.result?.preferredId) return;
+    const serial = this.serial, root = this.state.rootPath, revision = this.state.revision, execution = ++this.executionSerial;
+    this.executing = true; this.cleanupPlan = null; this.cleanupSelection.clear();
+    this.cleanupFeedback('Confirmation renforcée requise pour supprimer une copie dont l’audio diffère…'); this.refreshAvailability();
+    try {
+      const response = await this.options.command('library.forceRecycleDuplicate', { planId: plan.planId, revision, id }) as { ok: boolean; cancelled?: boolean; result?: CleanupResult; error?: string } | undefined;
+      if (this.disposed || execution !== this.executionSerial) return;
+      if (!response?.ok) throw new Error(response?.error || 'La suppression forcée n’a pas pu être confirmée. Revérifiez les versions avant de réessayer.');
+      if (response.cancelled && !response.result) {
+        this.cleanupFeedback('Suppression forcée annulée. Aucun fichier envoyé à la Corbeille.');
+      } else {
+        const result = response.result;
+        if (!result || !Array.isArray(result.recycledIds) || !Array.isArray(result.failed)
+          || result.recycledIds.some(value => value !== id) || result.failed.some(failure => failure.id !== id || typeof failure.reason !== 'string')
+          || typeof result.cancelled !== 'boolean' || typeof result.refreshRequested !== 'boolean') {
+          throw new Error('Le résultat de la suppression forcée n’a pas pu être confirmé. Actualisez la bibliothèque.');
+        }
+        const messages = [result.recycledIds.length
+          ? `1 copie avec audio différent envoyée à la Corbeille Windows. Version conservée : ${plan.keep.targetRelativePath}.`
+          : 'Aucune copie n’a été envoyée à la Corbeille.'];
+        if (result.failed[0]) messages.push(result.failed[0].reason);
+        if (result.cancelled) messages.push('Opération interrompue.');
+        messages.push(result.refreshRequested ? 'Actualisation de la bibliothèque demandée.' : 'Actualisez la bibliothèque pour vérifier les fichiers actuels.');
+        this.cleanupFeedback(messages.join('\n'), result.failed.length > 0);
+        if (this.current(serial, root, revision)) this.needsReload = true;
+      }
+      if (this.current(serial, root, revision)) this.feedback('Cette vérification a été utilisée. Une nouvelle vérification est nécessaire avant toute autre suppression.');
+    } catch (error) {
+      if (this.disposed || execution !== this.executionSerial) return;
+      this.cleanupFeedback(error instanceof Error ? error.message : 'Suppression forcée indisponible. Actualisez la bibliothèque.', true);
       if (this.current(serial, root, revision)) this.needsReload = true;
     } finally {
       if (!this.disposed && execution === this.executionSerial) { this.executing = false; this.clearCleanup(); this.refreshAvailability(); }
@@ -376,6 +426,10 @@ export class DuplicateComparisonControls {
       const candidate = this.cleanupPlan?.candidates.find(value => value.id === id);
       check.disabled = !this.cleanupAvailable() || !this.cleanupPlan || !candidate || !this.eligible(candidate, this.cleanupPlan);
       check.checked = this.cleanupSelection.has(id);
+    }
+    for (const [id, button] of this.cleanupForceButtons) {
+      const candidate = this.cleanupPlan?.candidates.find(value => value.id === id);
+      button.disabled = !this.cleanupAvailable() || !this.cleanupPlan || !candidate?.forceable || candidate.eligible;
     }
     const scan = this.element('#library-comparison-scanning'); scan.hidden = !this.targetId || !this.state?.scanning;
     const retry = this.element<HTMLButtonElement>('#library-comparison-retry'); retry.hidden = !this.needsReload; retry.disabled = busy || unavailable;
