@@ -101,17 +101,22 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
         assertSnapshot(current);
         const bundle = await inspectChartBundle({ rootPath: current.rootPath, relativePath: member.relativePath, format: member.format, signal: current.controller.signal });
         assertSnapshot(current); current.bundles.set(member.id, bundle);
-        let blocked = !validKeep ? reason.keep : bundle?.status !== 'verified' ? reason.unavailable : null;
-        if (!blocked && (bundle.notes?.sha256 !== keptBundle.notes.sha256 || bundle.notes?.format !== keptBundle.notes.format)) blocked = reason.notes;
-        if (!blocked && (keptBundle.audio?.status !== 'verified' || keptBundle.audio.count < 1 || bundle.audio?.status !== 'verified' || bundle.audio.count < 1 || !HEX.test(keptBundle.audio.digest) || bundle.audio.digest !== keptBundle.audio.digest)) blocked = reason.audio;
-        if (!blocked && (bundle.kind !== keptBundle.kind || !HEX.test(keptBundle.bundleHash) || bundle.bundleHash !== keptBundle.bundleHash)) blocked = reason.contents;
-        if (!blocked && targetBlocked(current, member, bundle)) blocked = reason.target;
-        current.candidates.push({ ...summary(member, bundle), eligible: !blocked, reason: blocked });
+        const notesMatch = bundle?.notes?.sha256 === keptBundle.notes?.sha256 && bundle?.notes?.format === keptBundle.notes?.format;
+        const audioMatch = keptBundle.audio?.status === 'verified' && keptBundle.audio.count > 0 && bundle?.audio?.status === 'verified' && bundle.audio.count > 0
+          && HEX.test(keptBundle.audio.digest) && bundle.audio.digest === keptBundle.audio.digest;
+        const contentsMatch = bundle?.kind === keptBundle.kind && HEX.test(keptBundle.bundleHash) && bundle?.bundleHash === keptBundle.bundleHash;
+        const blockedTarget = bundle?.status === 'verified' ? targetBlocked(current, member, bundle) : true;
+        const nonAudioMatch = bundle?.kind === 'folder' && keptBundle.kind === 'folder' && HEX.test(bundle.nonAudioHash) && bundle.nonAudioHash === keptBundle.nonAudioHash;
+        let blocked = !validKeep ? reason.keep : bundle?.status !== 'verified' ? reason.unavailable : !notesMatch ? reason.notes : !audioMatch ? reason.audio : !contentsMatch ? reason.contents : blockedTarget ? reason.target : null;
+        const forceable = blocked === reason.audio && validKeep && !blockedTarget && nonAudioMatch
+          && bundle.audio.status === 'verified' && bundle.audio.count > 0 && keptBundle.audio.status === 'verified' && keptBundle.audio.count > 0
+          && HEX.test(bundle.audio.digest) && HEX.test(keptBundle.audio.digest) && bundle.audio.digest !== keptBundle.audio.digest;
+        current.candidates.push({ ...summary(member, bundle), eligible: !blocked, forceable, reason: blocked });
       }
       // Even a malformed index cannot authorize overlapping recycle targets.
       for (const candidate of current.candidates) {
-        if (candidate.eligible && current.candidates.some(other => other.id !== candidate.id && other.targetRelativePath && overlaps(candidate.targetRelativePath, other.targetRelativePath))) {
-          candidate.eligible = false; candidate.reason = reason.target;
+        if ((candidate.eligible || candidate.forceable) && current.candidates.some(other => other.id !== candidate.id && other.targetRelativePath && overlaps(candidate.targetRelativePath, other.targetRelativePath))) {
+          candidate.eligible = false; candidate.forceable = false; candidate.reason = reason.target;
         }
       }
       await contextFor(current);
@@ -129,30 +134,34 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
     // the native confirmation or the executor's target selection.
     return { planId: options.planId, revision: options.revision, ids: [...options.ids] };
   }
-  async function selected(current, request) {
+  async function selected(current, request, force = false) {
     if (!current || plan !== current || current.planId !== request.planId || current.revision !== request.revision) throw safeError();
     const values = request.ids.map(id => current.candidates.find(candidate => candidate.id === id));
-    if (values.some(value => !value?.eligible || value.id === current.keepId)) throw safeError();
+    if (values.some(value => !(force ? value?.forceable : value?.eligible) || value.id === current.keepId)) throw safeError();
     await contextFor(current);
     if (plan !== current) throw safeError();
     return values;
   }
-  async function runReview(options) {
+  function forceSelection(options) {
+    if (!object(options) || Object.keys(options).some(key => !['planId', 'revision', 'id'].includes(key)) || typeof options.planId !== 'string' || !TOKEN.test(options.planId) || !Number.isSafeInteger(options.revision) || options.revision < 0 || typeof options.id !== 'string' || !HEX.test(options.id)) throw safeError();
+    return { planId: options.planId, revision: options.revision, ids: [options.id] };
+  }
+  async function runReview(options, force = false) {
     ready();
     try {
-      const request = selection(options), current = plan, values = await selected(current, request);
+      const request = force ? forceSelection(options) : selection(options), current = plan, values = await selected(current, request, force);
       return { planId: current.planId, revision: current.revision, keep: copySummary(current.keep), candidates: values.map(copySummary) };
     } catch (_) { throw safeError(); }
   }
-  async function runExecute(options) {
+  async function runExecute(options, force = false) {
     ready();
-    const request = selection(options), current = plan;
+    const request = force ? forceSelection(options) : selection(options), current = plan;
     if (!current) throw safeError();
     const operation = { controller: current.controller }; executing = operation;
     const result = { recycledIds: [], failed: [], cancelled: false, refreshRequested: false };
     let attempted = false;
     try {
-      const values = await selected(current, request); attempted = true;
+      const values = await selected(current, request, force); attempted = true;
       const keeper = current.members.find(member => member.id === current.keepId);
       for (const candidate of values) {
         if (current.controller.signal.aborted) { result.cancelled = true; break; }
@@ -199,7 +208,8 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
     try { await stopping; } finally { stopping = null; }
   }
   return {
-    prepare: options => track(runPrepare(options)), review: options => track(runReview(options)), execute: options => track(runExecute(options)),
+    prepare: options => track(runPrepare(options)), review: options => track(runReview(options)), forceReview: options => track(runReview(options, true)),
+    execute: options => track(runExecute(options)), forceExecute: options => track(runExecute(options, true)),
     invalidate, stop, busy: () => preparing !== null || executing !== null
   };
 }
