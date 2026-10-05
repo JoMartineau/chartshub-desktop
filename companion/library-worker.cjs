@@ -3,7 +3,7 @@ const { parentPort, workerData } = require('node:worker_threads');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { createInstalledLibraryService } = require('./library-service.cjs');
 
-const METHODS = new Set(['load', 'start', 'stop', 'selectRoot', 'configure', 'requestScan', 'cancel', 'query', 'compareDuplicates', 'chooseDuplicate', 'resolveSongFolder', 'prepareCleanup', 'cleanupReview', 'recycleDuplicates']);
+const METHODS = new Set(['load', 'start', 'stop', 'selectRoot', 'configure', 'requestScan', 'cancel', 'query', 'compareDuplicates', 'chooseDuplicate', 'resolveSongFolder', 'prepareCleanup', 'cleanupReview', 'cleanupForceReview', 'recycleDuplicates', 'forceRecycleDuplicate']);
 let lastRoot, lastRevision, stopping = false;
 const pending = new Set();
 const requests = new AsyncLocalStorage(), recycleRequests = new Map();
@@ -11,7 +11,7 @@ let nextRecycleId = 0;
 const service = createInstalledLibraryService({ dataDirectory: workerData.dataDirectory,
   recycle: target => new Promise((resolve, reject) => {
     const request = requests.getStore();
-    if (stopping || request?.method !== 'recycleDuplicates') return reject(Error('Nettoyage arrêté.'));
+    if (stopping || !['recycleDuplicates', 'forceRecycleDuplicate'].includes(request?.method)) return reject(Error('Nettoyage arrêté.'));
     const id = ++nextRecycleId;
     recycleRequests.set(id, { resolve, reject });
     parentPort.postMessage({ type: 'recycle', id, requestId: request.id, target });
