@@ -15,7 +15,7 @@ test('Companion localization loads before panel code and protects user-content s
 });
 test('native Companion dialogs use the synchronized language helper',()=>{
  const host=read('companion/host.cjs');
- for(const phrase of ['Choose Clone Hero Songs folder','Choose ChartsHub download folder','Choose Clone Hero currentsong.txt','Send copies to Windows Recycle Bin','Connect ReShade effects'])assert.ok(host.includes(phrase),phrase);
+ for(const phrase of ['Choose Clone Hero Songs folder','Choose ChartsHub download folder','Choose Clone Hero currentsong.txt','Send copies to Windows Recycle Bin','Delete this copy anyway?','Connect ReShade effects'])assert.ok(host.includes(phrase),phrase);
 });
 
 test('native Theme panel follows the synchronized document language',()=>{
@@ -27,7 +27,7 @@ test('native Theme panel follows the synchronized document language',()=>{
 
 test('direct duplicate cleanup labels are available in both French and English',()=>{
  const source=read('companion/src/settings/DuplicateComparisonControls.ts'),locale=read('companion/ui/localization.js'),html=read('companion/ui/index.html');
- for(const phrase of ['Supprimer l’autre version','Supprimer les ','Aucune autre version sûre à supprimer','Revérifier les autres versions'])assert.ok(source.includes(phrase),phrase);
- for(const phrase of ['Delete the other version','Delete the ','No other safe version to delete','Recheck other versions','Delete this copy:','Deletion blocked:'])assert.ok(locale.includes(phrase),phrase);
+ for(const phrase of ['Supprimer l’autre version','Supprimer les ','Supprimer quand même','Aucune autre version sûre à supprimer','Revérifier les autres versions'])assert.ok(source.includes(phrase),phrase);
+ for(const phrase of ['Delete the other version','Delete the ','Delete anyway','No other safe version to delete','Recheck other versions','Delete this copy:','Delete this copy anyway:','Deletion blocked:'])assert.ok(locale.includes(phrase),phrase);
  assert.match(html,/copies sûres sont présélectionnées/);
 });
