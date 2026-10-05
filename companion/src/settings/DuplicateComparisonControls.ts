@@ -354,7 +354,7 @@ export class DuplicateComparisonControls {
         const messages = [result.recycledIds.length
           ? `1 copie avec audio différent envoyée à la Corbeille Windows. Version conservée : ${plan.keep.targetRelativePath}.`
           : 'Aucune copie n’a été envoyée à la Corbeille.'];
-        if (result.failed.length) messages.push(result.failed[0].reason);
+        if (result.failed[0]) messages.push(result.failed[0].reason);
         if (result.cancelled) messages.push('Opération interrompue.');
         messages.push(result.refreshRequested ? 'Actualisation de la bibliothèque demandée.' : 'Actualisez la bibliothèque pour vérifier les fichiers actuels.');
         this.cleanupFeedback(messages.join('\n'), result.failed.length > 0);
