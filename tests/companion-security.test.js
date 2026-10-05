@@ -1451,13 +1451,14 @@ test('cleanup IPC accepts only revision-bound plans and explicit force-delete ch
   assert.equal(validCommand('library.cleanupReview', execute, []), false);
 });
 
-async function cleanupHostFixture(t, { differentAudio = false } = {}) {
+async function cleanupHostFixture(t, { differentAudio = false, differentExtra = false } = {}) {
   const f = await hostFixture(t), fs = require('node:fs/promises'), songs = path.join(f.directory, 'Songs');
   for (const name of ['A', 'B', 'C']) {
     const folder = path.join(songs, name); await fs.mkdir(folder, { recursive: true });
     await fs.writeFile(path.join(folder, 'song.ini'), '[song]\nname = Example\nartist = Band\ncharter = Creator\n');
     await fs.writeFile(path.join(folder, 'notes.chart'), '[Song]\n{}\n[ExpertSingle]\n{\n0 = N 0 0\n}');
     await fs.writeFile(path.join(folder, 'song.ogg'), differentAudio && name === 'B' ? 'different-audio-bytes' : 'fixture-audio-bytes');
+    if (differentExtra && name === 'B') await fs.writeFile(path.join(folder, 'extra-metadata.txt'), 'different verified extra file');
   }
   const panel = await f.host.open();
   const command = (name, payload) => f.handlers.get('companion:command')(f.eventFor(panel), name, payload);
@@ -1471,7 +1472,7 @@ async function cleanupHostFixture(t, { differentAudio = false } = {}) {
   const contextId = compared.result.contextId;
   assert.equal((await command('library.chooseDuplicate', { contextId, revision, id: keepId })).ok, true);
   const prepared = await command('library.prepareCleanup', { contextId, revision, keepId }); assert.equal(prepared.ok, true, prepared.error);
-  if (differentAudio) { assert.equal(prepared.result.candidates.filter(item => item.forceable).length, 1); assert.equal(prepared.result.candidates.filter(item => item.eligible).length, 1); }
+  if (differentAudio || differentExtra) { assert.equal(prepared.result.candidates.filter(item => item.forceable).length, 1); assert.equal(prepared.result.candidates.filter(item => item.eligible).length, 1); }
   else assert.ok(prepared.result.candidates.every(item => item.eligible));
   const payload = { planId: prepared.result.planId, revision, ids: prepared.result.candidates.filter(item => item.eligible).map(item => item.id) };
   return { ...f, fs, songs, panel, command, plan: prepared.result, payload };
@@ -1505,27 +1506,31 @@ test('native cleanup defaults to cancel and recycles only the explicitly selecte
 });
 
 
-test('audio-different duplicate requires reinforced native confirmation and only then reaches the Recycle Bin', async t => {
-  const f = await cleanupHostFixture(t, { differentAudio: true }), recycled = [];
-  const forced = f.plan.candidates.find(item => item.forceable);
-  assert.ok(forced); assert.equal(forced.eligible, false);
-  const request = { planId: f.plan.planId, revision: f.plan.revision, id: forced.id };
-  const directReview = await f.host.library.cleanupForceReview(request); assert.deepEqual(directReview.candidates.map(item => item.id), [forced.id]);
-  f.shell.trashItem = async target => { recycled.push(target); await f.fs.rename(target, path.join(f.directory, 'fake-force-recycle-' + path.basename(target))); };
-  let optionsSeen;
-  f.dialog.showMessageBox = async (owner, options) => {
-    assert.equal(owner, f.panel); optionsSeen = options; return { response: 0 };
-  };
-  assert.deepEqual(await f.command('library.forceRecycleDuplicate', request), { ok: true, cancelled: true });
-  assert.equal(recycled.length, 0); assert.equal(optionsSeen.defaultId, 0); assert.equal(optionsSeen.cancelId, 0);
-  assert.match(optionsSeen.title, /Supprimer quand même|Delete this copy anyway/);
-  assert.match(optionsSeen.detail, /Version conservée|Kept version/);
-  assert.match(optionsSeen.detail, /audio/i);
-  f.dialog.showMessageBox = async () => ({ response: 1 });
-  const result = await f.command('library.forceRecycleDuplicate', request);
-  assert.equal(result.ok, true, result.error); assert.deepEqual(result.result.recycledIds, [forced.id]); assert.deepEqual(result.result.failed, []);
-  assert.equal(recycled.length, 1);
-  const remaining = (await f.fs.readdir(f.songs)).sort(); assert.deepEqual(remaining, ['A', 'C']);
+test('verified differences require reinforced native confirmation and only then reach the Recycle Bin', async t => {
+  for (const options of [{ differentAudio: true }, { differentExtra: true }]) {
+    const f = await cleanupHostFixture(t, options), recycled = [];
+    const forced = f.plan.candidates.find(item => item.forceable);
+    assert.ok(forced); assert.equal(forced.eligible, false);
+    const request = { planId: f.plan.planId, revision: f.plan.revision, id: forced.id };
+    const directReview = await f.host.library.cleanupForceReview(request); assert.deepEqual(directReview.candidates.map(item => item.id), [forced.id]);
+    f.shell.trashItem = async target => { recycled.push(target); await f.fs.rename(target, path.join(f.directory, 'fake-force-recycle-' + path.basename(target))); };
+    let optionsSeen;
+    f.dialog.showMessageBox = async (owner, dialogOptions) => {
+      assert.equal(owner, f.panel); optionsSeen = dialogOptions; return { response: 0 };
+    };
+    assert.deepEqual(await f.command('library.forceRecycleDuplicate', request), { ok: true, cancelled: true });
+    assert.equal(recycled.length, 0); assert.equal(optionsSeen.defaultId, 0); assert.equal(optionsSeen.cancelId, 0);
+    assert.match(optionsSeen.title, /Supprimer quand même|Delete this copy anyway/);
+    assert.match(optionsSeen.message, /copie vérifiée diffère|verified copy differs/i);
+    assert.match(optionsSeen.detail, /Version conservée|Kept version/);
+    assert.match(optionsSeen.detail, /audio/i);
+    assert.match(optionsSeen.detail, /fichiers non audio|non-audio files/i);
+    f.dialog.showMessageBox = async () => ({ response: 1 });
+    const result = await f.command('library.forceRecycleDuplicate', request);
+    assert.equal(result.ok, true, result.error); assert.deepEqual(result.result.recycledIds, [forced.id]); assert.deepEqual(result.result.failed, []);
+    assert.equal(recycled.length, 1);
+    const remaining = (await f.fs.readdir(f.songs)).sort(); assert.deepEqual(remaining, ['A', 'C']);
+  }
 });
 
 test('cleanup refuses a copy whose audio changes while native confirmation is open', async t => {

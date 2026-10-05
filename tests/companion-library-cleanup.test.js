@@ -73,27 +73,40 @@ test('eligibility requires verified notes, audio, kind and the entire bundle inc
   }
 });
 
-test('audio-only differences require the explicit force path and never enter normal cleanup', async t => {
-  const f = await fixture(t, { inspect: async options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? {
-    audio: { status: 'verified', count: 1, bytes: 9, digest: hash('different audio') }, bundleHash: hash('bundle-with-different-audio')
-  } : {}) });
-  const prepared = await f.prepare(), candidate = prepared.candidates[0];
-  assert.equal(candidate.eligible, false); assert.equal(candidate.forceable, true);
-  await assert.rejects(f.service.review(f.select(prepared, [candidate.id])), safe);
-  const force = { planId: prepared.planId, revision: prepared.revision, id: candidate.id };
-  const reviewed = await f.service.forceReview(force);
-  assert.deepEqual(reviewed.candidates.map(value => value.id), [candidate.id]);
-  const result = await f.service.forceExecute(force);
-  assert.deepEqual(result.recycledIds, [candidate.id]); assert.deepEqual(result.failed, []);
-  assert.deepEqual(f.recycled, [path.join(f.rootPath, 'B')]);
+test('fully verified differences require the explicit force path and never enter normal cleanup', async t => {
+  for (const changes of [
+    { audio: { status: 'verified', count: 1, bytes: 9, digest: hash('different audio') }, bundleHash: hash('bundle-with-different-audio') },
+    { nonAudioHash: hash('different non-audio'), bundleHash: hash('different bundle'), totalBytes: 13 },
+    { audio: { status: 'verified', count: 1, bytes: 9, digest: hash('different audio') }, nonAudioHash: hash('different non-audio'), bundleHash: hash('different bundle'), totalBytes: 17 }
+  ]) {
+    const f = await fixture(t, { inspect: async options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}) });
+    const prepared = await f.prepare(), candidate = prepared.candidates[0];
+    assert.equal(candidate.eligible, false); assert.equal(candidate.forceable, true, JSON.stringify(changes));
+    await assert.rejects(f.service.review(f.select(prepared, [candidate.id])), safe);
+    const force = { planId: prepared.planId, revision: prepared.revision, id: candidate.id };
+    const reviewed = await f.service.forceReview(force);
+    assert.deepEqual(reviewed.candidates.map(value => value.id), [candidate.id]);
+    const result = await f.service.forceExecute(force);
+    assert.deepEqual(result.recycledIds, [candidate.id]); assert.deepEqual(result.failed, []);
+    assert.deepEqual(f.recycled, [path.join(f.rootPath, 'B')]);
+  }
+});
 
-  const blocked = await fixture(t, { inspect: async options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? {
-    audio: { status: 'verified', count: 1, bytes: 9, digest: hash('different audio') }, nonAudioHash: hash('different non-audio'), bundleHash: hash('different bundle')
-  } : {}) });
-  const blockedPlan = await blocked.prepare();
-  assert.equal(blockedPlan.candidates[0].forceable, false);
-  await assert.rejects(blocked.service.forceReview({ planId: blockedPlan.planId, revision: blockedPlan.revision, id: blockedPlan.candidates[0].id }), safe);
-  assert.equal(blocked.recycled.length, 0);
+test('force override stays unavailable for missing or unverified audio, changed notes, unsafe targets and non-folder copies', async t => {
+  for (const changes of [
+    { audio: { status: 'missing', count: 0, bytes: 0, digest: null } },
+    { audio: { status: 'unavailable', count: 1, bytes: 5, digest: null } },
+    { notes: { format: 'chart', sha256: hash('changed notes'), bytes: 5 } },
+    { targetRelativePath: '../outside' },
+    { kind: 'sng', targetRelativePath: 'B/chart.sng' }
+  ]) {
+    const f = await fixture(t, { inspect: async options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}) });
+    const prepared = await f.prepare(), candidate = prepared.candidates[0];
+    assert.equal(candidate.eligible, false, JSON.stringify(changes));
+    assert.equal(candidate.forceable, false, JSON.stringify(changes));
+    await assert.rejects(f.service.forceReview({ planId: prepared.planId, revision: prepared.revision, id: candidate.id }), safe);
+    assert.equal(f.recycled.length, 0);
+  }
 });
 
 test('missing keeper audio, changed keeper notes and unsafe keeper target block every candidate', async t => {

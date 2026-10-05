@@ -106,11 +106,13 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
           && HEX.test(keptBundle.audio.digest) && bundle.audio.digest === keptBundle.audio.digest;
         const contentsMatch = bundle?.kind === keptBundle.kind && HEX.test(keptBundle.bundleHash) && bundle?.bundleHash === keptBundle.bundleHash;
         const blockedTarget = bundle?.status === 'verified' ? targetBlocked(current, member, bundle) : true;
-        const nonAudioMatch = bundle?.kind === 'folder' && keptBundle.kind === 'folder' && HEX.test(bundle.nonAudioHash) && bundle.nonAudioHash === keptBundle.nonAudioHash;
         let blocked = !validKeep ? reason.keep : bundle?.status !== 'verified' ? reason.unavailable : !notesMatch ? reason.notes : !audioMatch ? reason.audio : !contentsMatch ? reason.contents : blockedTarget ? reason.target : null;
-        const forceable = blocked === reason.audio && validKeep && !blockedTarget && nonAudioMatch
-          && bundle.audio.status === 'verified' && bundle.audio.count > 0 && keptBundle.audio.status === 'verified' && keptBundle.audio.count > 0
-          && HEX.test(bundle.audio.digest) && HEX.test(keptBundle.audio.digest) && bundle.audio.digest !== keptBundle.audio.digest;
+        const verifiedAudio = bundle?.audio?.status === 'verified' && bundle.audio.count > 0
+          && keptBundle.audio?.status === 'verified' && keptBundle.audio.count > 0
+          && HEX.test(bundle.audio.digest) && HEX.test(keptBundle.audio.digest);
+        const sameSafeKind = bundle?.kind === 'folder' && keptBundle.kind === 'folder';
+        const forceable = [reason.audio, reason.contents].includes(blocked) && validKeep && notesMatch && !blockedTarget
+          && sameSafeKind && verifiedAudio;
         current.candidates.push({ ...summary(member, bundle), eligible: !blocked, forceable, reason: blocked });
       }
       // Even a malformed index cannot authorize overlapping recycle targets.

@@ -229,9 +229,9 @@ export class DuplicateComparisonControls {
       const eligible = eligibleCandidates.length, forceable = plan.candidates.filter(candidate => candidate.forceable).length;
       const blocked = plan.candidates.length - eligible - forceable;
       this.feedback(eligible
-        ? `${number(eligible)} autre(s) version(s) sûre(s) présélectionnée(s) pour la Corbeille.${forceable ? ` ${number(forceable)} version(s) avec audio différent peuvent être supprimées manuellement.` : ''}${blocked ? ` ${number(blocked)} version(s) restent protégées.` : ''} Vérifiez puis confirmez la suppression.`
+        ? `${number(eligible)} autre(s) version(s) sûre(s) présélectionnée(s) pour la Corbeille.${forceable ? ` ${number(forceable)} version(s) vérifiée(s) mais différente(s) peuvent être supprimées manuellement.` : ''}${blocked ? ` ${number(blocked)} version(s) restent protégées.` : ''} Vérifiez puis confirmez la suppression.`
         : forceable
-          ? `${number(forceable)} autre(s) version(s) ont les mêmes notes et fichiers non audio, mais un audio différent. Utilisez « Supprimer quand même » uniquement si vous voulez réellement perdre cet audio.`
+          ? `${number(forceable)} autre(s) version(s) ont les mêmes notes, mais leur audio ou certains fichiers diffèrent. Utilisez « Supprimer quand même » uniquement si vous acceptez de perdre ces différences.`
           : 'Aucune autre version n’est suffisamment vérifiée pour être supprimée. Consultez les raisons indiquées.');
     } catch (error) {
       if (!this.current(serial, root, revision)) return;
@@ -273,7 +273,7 @@ export class DuplicateComparisonControls {
       label.append(check, caption); item.append(label); details(candidate, item);
       const reason = document.createElement('p'); reason.className = 'library-cleanup-reason'; reason.id = `library-cleanup-reason-${index}`;
       reason.textContent = eligible ? 'Notes, audio et tous les fichiers identiques à la version conservée.'
-        : candidate.forceable ? 'Les notes et les fichiers non audio sont identiques, mais l’audio est différent. Cette copie ne sera jamais présélectionnée.'
+        : candidate.forceable ? 'Les notes sont identiques et la copie est entièrement vérifiée, mais son audio ou certains fichiers diffèrent. Cette copie ne sera jamais présélectionnée.'
         : candidate.reason || 'Nettoyage bloqué : les fichiers et un audio présent doivent être entièrement vérifiés.';
       check.setAttribute('aria-describedby', reason.id); item.append(reason);
       if (!eligible && candidate.forceable) {
@@ -337,7 +337,7 @@ export class DuplicateComparisonControls {
     if (!plan || !candidate?.forceable || candidate.eligible || !this.cleanupAvailable() || !this.state?.rootPath || plan.keepId !== this.result?.preferredId) return;
     const serial = this.serial, root = this.state.rootPath, revision = this.state.revision, execution = ++this.executionSerial;
     this.executing = true; this.cleanupPlan = null; this.cleanupSelection.clear();
-    this.cleanupFeedback('Confirmation renforcée requise pour supprimer une copie dont l’audio diffère…'); this.refreshAvailability();
+    this.cleanupFeedback('Confirmation renforcée requise pour supprimer une copie vérifiée qui diffère de la version conservée…'); this.refreshAvailability();
     try {
       const response = await this.options.command('library.forceRecycleDuplicate', { planId: plan.planId, revision, id }) as { ok: boolean; cancelled?: boolean; result?: CleanupResult; error?: string } | undefined;
       if (this.disposed || execution !== this.executionSerial) return;
@@ -352,7 +352,7 @@ export class DuplicateComparisonControls {
           throw new Error('Le résultat de la suppression forcée n’a pas pu être confirmé. Actualisez la bibliothèque.');
         }
         const messages = [result.recycledIds.length
-          ? `1 copie avec audio différent envoyée à la Corbeille Windows. Version conservée : ${plan.keep.targetRelativePath}.`
+          ? `1 copie vérifiée mais différente envoyée à la Corbeille Windows. Version conservée : ${plan.keep.targetRelativePath}.`
           : 'Aucune copie n’a été envoyée à la Corbeille.'];
         if (result.failed[0]) messages.push(result.failed[0].reason);
         if (result.cancelled) messages.push('Opération interrompue.');
