@@ -25,7 +25,8 @@ interface Response { ok: boolean; result?: SearchResult | CandidateResult; error
 interface Options { root: HTMLElement; command: (name: string, payload?: unknown) => Promise<unknown>; }
 const emptyFilters = (): Filters => ({ query: '', artist: '', charter: '', genre: '', year: '', instrument: '', difficulty: '', verified: 'all', installed: 'all' });
 const readable = (value: string, fallback = 'Non renseigné'): string => value?.trim() || fallback;
-const count = (value: number): string => Math.max(0, Math.trunc(value || 0)).toLocaleString('fr-FR');
+const locale = (): string => typeof document === 'undefined' || document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US';
+const count = (value: number): string => Math.max(0, Math.trunc(value || 0)).toLocaleString(locale());
 
 /** Catalogue requests only follow an explicit search, comparison, paging or refresh action. */
 export class CatalogueControls {
@@ -252,7 +253,7 @@ export class CatalogueControls {
     this.element('#catalogue-results').setAttribute('aria-busy', String(busy));
     this.element('#catalogue-demo').hidden = !this.status?.demo;
     const loadedAt = this.status?.lastLoadedAt ? new Date(this.status.lastLoadedAt) : null;
-    this.element('#catalogue-last-loaded').textContent = loadedAt && !Number.isNaN(loadedAt.getTime()) ? `Catalogue chargé le ${loadedAt.toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}` : 'Le catalogue sera chargé à votre demande.';
+    this.element('#catalogue-last-loaded').textContent = loadedAt && !Number.isNaN(loadedAt.getTime()) ? `Catalogue chargé le ${loadedAt.toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })}` : 'Le catalogue sera chargé à votre demande.';
     const warning = this.element('#catalogue-warning'); warning.textContent = this.status?.warning ?? ''; warning.hidden = !warning.textContent;
     this.element('#catalogue-status').textContent = this.loading || this.status?.status === 'loading' ? 'Chargement…' : this.status?.demo ? 'Démonstration' : this.status?.status === 'ready' ? `${count(this.status.availableCount)} charts chargées` : this.status?.status === 'error' ? 'Indisponible' : 'À la demande';
     this.element('#catalogue-local-context').hidden = !this.localId;

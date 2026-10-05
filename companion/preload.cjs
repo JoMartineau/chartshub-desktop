@@ -1,7 +1,10 @@
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
 if (location.protocol === 'chartshub-companion:' && location.hostname === 'app') {
+  const languageArg = (typeof process !== 'undefined' && Array.isArray(process.argv) ? process.argv : []).find(value => value.startsWith('--chartshub-companion-language='));
+  const initialLanguage = ['fr','en'].includes(languageArg?.split('=')[1]) ? languageArg.split('=')[1] : 'en';
   contextBridge.exposeInMainWorld('ChartsHubCompanion', Object.freeze({
+    initialLanguage,
     getSnapshot: () => ipcRenderer.invoke('companion:snapshot'),
     subscribe(listener) {
       if (typeof listener !== 'function') throw new TypeError('Listener required');

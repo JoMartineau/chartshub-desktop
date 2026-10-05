@@ -23,6 +23,7 @@ interface ProfileRow {
   updatedAt?: string;
   select: HTMLButtonElement;
 }
+const locale = (): string => typeof document === 'undefined' || document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US';
 const setText = (element: HTMLElement, value: string): void => { if (element.textContent !== value) element.textContent = value; };
 
 /** Named overlay settings, with stable controls and explicit overwrite/delete targets. */
@@ -179,7 +180,7 @@ export class ProfileControls {
       if (row.updatedAt !== item.updatedAt) {
         row.updatedAt = item.updatedAt;
         const date = new Date(item.updatedAt);
-        row.updated.textContent = Number.isFinite(date.getTime()) ? `Enregistré le ${date.toLocaleDateString('fr-FR')} à ${date.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}` : '';
+        row.updated.textContent = Number.isFinite(date.getTime()) ? `Enregistré le ${date.toLocaleDateString(locale())} à ${date.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}` : '';
       }
     }
     const active = items.find(item => item.id === summary?.activeId);
