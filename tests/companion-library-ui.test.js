@@ -498,3 +498,30 @@ test('execution cancellation after a partial result never claims that no files m
   pending.get('#library-cleanup-prepare').click(); pending.get('#library-cleanup-recycle').click();
   assert.equal(pending.document.writes, writes); assert.equal(pending.calls.length, 4);
 });
+
+
+test('global duplicate verification shows progress, refreshes all duplicate rows and labels verified groups', async t => {
+  const ui = await setup(t);
+  ui.controls.update(snapshot());
+  await ui.respond(0, { items: [song('bulk-a', { duplicateCount: 2 })], total: 1 });
+  assert.equal(ui.get('#library-verify-all-duplicates').disabled, false);
+  ui.get('#library-verify-all-duplicates').click();
+  const verify = await ui.request(1);
+  assert.equal(verify.name, 'library.verifyAllDuplicates');
+  assert.equal(verify.payload, undefined);
+  ui.controls.update(snapshot({ duplicateVerification: { running: true, processed: 2, total: 3 } }));
+  assert.match(ui.get('#library-verify-all-duplicates').textContent, /2 \/ 3/);
+  assert.match(ui.get('#library-verify-all-status').textContent, /2 \/ 3 groupes/);
+  assert.equal(ui.get('#library-verify-all-duplicates').disabled, true);
+  verify.resolve({ ok: true, result: { revision: 1, totalGroups: 3, readyGroups: 1, needsKeeperGroups: 1, blockedGroups: 1, eligibleCopies: 2 } });
+  const refresh = await ui.request(2);
+  assert.equal(refresh.name, 'library.query');
+  assert.equal(refresh.payload.duplicates, 'possible');
+  refresh.resolve({ ok: true, result: { items: [song('bulk-a', { duplicateCount: 2, duplicateVerification: 'ready', verifiedEligibleCopies: 2 })], total: 1, revision: 1, offset: 0, limit: 50 } });
+  await tick();
+  assert.equal(ui.get('#library-duplicates').value, 'possible');
+  assert.match(ui.get('#library-verify-all-status').textContent, /1 groupe\(s\) prêt\(s\).*1 choix de version requis.*1 bloqué\(s\).*2 copie\(s\) vérifiée\(s\)/);
+  const badge = ui.get('#library-rows').children[0].querySelector('.library-duplicate-badge');
+  assert.match(badge.textContent, /Prêt à nettoyer.*2 copie\(s\) vérifiée\(s\)/);
+  assert.equal(badge.dataset.verification, 'ready');
+});

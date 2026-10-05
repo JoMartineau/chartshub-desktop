@@ -28,7 +28,7 @@ function trustedFiltersWidgetCommand(event, window, command) {
 }
 function validCommand(command, payload, widgetIds) {
   if (['mock.next', 'mock.reset', 'editor.undo', 'editor.redo'].includes(command)) return payload === undefined || payload === null;
-  if (['stream.copyUrl', 'library.chooseRoot', 'library.cancel', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (['stream.copyUrl', 'library.chooseRoot', 'library.cancel', 'library.verifyAllDuplicates', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
   if (command === 'reshade.setupPrepare') return Object.keys(payload).length === 1 && typeof payload.includeStarterEffects === 'boolean';
   if (command === 'reshade.command') {
