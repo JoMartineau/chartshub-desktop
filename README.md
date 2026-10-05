@@ -33,6 +33,13 @@ npm start
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la version correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives et le statut `Latest` pour l’affichage sur le dépôt. Une version déjà publiée conserve ses archives et son tag ; il faut augmenter le numéro de version pour distribuer un nouveau paquet.
 
+### Version 0.14.3
+
+- Le Companion suit automatiquement la langue Français / English choisie sur ChartsHub et bascule sans redémarrage.
+- Les fenêtres natives du Companion, les nombres et les dates suivent aussi la langue sélectionnée ; les titres de chansons, artistes, charters, chemins et noms de profils restent inchangés.
+- La Bibliothèque locale peut vérifier l’audio et le contenu de tous les groupes de doublons détectés en une seule opération, avec progression et statut par groupe.
+- La vérification globale ne supprime rien automatiquement : le choix de la version à garder, la sélection des copies, la revalidation finale et la Corbeille Windows restent obligatoires.
+
 ### Version 0.14.2
 
 - Navigation Compte/Catalogue/Companion stabilisée : Companion reste visible pendant la revalidation du même compte.
