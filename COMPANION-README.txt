@@ -1,3 +1,10 @@
+ChartsHub Desktop 0.14.6 — Catalogue et Companion
+
+NOUVEAUTÉS 0.14.6
+Dans Doublons, une copie dont seul l’audio diffère propose maintenant « Supprimer quand même ».
+Cette action reste manuelle et non présélectionnée : notes et fichiers non audio identiques, audio vérifié, cible sûre dans Songs.
+Une confirmation Windows renforcée précède toujours l’envoi à la Corbeille ; la version conservée reste protégée.
+
 ChartsHub Desktop 0.14.5 — Catalogue et Companion
 
 NOUVEAUTÉS 0.14.5
