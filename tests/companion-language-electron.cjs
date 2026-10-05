@@ -12,8 +12,9 @@ registerCompanionScheme();
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function waitFor(check,label){const end=Date.now()+10000;while(Date.now()<end){if(await check())return;await delay(35);}throw Error('Timed out: '+label);}
 const filtersState={rootPath:null,supported:true,installed:false,binaryAvailable:true,restoreAvailable:false,running:false,busy:false,state:'not-installed',message:'Fixture filters',error:null,native:null,settings:{enabled:false,saturation:1,contrast:1,gamma:1,exposure:0,sharpness:0,vignette:0}};
-const reshadeState={rootPath:null,supported:true,installed:false,binaryAvailable:true,running:false,connected:false,busy:false,state:'not-installed',message:'Fixture ReShade',error:null,catalog:null};
-const setupState={state:'idle',busy:false,rootPath:null,includeStarterEffects:false,version:null,message:'Fixture setup',error:null,progress:null,files:[]};
+const reshadeRoot='F:\\Clone Hero\\Clone Hero Launcher\\Clone Hero';
+const reshadeState={rootPath:reshadeRoot,supported:true,installed:true,binaryAvailable:true,running:false,connected:false,busy:false,state:'restart-required',message:'Pont installé. Lancez Clone Hero pour afficher ses effets ReShade.',error:null,catalog:null};
+const setupState={state:'idle',busy:false,rootPath:reshadeRoot,includeStarterEffects:false,version:'6.5.1',message:'Préparez ReShade pour cette installation de Clone Hero.',error:null,progress:null,files:[]};
 const filtersService={async load(){},status:()=>structuredClone(filtersState),async refresh(){},async setSettings(){},async selectRoot(){},async install(){},async restore(){},async dispose(){}};
 const reshadeService={async load(){},status:()=>structuredClone(reshadeState),async refresh(){},async selectRoot(){},async install(){},async command(){},async dispose(){}};
 const reshadeSetupService={async load(){},status:()=>structuredClone(setupState),async prepare(){},async cancel(){},async install(){},async dispose(){}};
@@ -29,18 +30,29 @@ app.whenReady().then(async()=>{
   catalogueClient:{async load(){return {items:[],revision:'lang-fixture',demo:false};},async artwork(){throw Error('No network');}},
   downloadWorker:{async run(){throw Error('No downloads');},async discard(){},async resolveCompleted(){return null;}}
  });
+ const liveFile=path.join(directory,'currentsong.txt');
+ await fs.writeFile(liveFile,'Stale title\nStale artist\nStale charter\n','utf8');
+ await host.integration.selectFile(liveFile);
  host.setLanguage('en');
  panel=await host.open();
  const web=panel.webContents,run=code=>web.executeJavaScript(code);
  await waitFor(()=>run("!!window.ChartshubCompanionLanguage&&document.documentElement.lang==='en'&&document.querySelector('#library-title')?.textContent==='Local library'"),'initial English UI');
- assert.equal(await run("document.querySelector('#source-mode-label').textContent"),'DEMO MODE');
+ assert.equal(await run("document.querySelector('#source-mode-label').textContent"),'DIRECT CLONE HERO');
  assert.equal(await run("document.querySelector('#profiles-title').textContent"),'Overlay profiles');
  assert.equal(await run("document.querySelector('#library-verify-all-duplicates').textContent"),'Verify audio for all duplicates');
  assert.equal(await run("document.querySelector('#catalogue-title').textContent"),'ChartsHub Catalogue');
  assert.equal(await run("document.querySelector('#downloads-title').textContent"),'Downloads');
+ assert.equal(await run("document.querySelector('#clonehero-status').textContent"),'Waiting for a song');
+ assert.equal(await run("document.querySelector('#clonehero-message').textContent"),'Clone Hero is closed. Waiting for a new session.');
+ assert.equal(await run("document.querySelector('#reshade-status').textContent"),'Installed · waiting for ReShade');
+ assert.equal(await run("document.querySelector('#reshade-message').textContent"),'Bridge installed. Start Clone Hero to display ReShade effects.');
+ assert.equal(await run("document.querySelector('#reshade-install').textContent"),'Reinstall integration');
+ assert.equal(await run("document.querySelector('#reshade-setup-message').textContent"),'Prepare ReShade for this Clone Hero installation.');
+ assert.equal(await run("document.querySelector('#reshade-preset').textContent"),'Waiting for ReShade');
+ assert.equal(await run("document.querySelector('#reshade-search').placeholder"),'Bloom, grain, sharpness…');
  const untranslated=await run(`(()=>{
   const blocked='code,pre,script,style,.companion-widget,.library-relative-path,.library-variant-path,.library-variant h4,.library-variant-metadata,.catalogue-item h3,.catalogue-item-artist,.catalogue-item-details,.download-item h3,.download-destination,.profile-item-name,#clonehero-file-path,#library-root,#downloads-root,#reshade-root,#filters-root,#reshade-preset';
-  const pattern=/[éèêàâçîïôûùüœ]|\\b(?:Aucun|Choisir|Chargement|Enregistrer|Supprimer|Annuler|Actualiser|Réglages|Morceau|Démonstration|Connexion|Afficher|Masqué|Activer|Désactiver|Indisponible|Bibliothèque|Téléchargement|Profil|Rechercher|Sélectionnez|Fermez|Installer|Restaurer|Vérification|Préparation|Disposition|Corbeille|nettoyage|analyse|serveur|fichier|fichiers|copie|copies|groupe|groupes)\\b/i;
+  const pattern=/[éèêàâçîïôûùüœ]|\\b(?:Aucun|Choisir|Chargement|Enregistrer|Supprimer|Annuler|Actualiser|Réglages|Morceau|Démonstration|Connexion|Afficher|Masqué|Activer|Désactiver|Indisponible|Bibliothèque|Téléchargement|Profil|Rechercher|Sélectionnez|Fermez|Installer|Restaurer|Vérification|Préparation|Disposition|Corbeille|nettoyage|analyse|serveur|fichier|fichiers|copie|copies|groupe|groupes|attente|installé|Préparez|Pont)\\b/i;
   const values=[];
   const walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let node;
   while((node=walker.nextNode())){const parent=node.parentElement,text=node.nodeValue.trim();if(!text||parent?.closest(blocked)||!pattern.test(text))continue;values.push(text);}
@@ -68,7 +80,7 @@ app.whenReady().then(async()=>{
 
  host.setLanguage('fr');
  await waitFor(()=>run("document.documentElement.lang==='fr'&&document.querySelector('#library-title')?.textContent==='Bibliothèque locale'"),'French switch');
- assert.equal(await run("document.querySelector('#source-mode-label').textContent"),'MODE DÉMO');
+ assert.equal(await run("document.querySelector('#source-mode-label').textContent"),'DIRECT CLONE HERO');
  assert.equal(await run("document.querySelector('#profiles-title').textContent"),'Profils d’overlay');
  assert.equal(await run("document.querySelector('#library-verify-all-duplicates').textContent"),"Vérifier l’audio de tous les doublons");
 

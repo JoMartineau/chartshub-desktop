@@ -1,3 +1,4 @@
+const ui = value => typeof window !== 'undefined' ? (window.ChartshubCompanionLanguage?.translate?.(value) ?? value) : value;
 export function reShadePresentation(status) {
   if (!status) return { label: 'Connexion…', message: 'Chargement de la connexion ReShade.', active: false };
   if (status.error || status.state === 'error') return { label: status.connected ? 'Action à vérifier' : 'Connexion à vérifier', message: status.error || status.message || 'Ouvrez les réglages pour vérifier la connexion ReShade.', active: false };
@@ -121,21 +122,21 @@ export class ReShadeControls {
     const connected = !!status?.connected && !!status?.catalog;
     const blocked = !connected || this.actionBusy;
     const presentation = reShadePresentation(status);
-    this.node('#reshade-status').textContent = presentation.label;
+    this.node('#reshade-status').textContent = ui(presentation.label);
     this.node('#reshade-status').classList.toggle('is-visible', presentation.active);
-    if (this.node('#reshade-message')) this.node('#reshade-message').textContent = presentation.message;
-    if (this.node('#reshade-root')) this.node('#reshade-root').textContent = status?.rootPath || 'Aucun dossier sélectionné';
+    if (this.node('#reshade-message')) this.node('#reshade-message').textContent = ui(presentation.message);
+    if (this.node('#reshade-root')) this.node('#reshade-root').textContent = status?.rootPath || ui('Aucun dossier sélectionné');
     for (const selector of ['#reshade-enabled', '#reshade-save', '#reshade-search']) if (this.node(selector)) this.node(selector).disabled = blocked;
     const enabled = this.node('#reshade-enabled');
     enabled.checked = !!status?.catalog?.enabled;
     for (const selector of ['#reshade-choose-root', '#reshade-refresh']) if (this.node(selector)) this.node(selector).disabled = !status || !!status.busy || this.actionBusy || (selector === '#reshade-choose-root' && !!this.snapshot?.reshadeSetup?.busy);
     if (this.node('#reshade-install')) {
       this.node('#reshade-install').disabled = !status?.rootPath || !status.supported || !status.binaryAvailable || status.running !== false || !!status.busy || this.actionBusy || !!this.snapshot?.reshadeSetup?.busy;
-      this.node('#reshade-install').textContent = status?.installed ? 'Réinstaller l’intégration' : 'Installer l’intégration ReShade';
+      this.node('#reshade-install').textContent = ui(status?.installed ? 'Réinstaller l’intégration' : 'Installer l’intégration ReShade');
     }
     if (this.node('#reshade-widget')) { this.node('#reshade-widget').checked = !!this.snapshot?.filtersWidgetEnabled; this.node('#reshade-widget').disabled = !status || this.actionBusy; }
     if (this.node('#reshade-open-panel')) this.node('#reshade-open-panel').disabled = !this.snapshot || this.actionBusy;
-    if (this.node('#reshade-preset')) this.node('#reshade-preset').textContent = status?.catalog?.preset || 'En attente de ReShade';
+    if (this.node('#reshade-preset')) this.node('#reshade-preset').textContent = status?.catalog?.preset || ui('En attente de ReShade');
     this.renderTechniques(); this.renderUniforms();
   }
   element(tag, className, text) {
@@ -149,7 +150,7 @@ export class ReShadeControls {
     const all = catalog?.techniques ?? [];
     const matches = filterTechniques(all, this.node('#reshade-search')?.value || '');
     const shown = matches.slice(0, this.mini ? 35 : 150);
-    this.node('#reshade-count').textContent = !status?.connected ? 'Les effets apparaîtront à la connexion.' : `${matches.length} effet${matches.length === 1 ? '' : 's'}${shown.length < matches.length ? ` · ${shown.length} affichés, précisez la recherche` : ''}`;
+    this.node('#reshade-count').textContent = !status?.connected ? ui('Les effets apparaîtront à la connexion.') : `${matches.length} effet${matches.length === 1 ? '' : 's'}${shown.length < matches.length ? ` · ${shown.length} affichés, précisez la recherche` : ''}`;
     const signature = JSON.stringify(shown.map(item => [item.id, item.name, item.label, item.effect]));
     if (force || signature !== this.techniqueSignature) {
       this.techniqueSignature = signature; this.techniqueNodes.clear();
@@ -181,8 +182,8 @@ export class ReShadeControls {
   renderUniforms() {
     const status = this.snapshot?.reshade, catalog = status?.catalog;
     const uniforms = (catalog?.uniforms ?? []).filter(uniform => !uniform.readOnly);
-    this.node('#reshade-effect-title').textContent = catalog?.selectedEffect || 'Réglages de l’effet';
-    this.node('#reshade-effect-hint').textContent = !status?.connected ? 'Connectez ReShade pour modifier les paramètres.' : !catalog?.selectedEffect ? 'Sélectionnez « Réglages » sur un effet.' : uniforms.length ? 'Les modifications sont transmises au jeu. Enregistrez le preset pour les conserver.' : 'Cet effet ne propose aucun paramètre modifiable.';
+    this.node('#reshade-effect-title').textContent = catalog?.selectedEffect || ui('Réglages de l’effet');
+    this.node('#reshade-effect-hint').textContent = ui(!status?.connected ? 'Connectez ReShade pour modifier les paramètres.' : !catalog?.selectedEffect ? 'Sélectionnez « Réglages » sur un effet.' : uniforms.length ? 'Les modifications sont transmises au jeu. Enregistrez le preset pour les conserver.' : 'Cet effet ne propose aucun paramètre modifiable.');
     const signature = JSON.stringify([catalog?.selectedEffect, uniforms.map(({ values, ...metadata }) => ({ ...metadata, count: values.length }))]);
     if (signature !== this.uniformSignature) {
       this.uniformSignature = signature; this.uniformNodes.clear();

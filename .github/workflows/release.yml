@@ -112,6 +112,7 @@ jobs:
           sha256sum "${ASSETS[@]}" > SHA256SUMS.txt
           printf 'ChartsHub Desktop %s — Windows, macOS et Linux.\n\n' "$VERSION" > RELEASE-NOTES.txt
           cat >> RELEASE-NOTES.txt <<'NOTES'
+          - Correctif v0.14.4 : les états dynamiques Clone Hero, ReShade et Filtres suivent complètement Français / English sans laisser de texte français en mode English.
           - Companion synchronisé avec la langue Français / English choisie sur ChartsHub, y compris les fenêtres natives, nombres et dates.
           - Vérification globale de tous les groupes de doublons de la Bibliothèque locale, avec progression et statut par groupe ; aucune suppression automatique.
           - Le nettoyage des doublons conserve le choix explicite de la version à garder, la sélection individuelle, la revalidation finale et la Corbeille Windows.
