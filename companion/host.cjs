@@ -513,6 +513,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         return { ok: false, error: 'Terminez ou annulez le nettoyage des copies avant cette action.' };
       } else if (command === 'library.query') {
         return { ok: true, result: await library.query(payload) };
+      } else if (command === 'library.verifyAllDuplicates') {
+        return { ok: true, result: await library.verifyAllDuplicates() };
       } else if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate' || command === 'library.prepareCleanup') {
         return { ok: true, result: await library[command.slice('library.'.length)](payload) };
       } else if (command === 'library.recycleDuplicates') {
@@ -580,7 +582,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       return { ok: true, revision: editorRevision };
     } catch (error) {
       logger.error('Companion command failed');
-      if (['library.prepareCleanup', 'library.recycleDuplicates'].includes(command) || error?.code === 'LIBRARY_CLEANUP_SAFE') {
+      if (['library.prepareCleanup', 'library.recycleDuplicates', 'library.verifyAllDuplicates'].includes(command) || error?.code === 'LIBRARY_CLEANUP_SAFE') {
         return { ok: false, error: ['LIBRARY_CLEANUP_SAFE', 'LIBRARY_COMPARISON_SAFE'].includes(error?.code) ? error.message : 'Le nettoyage n’a pas pu être terminé. Vérifiez les copies puis relancez la vérification.' };
       }
       if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate') {

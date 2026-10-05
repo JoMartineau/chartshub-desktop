@@ -17,6 +17,10 @@ const within = (root, filename) => { const rel = path.relative(root, filename); 
 const count = value => Number.isSafeInteger(value) && value >= 0;
 const digest = value => createHash('sha256').update(value).digest('hex');
 const safeError = message => new Error(message);
+const duplicateIdentity = item => {
+  const fields = ['title', 'artist', 'charter'].map(field => String(item?.[field] ?? '').normalize('NFC').toLowerCase().trim().replace(/\s+/gu, ' '));
+  return fields.every(Boolean) ? JSON.stringify(fields) : null;
+};
 function relative(value, empty = false) {
   return typeof value === 'string' && value.length <= 32768 && ((empty && value === '') || (value.length > 0 && !/[\\:\u0000-\u001f\u007f]/.test(value) && !value.split('/').some(part => !part || part === '.' || part === '..')));
 }
@@ -48,6 +52,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   let loaded = false, loadTask, blocked = null, active = false, epoch = 0, rootTicket = 0;
   let run = null, queuedMode = null, serial = Promise.resolve(), startTask = null, stopTask = null;
   let watcher = null, watcherState = 'off', debounce = null;
+  let duplicateVerification = null, verifiedDuplicateGroups = null;
   let matchingCache = null, matchingRoot = null;
   const queryIndex = createLibraryQuery({ textFields: TEXT_FIELDS, publicFields: PUBLIC_FIELDS });
   const duplicates = createLibraryDuplicates({ dataDirectory, getDocument: () => document });
@@ -56,12 +61,13 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     getContext: options => duplicates.cleanupContext(options), recycle: recycle ?? (async () => { throw Error('Corbeille indisponible.'); }),
     onCleaned: () => { if (stopTask) throw Error('Bibliothèque arrêtée.'); deferredCleanupScan = false; requestScan('quick'); } });
   function requireCleanupIdle() {
-    if (cleanup.busy()) throw Object.assign(Error('Attendez la fin de la vérification ou du nettoyage des copies.'), { code: 'LIBRARY_CLEANUP_SAFE' });
+    if (cleanup.busy() || duplicateVerification) throw Object.assign(Error('Attendez la fin de la vérification ou du nettoyage des copies.'), { code: 'LIBRARY_CLEANUP_SAFE' });
   }
   function status() {
     return { settings: { ...document.settings }, status: phase, mode, progress: { ...progress }, count: document.items.length,
       lastScanAt: document.lastScanAt, changes: { ...document.changes }, warningCount: document.warningCount, skippedCount: document.skippedCount,
-      error, watcher: watcherState, revision: document.revision };
+      error, watcher: watcherState, revision: document.revision,
+      duplicateVerification: duplicateVerification ? { running: true, processed: duplicateVerification.processed, total: duplicateVerification.total } : null };
   }
   function notify() { try { onChange?.(status()); } catch { console.warn('La notification de bibliothèque a échoué.'); } }
   function enqueue(action) { const task = serial.then(action); serial = task.catch(() => {}); return task; }
@@ -141,7 +147,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     return { added, removed: old.size, modified };
   }
   function beginScan(nextMode) {
-    cleanup.invalidate(); duplicates.invalidate();
+    cleanup.invalidate(); duplicates.invalidate(); verifiedDuplicateGroups = null;
     const current = { controller: new AbortController(), epoch, root: document.settings.rootPath, committing: false, promise: null };
     run = current; phase = 'scanning'; mode = nextMode; error = null; progress = { visited: 0, processed: 0, discovered: 0 }; notify();
     current.promise = (async () => {
@@ -202,10 +208,11 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   async function stop() {
     if (stopTask) return stopTask;
     active = false; epoch++; rootTicket++; closeWatcher(); cancel();
+    const verification = duplicateVerification; verification?.controller.abort();
     deferredCleanupScan = false;
     const cleanupStopped = cleanup.stop();
     const comparisonsStopped = duplicates.stop();
-    stopTask = (async () => { if (run) await run.promise; await serial; await cleanupStopped; await comparisonsStopped; notify(); return status(); })();
+    stopTask = (async () => { if (run) await run.promise; await serial; await verification?.promise?.catch(() => {}); await cleanupStopped; await comparisonsStopped; notify(); return status(); })();
     try { return await stopTask; } finally { stopTask = null; }
   }
   async function selectRoot(selected) {
@@ -235,7 +242,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
         }
         await write(next);
       } catch { throw safeError('Impossible d’enregistrer le dossier de bibliothèque.'); }
-      document = next; duplicates.invalidate(); blocked = null; phase = 'idle'; error = null; progress = { visited: 0, processed: 0, discovered: 0 }; mode = null;
+      document = next; duplicates.invalidate(); verifiedDuplicateGroups = null; blocked = null; phase = 'idle'; error = null; progress = { visited: 0, processed: 0, discovered: 0 }; mode = null;
     });
     if (requestedEpoch === epoch && ticket === rootTicket) { updateWatcher(); requestScan('full'); }
     notify(); return status();
@@ -256,7 +263,13 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     if (requestedEpoch === epoch) updateWatcher(); notify(); return status();
   }
   function query(options = {}) {
-    return queryIndex(document, options);
+    const result = queryIndex(document, options);
+    if (!verifiedDuplicateGroups || verifiedDuplicateGroups.revision !== document.revision || verifiedDuplicateGroups.root !== document.settings.rootPath) return result;
+    result.items = result.items.map(item => {
+      const verification = verifiedDuplicateGroups.groups.get(duplicateIdentity(item));
+      return verification ? { ...item, duplicateVerification: verification.status, verifiedEligibleCopies: verification.eligibleCopies } : item;
+    });
+    return result;
   }
   function requireComparisonReady() {
     ensureMutable();
@@ -264,7 +277,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     if (run || stopTask) throw Object.assign(Error('Attendez la fin de l’analyse puis relancez la comparaison.'), { code: 'LIBRARY_COMPARISON_SAFE' });
   }
   async function compareDuplicates(options) { requireComparisonReady(); cleanup.invalidate(); return duplicates.compare(options); }
-  async function chooseDuplicate(options) { requireComparisonReady(); cleanup.invalidate(); return duplicates.choose(options); }
+  async function chooseDuplicate(options) { requireComparisonReady(); cleanup.invalidate(); verifiedDuplicateGroups = null; return duplicates.choose(options); }
   async function cleanupOperation(method, options) {
     requireComparisonReady();
     try { return await cleanup[method](options); }
@@ -272,6 +285,62 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
       if (deferredCleanupScan && !cleanup.busy() && !stopTask) {
         deferredCleanupScan = false; requestScan('quick');
       }
+    }
+  }
+  async function verifyAllDuplicates() {
+    ensureMutable(); requireCleanupIdle();
+    if (run || stopTask) throw Object.assign(Error('Attendez la fin de l’analyse puis relancez la vérification.'), { code: 'LIBRARY_COMPARISON_SAFE' });
+    const rootPath = document.settings.rootPath, revision = document.revision, items = document.items;
+    if (!rootPath) throw safeError('Sélectionnez d’abord un dossier de chansons.');
+    const groupsByKey = new Map();
+    for (const item of items) {
+      const key = duplicateIdentity(item); if (!key) continue;
+      const group = groupsByKey.get(key); if (group) group.push(item); else groupsByKey.set(key, [item]);
+    }
+    const groups = [...groupsByKey.entries()].filter(([, members]) => new Set(members.map(item => item.relativePath)).size > 1);
+    const current = { controller: new AbortController(), root: rootPath, revision, items, processed: 0, total: groups.length, promise: null };
+    duplicateVerification = current; verifiedDuplicateGroups = null; notify();
+    const assertCurrent = () => {
+      if (current.controller.signal.aborted || duplicateVerification !== current || document.revision !== revision || document.items !== items || document.settings.rootPath !== rootPath) {
+        throw Object.assign(Error('La bibliothèque a changé pendant la vérification. Relancez-la.'), { code: 'LIBRARY_COMPARISON_SAFE' });
+      }
+    };
+    const result = { revision, totalGroups: groups.length, readyGroups: 0, needsKeeperGroups: 0, blockedGroups: 0, eligibleCopies: 0 };
+    const cache = new Map();
+    current.promise = (async () => {
+      for (const [key, members] of groups) {
+        assertCurrent(); cleanup.invalidate();
+        let status = 'blocked', eligibleCopies = 0;
+        try {
+          const comparison = await duplicates.compare({ id: members[0].id, revision }); assertCurrent();
+          if (!comparison.preferredId) status = 'needs_keeper';
+          else {
+            try {
+              const plan = await cleanup.prepare({ contextId: comparison.contextId, revision, keepId: comparison.preferredId }); assertCurrent();
+              eligibleCopies = plan.candidates.filter(candidate => candidate.eligible).length;
+              status = eligibleCopies > 0 ? 'ready' : 'blocked';
+            } catch {
+              assertCurrent(); status = 'blocked';
+            } finally { cleanup.invalidate(); }
+          }
+        } catch {
+          assertCurrent(); status = 'blocked';
+        }
+        cache.set(key, { status, eligibleCopies });
+        if (status === 'ready') { result.readyGroups++; result.eligibleCopies += eligibleCopies; }
+        else if (status === 'needs_keeper') result.needsKeeperGroups++;
+        else result.blockedGroups++;
+        current.processed++; notify();
+      }
+      assertCurrent();
+      verifiedDuplicateGroups = { root: rootPath, revision, groups: cache };
+      return result;
+    })();
+    try { return await current.promise; }
+    finally {
+      cleanup.invalidate(); duplicates.invalidate();
+      if (duplicateVerification === current) duplicateVerification = null;
+      notify();
     }
   }
   async function resolveSongFolder(id) {
@@ -304,7 +373,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     });
     return matchingCache;
   }
-  return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, resolveSongFolder, matchingSnapshot,
+  return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, verifyAllDuplicates, resolveSongFolder, matchingSnapshot,
     prepareCleanup: options => cleanupOperation('prepare', options), cleanupReview: options => cleanupOperation('review', options),
     recycleDuplicates: options => cleanupOperation('execute', options) };
 }

@@ -13,15 +13,21 @@ interface LibrarySummary {
   error: string | null;
   watcher: 'off' | 'watching' | 'unavailable';
   revision: number;
+  duplicateVerification?: { running: boolean; processed: number; total: number } | null;
 }
 interface LibraryItem {
   id: string; relativePath: string; title: string; artist: string; charter: string;
   album?: string; year?: string | number;
   format: 'chart' | 'midi' | 'sng'; audio: 'present' | 'missing' | 'unknown';
   duplicateCount?: number;
+  duplicateVerification?: 'ready' | 'needs_keeper' | 'blocked';
+  verifiedEligibleCopies?: number;
 }
 interface LibraryQueryResult { items: LibraryItem[]; total: number; offset: number; limit: number; revision: number; }
-interface LibraryResponse { ok: boolean; result?: LibraryQueryResult; }
+interface LibraryResponse { ok: boolean; result?: LibraryQueryResult; error?: string; }
+interface BulkDuplicateResult {
+  revision: number; totalGroups: number; readyGroups: number; needsKeeperGroups: number; blockedGroups: number; eligibleCopies: number;
+}
 interface LibraryOptions { root: HTMLElement; command: (name: string, payload?: unknown) => Promise<unknown>; }
 interface LibraryRow {
   row: HTMLTableRowElement; title: HTMLElement; path: HTMLElement; duplicate: HTMLElement; artist: HTMLElement;
@@ -57,6 +63,11 @@ export class LibraryControls {
   private hasResult = false;
   private staleRetries = 0;
   private actionSerial = 0;
+  private bulkSerial = 0;
+  private bulkPending = false;
+  private bulkResult: BulkDuplicateResult | null = null;
+  private bulkMessage = '';
+  private bulkError = false;
   private disposed = false;
 
   constructor(private readonly options: LibraryOptions) {
@@ -108,7 +119,9 @@ export class LibraryControls {
     this.element('#library-prev').addEventListener('click', () => { this.offset = Math.max(0, this.offset - this.limit); this.scheduleQuery(0); }, { signal });
     this.element('#library-next').addEventListener('click', () => { if (this.offset + this.limit < this.total) { this.offset += this.limit; this.scheduleQuery(0); } }, { signal });
     this.element('#library-query-retry').addEventListener('click', () => { this.staleRetries = 0; this.scheduleQuery(0); }, { signal });
+    this.element('#library-verify-all-duplicates').addEventListener('click', () => { void this.verifyAllDuplicates(); }, { signal });
     this.refreshAvailability();
+    this.renderBulkVerification();
   }
 
   update(snapshot: { library?: LibrarySummary }): void {
@@ -121,7 +134,7 @@ export class LibraryControls {
     this.renderSummary();
     const index = `${this.summary.settings.rootPath ?? ''}\u0000${this.summary.revision}`;
     if (index !== this.observedIndex) {
-      this.observedIndex = index; this.staleRetries = 0;
+      this.observedIndex = index; this.staleRetries = 0; this.bulkResult = null; this.bulkMessage = ''; this.bulkError = false;
       if (previousRoot !== this.summary.settings.rootPath) {
         this.offset = 0; this.items = []; this.total = 0; this.hasResult = false;
         this.renderRows();
@@ -130,10 +143,11 @@ export class LibraryControls {
     }
     this.refreshAvailability();
     this.renderResultsStatus();
+    this.renderBulkVerification();
   }
 
   dispose(): void {
-    this.disposed = true; this.abort.abort(); this.querySerial++;
+    this.disposed = true; this.abort.abort(); this.querySerial++; this.bulkSerial++;
     this.comparison.dispose();
     if (this.queryTimer) clearTimeout(this.queryTimer);
     this.queryTimer = null; this.rows.clear();
@@ -221,6 +235,59 @@ export class LibraryControls {
     }
   }
 
+  private async verifyAllDuplicates(): Promise<void> {
+    const summary = this.summary;
+    if (!summary?.settings.rootPath || this.disposed || summary.status === 'scanning' || this.bulkPending || this.pendingActions.size) return;
+    const serial = ++this.bulkSerial, root = summary.settings.rootPath, revision = summary.revision;
+    this.bulkPending = true; this.bulkResult = null; this.bulkMessage = ''; this.bulkError = false;
+    this.renderBulkVerification(); this.refreshAvailability();
+    try {
+      const response = await this.options.command('library.verifyAllDuplicates') as { ok: boolean; result?: BulkDuplicateResult; error?: string } | undefined;
+      if (this.disposed || serial !== this.bulkSerial || root !== this.summary?.settings.rootPath || revision !== this.summary?.revision) return;
+      const result = response?.result;
+      const values = result ? [result.revision, result.totalGroups, result.readyGroups, result.needsKeeperGroups, result.blockedGroups, result.eligibleCopies] : [];
+      if (!response?.ok || !result || values.some(value => !Number.isSafeInteger(value) || value < 0)
+        || result.revision !== revision || result.readyGroups + result.needsKeeperGroups + result.blockedGroups !== result.totalGroups) {
+        throw new Error(response?.error || 'La vérification globale n’a pas pu être confirmée.');
+      }
+      this.bulkResult = result;
+      this.bulkMessage = result.totalGroups === 0
+        ? 'Aucun groupe de doublons n’a été détecté.'
+        : `${count(result.readyGroups)} groupe(s) prêt(s) · ${count(result.needsKeeperGroups)} choix de version requis · ${count(result.blockedGroups)} bloqué(s) · ${count(result.eligibleCopies)} copie(s) vérifiée(s).`;
+      this.duplicates = 'possible'; this.offset = 0; this.staleRetries = 0;
+      this.element<HTMLSelectElement>('#library-duplicates').value = 'possible';
+      this.scheduleQuery(0);
+    } catch (error) {
+      if (this.disposed || serial !== this.bulkSerial) return;
+      this.bulkResult = null; this.bulkError = true;
+      this.bulkMessage = error instanceof Error ? error.message : 'La vérification globale est indisponible. Réessayez.';
+    } finally {
+      if (!this.disposed && serial === this.bulkSerial) {
+        this.bulkPending = false; this.renderBulkVerification(); this.refreshAvailability();
+      }
+    }
+  }
+
+  private renderBulkVerification(): void {
+    const progress = this.summary?.duplicateVerification;
+    const running = this.bulkPending || (progress?.running === true && !this.bulkResult && !this.bulkMessage);
+    const button = this.element<HTMLButtonElement>('#library-verify-all-duplicates');
+    button.textContent = running
+      ? `Vérification ${count(progress?.processed ?? 0)} / ${count(progress?.total ?? 0)}…`
+      : 'Vérifier l’audio de tous les doublons';
+    const status = this.element('#library-verify-all-status');
+    status.classList.toggle('is-error', this.bulkError);
+    if (running) {
+      status.textContent = `Vérification des notes, de l’audio et des fichiers : ${count(progress?.processed ?? 0)} / ${count(progress?.total ?? 0)} groupes.`;
+      status.hidden = false;
+    } else if (this.bulkMessage) {
+      status.textContent = this.bulkMessage; status.hidden = false;
+    } else {
+      status.textContent = 'Analyse tous les groupes détectés. Aucune copie n’est supprimée automatiquement.';
+      status.hidden = false;
+    }
+  }
+
   private renderSummary(): void {
     const summary = this.summary; if (!summary) return;
     const scanning = summary.status === 'scanning';
@@ -272,7 +339,16 @@ export class LibraryControls {
       }
       entry.title.textContent = text(item.title, 'Titre inconnu'); entry.path.textContent = text(item.relativePath, ''); entry.path.title = text(item.relativePath, '');
       entry.duplicate.hidden = !(item.duplicateCount && item.duplicateCount > 1);
-      entry.duplicate.textContent = entry.duplicate.hidden ? '' : `Doublon possible (${count(item.duplicateCount!)})`;
+      if (entry.duplicate.hidden) {
+        entry.duplicate.textContent = ''; delete entry.duplicate.dataset.verification;
+      } else {
+        entry.duplicate.dataset.verification = item.duplicateVerification ?? 'pending';
+        entry.duplicate.textContent = item.duplicateVerification === 'ready'
+          ? `Prêt à nettoyer · ${count(item.verifiedEligibleCopies ?? 0)} copie(s) vérifiée(s)`
+          : item.duplicateVerification === 'needs_keeper' ? 'Choisir une version à garder'
+          : item.duplicateVerification === 'blocked' ? 'Vérification bloquée'
+          : `Doublon possible (${count(item.duplicateCount!)})`;
+      }
       entry.compare.hidden = entry.duplicate.hidden;
       entry.compare.setAttribute('aria-label', `Comparer les versions locales de ${text(item.title, 'ce morceau')}`);
       entry.artist.textContent = text(item.artist); entry.charter.textContent = text(item.charter);
@@ -306,7 +382,8 @@ export class LibraryControls {
   private refreshAvailability(): void {
     const unavailable = !this.summary;
     const scanning = this.summary?.status === 'scanning';
-    const busy = this.pendingActions.size > 0;
+    const verificationBusy = this.bulkPending || (this.summary?.duplicateVerification?.running === true && !this.bulkResult && !this.bulkMessage);
+    const busy = this.pendingActions.size > 0 || verificationBusy;
     const noRoot = !this.summary?.settings.rootPath;
     this.element<HTMLButtonElement>('#library-choose-root').disabled = unavailable || busy || scanning;
     for (const id of ['#library-scan-full', '#library-refresh']) this.element<HTMLButtonElement>(id).disabled = unavailable || noRoot || busy || scanning;
@@ -322,10 +399,12 @@ export class LibraryControls {
     this.element<HTMLButtonElement>('#library-prev').disabled = unavailable || this.querying || this.offset === 0 || this.queryError;
     this.element<HTMLButtonElement>('#library-next').disabled = unavailable || this.querying || this.offset + this.limit >= this.total || this.queryError;
     this.element<HTMLButtonElement>('#library-query-retry').disabled = unavailable || this.querying;
+    this.element<HTMLButtonElement>('#library-verify-all-duplicates').disabled = unavailable || noRoot || busy || scanning || this.querying;
     for (const entry of this.rows.values()) {
       entry.open.disabled = unavailable || busy || this.querying; entry.catalogue.disabled = unavailable || busy || this.querying || scanning;
       entry.compare.disabled = unavailable || busy || this.querying || scanning || entry.compare.hidden;
     }
     this.comparison.update({ rootPath: this.summary?.settings.rootPath ?? null, revision: this.summary?.revision ?? 0, scanning, busy });
+    this.renderBulkVerification();
   }
 }
