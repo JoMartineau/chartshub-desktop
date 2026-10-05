@@ -1510,6 +1510,7 @@ test('audio-different duplicate requires reinforced native confirmation and only
   const forced = f.plan.candidates.find(item => item.forceable);
   assert.ok(forced); assert.equal(forced.eligible, false);
   const request = { planId: f.plan.planId, revision: f.plan.revision, id: forced.id };
+  const directReview = await f.host.library.cleanupForceReview(request); assert.deepEqual(directReview.candidates.map(item => item.id), [forced.id]);
   f.shell.trashItem = async target => { recycled.push(target); await f.fs.rename(target, path.join(f.directory, 'fake-force-recycle-' + path.basename(target))); };
   let optionsSeen;
   f.dialog.showMessageBox = async (owner, options) => {
