@@ -33,6 +33,14 @@ npm start
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la version correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives et le statut `Latest` pour l’affichage sur le dépôt. Une version déjà publiée conserve ses archives et son tag ; il faut augmenter le numéro de version pour distribuer un nouveau paquet.
 
+### Version 0.14.1
+
+- Panneau **Thème** dans le Companion : bloom optionnel, couleur HEX/RVB, intensité, rayon, flou, opacité et mode économique.
+- Réglages du bloom enregistrés dans un fichier local dédié ; restauration après redémarrage. Aucun effet sur les notes, mini-widgets ou ReShade.
+- Le catalogue annonce explicitement sa disposition à onglets pour éviter un espace ou un chevauchement de la barre de menu. Le correctif du site est compatible avec la version 0.14.0.
+- Les couleurs du bloom du site et du Companion restent indépendantes. La couleur d’accentuation du site est conservée dans son panneau Thème.
+- Mise à jour du programme uniquement : les profils, widgets et fichiers de chansons existants doivent être conservés.
+
 ### Version 0.14.0
 
 - Le catalogue et le Companion partagent la même fenêtre, avec deux onglets pour passer de l’un à l’autre.

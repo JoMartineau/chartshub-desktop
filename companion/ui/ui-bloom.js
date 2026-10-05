@@ -22,14 +22,14 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
     return el;
   }
   function button(id, en, french) { const el = node('button', 'ch-bloom-button', en, french); el.id = 'ch-bloom-' + id; el.type = 'button'; return el; }
-  const trigger = button('open', 'Interface bloom', 'Bloom de l’interface');
+  const trigger = button('open', 'Theme', 'Thème');
   trigger.setAttribute('aria-haspopup', 'dialog'); trigger.setAttribute('aria-controls', 'ch-bloom-dialog'); trigger.setAttribute('translate', 'no');
   host.append(trigger);
   const dialog = node('dialog', 'ch-bloom-dialog'); dialog.id = 'ch-bloom-dialog'; dialog.setAttribute('translate', 'no');
   dialog.setAttribute('aria-labelledby', 'ch-bloom-title'); dialog.setAttribute('aria-describedby', 'ch-bloom-info');
   const form = node('form', 'ch-bloom-form');
   const heading = node('div', 'ch-bloom-heading');
-  const title = node('h2', '', 'Your colors. Your glow.', 'Vos couleurs. Votre lumière.'); title.id = 'ch-bloom-title';
+  const title = node('h2', '', 'Theme', 'Thème'); title.id = 'ch-bloom-title';
   const close = button('close', 'Close', 'Fermer'); heading.append(title, close); form.append(heading);
   const info = node('p', 'ch-bloom-muted', 'Decorative Companion panels only. No changes to notes, mini-widgets or ReShade. Local to this app profile, not synced with the website or your ChartsHub account.', 'Panneaux décoratifs du Companion uniquement. Aucun changement des notes, mini-widgets ou effets ReShade. Réglage local à ce profil de l’application, non synchronisé avec le site ou votre compte ChartsHub.');
   info.id = 'ch-bloom-info'; form.append(info);

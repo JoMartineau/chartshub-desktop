@@ -1,4 +1,9 @@
-ChartsHub Desktop 0.14.0 — Catalogue et Companion
+ChartsHub Desktop 0.14.1 — Catalogue et Companion
+
+NOUVEAUTÉS 0.14.1
+Panneau Thème du Companion avec bloom optionnel et sauvegarde locale.
+Disposition du catalogue corrigée pour la fenêtre à onglets.
+Conservez les profils, réglages et dossiers de chansons lors de la mise à jour.
 
 ONGLETS INTÉGRÉS 0.14.0
 Catalogue et Companion sont réunis dans la même fenêtre ChartsHub.

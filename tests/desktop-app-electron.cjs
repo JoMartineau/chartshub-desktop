@@ -60,9 +60,9 @@ app.whenReady().then(async()=>{
  await web.executeJavaScript('window.dispatchEvent(new Event("chartshub:accountchange"))');
  await waitFor(async()=>(await state()).companionAvailable,'ordinary member authorisation');
  await waitFor(()=>frame.executeJavaScript('!document.querySelector("#companion-tab").hidden'),'member tab visible');
- assert.equal(await web.executeJavaScript('window.ChartsHubDesktop.version'),'0.14.0');
+ assert.equal(await web.executeJavaScript('window.ChartsHubDesktop.version'),require(path.join(root,'package.json')).version);
  assert.equal(await web.executeJavaScript('document.querySelectorAll("[style*=drag]").length'),0,'only the shell creates the title bar');
- await web.executeJavaScript('document.querySelector("#search").value="Valeur conservée";window.scrollTo(0,200)');
+ await web.executeJavaScript('document.querySelector("#search").value="Valeur conservée";window.scrollTo({top:200,behavior:"instant"});true');
  const scroll=await web.executeJavaScript('scrollY');
  await select('companion');
  await waitFor(()=>host?.getPanelContents()&&!host.getPanelContents().isLoading(),'Companion renderer');
@@ -76,7 +76,30 @@ app.whenReady().then(async()=>{
  assert.equal(await frame.executeJavaScript('typeof window.ChartsHubCompanion'),'undefined');
  assert.equal(await frame.executeJavaScript('typeof window.ChartsHubDesktop'),'undefined');
  passed.push('ordinary account opens the real local Companion in the existing window with isolated preloads');
- await local.executeJavaScript('document.querySelector("#library-search").value="Recherche conservée";window.scrollTo(0,180)');
+ // Exercise the actual native preload, ESM/CSP, disk store and saved-state restore.
+ await waitFor(()=>local.executeJavaScript('Boolean(window.ChartshubBloom && document.querySelector("#ch-bloom-open") && !document.querySelector("#ch-bloom-open").disabled)'),'native bloom module ready');
+ const stored=path.join(app.getPath('userData'),'companion','ui-bloom.json');
+ if(process.env.CHARTSHUB_VERIFY_BLOOM_RESTART==='1'){
+  assert.equal(await local.executeJavaScript('window.ChartshubBloom.read().color'),'#ff8000');
+  assert.equal(await local.executeJavaScript('window.ChartshubBloom.read().enabled'),true);
+  passed.push('a second real Electron process restores persisted native bloom');
+ }
+ await local.executeJavaScript('window.ChartshubBloom.open(); true');
+ await waitFor(()=>local.executeJavaScript('document.querySelector("#ch-bloom-dialog").open && !document.querySelector("#ch-bloom-apply").disabled'),'bloom dialogue ready');
+ await local.executeJavaScript('document.querySelector("#ch-bloom-enabled").checked=true;document.querySelector("#ch-bloom-enabled").dispatchEvent(new Event("change"));document.querySelector("#ch-bloom-hex").value="#ff8000";document.querySelector("#ch-bloom-hex").dispatchEvent(new Event("input"));document.querySelector(".ch-bloom-form").requestSubmit();true');
+ await waitFor(()=>local.executeJavaScript('window.ChartshubBloom.read().enabled && window.ChartshubBloom.read().color==="#ff8000" && !document.querySelector("#ch-bloom-apply").disabled'),'native bloom saved');
+ assert.equal(JSON.parse(fs.readFileSync(stored,'utf8')).color,'#ff8000');
+ const bytes=fs.readFileSync(stored);
+ await local.executeJavaScript('document.querySelector("#ch-bloom-hex").value="#00ffff";document.querySelector("#ch-bloom-hex").dispatchEvent(new Event("input"));document.querySelector("#ch-bloom-cancel").click();true');
+ await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open'),'bloom cancellation');
+ assert.ok(fs.readFileSync(stored).equals(bytes),'Cancel does not persist the preview');
+ assert.equal(await local.executeJavaScript('window.ChartshubBloom.read().color'),'#ff8000');
+ local.reload();
+ await waitFor(()=>!local.isLoading(),'Companion reload');
+ await waitFor(()=>local.executeJavaScript('Boolean(window.ChartshubBloom && window.ChartshubBloom.read().enabled && window.ChartshubBloom.read().color==="#ff8000")'),'reload restores native bloom');
+ passed.push('native bloom saves and cancels with real disk IO and survives renderer reload');
+
+ await local.executeJavaScript('document.querySelector("#library-search").value="Recherche conservée";window.scrollTo({top:180,behavior:"instant"});true');
  const localScroll=await local.executeJavaScript('scrollY');
  await select('catalogue');
  assert.equal(await web.executeJavaScript('document.querySelector("#search").value'),'Valeur conservée');
@@ -86,7 +109,7 @@ app.whenReady().then(async()=>{
  assert.equal(await local.executeJavaScript('document.querySelector("#library-search").value'),'Recherche conservée');
  assert.equal(await local.executeJavaScript('scrollY'),localScroll);
  passed.push('switching tabs preserves both renderers, input values and scroll positions');
- await local.executeJavaScript('window.scrollTo(0,0)');
+ await local.executeJavaScript('window.scrollTo({top:0,behavior:"instant"});true');
  await delay(150);
  fs.writeFileSync(path.join(directory,'companion.png'),(await desktop.window.capturePage()).toPNG());
  user=null;await web.executeJavaScript('window.dispatchEvent(new Event("chartshub:accountchange"))');
