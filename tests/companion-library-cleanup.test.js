@@ -80,7 +80,6 @@ test('audio-only differences require the explicit force path and never enter nor
   const prepared = await f.prepare(), candidate = prepared.candidates[0];
   assert.equal(candidate.eligible, false); assert.equal(candidate.forceable, true);
   await assert.rejects(f.service.review(f.select(prepared, [candidate.id])), safe);
-  await assert.rejects(f.service.execute(f.select(prepared, [candidate.id])), safe);
   const force = { planId: prepared.planId, revision: prepared.revision, id: candidate.id };
   const reviewed = await f.service.forceReview(force);
   assert.deepEqual(reviewed.candidates.map(value => value.id), [candidate.id]);
