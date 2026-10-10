@@ -1,6 +1,6 @@
 :root { color-scheme: dark; }
 * { box-sizing: border-box; }
-html, body { margin: 0; min-width: 320px; min-height: 100%; background: transparent; }
+html, body { margin: 0; min-width: 0; min-height: 100%; background: transparent; }
 [hidden] { display: none !important; }
 .catalogue-widget-app { min-height: 100vh; border: 1px solid #ffffff30; border-radius: 10px; background: var(--floating-background, #151719e6); color: var(--floating-text, #eef1f2); font: var(--floating-font-size, 14px)/1.5 var(--floating-font, "Segoe UI", Arial, sans-serif); }
 .catalogue-widget-titlebar { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #ffffff25; -webkit-app-region: drag; user-select: none; }
@@ -14,7 +14,7 @@ html, body { margin: 0; min-width: 320px; min-height: 100%; background: transpar
 .catalogue-widget-app button:hover:not(:disabled) { background: #ffffff15; }
 .catalogue-widget-app :focus-visible { outline: 2px solid #a8e3ce; outline-offset: 3px; }
 .catalogue-widget-tabs { display: flex; gap: 6px; margin-bottom: 18px; }
-.catalogue-widget-tabs button { flex: 1; min-width: 0; padding: 7px; font-size: .92em; }
+.catalogue-widget-tabs button { flex: 1; min-width: 0; padding: 7px; font-size: .92em; overflow-wrap: anywhere; }
 .catalogue-widget-tabs [aria-selected="true"] { border-color: #a8e3ce; background: #9ddcc020; }
 .catalogue-widget-app label { display: flex; flex-direction: column; gap: 5px; font-size: .9em; }
 .catalogue-widget-app input { width: 100%; min-width: 0; }
@@ -29,7 +29,35 @@ html, body { margin: 0; min-width: 320px; min-height: 100%; background: transpar
 .catalogue-widget-app h3 { margin: 0 0 5px; font-size: 1.08em; font-weight: 600; color: inherit; }
 .floating-catalogue-item p, .floating-download-item p { margin: 4px 0; }
 .catalogue-item-artist, .catalogue-item-details { font-size: .9em; }
-.floating-catalogue-item button { margin-top: 8px; }
+.floating-catalogue-item button { margin-top: 8px; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
+.floating-catalogue-item { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; padding: 12px; margin: 10px 0; border: 1px solid #8a87f448; border-radius: 9px; background: #00000010; }
+.catalogue-card-body { min-width: 0; }
+.catalogue-card-artwork, .catalogue-charter-avatar { position: relative; display: grid; place-items: center; overflow: hidden; border: 1px solid #ffffff30; border-radius: 7px; background: #ffffff09; flex: none; }
+.catalogue-card-artwork { width: 70px; height: 70px; font-size: 1.8em; }
+.catalogue-card-artwork img, .catalogue-charter-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.catalogue-charter-avatar { width: 28px; height: 28px; font-size: .65em; font-weight: 700; }
+.catalogue-charter-avatar img { object-fit: contain; }
+.catalogue-card-tags, .catalogue-card-charter, .catalogue-card-instruments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+.catalogue-game-badge { border: 1px solid #5184a8; color: #8bd6ff; border-radius: 5px; padding: 1px 6px; font-size: .75em; }
+.catalogue-charter-name { min-width: 0; font-weight: 600; }
+.catalogue-staff-badge { display: inline-flex; align-items: center; max-width: 100%; gap: 4px; padding: 2px 7px; border: 1px solid; border-radius: 999px; font-size: .7em; font-weight: 600; line-height: 1.4; }
+.catalogue-staff-moderator { border-color: #8a87f4; color: #8fddff; }
+.catalogue-staff-verified { border-color: #38dce6; color: #74f1f4; }
+.catalogue-staff-administrator { border-color: #f16b76; color: #ffb3ba; }
+.catalogue-staff-badge svg { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; }
+.catalogue-instrument { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; max-width: 100%; min-width: 0; border: 1px solid #40556e; border-radius: 7px; padding: 4px 6px; font-size: .75em; line-height: 1.3; }
+.catalogue-instrument svg { width: 17px; height: 17px; flex: none; fill: none; stroke: #9ad8ff; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.catalogue-instrument-name { min-width: 0; }
+.catalogue-instrument-intensity { font-size: 1.1em; }
+.catalogue-instrument-levels { display: inline-flex; flex: none; gap: 2px; border-left: 1px solid #40556e; padding-left: 5px; }
+.catalogue-instrument-levels > span { font-size: .8em; padding: 2px; opacity: .45; }
+.catalogue-instrument-levels > .available { color: #ecf7ff; background: #3b526d; border-radius: 2px; opacity: 1; }
+.catalogue-card-details { border-top: 1px solid #ffffff20; margin-top: 8px; font-size: .9em; }
+.catalogue-card-details summary { color: #8bd6ff; }
+.catalogue-card-details dl { margin: 5px 0; }
+.catalogue-card-details dl > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 8px; }
+.catalogue-card-details dt { opacity: .8; }
+.catalogue-card-details dd { margin: 0; font-size: inherit; }
 .floating-download-item progress { display: block; width: 100%; height: 12px; margin: 10px 0; accent-color: #a8e3ce; }
 .floating-download-item time { font-size: .85em; }
 .catalogue-widget-destination { border-top: 1px solid #ffffff25; margin-top: 20px; padding-top: 10px; font-size: .9em; }
@@ -38,3 +66,4 @@ html, body { margin: 0; min-width: 320px; min-height: 100%; background: transpar
 .catalogue-widget-appearance .floating-panels-controls { margin-top: 8px; background: #151719; }
 .catalogue-widget-shortcut { font-size: .8em; margin-bottom: 0; }
 @media (max-width: 400px) { .catalogue-widget-filter-grid { grid-template-columns: minmax(0, 1fr); } .catalogue-widget-tabs { gap: 4px; } .catalogue-widget-tabs button { font-size: .85em; } }
+@media (max-width: 400px) { .floating-catalogue-item { grid-template-columns: 52px minmax(0, 1fr); gap: 8px; padding: 9px; } .catalogue-card-artwork { width: 52px; height: 52px; } }

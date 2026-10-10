@@ -43,6 +43,102 @@ test('search results render hostile metadata as text and enqueue sends only the 
   ui.calls[1].resolve({ ok: true, result: { id: uuid(1) } }); await tick(); assert.match(ui.get('#catalogue-widget-feedback').textContent, /ajoutée/);
 });
 
+test('floating cards match catalogue artwork, colored charter, verified role badges and actual instrument levels', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('JoMartineau');
+  const artworkUrl = 'chartshub-companion://app/catalogue-artwork/' + 'a'.repeat(64), charterIconUrl = artworkUrl.replace(/a{64}$/, 'b'.repeat(64));
+  await ui.respond(0, { items: [chart('rich', { title: 'Dying To Love', charter: 'JoMartineau', charterSegments: [{ text: 'Jo', color: '#f06' }, { text: 'Martineau', color: 'cyan' }],
+    artworkUrl, charterIconUrl, staffRole: 'moderator', verified: true, game: ['Clone Hero'], album: 'Album', year: '2026', genre: 'Metal', duration: 245,
+    instruments: ['Guitar', 'Drums'], instrumentIntensities: { Guitar: 2, Drums: 4 }, instrumentDifficulties: { Guitar: ['Expert'], Drums: ['Easy', 'Medium', 'Hard', 'Expert'] } })] });
+  const card = ui.get('#catalogue-widget-results').children[0], art = card.querySelector('.catalogue-card-artwork'), name = card.querySelector('.catalogue-charter-name');
+  assert.equal(art.querySelector('img').src, artworkUrl); assert.equal(card.querySelector('.catalogue-charter-avatar').querySelector('img').src, charterIconUrl);
+  assert.equal(art.querySelector('img').referrerPolicy, 'no-referrer'); assert.equal(art.querySelector('img').alt, '');
+  art.querySelector('img').dispatchEvent(new Event('load')); assert.equal(art.querySelector('span').hidden, true);
+  assert.equal(name.textContent, 'JoMartineau'); assert.deepEqual(name.children.map(n => n.style.color), ['#f06', 'cyan']);
+  assert.equal(card.querySelector('.catalogue-staff-moderator').textContent, 'Modérateur'); assert.equal(card.querySelector('.catalogue-staff-verified').textContent, 'Charter vérifié');
+  assert.equal(card.querySelector('.catalogue-game-badge').textContent, 'Clone Hero');
+  const instruments = card.querySelectorAll('.catalogue-instrument'); assert.deepEqual(instruments.map(n => n.dataset.instrument), ['Guitar', 'Drums']);
+  assert.deepEqual(instruments.map(n => n.querySelector('.catalogue-instrument-intensity').textContent), ['2', '4']);
+  assert.deepEqual(instruments[0].querySelector('.catalogue-instrument-levels').children.map(n => [n.textContent, n.className]), [['E', ''], ['M', ''], ['H', ''], ['X', 'available']]);
+  assert.deepEqual(instruments[1].querySelector('.catalogue-instrument-levels').children.map(n => n.className), Array(4).fill('available'));
+  assert.match(instruments[0].getAttribute('aria-label'), /Guitare · Intensité : 2 · Expert/);
+  assert.deepEqual(card.querySelector('dl').querySelectorAll('dd').map(n => n.textContent), ['Album', '2026', 'Metal', '4:05']);
+  const details = card.querySelector('details'); assert.equal(details.open, false); details.open = true; details.dispatchEvent(new Event('toggle'));
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  const translated = ui.get('#catalogue-widget-results').children[0]; assert.equal(translated.querySelector('details').open, true);
+  assert.equal(translated.querySelector('summary').textContent, 'View details'); assert.equal(translated.querySelector('.catalogue-staff-moderator').textContent, 'Moderator');
+  assert.equal(translated.querySelector('.catalogue-staff-verified').textContent, 'Verified Charter');
+  assert.deepEqual(translated.querySelector('dl').querySelectorAll('dt').map(n => n.textContent), ['Album', 'Year', 'Genre', 'Length']);
+  assert.equal(translated.querySelector('.catalogue-charter-name').textContent, 'JoMartineau'); assert.equal(ui.calls.length, 1);
+  ui.controls.update(snapshot({ downloads: { revision: 2, hasRoot: true, items: [] } })); assert.equal(ui.get('#catalogue-widget-results').querySelector('details').open, true);
+});
+
+test('absent, failed and unsafe artwork has an inert fallback and never loads remote or filesystem URLs', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('art');
+  const localUrl = 'chartshub-companion://app/catalogue-artwork/' + 'c'.repeat(64);
+  const unsafe = ['https://chartshub.ca/cover', 'file:///Songs/album.png', 'data:image/svg+xml,<svg/>', '//evil.invalid/image', localUrl + '?token=private', localUrl + '/../private'];
+  await ui.respond(0, { items: [chart('valid', { artworkUrl: localUrl, charterIconUrl: localUrl }), chart('missing'), ...unsafe.map((url, i) => chart('unsafe-' + i, { artworkUrl: url, charterIconUrl: url }))] });
+  const cards = ui.get('#catalogue-widget-results').children;
+  for (const card of cards.slice(1)) { assert.equal(card.querySelectorAll('img').length, 0); assert.equal(card.querySelector('.catalogue-card-artwork').textContent, '♪'); }
+  for (const box of [cards[0].querySelector('.catalogue-card-artwork'), cards[0].querySelector('.catalogue-charter-avatar')]) {
+    const image = box.querySelector('img'); image.dispatchEvent(new Event('error'));
+    assert.equal(image.hidden, true); assert.equal(image.src, ''); assert.equal(box.querySelector('span').hidden, false);
+  }
+  assert.equal(ui.calls.length, 1); assert.doesNotMatch(ui.root.textContent, /private|Songs|svg/);
+});
+
+test('malformed presentation values cannot inject styles, HTML, role badges or fictitious instrument difficulties', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('hostile');
+  const hostile = '<img src=x onerror=evil()>', item = chart('hostile', { charter: 'JoMartineau', charterSegments: [{ text: 'Jo', color: 'linear-gradient(red,blue)' }, { text: 'Martineau', color: 'red;background:url(https://evil.invalid)' }],
+    staffRole: 'moderator unsafe', verified: 'true', game: ['Unknown game'], album: hostile, genre: hostile, duration: '245',
+    instruments: ['Guitar', 'Unsafe'], instrumentIntensities: { Guitar: 1001 }, difficulties: ['Easy', 'Medium', 'Hard', 'Expert'], instrumentDifficulties: { Guitar: ['Expert'] } });
+  await ui.respond(0, { items: [item] });
+  const card = ui.get('#catalogue-widget-results').children[0]; assert.equal(card.querySelectorAll('img').length, 0);
+  assert.equal(card.querySelector('.catalogue-charter-name').textContent, 'JoMartineau'); assert.equal(card.querySelector('.catalogue-charter-name').children.length, 0);
+  assert.equal(card.querySelectorAll('.catalogue-staff-badge').length, 0); assert.equal(card.querySelectorAll('.catalogue-game-badge').length, 0);
+  assert.equal(card.querySelector('.catalogue-instrument-intensity').textContent, '—'); assert.equal(card.querySelectorAll('.catalogue-instrument').length, 1);
+  assert.deepEqual(card.querySelector('.catalogue-instrument-levels').children.filter(n => n.className === 'available').map(n => n.textContent), ['X']);
+  assert.deepEqual(card.querySelector('dl').querySelectorAll('dd').map(n => n.textContent), [hostile, hostile]);
+  item.staffRole = 'administrator'; item.verified = true;
+  ui.controls.update(snapshot({ catalogue: { revision: 1, status: 'ready', demo: true } })); assert.equal(ui.get('#catalogue-widget-results').querySelectorAll('.catalogue-staff-badge').length, 0);
+});
+
+test('artwork retries are bounded, use only the original proxy and stop when the card is disposed', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('art');
+  const artworkUrl = 'chartshub-companion://app/catalogue-artwork/' + 'd'.repeat(64);
+  await ui.respond(0, { items: [chart('slow-art', { artworkUrl })] });
+  const image = ui.get('#catalogue-widget-results').querySelector('img');
+  image.dispatchEvent(new Event('error')); t.mock.timers.tick(64999); assert.equal(image.src, '');
+  t.mock.timers.tick(1); assert.equal(image.src, artworkUrl);
+  image.dispatchEvent(new Event('error')); t.mock.timers.tick(120000); assert.equal(image.src, artworkUrl);
+  image.dispatchEvent(new Event('error')); t.mock.timers.tick(240000); assert.equal(image.src, ''); assert.equal(image.hidden, true);
+  ui.controls.renderResults(); const replacement = ui.get('#catalogue-widget-results').querySelector('img');
+  replacement.dispatchEvent(new Event('error')); ui.controls.dispose(); t.mock.timers.tick(240000);
+  assert.equal(replacement.src, ''); assert.equal(ui.calls.length, 1);
+});
+
+test('download progress preserves card and image identity while queued chart changes update download actions', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('progress');
+  const artworkUrl = 'chartshub-companion://app/catalogue-artwork/' + 'e'.repeat(64);
+  await ui.respond(0, { items: [chart('chart-1', { artworkUrl, album: 'Album' })] });
+  const first = ui.get('#catalogue-widget-results').children[0];
+  ui.controls.update(snapshot({ downloads: { revision: 2, hasRoot: true, items: [download(1)] } }));
+  const queued = ui.get('#catalogue-widget-results').children[0], image = queued.querySelector('img'), details = queued.querySelector('details');
+  assert.notEqual(queued, first); assert.equal(queued.querySelector('button').disabled, true); assert.equal(queued.querySelector('button').textContent, 'Déjà dans la file');
+  details.open = true; details.dispatchEvent(new Event('toggle')); queued.querySelector('summary').focus();
+  for (const [revision, receivedBytes] of [[3, 40], [4, 80]]) {
+    ui.controls.update(snapshot({ downloads: { revision, hasRoot: true, items: [download(1, 'Downloading', { receivedBytes })] } }));
+    assert.equal(ui.get('#catalogue-widget-results').children[0], queued);
+    assert.equal(queued.querySelector('img'), image); assert.equal(queued.querySelector('details'), details);
+    assert.equal(ui.document.activeElement, queued.querySelector('summary')); assert.equal(details.open, true);
+    assert.equal(ui.get('#catalogue-widget-downloads').querySelector('progress').value, receivedBytes);
+  }
+  ui.controls.update(snapshot({ downloads: { revision: 5, hasRoot: true, items: [download(1, 'Completed', { receivedBytes: 100 })] } }));
+  const completed = ui.get('#catalogue-widget-results').children[0]; assert.notEqual(completed, queued);
+  assert.equal(completed.querySelector('button').disabled, false); assert.equal(completed.querySelector('button').textContent, 'Télécharger'); assert.equal(completed.querySelector('details').open, true);
+  assert.equal(ui.calls.length, 1);
+});
+
 test('late searches and refresh responses cannot replace the current results or trigger an automatic transfer', async t => {
   const ui = await setup(t); ui.controls.update(snapshot()); ui.search('old'); ui.search('new');
   await ui.respond(1, { items: [chart('new')] }); await ui.respond(0, { items: [chart('old')] });

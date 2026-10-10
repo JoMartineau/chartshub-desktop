@@ -13,7 +13,7 @@ const digest = value => createHash('sha256').update(value).digest('hex');
 const associationKey = (root, local) => `${root}:${local}`;
 const failure = message => new Error(message);
 const stale = () => failure('La sélection a changé. Rechargez les correspondances avant de confirmer.');
-const publicFields = ['id', 'title', 'artist', 'charter', 'verified', 'album', 'year', 'genre', 'instruments', 'difficulties', 'instrumentDifficulties', 'contentHash', 'viewUrl'];
+const publicFields = ['id', 'title', 'artist', 'charter', 'charterSegments', 'staffRole', 'verified', 'album', 'year', 'genre', 'duration', 'game', 'instruments', 'difficulties', 'instrumentDifficulties', 'instrumentIntensities', 'contentHash', 'viewUrl'];
 function validateLinks(value) {
   if (!object(value) || value.version !== 1 || !Array.isArray(value.links)) throw Error('Invalid associations');
   const links = new Map();
@@ -112,6 +112,8 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     const result = Object.fromEntries(publicFields.filter(key => record[key] !== undefined).map(key => [key, record[key] !== null && typeof record[key] === 'object' ? structuredClone(record[key]) : record[key]]));
     result.verified = demo ? null : record.verified === true ? true : record.verified === false ? false : null;
     result.artworkUrl = record.artworkUrl ? `chartshub-companion://app/catalogue-artwork/${digest(record.artworkUrl)}` : null;
+    if (record.charterIconUrl) result.charterIconUrl = `chartshub-companion://app/catalogue-artwork/${digest(record.charterIconUrl)}`;
+    if (demo) delete result.staffRole;
     result.downloadable = !demo && publicDownload(record.downloadEndpoint);
     result.installed = installed(record, current); return result;
   }
@@ -133,7 +135,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
           if (!next.has(item.id)) next.set(item.id, { ...item });
         }
         records = next; clearArtwork();
-        for (const item of records.values()) if (typeof item.artworkUrl === 'string' && item.artworkUrl) artworkUrls.set(digest(item.artworkUrl), item.artworkUrl);
+        for (const item of records.values()) for (const url of [item.artworkUrl, item.charterIconUrl]) if (typeof url === 'string' && url) artworkUrls.set(digest(url), url);
         hasCatalogue = true; remoteRevision = typeof result.revision === 'string' ? result.revision : null; demo = result.demo;
         networkWarning = typeof result.warning === 'string' ? result.warning.slice(0, 512) : null;
         lastLoadedAt = new Date().toISOString(); phase = 'ready'; error = null; staleWarning = null; linkedCache = null; revision++; notify();

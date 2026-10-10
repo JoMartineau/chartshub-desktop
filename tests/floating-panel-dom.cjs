@@ -10,6 +10,7 @@ class Element extends EventTarget {
   set innerHTML(_) { throw Error('Untrusted metadata must never become HTML'); }
   append(...children) { this.ownerDocument.writes++; this.children.push(...children); }
   setAttribute(name, value) { this.ownerDocument.writes++; this.attributes[name] = String(value); }
+  removeAttribute(name) { this.ownerDocument.writes++; delete this.attributes[name]; if (name === 'src') this.src = ''; }
   getAttribute(name) { return this.attributes[name]; }
   addEventListener(type, listener, options) { if (options?.signal) setMaxListeners(0, options.signal); super.addEventListener(type, listener, options); }
   querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
@@ -21,7 +22,7 @@ class Element extends EventTarget {
   focus() { this.ownerDocument.activeElement = this; }
 }
 function createDocument() {
-  const document = { writes: 0, documentElement: { lang: 'fr' }, defaultView: new EventTarget(), createElement(tag) { return new Element(this, tag); } };
+  const document = { writes: 0, documentElement: { lang: 'fr' }, defaultView: new EventTarget(), createElement(tag) { return new Element(this, tag); }, createElementNS(_namespace, tag) { return new Element(this, tag); } };
   return document;
 }
 module.exports = { createDocument, Element, tick: () => new Promise(resolve => setImmediate(resolve)) };

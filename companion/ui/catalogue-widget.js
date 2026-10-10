@@ -1,4 +1,5 @@
 import { FloatingPanelsControls, applyFloatingAppearance } from './floating-panels-controls.js';
+import { createCatalogueCard } from './catalogue-card.js';
 
 const tabs = ['search', 'downloads', 'recent'];
 const chartId = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/.test(value);
@@ -13,7 +14,7 @@ export class CatalogueWidgetControls {
     this.root = root; this.command = command; this.abort = new AbortController(); this.resultAbort = new AbortController(); this.downloadAbort = new AbortController();
     this.catalogue = null; this.downloads = null; this.snapshotSignature = ''; this.items = []; this.page = 1; this.hasMore = false; this.filters = null;
     this.searchSerial = 0; this.loading = false; this.refreshing = false; this.choosing = false; this.closing = false; this.stale = false; this.disposed = false; this.tab = 'search';
-    this.pendingCharts = new Set(); this.pendingDownloads = new Set();
+    this.pendingCharts = new Set(); this.pendingDownloads = new Set(); this.expandedCharts = new Set();
     this.appearance = new FloatingPanelsControls({ root: this.element('#catalogue-widget-appearance-controls'), command, panels: ['catalogue'] });
     const signal = this.abort.signal;
     this.element('#catalogue-widget-search-form').addEventListener('submit', event => { event.preventDefault(); this.filters = this.readFilters(); void this.search(1); }, { signal });
@@ -30,7 +31,7 @@ export class CatalogueWidgetControls {
       }, { signal });
     }
     root.ownerDocument.defaultView?.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); void this.close(); } }, { signal });
-    root.ownerDocument.defaultView?.addEventListener('chartshub:languagechange', () => { if (!this.disposed) this.renderDownloads(); }, { signal });
+    root.ownerDocument.defaultView?.addEventListener('chartshub:languagechange', () => { if (!this.disposed) { this.renderResults(); this.renderDownloads(); } }, { signal });
     this.selectTab('search'); this.availability();
   }
   element(selector) { const element = this.root.querySelector(selector); if (!element) throw Error(`Missing catalogue widget control: ${selector}`); return element; }
@@ -41,11 +42,16 @@ export class CatalogueWidgetControls {
     const value = field => this.element(`#catalogue-widget-${field}`).value.trim().slice(0, field === 'query' ? 200 : 128);
     return { query: value('query'), artist: value('artist'), charter: value('charter'), instrument: value('instrument'), difficulty: value('difficulty'), genre: '', year: '', verified: 'all', installed: 'all' };
   }
+  resultConditions() {
+    const queued = [...new Set((this.downloads?.items ?? []).filter(item => ['Queued', 'Downloading', 'Paused'].includes(item.state)).map(item => item.chartId))].sort();
+    return JSON.stringify([this.catalogue, this.stale, this.downloads?.hasRoot, this.downloads?.error, queued]);
+  }
   update(snapshot) {
     if (this.disposed || !snapshot) return;
     this.appearance.update(snapshot); applyFloatingAppearance(this.root, snapshot.floatingPanels?.appearance?.catalogue);
     const signature = JSON.stringify([snapshot.catalogue, snapshot.downloads, snapshot.catalogueShortcut]); if (signature === this.snapshotSignature) return;
     this.snapshotSignature = signature;
+    const previousConditions = this.resultConditions();
     if (snapshot.catalogue) {
       if (this.catalogue && this.catalogue.revision !== snapshot.catalogue.revision && this.items.length && !this.loading) {
         this.stale = true; this.element('#catalogue-widget-search-status').textContent = 'Le catalogue a changé. Relancez la recherche.';
@@ -56,7 +62,10 @@ export class CatalogueWidgetControls {
     this.element('#catalogue-widget-root-status').textContent = this.downloads?.hasRoot ? 'Dossier de téléchargement prêt.' : 'Choisissez un dossier de téléchargement.';
     const shortcut = this.element('#catalogue-widget-shortcut');
     shortcut.textContent = snapshot.catalogueShortcut?.registered ? 'Raccourci : Ctrl + Maj + K' : snapshot.catalogueShortcut?.error ? 'Raccourci indisponible. Utilisez le bouton du Companion.' : '';
-    this.renderResults(); this.renderDownloads(); this.availability();
+    // Progress bytes do not affect catalogue cards. Keep their images, bounded
+    // retry timers, disclosure state and keyboard focus while the queue updates.
+    if (previousConditions !== this.resultConditions()) this.renderResults();
+    this.renderDownloads(); this.availability();
   }
   selectTab(tab) {
     if (this.disposed || !tabs.includes(tab)) return;
@@ -75,7 +84,7 @@ export class CatalogueWidgetControls {
   async search(page) {
     if (this.disposed || !this.catalogue || this.refreshing || !this.filters || page < 1 || page > 1000) return;
     const serial = ++this.searchSerial, filters = { ...this.filters, page };
-    this.loading = true; this.stale = false; this.items = []; this.renderResults(); this.feedback(''); this.element('#catalogue-widget-search-status').textContent = 'Recherche en cours…'; this.availability();
+    this.loading = true; this.stale = false; this.items = []; this.expandedCharts.clear(); this.renderResults(); this.feedback(''); this.element('#catalogue-widget-search-status').textContent = 'Recherche en cours…'; this.availability();
     try {
       const response = await this.command('catalogue.search', filters);
       if (this.disposed || serial !== this.searchSerial) return;
@@ -92,12 +101,12 @@ export class CatalogueWidgetControls {
   renderResults() {
     this.resultAbort.abort(); this.resultAbort = new AbortController(); const container = this.element('#catalogue-widget-results'); container.textContent = '';
     for (const item of this.items) {
-      const card = this.make('article', '', 'catalogue-item floating-catalogue-item'); card.dataset.chartId = item.id;
-      card.append(this.make('h3', text(item.title)), this.make('p', text(item.artist), 'catalogue-item-artist'), this.make('p', text(item.charter), 'catalogue-item-details'));
+      const { card, body } = createCatalogueCard(this.root.ownerDocument, item, { locale: this.locale(), demo: !!this.catalogue?.demo, signal: this.resultAbort.signal,
+        expanded: this.expandedCharts.has(item.id), onToggle: open => { if (open) this.expandedCharts.add(item.id); else this.expandedCharts.delete(item.id); } });
       const queued = this.downloads?.items?.some(value => value.chartId === item.id && ['Queued', 'Downloading', 'Paused'].includes(value.state));
       const button = this.make('button', queued ? 'Déjà dans la file' : 'Télécharger'); button.type = 'button'; button.dataset.chartId = item.id;
       button.disabled = !item.downloadable || !!this.catalogue?.demo || !this.downloads?.hasRoot || queued || this.pendingCharts.has(item.id) || this.loading || this.stale;
-      button.addEventListener('click', () => { void this.enqueue(item.id); }, { signal: this.resultAbort.signal }); card.append(button); container.append(card);
+      button.addEventListener('click', () => { void this.enqueue(item.id); }, { signal: this.resultAbort.signal }); body.append(button); container.append(card);
     }
   }
   async enqueue(id) {
