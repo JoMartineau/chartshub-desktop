@@ -51,6 +51,7 @@ export class DuplicateComparisonControls {
   private cleanupAbort = new AbortController();
   private readonly cleanupChecks = new Map<string, HTMLInputElement>();
   private readonly cleanupForceButtons = new Map<string, HTMLButtonElement>();
+  private cleanupFocusAfterRefresh: { rootPath: string; revision: number } | null = null;
   private needsReload = false;
   private disposed = false;
 
@@ -67,12 +68,16 @@ export class DuplicateComparisonControls {
   update(state: ComparisonState): void {
     if (this.disposed) return;
     const changed = this.state && (state.rootPath !== this.state.rootPath || state.revision !== this.state.revision);
+    const revealCleanupResult = changed && this.cleanupFocusAfterRefresh?.rootPath === state.rootPath
+      && this.cleanupFocusAfterRefresh.revision === this.state?.revision;
     this.state = state;
     if (changed && this.targetId) {
       this.close(false);
       this.options.feedback('La bibliothèque a changé. Relancez « Comparer » pour vérifier les versions actuelles.');
     }
     this.refreshAvailability();
+    if (changed) this.cleanupFocusAfterRefresh = null;
+    if (revealCleanupResult) this.revealCleanupResult();
   }
 
   open(id: string, title: string, trigger: HTMLButtonElement): void {
@@ -97,6 +102,7 @@ export class DuplicateComparisonControls {
   private close(restoreFocus: boolean): void {
     this.serial++; this.targetId = null; this.result = null; this.loading = false; this.saving = false; this.opening = false; this.needsReload = false;
     this.preparing = false; this.clearCleanup();
+    this.cleanupFocusAfterRefresh = null;
     this.clearCards(); this.element('#library-comparison').hidden = true;
     if (restoreFocus && this.trigger?.isConnected !== false) this.trigger?.focus({ preventScroll: true });
     this.trigger = null;
@@ -185,11 +191,20 @@ export class DuplicateComparisonControls {
     this.element('#library-cleanup-plan').hidden = true;
     this.element('#library-cleanup-keep').textContent = '';
     this.element('#library-cleanup-candidates').textContent = '';
+    this.element('#library-cleanup-summary').hidden = true;
+    this.element('#library-cleanup-selected-targets').textContent = '';
   }
 
   private cleanupFeedback(message: string, error = false): void {
     const status = this.element('#library-cleanup-result');
     status.textContent = message; status.hidden = !message; status.classList.toggle('is-error', error);
+  }
+
+  private revealCleanupResult(): void {
+    const status = this.element('#library-cleanup-result');
+    if (status.hidden) return;
+    status.focus({ preventScroll: true });
+    status.scrollIntoView?.({ block: 'nearest' });
   }
 
   private cleanupAvailable(): boolean {
@@ -224,12 +239,11 @@ export class DuplicateComparisonControls {
       }
       this.cleanupPlan = plan;
       const eligibleCandidates = plan.candidates.filter(candidate => this.eligible(candidate, plan));
-      for (const candidate of eligibleCandidates) this.cleanupSelection.add(candidate.id);
       this.renderCleanup();
       const eligible = eligibleCandidates.length, forceable = plan.candidates.filter(candidate => candidate.forceable).length;
       const blocked = plan.candidates.length - eligible - forceable;
       this.feedback(eligible
-        ? `${number(eligible)} autre(s) version(s) sûre(s) présélectionnée(s) pour la Corbeille.${forceable ? ` ${number(forceable)} version(s) vérifiée(s) mais différente(s) peuvent être supprimées manuellement.` : ''}${blocked ? ` ${number(blocked)} version(s) restent protégées.` : ''} Vérifiez puis confirmez la suppression.`
+        ? `${number(eligible)} copie(s) vérifiée(s) disponible(s). Cochez individuellement les copies à envoyer à la Corbeille.${forceable ? ` ${number(forceable)} version(s) vérifiée(s) mais différente(s) peuvent être supprimées manuellement.` : ''}${blocked ? ` ${number(blocked)} version(s) restent protégées.` : ''} Aucune copie n’est sélectionnée automatiquement.`
         : forceable
           ? `${number(forceable)} autre(s) version(s) ont les mêmes notes, mais leur audio ou certains fichiers diffèrent. Utilisez « Supprimer quand même » uniquement si vous acceptez de perdre ces différences.`
           : 'Aucune autre version n’est suffisamment vérifiée pour être supprimée. Consultez les raisons indiquées.');
@@ -293,6 +307,22 @@ export class DuplicateComparisonControls {
     this.element('#library-cleanup-plan').hidden = false;
   }
 
+  private refreshCleanupSummary(): void {
+    const plan = this.cleanupPlan;
+    const selected = plan?.candidates.filter(candidate => this.eligible(candidate, plan) && this.cleanupSelection.has(candidate.id)) ?? [];
+    const unchecked = (plan?.candidates.length ?? 0) - selected.length;
+    const bytes = selected.reduce((total, candidate) => total + (candidate.bytes ?? 0), 0);
+    this.element('#library-cleanup-selection').textContent = `${number(selected.length)} copie(s) sélectionnée(s) · ${number(bytes)} octets. ${number(unchecked)} autre(s) copie(s) non cochée(s) restent en place. La version conservée est protégée.`;
+    const list = this.element('#library-cleanup-selected-targets'); list.textContent = '';
+    for (const candidate of selected) {
+      const item = this.options.root.ownerDocument.createElement('li');
+      const path = this.options.root.ownerDocument.createElement('code'); path.className = 'library-cleanup-path';
+      path.textContent = candidate.targetRelativePath;
+      item.append(path); list.append(item);
+    }
+    this.element('#library-cleanup-summary').hidden = !selected.length;
+  }
+
   private async recycle(): Promise<void> {
     const plan = this.cleanupPlan;
     if (!plan || !this.cleanupAvailable() || !this.state?.rootPath || plan.keepId !== this.result?.preferredId) return;
@@ -320,7 +350,10 @@ export class DuplicateComparisonControls {
         for (const failure of result.failed) messages.push(`${plan.candidates.find(candidate => candidate.id === failure.id)?.targetRelativePath ?? failure.id} : ${failure.reason}`);
         messages.push(result.refreshRequested ? 'Actualisation de la bibliothèque demandée.' : 'Actualisez la bibliothèque pour vérifier les fichiers actuels.');
         this.cleanupFeedback(messages.join('\n'), result.failed.length > 0);
-        if (this.current(serial, root, revision)) this.needsReload = true;
+        if (this.current(serial, root, revision)) {
+          this.needsReload = true;
+          if (result.refreshRequested) this.cleanupFocusAfterRefresh = { rootPath: root, revision };
+        }
       }
       if (this.current(serial, root, revision)) this.feedback('Cette sélection a été utilisée. Une nouvelle vérification est nécessaire avant tout autre nettoyage.');
     } catch (error) {
@@ -328,7 +361,7 @@ export class DuplicateComparisonControls {
       this.cleanupFeedback(error instanceof Error ? error.message : 'Nettoyage indisponible. Actualisez la bibliothèque avant de réessayer.', true);
       if (this.current(serial, root, revision)) this.needsReload = true;
     } finally {
-      if (!this.disposed && execution === this.executionSerial) { this.executing = false; this.clearCleanup(); this.refreshAvailability(); }
+      if (!this.disposed && execution === this.executionSerial) { this.executing = false; this.clearCleanup(); this.refreshAvailability(); this.revealCleanupResult(); }
     }
   }
 
@@ -358,7 +391,10 @@ export class DuplicateComparisonControls {
         if (result.cancelled) messages.push('Opération interrompue.');
         messages.push(result.refreshRequested ? 'Actualisation de la bibliothèque demandée.' : 'Actualisez la bibliothèque pour vérifier les fichiers actuels.');
         this.cleanupFeedback(messages.join('\n'), result.failed.length > 0);
-        if (this.current(serial, root, revision)) this.needsReload = true;
+        if (this.current(serial, root, revision)) {
+          this.needsReload = true;
+          if (result.refreshRequested) this.cleanupFocusAfterRefresh = { rootPath: root, revision };
+        }
       }
       if (this.current(serial, root, revision)) this.feedback('Cette vérification a été utilisée. Une nouvelle vérification est nécessaire avant toute autre suppression.');
     } catch (error) {
@@ -366,7 +402,7 @@ export class DuplicateComparisonControls {
       this.cleanupFeedback(error instanceof Error ? error.message : 'Suppression forcée indisponible. Actualisez la bibliothèque.', true);
       if (this.current(serial, root, revision)) this.needsReload = true;
     } finally {
-      if (!this.disposed && execution === this.executionSerial) { this.executing = false; this.clearCleanup(); this.refreshAvailability(); }
+      if (!this.disposed && execution === this.executionSerial) { this.executing = false; this.clearCleanup(); this.refreshAvailability(); this.revealCleanupResult(); }
     }
   }
 
@@ -416,12 +452,8 @@ export class DuplicateComparisonControls {
     const recycle = this.element<HTMLButtonElement>('#library-cleanup-recycle');
     const selected = this.cleanupSelection.size;
     recycle.disabled = !this.cleanupPlan || !this.cleanupAvailable() || !selected;
-    recycle.textContent = selected === 1 ? 'Supprimer l’autre version' : selected > 1 ? `Supprimer les ${number(selected)} autres versions` : 'Aucune autre version sûre à supprimer';
-    this.element('#library-cleanup-selection').textContent = selected === 1
-      ? '1 autre version sera envoyée à la Corbeille. La version conservée est protégée.'
-      : selected > 1
-        ? `${number(selected)} autres versions seront envoyées à la Corbeille. La version conservée est protégée.`
-        : 'Aucune autre version sûre n’est sélectionnée. La version conservée est protégée.';
+    recycle.textContent = selected === 1 ? 'Envoyer la copie sélectionnée à la Corbeille…' : selected > 1 ? `Envoyer les ${number(selected)} copies sélectionnées à la Corbeille…` : 'Cochez les copies à envoyer à la Corbeille';
+    this.refreshCleanupSummary();
     for (const [id, check] of this.cleanupChecks) {
       const candidate = this.cleanupPlan?.candidates.find(value => value.id === id);
       check.disabled = !this.cleanupAvailable() || !this.cleanupPlan || !candidate || !this.eligible(candidate, this.cleanupPlan);

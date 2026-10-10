@@ -45,6 +45,7 @@ async function fixture(t, hooks = {}) {
   });
   await service.selectRoot(root); await settled(service);
   assert.equal(service.status().status, 'ready'); assert.equal(service.status().count, 3);
+  await hooks.afterScan?.({ root, base, service });
   const first = service.query().items.find(item => item.relativePath.startsWith('A/'));
   const comparison = await service.compareDuplicates({ id: first.id, revision: service.status().revision });
   await service.chooseDuplicate({ contextId: comparison.contextId, revision: comparison.revision, id: first.id });
@@ -111,4 +112,64 @@ test('stop aborts a pending preparation, prevents recycling, and service can com
   await f.service.configure({ refreshOnStart: false }); await f.service.start();
   const comparison = await f.service.compareDuplicates({ id: f.preparation.keepId, revision: f.service.status().revision });
   assert.equal(comparison.preferredId, f.preparation.keepId);
+});
+
+test('files changed since the index scan stay protected even when size and mtime are restored before comparison', async t => {
+  for (const filename of ['notes.chart', 'song.ogg', 'song.ini']) {
+    const f = await fixture(t, { afterScan: async ({ root }) => {
+      const target = path.join(root, 'B', filename), original = await fs.readFile(target), before = await fs.stat(target);
+      // Rewriting identical bytes also changes the reviewed filesystem identity.
+      // Restoring mtime must not erase the evidence held by the scan snapshot.
+      await fs.writeFile(target, original); await fs.utimes(target, before.atime, before.mtime);
+    } });
+    const plan = await f.prepare(), changed = plan.candidates.find(candidate => candidate.relativePath.startsWith('B/'));
+    assert.equal(changed.eligible, false, filename); assert.equal(changed.forceable, false, filename);
+    assert.match(changed.reason, /depuis le scan/); assert.equal(plan.candidates.find(candidate => candidate.relativePath.startsWith('C/')).eligible, true);
+    await assert.rejects(f.service.recycleDuplicates({ planId: plan.planId, revision: plan.revision, ids: [changed.id] }), { code: 'LIBRARY_CLEANUP_SAFE' });
+    assert.equal(f.recycled.length, 0); assert.deepEqual((await fs.readdir(f.root)).sort(), ['A', 'B', 'C']);
+  }
+});
+
+test('extra files, identical folder replacements and changed keeper are rejected after scan', async t => {
+  for (const change of ['extra', 'copy-replacement', 'keeper-replacement']) {
+    const f = await fixture(t, { afterScan: async ({ root, base }) => {
+      if (change === 'extra') { await fs.writeFile(path.join(root, 'B', 'unique-cover.png'), 'keep this unique file'); return; }
+      const folder = change === 'keeper-replacement' ? 'A' : 'B', target = path.join(root, folder), saved = path.join(base, 'original-' + folder);
+      await fs.rename(target, saved); await fs.mkdir(target);
+      for (const name of await fs.readdir(saved)) await fs.copyFile(path.join(saved, name), path.join(target, name));
+    } });
+    const plan = await f.prepare();
+    assert.equal(plan.candidates[0].eligible, false, change); assert.equal(plan.candidates[0].forceable, false, change);
+    if (change === 'keeper-replacement') assert.ok(plan.candidates.every(candidate => !candidate.eligible && !candidate.forceable));
+    assert.equal(f.recycled.length, 0);
+  }
+});
+
+test('comparison bundle content cannot be silently replaced before cleanup preparation', async t => {
+  const f = await fixture(t);
+  await fs.writeFile(path.join(f.root, 'B', 'song.ogg'), 'changed audio content');
+  const plan = await f.prepare(), changed = plan.candidates[0];
+  assert.equal(changed.eligible, false); assert.equal(changed.forceable, false); assert.match(changed.reason, /depuis le scan/);
+  assert.equal(plan.candidates[1].eligible, true); assert.equal(f.recycled.length, 0);
+});
+
+test('legacy index remains browsable and preference persists, but cleanup requires a new scan', async t => {
+  const f = await fixture(t); await f.service.configure({ refreshOnStart: false }); await f.service.stop();
+  const filename = path.join(f.base, 'profile', 'library.json'), stored = JSON.parse(await fs.readFile(filename, 'utf8'));
+  assert.ok(stored.items.every(item => /^[a-f0-9]{64}$/.test(item.cleanupSnapshot)));
+  for (const item of stored.items) delete item.cleanupSnapshot;
+  await fs.writeFile(filename, JSON.stringify(stored));
+  const { createInstalledLibraryService } = require('../companion/library-service.cjs');
+  const service = createInstalledLibraryService({ dataDirectory: path.join(f.base, 'profile'), recycle: async () => assert.fail('legacy evidence cannot recycle') });
+  t.after(() => service.stop()); await service.start();
+  assert.equal(service.query().total, 3); assert.ok(!JSON.stringify(service.query()).includes('cleanupSnapshot'));
+  let comparison = await service.compareDuplicates({ id: f.preparation.keepId, revision: service.status().revision });
+  assert.equal(comparison.preferredId, f.preparation.keepId);
+  let plan = await service.prepareCleanup({ contextId: comparison.contextId, revision: comparison.revision, keepId: comparison.preferredId });
+  assert.ok(plan.candidates.every(candidate => !candidate.eligible && !candidate.forceable)); assert.match(plan.candidates[0].reason, /Relancez le scan/);
+  service.requestScan('full'); await settled(service);
+  comparison = await service.compareDuplicates({ id: f.preparation.keepId, revision: service.status().revision });
+  assert.equal(comparison.preferredId, f.preparation.keepId);
+  plan = await service.prepareCleanup({ contextId: comparison.contextId, revision: comparison.revision, keepId: comparison.preferredId });
+  assert.ok(plan.candidates.every(candidate => candidate.eligible));
 });

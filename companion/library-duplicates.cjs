@@ -5,6 +5,7 @@ const { constants } = require('node:fs');
 const path = require('node:path');
 const { createHash, randomBytes, randomUUID } = require('node:crypto');
 const { fingerprintChart } = require('./chart-fingerprint.cjs');
+const { inspectChartBundle } = require('./chart-bundle.cjs');
 
 const VERSION = 1;
 const HEX = /^[a-f0-9]{64}$/;
@@ -170,7 +171,8 @@ function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
       items: document.items, controller: new AbortController(), group,
       key: digest(process.platform === 'win32' ? document.settings.rootPath.toLowerCase() : document.settings.rootPath) + ':' + digest(group),
       members: new Map(members.map(item => [item.id, { id: item.id, relativePath: item.relativePath, format: item.format, audio: item.audio }])),
-      fingerprints: new Map(), complete: false
+      scanSnapshots: new Map(members.map(item => [item.id, item.cleanupSnapshot ?? null])),
+      fingerprints: new Map(), bundles: new Map(), complete: false
     };
     context = current;
     try {
@@ -182,6 +184,14 @@ function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
       for (const item of current.members.values()) {
         const notes = await fingerprint(current, item); assertCurrent(current);
         current.fingerprints.set(item.id, notes);
+        // Capture full content at comparison time, before the keeper or any
+        // deletion checkbox is chosen. Legacy indexes stay browsable but cannot
+        // authorize cleanup until a new scan records file identities.
+        if (HEX.test(current.scanSnapshots.get(item.id) ?? '')) {
+          const bundle = await inspectChartBundle({ rootPath: current.root, relativePath: item.relativePath, format: item.format, signal: current.controller.signal });
+          assertCurrent(current);
+          current.bundles.set(item.id, bundle);
+        }
         let noteGroup = null;
         if (notes.status === 'readable') {
           readable++;
@@ -274,11 +284,12 @@ function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
     const live = document.items.filter(item => identity(item) === current.group);
     if (live.length !== current.members.size || live.some(item => {
       const previous = current.members.get(item.id);
-      return !previous || previous.relativePath !== item.relativePath || previous.format !== item.format;
+      return !previous || previous.relativePath !== item.relativePath || previous.format !== item.format || (item.cleanupSnapshot ?? null) !== current.scanSnapshots.get(item.id);
     })) throw staleError();
     return {
       contextId, revision, rootPath: current.root, keepId, keepHash: choice.hash, keepFormat: choice.format,
-      preferenceToken, members: [...current.members.values()].map(({ id, relativePath, format }) => ({ id, relativePath, format }))
+      preferenceToken, members: [...current.members.values()].map(({ id, relativePath, format }) => ({ id, relativePath, format,
+        cleanupSnapshot: current.scanSnapshots.get(id), bundle: current.bundles.get(id) ?? null }))
     };
   }
   return { compare: options => track(runComparison(options)), choose: options => track(runChoice(options)), cleanupContext: options => track(cleanupContext(options)), invalidate, stop };

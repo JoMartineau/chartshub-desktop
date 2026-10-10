@@ -2,7 +2,7 @@
 
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
-const { inspectChartBundle, revalidateBundle, recheckBundleIdentity } = require('./chart-bundle.cjs');
+const { inspectChartBundle, revalidateBundle, recheckBundleIdentity, bundleSnapshot } = require('./chart-bundle.cjs');
 
 const HEX = /^[a-f0-9]{64}$/, TOKEN = /^[a-f0-9]{32}$/;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -13,6 +13,8 @@ const reason = {
   audio: 'Les fichiers audio sont absents, différents ou non vérifiés.',
   notes: 'Le contenu ou le format des notes est différent.',
   contents: 'Cette version contient des fichiers différents ou supplémentaires.',
+  scan: 'Cette version n’a pas été vérifiée lors du scan. Relancez le scan de la bibliothèque puis comparez les versions.',
+  changed: 'Cette version a changé depuis le scan ou la comparaison. Relancez le scan de la bibliothèque puis comparez les versions.',
   target: 'Cette cible partage son emplacement avec une autre version ou la bibliothèque.',
   failed: 'La mise à la corbeille n’a pas pu être vérifiée ou effectuée. Recomparez les versions avant de réessayer.'
 };
@@ -37,6 +39,11 @@ function summary(member, bundle) {
   };
 }
 function copySummary(value) { return { ...value, audio: { ...value.audio } }; }
+function comparisonUnchanged(member, bundle) {
+  return typeof member.cleanupSnapshot === 'string' && HEX.test(member.cleanupSnapshot) &&
+    bundle?.status === 'verified' && bundleSnapshot(bundle.identity) === member.cleanupSnapshot &&
+    member.bundle?.status === 'verified' && JSON.stringify(member.bundle) === JSON.stringify(bundle);
+}
 
 /** Plans expose only IDs and relative labels. Only the checked executor can
  * cross the native recycling boundary; there is no permanent-delete fallback. */
@@ -64,7 +71,7 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
     assertSnapshot(current);
     if (!checked || checked.contextId !== current.contextId || checked.revision !== current.revision || checked.rootPath !== current.rootPath || checked.keepId !== current.keepId || checked.keepHash !== current.keepHash || checked.keepFormat !== current.keepFormat || checked.preferenceToken !== current.preferenceToken || checked.members.length !== current.members.length || checked.members.some((member, index) => {
       const prior = current.members[index];
-      return member.id !== prior.id || member.relativePath !== prior.relativePath || member.format !== prior.format;
+      return member.id !== prior.id || member.relativePath !== prior.relativePath || member.format !== prior.format || member.cleanupSnapshot !== prior.cleanupSnapshot || JSON.stringify(member.bundle) !== JSON.stringify(prior.bundle);
     })) throw safeError();
   }
   function publicPlan(current) {
@@ -95,7 +102,7 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
       const keptBundle = await inspectChartBundle({ rootPath: current.rootPath, relativePath: keeper.relativePath, format: keeper.format, signal: current.controller.signal });
       assertSnapshot(current);
       current.bundles.set(keeper.id, keptBundle); current.keep = summary(keeper, keptBundle);
-      const validKeep = keptBundle?.status === 'verified' && keptBundle.notes?.sha256 === current.keepHash && keptBundle.notes?.format === current.keepFormat && !targetBlocked(current, keeper, keptBundle);
+      const validKeep = comparisonUnchanged(keeper, keptBundle) && keptBundle.notes?.sha256 === current.keepHash && keptBundle.notes?.format === current.keepFormat && !targetBlocked(current, keeper, keptBundle);
       for (const member of current.members) {
         if (member.id === current.keepId) continue;
         assertSnapshot(current);
@@ -106,7 +113,7 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
           && HEX.test(keptBundle.audio.digest) && bundle.audio.digest === keptBundle.audio.digest;
         const contentsMatch = bundle?.kind === keptBundle.kind && HEX.test(keptBundle.bundleHash) && bundle?.bundleHash === keptBundle.bundleHash;
         const blockedTarget = bundle?.status === 'verified' ? targetBlocked(current, member, bundle) : true;
-        let blocked = !validKeep ? reason.keep : bundle?.status !== 'verified' ? reason.unavailable : !notesMatch ? reason.notes : !audioMatch ? reason.audio : !contentsMatch ? reason.contents : blockedTarget ? reason.target : null;
+        let blocked = !validKeep ? (!keeper.cleanupSnapshot ? reason.scan : reason.keep) : !member.cleanupSnapshot ? reason.scan : bundle?.status !== 'verified' ? reason.unavailable : !comparisonUnchanged(member, bundle) ? reason.changed : !notesMatch ? reason.notes : !audioMatch ? reason.audio : !contentsMatch ? reason.contents : blockedTarget ? reason.target : null;
         const verifiedAudio = bundle?.audio?.status === 'verified' && bundle.audio.count > 0
           && keptBundle.audio?.status === 'verified' && keptBundle.audio.count > 0
           && HEX.test(bundle.audio.digest) && HEX.test(keptBundle.audio.digest);
@@ -182,7 +189,9 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
           const finalTarget = await recheckBundleIdentity({ rootPath: current.rootPath, relativePath: member.relativePath, format: member.format, expected: current.bundles.get(member.id), signal: current.controller.signal });
           if (!checked || !finalKeep || finalTarget !== checked || !path.isAbsolute(checked) || path.relative(current.rootPath, checked) !== candidate.targetRelativePath.split('/').join(path.sep) || checked === finalKeep || targetBlocked(current, member, current.bundles.get(member.id))) throw safeError();
           assertSnapshot(current);
-          await recycle(checked);
+          await recycle(checked, { rootPath: current.rootPath,
+            keeper: { relativePath: keeper.relativePath, format: keeper.format, expected: current.bundles.get(keeper.id) },
+            target: { relativePath: member.relativePath, format: member.format, expected: current.bundles.get(member.id) } });
           result.recycledIds.push(member.id);
         } catch (_) {
           if (current.controller.signal.aborted) result.cancelled = true;

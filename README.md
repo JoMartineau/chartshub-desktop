@@ -33,6 +33,14 @@ npm start
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la version correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives et le statut `Latest` pour l’affichage sur le dépôt. Une version déjà publiée conserve ses archives et son tag ; il faut augmenter le numéro de version pour distribuer un nouveau paquet.
 
+### Doublons — modifications en préparation
+
+Choisissez explicitement la version à conserver, puis cochez individuellement les copies à envoyer à la Corbeille. Aucune copie n'est cochée par défaut. Le récapitulatif indique les chemins et tailles sélectionnés ; la confirmation Windows est obligatoire et propose Annuler par défaut. La version conservée et les copies non cochées restent en place. Le choix de version est mémorisé entre les sessions.
+
+Le nettoyage vérifie les identités et l'état de tous les fichiers depuis le scan, compare leurs contenus puis les revérifie avant l'appel natif à la Corbeille. Les changements, liens/jonctions, chemins hors du dossier Songs sélectionné et cibles ambiguës bloquent le nettoyage. Un ancien index doit être rescanné avant de permettre une suppression. Aucun recours à une suppression définitive n'est autorisé.
+
+Validation : `npm test` et `npm run test:companion:duplicates -- <dossier-de-resultats>`. Le test Electron utilise uniquement des Songs synthétiques isolés ; les fenêtres de confirmation et l'appel Corbeille sont interceptés. Le reste du flux (interface, IPC, worker, vérification et persistance) est réel. Le workflow PR « Companion duplicate safety » exécute les deux suites sur Windows.
+
 ### Version 0.14.7
 
 - Le bouton « Supprimer quand même » est maintenant disponible pour une copie entièrement vérifiée ayant les mêmes notes, même si l’audio ou certains fichiers non audio diffèrent.

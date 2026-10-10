@@ -49,6 +49,45 @@ function audioSummary(entries) {
     digest: audio.length ? manifestDigest('chartshub-audio-v1', audio, true) : null };
 }
 
+function bundleSnapshot(identity) {
+  return identity ? createHash('sha256').update('chartshub-scan-bundle-v1\n').update(JSON.stringify(identity)).digest('hex') : null;
+}
+
+/** The library scan records every filename and filesystem identity without
+ * opening audio. A missing/unsafe snapshot cannot authorize later cleanup. */
+async function captureBundleSnapshot({ rootPath, relativePath, format, signal } = {}) {
+  abort(signal);
+  try {
+    if (typeof rootPath !== 'string' || !path.isAbsolute(rootPath) || !validRelative(relativePath) || !Object.hasOwn(FORMATS, format) || path.posix.extname(relativePath).toLowerCase() !== FORMATS[format]) return null;
+    const kind = format === 'sng' ? 'sng' : 'folder', targetRelativePath = kind === 'sng' ? relativePath : path.posix.dirname(relativePath);
+    if (!validRelative(targetRelativePath) || (kind === 'folder' && !/^notes\.(?:chart|mid)$/i.test(path.posix.basename(relativePath)))) return null;
+    const root = path.resolve(rootPath), target = path.resolve(root, ...targetRelativePath.split('/'));
+    if (!within(root, target)) return null;
+    const ancestry = await inspectPath(root, targetRelativePath, kind, signal), leaf = ancestry[ancestry.length - 1];
+    const identity = { version: 1, targetRelativePath, kind,
+      ancestors: ancestry.slice(0, -1).map(entry => descriptor(entry.stat, false)), target: descriptor(leaf.stat), files: [] };
+    if (kind === 'folder') {
+      const names = (await fs.readdir(target)).sort(sortNames), normalized = new Set(); abort(signal);
+      if (!names.includes(path.posix.basename(relativePath))) return null;
+      for (const name of names) {
+        if (!validRelative(name) || name.includes('/') || normalized.has(normalizedName(name))) return null;
+        normalized.add(normalizedName(name));
+        if (/\.(?:chart|mid|midi|sng)$/i.test(name) && !/^notes\.(?:chart|mid)$/i.test(name)) return null;
+        const stat = await inspectFile(path.join(target, name), signal);
+        identity.files.push({ name, ...descriptor(stat) });
+      }
+      const finalNames = (await fs.readdir(target)).sort(sortNames); abort(signal);
+      if (JSON.stringify(names) !== JSON.stringify(finalNames)) return null;
+    }
+    await inspectPath(root, targetRelativePath, kind, signal, ancestry); abort(signal);
+    return bundleSnapshot(identity);
+  } catch (error) {
+    abort(signal);
+    if (error?.name === 'AbortError') throw error;
+    return null;
+  }
+}
+
 /** Inspect the root and every child without accepting links, junctions, aliases or hard-linked files. */
 async function inspectPath(root, relative, kind, signal, expected) {
   const names = [root];
@@ -293,4 +332,4 @@ async function recheckBundleIdentity({ rootPath, relativePath, format, expected,
   }
 }
 
-module.exports = { inspectChartBundle, revalidateBundle, recheckBundleIdentity };
+module.exports = { inspectChartBundle, revalidateBundle, recheckBundleIdentity, captureBundleSnapshot, bundleSnapshot };

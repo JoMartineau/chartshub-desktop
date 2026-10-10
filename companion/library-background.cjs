@@ -57,7 +57,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
           connection.recycleIds.add(message.id); connection.recycling = true;
           const task = Promise.resolve().then(() => {
             if (current !== connection || connection.stopping || connection.pending.get(message.requestId) !== parent) throw Error(STOPPED);
-            return recycle(message.target);
+            return recycle(message.target, message.proof);
           }).then(() => reply(true), () => reply(false)).finally(() => { connection.recycling = false; nativeRecycles.delete(task); });
           nativeRecycles.add(task);
           return;
@@ -134,6 +134,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     load: () => call('load', [], true), start: () => call('start', [], true),
     selectRoot: root => call('selectRoot', [root]), configure: options => call('configure', [options]),
     requestScan: mode => call('requestScan', [mode]), cancel: () => call('cancel', []),
+    verifyAllDuplicates: () => call('verifyAllDuplicates', []),
     compareDuplicates: options => call('compareDuplicates', [options]), chooseDuplicate: options => call('chooseDuplicate', [options]),
     prepareCleanup: options => call('prepareCleanup', [options]), cleanupReview: options => call('cleanupReview', [options]), cleanupForceReview: options => call('cleanupForceReview', [options]),
     recycleDuplicates: options => call('recycleDuplicates', [options]), forceRecycleDuplicate: options => call('forceRecycleDuplicate', [options]),

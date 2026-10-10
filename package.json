@@ -11,6 +11,7 @@
     "package": "node build.mjs",
     "build:companion": "tsc -p tsconfig.companion.json",
     "typecheck": "tsc -p tsconfig.companion.json --noEmit",
+    "test:companion:duplicates": "npm run build:companion && electron tests/companion-duplicates-electron.cjs",
     "pretest": "npm run build:companion",
     "prestart": "npm run build:companion",
     "start:companion": "npm run build:companion && electron . --companion",

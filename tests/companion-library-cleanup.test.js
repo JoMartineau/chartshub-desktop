@@ -5,6 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { createHash } = require('node:crypto');
 const { Module, createRequire } = require('node:module');
+const { bundleSnapshot, inspectChartBundle } = require('../companion/chart-bundle.cjs');
 
 const hash = value => createHash('sha256').update(value).digest('hex');
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
@@ -12,6 +13,12 @@ function item(relativePath, fields = {}) { return { id: hash(relativePath), rela
 function bundle(relativePath, changes = {}) {
   return { status: 'verified', reason: null, kind: 'folder', targetRelativePath: path.posix.dirname(relativePath), notes: { format: 'chart', sha256: hash('notes'), bytes: 5 },
     audio: { status: 'verified', count: 1, bytes: 5, digest: hash('audio') }, nonAudioHash: hash('non-audio'), bundleHash: hash('bundle'), totalBytes: 10, entryCount: 2, identity: { relativePath }, ...changes };
+}
+function compared(member, baseline = bundle(member.relativePath)) {
+  return { ...member, cleanupSnapshot: bundleSnapshot(baseline.identity), bundle: baseline };
+}
+async function captureRealComparison(f) {
+  for (const member of f.context.members) Object.assign(member, compared(member, await inspectChartBundle({ rootPath: f.rootPath, relativePath: member.relativePath, format: member.format })));
 }
 async function injected(overrides) {
   const absolute = require.resolve('../companion/library-cleanup.cjs'), local = new Module(absolute, module), normal = createRequire(absolute);
@@ -22,16 +29,17 @@ async function injected(overrides) {
 async function fixture(t, hooks = {}) {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'chartshub-cleanup-')), rootPath = path.join(base, 'songs'); await fs.mkdir(rootPath);
   let document = { revision: 4, settings: { rootPath }, items: ['A/notes.chart', 'B/notes.chart', 'C/notes.chart'].map(value => item(value)) };
-  let context = { contextId: 'a'.repeat(32), revision: 4, rootPath, keepId: document.items[0].id, keepHash: hash('notes'), keepFormat: 'chart', preferenceToken: {}, members: document.items.map(value => ({ ...value })) };
+  let context = { contextId: 'a'.repeat(32), revision: 4, rootPath, keepId: document.items[0].id, keepHash: hash('notes'), keepFormat: 'chart', preferenceToken: {}, members: document.items.map(value => compared(value, hooks.baseline?.(value) ?? bundle(value.relativePath))) };
   const inspected = [], checked = [], recycled = []; let refreshes = 0;
   const { createLibraryCleanup } = await injected({ './chart-bundle.cjs': {
+    bundleSnapshot,
     inspectChartBundle: async options => { inspected.push(options); return hooks.inspect ? hooks.inspect(options) : bundle(options.relativePath); },
     revalidateBundle: async options => { checked.push(options); return hooks.revalidate ? hooks.revalidate(options) : path.join(options.rootPath, options.expected.targetRelativePath); },
     recheckBundleIdentity: async options => hooks.identity ? hooks.identity(options) : path.join(options.rootPath, options.expected.targetRelativePath)
   } });
   const service = createLibraryCleanup({ getDocument: () => document,
     getContext: async request => { if (hooks.context) await hooks.context(request); if (request.contextId !== context.contextId || request.revision !== context.revision || request.keepId !== context.keepId) throw Error('Private filesystem context'); return context; },
-    recycle: async target => { recycled.push(target); await hooks.recycle?.(target); },
+    recycle: async (target, proof) => { recycled.push(target); await hooks.recycle?.(target, proof); },
     onCleaned: async () => { refreshes++; await hooks.onCleaned?.(); }
   });
   t.after(async () => {
@@ -67,7 +75,7 @@ test('eligibility requires verified notes, audio, kind and the entire bundle inc
     { bundleHash: hash('unique video extra') }, { kind: 'sng' }, { targetRelativePath: '../outside' }, { targetRelativePath: '' }, { targetRelativePath: 'A' }
   ];
   for (const changes of cases) {
-    const f = await fixture(t, { inspect: async options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}) });
+    const f = await fixture(t, { baseline: options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}), inspect: async options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}) });
     const prepared = await f.prepare(); assert.equal(prepared.candidates[0].eligible, false, JSON.stringify(changes)); assert.equal(typeof prepared.candidates[0].reason, 'string');
     await assert.rejects(f.service.execute(f.select(prepared, [prepared.candidates[0].id])), safe); assert.equal(f.recycled.length, 0);
   }
@@ -79,7 +87,7 @@ test('fully verified differences require the explicit force path and never enter
     { nonAudioHash: hash('different non-audio'), bundleHash: hash('different bundle'), totalBytes: 13 },
     { audio: { status: 'verified', count: 1, bytes: 9, digest: hash('different audio') }, nonAudioHash: hash('different non-audio'), bundleHash: hash('different bundle'), totalBytes: 17 }
   ]) {
-    const f = await fixture(t, { inspect: async options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}) });
+    const f = await fixture(t, { baseline: options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}), inspect: async options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}) });
     const prepared = await f.prepare(), candidate = prepared.candidates[0];
     assert.equal(candidate.eligible, false); assert.equal(candidate.forceable, true, JSON.stringify(changes));
     await assert.rejects(f.service.review(f.select(prepared, [candidate.id])), safe);
@@ -100,7 +108,7 @@ test('force override stays unavailable for missing or unverified audio, changed 
     { targetRelativePath: '../outside' },
     { kind: 'sng', targetRelativePath: 'B/chart.sng' }
   ]) {
-    const f = await fixture(t, { inspect: async options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}) });
+    const f = await fixture(t, { baseline: options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}), inspect: async options => bundle(options.relativePath, options.relativePath.startsWith('B/') ? changes : {}) });
     const prepared = await f.prepare(), candidate = prepared.candidates[0];
     assert.equal(candidate.eligible, false, JSON.stringify(changes));
     assert.equal(candidate.forceable, false, JSON.stringify(changes));
@@ -147,9 +155,35 @@ test('only the explicitly selected target is revalidated and passed to native re
   await assert.rejects(f.service.execute(f.select(prepared, [chosen.id])), safe);
 });
 
+test('native recycling receives the verified keeper and target proof without widening the selected copies', async t => {
+  let proof;
+  const f = await fixture(t, { recycle: async (_target, checked) => { proof = checked; } }), prepared = await f.prepare();
+  await f.service.execute(f.select(prepared, [prepared.candidates[1].id]));
+  assert.equal(proof.rootPath, f.rootPath);
+  assert.equal(proof.keeper.relativePath, 'A/notes.chart'); assert.equal(proof.target.relativePath, 'C/notes.chart');
+  assert.deepEqual(proof.keeper.expected, f.context.members[0].bundle);
+  assert.deepEqual(proof.target.expected, f.context.members[2].bundle);
+  assert.deepEqual(f.recycled, [path.join(f.rootPath, 'C')]);
+});
+
+test('missing scan evidence and changed comparison bundles cannot be made eligible or forceable', async t => {
+  for (const change of ['legacy-keeper', 'legacy-copy', 'scan-copy', 'compared-copy', 'compared-keeper']) {
+    const f = await fixture(t);
+    const member = f.context.members[change.endsWith('keeper') ? 0 : 1];
+    if (change.startsWith('legacy')) { member.cleanupSnapshot = null; member.bundle = null; }
+    if (change === 'scan-copy') member.cleanupSnapshot = hash('older scan');
+    if (change.startsWith('compared')) member.bundle = { ...member.bundle, bundleHash: hash('different comparison content') };
+    const prepared = await f.prepare(), candidate = prepared.candidates[0];
+    assert.equal(candidate.eligible, false, change); assert.equal(candidate.forceable, false, change);
+    await assert.rejects(f.service.review(f.select(prepared, [candidate.id])), safe);
+    await assert.rejects(f.service.forceReview({ planId: prepared.planId, revision: prepared.revision, id: candidate.id }), safe);
+    assert.equal(f.recycled.length, 0);
+  }
+});
+
 test('the first native failure stops remaining targets, preserves partial success and sanitizes errors', async t => {
   let calls = 0; const f = await fixture(t, { recycle: async () => { if (++calls === 2) throw Error('Private C:/secret denied'); } });
-  f.document.items.push(item('D/notes.chart')); f.context.members.push(item('D/notes.chart'));
+  f.document.items.push(item('D/notes.chart')); f.context.members.push(compared(item('D/notes.chart')));
   const prepared = await f.prepare(), result = await f.service.execute(f.select(prepared));
   assert.deepEqual(result.recycledIds, [prepared.candidates[0].id]);
   assert.deepEqual(result.failed.map(value => value.id), [prepared.candidates[1].id]); assert.ok(!result.failed[0].reason.includes('Private'));
@@ -233,6 +267,7 @@ test('real bundles preserve all fixture files and reject audio or extra-file cha
   const { inspectChartBundle } = require('../companion/chart-bundle.cjs');
   const f = await fixture(t);
   for (const member of f.context.members) { const directory = path.dirname(path.join(f.rootPath, member.relativePath)); await fs.mkdir(directory); await fs.writeFile(path.join(directory, 'notes.chart'), 'notes'); await fs.writeFile(path.join(directory, 'song.ogg'), 'audio'); }
+  await captureRealComparison(f);
   let recycled = 0;
   const service = createLibraryCleanup({ getDocument: () => f.document, getContext: async () => f.context, recycle: async () => { recycled++; } });
   t.after(() => service.stop());
@@ -269,6 +304,7 @@ test('final candidate identity gate catches edits during the final keeper check 
   const real = require('../companion/chart-bundle.cjs');
   const f = await fixture(t);
   for (const member of f.context.members) { const directory = path.dirname(path.join(f.rootPath, member.relativePath)); await fs.mkdir(directory); await fs.writeFile(path.join(directory, 'notes.chart'), 'notes'); await fs.writeFile(path.join(directory, 'song.ogg'), 'audio'); }
+  await captureRealComparison(f);
   let recycled = 0, fullReads = 0, changed = false;
   const { createLibraryCleanup } = await injected({ './chart-bundle.cjs': {
     ...real,
@@ -287,7 +323,7 @@ test('final candidate identity gate catches edits during the final keeper check 
 test('cleanup planning covers the complete requested comparison without query-page truncation', async t => {
   const f = await fixture(t);
   f.document.items = Array.from({ length: 257 }, (_, index) => item(`Version ${index}/notes.chart`));
-  f.context = { ...f.context, keepId: f.document.items[0].id, members: f.document.items.map(member => ({ ...member })) };
+  f.context = { ...f.context, keepId: f.document.items[0].id, members: f.document.items.map(member => compared(member)) };
   const prepared = await f.prepare(); assert.equal(prepared.candidates.length, 256); assert.ok(prepared.candidates.every(value => value.eligible));
   const last = prepared.candidates.at(-1); assert.equal((await f.service.review(f.select(prepared, [last.id]))).candidates[0].id, last.id);
 });

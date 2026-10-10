@@ -5,7 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { createHash } = require('node:crypto');
 const { Module, createRequire } = require('node:module');
-const { inspectChartBundle, revalidateBundle, recheckBundleIdentity } = require('../companion/chart-bundle.cjs');
+const { inspectChartBundle, revalidateBundle, recheckBundleIdentity, captureBundleSnapshot, bundleSnapshot } = require('../companion/chart-bundle.cjs');
 
 const chart = Buffer.from('[Song]\n{\n  Name = "Example"\n  Resolution = 192\n}\n[ExpertSingle]\n{\n  0 = N 0 192\n}\n');
 const audio = Buffer.from('Fixture audio bytes, compared exactly, without decoding sound.');
@@ -79,6 +79,36 @@ test('complete folder comparison covers exact notes, song audio, previews and ev
   assert.equal(changedExtra.audio.digest, a.audio.digest); assert.notEqual(changedExtra.bundleHash, a.bundleHash); assert.notEqual(changedExtra.nonAudioHash, a.nonAudioHash);
   await f.write('B/album.png', Buffer.from('art')); await fs.rename(path.join(f.root, 'B', 'album.png'), path.join(f.root, 'B', 'cover.png'));
   assert.notEqual((await f.inspect('B/notes.chart')).bundleHash, a.bundleHash);
+});
+
+test('scan snapshots cover every asset without opening content and reject changed identity even with restored size and mtime', async t => {
+  const f = await fixture(t); await f.song('A', { 'album.png': Buffer.from('cover'), 'readme.txt': Buffer.from('extra') });
+  let opens = 0;
+  const api = await injected({ 'node:fs/promises': { ...fs, open: async () => { opens++; throw Error('Scan must not read audio'); } } });
+  const options = { rootPath: f.root, relativePath: 'A/notes.chart', format: 'chart' };
+  const snapshot = await api.captureBundleSnapshot(options);
+  assert.match(snapshot, /^[a-f0-9]{64}$/); assert.equal(opens, 0);
+  assert.equal(snapshot, bundleSnapshot((await f.inspect('A/notes.chart')).identity));
+  await f.song('sibling'); assert.equal(await captureBundleSnapshot(options), snapshot);
+  const filename = path.join(f.root, 'A', 'song.ogg'), before = await fs.stat(filename);
+  await fs.writeFile(filename, Buffer.alloc(audio.length, 42)); await fs.utimes(filename, before.atime, before.mtime);
+  assert.notEqual(await captureBundleSnapshot(options), snapshot);
+  const changed = await captureBundleSnapshot(options);
+  await f.write('A/another-extra.txt', Buffer.from('new')); assert.notEqual(await captureBundleSnapshot(options), changed);
+  await fs.mkdir(path.join(f.root, 'A', 'nested')); assert.equal(await captureBundleSnapshot(options), null);
+});
+
+test('scan snapshots fail closed for unsafe paths, junctions, hardlinks, root charts and unsupported formats', async t => {
+  const f = await fixture(t); await f.song('A');
+  for (const relativePath of ['../A/notes.chart', 'A/../A/notes.chart', 'A\\notes.chart', 'NUL/notes.chart', 'notes.chart']) {
+    assert.equal(await captureBundleSnapshot({ rootPath: f.root, relativePath, format: 'chart' }), null);
+  }
+  await fs.symlink(path.join(f.root, 'A'), path.join(f.root, 'junction'), process.platform === 'win32' ? 'junction' : 'dir');
+  assert.equal(await captureBundleSnapshot({ rootPath: f.root, relativePath: 'junction/notes.chart', format: 'chart' }), null);
+  await fs.link(path.join(f.root, 'A', 'song.ogg'), path.join(f.root, 'other.ogg'));
+  assert.equal(await captureBundleSnapshot({ rootPath: f.root, relativePath: 'A/notes.chart', format: 'chart' }), null);
+  const signal = AbortSignal.abort();
+  await assert.rejects(captureBundleSnapshot({ rootPath: f.root, relativePath: 'A/notes.chart', format: 'chart', signal }), { name: 'AbortError' });
 });
 
 test('audio normalization covers all stems but an audio filename or extra file difference protects a bundle', async t => {

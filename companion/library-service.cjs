@@ -30,7 +30,8 @@ function settings(value) {
 }
 function validateItem(value) {
   if (!object(value) || !relative(value.relativePath) || value.id !== digest(value.relativePath) || !relative(value.folderRelativePath, true) || value.folderRelativePath !== (path.posix.dirname(value.relativePath) === '.' ? '' : path.posix.dirname(value.relativePath)) || !['chart', 'midi', 'sng'].includes(value.format) || !['present', 'missing', 'unknown'].includes(value.audio) || typeof value.signature !== 'string' || value.signature.length > 8192 || TEXT_FIELDS.some(key => typeof value[key] !== 'string' || value[key].length > 512)) throw Error('Invalid library item');
-  return Object.fromEntries([...PUBLIC_FIELDS, 'signature', 'folderRelativePath'].map(key => [key, value[key]]));
+  if (!(value.cleanupSnapshot == null || (typeof value.cleanupSnapshot === 'string' && /^[a-f0-9]{64}$/.test(value.cleanupSnapshot)))) throw Error('Invalid library cleanup snapshot');
+  return { ...Object.fromEntries([...PUBLIC_FIELDS, 'signature', 'folderRelativePath'].map(key => [key, value[key]])), cleanupSnapshot: value.cleanupSnapshot ?? null };
 }
 function validateDocument(value) {
   if (!object(value) || value.version !== VERSION || !Array.isArray(value.items) || !count(value.revision) || !(value.lastScanAt === null || (typeof value.lastScanAt === 'string' && value.lastScanAt.length < 50 && Number.isFinite(Date.parse(value.lastScanAt))))) throw Error('Invalid library index');

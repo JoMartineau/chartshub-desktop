@@ -11,6 +11,7 @@ const { createReShadeService } = require('./reshade-service.cjs');
 const { createReShadeSetupService } = require('./reshade-setup.cjs');
 const { createLocalOverlayServer } = require('./stream-server.cjs');
 const { createBackgroundLibraryService } = require('./library-background.cjs');
+const { verifyNativeCleanup } = require('./native-cleanup.cjs');
 const { createChartsHubClient } = require('./catalogue-client.cjs');
 const { createCatalogueService } = require('./catalogue-service.cjs');
 const { createDownloadService } = require('./download-service.cjs');
@@ -145,18 +146,15 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   const unsubscribe = services.store.subscribe(publish);
   // The index and expensive work stay in a worker. Progress only updates the panel,
   // without waking either overlay or exposing library paths to the OBS server.
-  library = createBackgroundLibraryService({ dataDirectory, recycle: async target => {
+  library = createBackgroundLibraryService({ dataDirectory, recycle: async (target, proof) => {
     const approval = cleanupApproval;
     if (!approval || disposing || stopTask || approval.lifecycle !== lifecycleRevision || approval.owner !== panel || panel.isDestroyed()
       || library.status().settings.rootPath !== approval.root || !approval.targets.has(target)) throw Error('Nettoyage non autorisé.');
     const relative = path.relative(approval.root, target);
     if (!relative || path.isAbsolute(relative) || relative === '..' || relative.startsWith('..' + path.sep)) throw Error('Copie invalide.');
-    // Check the native target again after the worker's content/identity verification.
-    let cursor = approval.root;
-    for (const part of ['', ...relative.split(path.sep)]) {
-      if (part) cursor = path.join(cursor, part);
-      if ((await fs.lstat(cursor)).isSymbolicLink() || path.relative(cursor, await fs.realpath(cursor)) !== '') throw Error('Copie modifiée.');
-    }
+    // Bind the final check to the identities hashed by the worker, including
+    // the keeper: a replacement during the IPC hop cannot reuse this approval.
+    await verifyNativeCleanup({ root: approval.root, keep: approval.keep, target, proof });
     if (disposing || stopTask || approval !== cleanupApproval || approval.lifecycle !== lifecycleRevision || approval.owner !== panel || panel.isDestroyed()) throw Error('Nettoyage arrêté.');
     approval.targets.delete(target);
     await shell.trashItem(target);
@@ -535,7 +533,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
             detail: tr(`Version conservée : ${review.keep.targetRelativePath}\n\nCopie à supprimer : ${candidate.targetRelativePath}\nTaille conservée : ${review.keep.bytes} octets\nTaille de la copie : ${candidate.bytes} octets\nAudio conservé : ${review.keep.audio.bytes} octets\nAudio de la copie : ${candidate.audio.bytes} octets\n\nL’audio et/ou des fichiers non audio peuvent être différents. La copie complète sera envoyée à la Corbeille Windows. Cette action n’est pas automatique et aucune suppression définitive ne sera utilisée.`, `Kept version: ${review.keep.targetRelativePath}\n\nCopy to delete: ${candidate.targetRelativePath}\nKept size: ${review.keep.bytes} bytes\nCopy size: ${candidate.bytes} bytes\nKept audio: ${review.keep.audio.bytes} bytes\nCopy audio: ${candidate.audio.bytes} bytes\n\nAudio and/or non-audio files may differ. The complete copy will be sent to the Windows Recycle Bin. This action is not automatic and permanent deletion is never used.`),
             buttons: [tr('Annuler', 'Cancel'), tr('Supprimer quand même', 'Delete anyway')], defaultId: 0, cancelId: 0, noLink: true });
           if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
-          cleanupApproval = { owner, lifecycle, root, targets: new Set([path.resolve(root, candidate.targetRelativePath)]) };
+          cleanupApproval = { owner, lifecycle, root, keep: path.resolve(root, review.keep.targetRelativePath), targets: new Set([path.resolve(root, candidate.targetRelativePath)]) };
           cleanupTask = library.forceRecycleDuplicate(request);
           return { ok: true, result: await cleanupTask };
         } finally { cleanupApproval = null; cleanupTask = null; cleanupDialogOpen = false; }
@@ -552,7 +550,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
             detail: tr(`Version conservée : ${review.keep.targetRelativePath}\n\nCopies sélectionnées :\n${review.candidates.map(item => `${item.kind === 'folder' ? 'Dossier entier' : 'Fichier SNG'} : ${item.targetRelativePath}`).join('\n')}\n\nLes dossiers sont déplacés avec tous leurs fichiers. Aucune suppression définitive ne sera utilisée si la Corbeille est indisponible.`, `Kept version: ${review.keep.targetRelativePath}\n\nSelected copies:\n${review.candidates.map(item => `${item.kind === 'folder' ? 'Entire folder' : 'SNG file'} : ${item.targetRelativePath}`).join('\n')}\n\nFolders are moved with all their files. Permanent deletion is never used if the Recycle Bin is unavailable.`),
             buttons: [tr('Annuler', 'Cancel'), tr('Envoyer à la Corbeille', 'Send to Recycle Bin')], defaultId: 0, cancelId: 0, noLink: true });
           if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
-          cleanupApproval = { owner, lifecycle, root, targets: new Set(review.candidates.map(item => path.resolve(root, item.targetRelativePath))) };
+          cleanupApproval = { owner, lifecycle, root, keep: path.resolve(root, review.keep.targetRelativePath), targets: new Set(review.candidates.map(item => path.resolve(root, item.targetRelativePath))) };
           cleanupTask = library.recycleDuplicates(request);
           return { ok: true, result: await cleanupTask };
         } finally { cleanupApproval = null; cleanupTask = null; cleanupDialogOpen = false; }

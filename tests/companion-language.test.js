@@ -27,7 +27,26 @@ test('native Theme panel follows the synchronized document language',()=>{
 
 test('direct duplicate cleanup labels are available in both French and English',()=>{
  const source=read('companion/src/settings/DuplicateComparisonControls.ts'),locale=read('companion/ui/localization.js'),html=read('companion/ui/index.html');
- for(const phrase of ['Supprimer l’autre version','Supprimer les ','Supprimer quand même','Aucune autre version sûre à supprimer','Revérifier les autres versions'])assert.ok(source.includes(phrase),phrase);
- for(const phrase of ['Delete the other version','Delete the ','Delete anyway','No other safe version to delete','Recheck other versions','Delete this copy:','Delete this copy anyway:','Deletion blocked:'])assert.ok(locale.includes(phrase),phrase);
- assert.match(html,/copies sûres sont présélectionnées/);
+ for(const phrase of ['Envoyer la copie sélectionnée à la Corbeille…','copies sélectionnées à la Corbeille…','Supprimer quand même','Cochez les copies à envoyer à la Corbeille','Revérifier les autres versions'])assert.ok(source.includes(phrase),phrase);
+ for(const phrase of ['Send the selected copy to the Recycle Bin…','Delete anyway','Select the copies to send to the Recycle Bin','Recheck other versions','Delete this copy:','Delete this copy anyway:','Deletion blocked:'])assert.ok(locale.includes(phrase),phrase);
+ assert.match(html,/Cochez individuellement les copies à supprimer/);
+ assert.match(html,/Les copies non cochées restent en place/);
+ assert.doesNotMatch(html,/copies sûres sont présélectionnées/);
+});
+
+test('duplicate selection and protection summaries translate with actual counts in both languages',()=>{
+ const {runInNewContext}=require('node:vm');
+ const window={ChartsHubCompanion:{initialLanguage:'en'},dispatchEvent(){}},document={readyState:'loading',documentElement:{},addEventListener(){}};
+ runInNewContext(read('companion/ui/localization.js'),{window,document,CustomEvent:class {}});
+ const language=window.ChartshubCompanionLanguage;
+ const summary='1 copie(s) sélectionnée(s) · 42 000 octets. 2 autre(s) copie(s) non cochée(s) restent en place. La version conservée est protégée.';
+ assert.equal(language.translate(summary),'1 selected copy/copies · 42 000 bytes. 2 other unchecked copy/copies stay in place. The kept version is protected.');
+ assert.equal(language.translate('Envoyer les 2 copies sélectionnées à la Corbeille…'),'Send the 2 selected copies to the Recycle Bin…');
+ assert.equal(language.translate('Version conservée · exclue du nettoyage'),'Kept version · excluded from cleanup');
+ assert.equal(language.translate('Cette version n’a pas été vérifiée lors du scan. Relancez le scan de la bibliothèque puis comparez les versions.'),'This version was not verified during the scan. Scan the library again, then compare the versions.');
+ assert.equal(language.translate('Cette version a changé depuis le scan ou la comparaison. Relancez le scan de la bibliothèque puis comparez les versions.'),'This version has changed since the scan or comparison. Scan the library again, then compare the versions.');
+ const available='2 copie(s) vérifiée(s) disponible(s). Cochez individuellement les copies à envoyer à la Corbeille. 1 version(s) vérifiée(s) mais différente(s) peuvent être supprimées manuellement. 3 version(s) restent protégées. Aucune copie n’est sélectionnée automatiquement.';
+ assert.equal(language.translate(available),'2 verified copy/copies available. Select each copy to send to the Recycle Bin individually. 1 verified but different version(s) can be deleted manually. 3 version(s) remain protected. No copy is selected automatically.');
+ assert.equal(language.translate('1 copie(s) vérifiée(s) disponible(s). Cochez individuellement les copies à envoyer à la Corbeille. Aucune copie n’est sélectionnée automatiquement.'),'1 verified copy/copies available. Select each copy to send to the Recycle Bin individually. No copy is selected automatically.');
+ language.apply('fr'); assert.equal(language.translate(summary),summary); assert.equal(document.documentElement.lang,'fr');
 });
