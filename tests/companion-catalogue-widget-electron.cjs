@@ -150,7 +150,7 @@ async function verifyInstalled() {
   assert.equal((await command('catalogue.link', link)).ok, false, 'floating widget cannot create library associations');
   assert.equal((await panelCommand('catalogue.link', link)).ok, true);
   await search({}, items.map(item => item.id));
-  const result = await command('catalogue.search', {}); assert.equal(result.ok, true);
+  const result = await command('catalogue.search', { query: '', artist: '', charter: '', genre: '', year: '', instrument: '', difficulty: '', verified: 'all', installed: 'all', page: 1 }); assert.equal(result.ok, true);
   const states = Object.fromEntries(result.result.items.map(item => [item.id, item.installed]));
   assert.equal(states[items[0].id].status, 'linked');
   assert.equal(states[items[1].id].status, 'candidate'); assert.equal(states[items[1].id].localIds.length, 2);
