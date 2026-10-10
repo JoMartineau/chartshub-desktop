@@ -1,16 +1,17 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, protocol, session, net, screen, clipboard, dialog, shell } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, protocol, session, net, screen, clipboard, dialog, shell, globalShortcut } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs/promises');
 const { randomBytes } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
-const { assetPath, trustedSender, trustedContentsSender, trustedFiltersWidgetCommand, validCommand } = require('./security.cjs');
+const { assetPath, trustedSender, trustedContentsSender, trustedFiltersWidgetCommand, trustedCatalogueWidgetCommand, validCommand } = require('./security.cjs');
 const { createFiltersService } = require('./filters-service.cjs');
 const { createReShadeService } = require('./reshade-service.cjs');
 const { createReShadeSetupService } = require('./reshade-setup.cjs');
 const { createLocalOverlayServer } = require('./stream-server.cjs');
 const { createBackgroundLibraryService } = require('./library-background.cjs');
+const { verifyNativeCleanup } = require('./native-cleanup.cjs');
 const { createChartsHubClient } = require('./catalogue-client.cjs');
 const { createCatalogueService } = require('./catalogue-service.cjs');
 const { createDownloadService } = require('./download-service.cjs');
@@ -19,11 +20,13 @@ const { createCloneHeroSource } = require('./clonehero-source.cjs');
 const { createCharterColorResolver } = require('./charter-color-resolver.cjs');
 const { createCloneHeroProcessProbe } = require('./clonehero-process.cjs');
 const { createOverlayProfiles } = require('./overlay-profiles.cjs');
+const { createFloatingPanels } = require('./floating-panels.cjs');
 const SCHEME = 'chartshub-companion';
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, filtersService, reshadeService, reshadeSetupService, embedded } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications } = {}) {
+  if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
   const [{ ServiceContainer }, { MockCloneHeroIntegration }, { createDefaultRegistry, createDefaultWidgets }, { WidgetRenderer }, { SettingsRepository, validateSettings }, { SnapshotHistory }, { ThemeService, createDefaultTheme }, { validateWidgetStyle }, { createDefaultStream, validateStream }] = await Promise.all([
     import('./dist/core/services/ServiceContainer.js'), import('./dist/integrations/clonehero/MockCloneHeroIntegration.js'),
@@ -40,6 +43,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let cleanupDialogOpen = false, cleanupTask = null, cleanupApproval = null;
   let catalogue = null, libraryIndexRevision = -1;
   let downloads = null, downloadPickerOpen = false;
+  let catalogueWidget = null, catalogueWidgetLoad = null, catalogueWidgetEnabled = false, catalogueWidgetTicket = 0;
+  let catalogueAccess = true, hostActive = false, shortcutRegistered = false, shortcutError = null, shortcutPending = false;
+  const catalogueAccelerator = 'CommandOrControl+Shift+K';
+  const downloadNotice = (method, ...args) => { try { return downloadNotifications?.[method]?.(...args); } catch { return null; } };
   let cloneHeroPickerOpen = false;
   let filters = null, filtersWidget = null, filtersWidgetLoad = null, filtersWidgetEnabled = false;
   let filtersPickerOpen = false, filtersConfirmationOpen = false, filtersTimer = null, filtersRefresh = null, filtersFocusRevision = 0;
@@ -71,6 +78,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   }
   const profiles = createOverlayProfiles({ dataDirectory, validateSettings });
   await profiles.load();
+  const floatingPanels = createFloatingPanels({ dataDirectory });
+  await floatingPanels.load();
   const candidateRoots = [app.getPath('documents'), path.join(os.homedir(), 'Documents'),
     ...[process.env.OneDrive, process.env.OneDriveConsumer, path.join(os.homedir(), 'OneDrive')].filter(Boolean).map(root => path.join(root, 'Documents'))];
   const integration = await createCloneHeroSource({ mock: new MockCloneHeroIntegration(), dataDirectory,
@@ -116,15 +125,26 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   }
   function harden(window, page) { window.setMenuBarVisibility(false); hardenContents(window.webContents, page); }
   const streamStatus = () => streamServer?.status() ?? { enabled: false, url: null, clients: 0, error: streamError };
-  const snapshot = () => ({ language, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const catalogueShortcut = () => ({ accelerator: catalogueAccelerator, registered: shortcutRegistered, error: shortcutError });
+  const snapshot = () => ({ language, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const floatingPanelSnapshot = name => {
+    const value = floatingPanels.status();
+    return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
+  };
+  const catalogueWidgetSnapshot = () => {
+    const value = downloads?.status();
+    return { language, catalogue: catalogue?.status(), catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanelSnapshot('catalogue'),
+      downloads: value ? { revision: value.revision, hasRoot: !!value.rootPath, error: value.error,
+        items: value.items.map(item => Object.fromEntries(['id', 'chartId', 'title', 'artist', 'state', 'receivedBytes', 'totalBytes', 'completedFiles', 'totalFiles', 'error', 'updatedAt'].map(key => [key, item[key]]))) } : null };
+  };
   // The interactive filter widget receives no song library, paths, logs or stream access URL.
   const filtersWidgetSnapshot = () => {
     const status = filters?.status();
     const source = reshade?.status();
     const reshadeStatus = source ? { supported: source.supported, installed: source.installed, running: source.running, connected: source.connected, busy: source.busy, state: source.state, catalog: source.catalog ? { ...source.catalog, preset: source.catalog.preset ? path.basename(source.catalog.preset) : '' } : null } : null;
-    if (!status) return { filters: null, reshade: reshadeStatus };
+    if (!status) return { filters: null, reshade: reshadeStatus, language, floatingPanels: floatingPanelSnapshot('filters') };
     const { settings, supported, installed, state, running, busy, native } = status;
-    return { filters: { settings, supported, installed, state, running, busy, native }, reshade: reshadeStatus, filtersWidgetEnabled };
+    return { filters: { settings, supported, installed, state, running, busy, native }, reshade: reshadeStatus, filtersWidgetEnabled, language, floatingPanels: floatingPanelSnapshot('filters') };
   };
   function syncOverlay() {
     if (!overlay || overlay.isDestroyed()) return;
@@ -140,23 +160,24 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     streamServer?.publish(value.state);
   }
   function panelAlive() { return !!panel && !panel.isDestroyed() && !!panelContents && !panelContents.isDestroyed?.(); }
-  function publishPanel(value) { if (panelAlive() && !panelContents.isLoading()) panelContents.send('companion:changed', value ?? snapshot()); }
-  function setLanguage(value) { if (!['fr','en'].includes(value) || language === value) return language; language=value; publishPanel(); return language; }
+  function catalogueAllowed() { try { return hostActive && catalogueAccess && !disposing && !stopTask && panelAlive() && isCatalogueAvailable() === true; } catch { return false; } }
+  function publishPanel(value) {
+    if (panelAlive() && !panelContents.isLoading()) panelContents.send('companion:changed', value ?? snapshot());
+    if (catalogueAllowed() && catalogueWidget && !catalogueWidget.isDestroyed() && !catalogueWidget.webContents.isLoading()) catalogueWidget.webContents.send('companion:changed', catalogueWidgetSnapshot());
+  }
+  function setLanguage(value) { if (!['fr','en'].includes(value) || language === value) return language; language=value; publish(); return language; }
   const unsubscribe = services.store.subscribe(publish);
   // The index and expensive work stay in a worker. Progress only updates the panel,
   // without waking either overlay or exposing library paths to the OBS server.
-  library = createBackgroundLibraryService({ dataDirectory, recycle: async target => {
+  library = createBackgroundLibraryService({ dataDirectory, recycle: async (target, proof) => {
     const approval = cleanupApproval;
     if (!approval || disposing || stopTask || approval.lifecycle !== lifecycleRevision || approval.owner !== panel || panel.isDestroyed()
       || library.status().settings.rootPath !== approval.root || !approval.targets.has(target)) throw Error('Nettoyage non autorisé.');
     const relative = path.relative(approval.root, target);
     if (!relative || path.isAbsolute(relative) || relative === '..' || relative.startsWith('..' + path.sep)) throw Error('Copie invalide.');
-    // Check the native target again after the worker's content/identity verification.
-    let cursor = approval.root;
-    for (const part of ['', ...relative.split(path.sep)]) {
-      if (part) cursor = path.join(cursor, part);
-      if ((await fs.lstat(cursor)).isSymbolicLink() || path.relative(cursor, await fs.realpath(cursor)) !== '') throw Error('Copie modifiée.');
-    }
+    // Bind the final check to the identities hashed by the worker, including
+    // the keeper: a replacement during the IPC hop cannot reuse this approval.
+    await verifyNativeCleanup({ root: approval.root, keep: approval.keep, target, proof });
     if (disposing || stopTask || approval !== cleanupApproval || approval.lifecycle !== lifecycleRevision || approval.owner !== panel || panel.isDestroyed()) throw Error('Nettoyage arrêté.');
     approval.targets.delete(target);
     await shell.trashItem(target);
@@ -171,7 +192,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!disposing) publishPanel();
   } });
   await catalogue.load();
-  downloads = createDownloadService({ dataDirectory, worker: downloadWorker ?? createDownloadWorker({ fetcher: (url, options) => net.fetch(url, options) }), onChange: () => {
+  downloads = createDownloadService({ dataDirectory, worker: downloadWorker ?? createDownloadWorker({ fetcher: (url, options) => net.fetch(url, options) }), onChange: value => {
+    downloadNotice('observe', value);
     if (!disposing) publishPanel();
   } });
   await downloads.load();
@@ -276,13 +298,17 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       return { ok: true };
     } finally { filtersConfirmationOpen = false; }
   }
-  async function chooseDownloadRoot() {
+  function downloadOwnerValid(owner, revision) {
+    return !disposing && !stopTask && revision === lifecycleRevision && owner && !owner.isDestroyed()
+      && (owner === panel || (owner === catalogueWidget && catalogueAllowed()));
+  }
+  async function chooseDownloadRoot(owner = panel) {
     if (downloadPickerOpen) throw Object.assign(Error('Le choix du dossier de téléchargement est déjà ouvert.'), { code: 'DOWNLOAD_SAFE' });
-    const owner = panel, revision = lifecycleRevision;
+    const revision = lifecycleRevision;
     downloadPickerOpen = true;
     try {
       const choice = await dialog.showOpenDialog(owner, { title: tr('Choisir le dossier de téléchargements ChartsHub', 'Choose ChartsHub download folder'), properties: ['openDirectory', 'createDirectory'], ...(downloads.status().rootPath ? { defaultPath: downloads.status().rootPath } : {}) });
-      if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed()) throw Object.assign(Error('Le panneau a été fermé.'), { code: 'DOWNLOAD_SAFE' });
+      if (!downloadOwnerValid(owner, revision)) throw Object.assign(Error('Le panneau a été fermé.'), { code: 'DOWNLOAD_SAFE' });
       if (choice.canceled || choice.filePaths.length !== 1) return false;
       await downloads.selectRoot(choice.filePaths[0]);
       return true;
@@ -387,12 +413,76 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (disposing || stopTask) return;
     publish();
   }
+  function unregisterCatalogueShortcut() {
+    if (shortcutRegistered) { try { globalShortcut.unregister(catalogueAccelerator); } catch {} }
+    shortcutRegistered = false;
+  }
+  function registerCatalogueShortcut() {
+    if (!catalogueAllowed() || shortcutRegistered) return;
+    try {
+      shortcutRegistered = globalShortcut?.register(catalogueAccelerator, () => {
+        if (shortcutPending || !catalogueAllowed()) return;
+        shortcutPending = true;
+        void setCatalogueWidget(!catalogueWidgetEnabled).catch(() => {
+          shortcutError = 'Le mini Catalogue ne peut pas être ouvert. Vérifiez votre connexion à ChartsHub.';
+          publishPanel();
+        }).finally(() => { shortcutPending = false; });
+      }) === true;
+    } catch { shortcutRegistered = false; }
+    shortcutError = shortcutRegistered ? null : 'Le raccourci du mini Catalogue est déjà utilisé ou indisponible. Utilisez le bouton du Companion.';
+  }
+  function setCatalogueAvailable(enabled) {
+    if (typeof enabled !== 'boolean') throw TypeError('Invalid catalogue availability');
+    catalogueAccess = enabled;
+    if (!enabled) {
+      catalogueWidgetTicket++; catalogueWidgetEnabled = false;
+      unregisterCatalogueShortcut();
+      if (catalogueWidget && !catalogueWidget.isDestroyed()) catalogueWidget.destroy();
+      catalogueWidgetLoad = null;
+    } else registerCatalogueShortcut();
+    if (!disposing) publishPanel();
+  }
+  async function requireCatalogueAuthorization(owner, revision = lifecycleRevision) {
+    let authorized = false;
+    try { authorized = catalogueAllowed() && await authorizeCatalogue() === true; } catch {}
+    if (!authorized || !catalogueAllowed() || revision !== lifecycleRevision || (owner && (!downloadOwnerValid(owner, revision) || owner !== catalogueWidget))) {
+      throw Object.assign(Error('Le mini Catalogue nécessite une connexion ChartsHub active.'), { code: 'CATALOGUE_WIDGET_SAFE' });
+    }
+  }
+  async function setCatalogueWidget(enabled) {
+    if (typeof enabled !== 'boolean') throw TypeError('Invalid catalogue widget state');
+    const ticket = ++catalogueWidgetTicket, revision = lifecycleRevision;
+    if (!enabled) {
+      catalogueWidgetEnabled = false;
+      if (catalogueWidget && !catalogueWidget.isDestroyed()) catalogueWidget.hide();
+      publishPanel(); return;
+    }
+    await requireCatalogueAuthorization(null, revision);
+    if (ticket !== catalogueWidgetTicket) return;
+    catalogueWidgetEnabled = true;
+    if (!catalogueWidget || catalogueWidget.isDestroyed()) {
+      const window = new BrowserWindow({ width: 580, height: 720, minWidth: 390, minHeight: 360, show: false, frame: false, transparent: true, backgroundColor: '#00000000', alwaysOnTop: true, focusable: true, skipTaskbar: true, resizable: true, movable: true, title: 'ChartsHub — Mini Catalogue',
+        webPreferences: { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`] } });
+      catalogueWidget = window; harden(window, 'catalogue-widget.html');
+      window.setAlwaysOnTop(true, 'screen-saver');
+      window.on('closed', () => {
+        if (catalogueWidget === window) { catalogueWidget = null; catalogueWidgetLoad = null; catalogueWidgetEnabled = false; catalogueWidgetTicket++; if (!disposing) publishPanel(); }
+      });
+      catalogueWidgetLoad = window.loadURL(`${SCHEME}://app/ui/catalogue-widget.html`).catch(error => {
+        if (!window.isDestroyed()) window.destroy();
+        throw error;
+      });
+    }
+    if (catalogueWidgetLoad) await catalogueWidgetLoad;
+    if (ticket !== catalogueWidgetTicket || revision !== lifecycleRevision || !catalogueAllowed() || !catalogueWidgetEnabled || !catalogueWidget || catalogueWidget.isDestroyed()) return;
+    catalogueWidget.show(); catalogueWidget.focus(); publishPanel();
+  }
   async function setFiltersWidget(enabled) {
     if (disposing || stopTask) return;
     filtersWidgetEnabled = enabled;
     if (!enabled) { if (filtersWidget && !filtersWidget.isDestroyed()) filtersWidget.hide(); publish(); return; }
     if (!filtersWidget || filtersWidget.isDestroyed()) {
-      const window = new BrowserWindow({ width: 410, height: 610, minWidth: 360, minHeight: 360, show: false, frame: true, alwaysOnTop: true, skipTaskbar: true, resizable: true, title: 'ChartsHub — Filtres du jeu', backgroundColor: '#151719', webPreferences: preferences });
+      const window = new BrowserWindow({ width: 410, height: 610, minWidth: 360, minHeight: 360, show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: true, movable: true, title: 'ChartsHub — Filtres du jeu', backgroundColor: '#00000000', webPreferences: { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`] } });
       filtersWidget = window;
       harden(window, 'filters-widget.html');
       window.on('closed', () => { if (filtersWidget === window) { filtersWidget = null; filtersWidgetEnabled = false; publish(); } });
@@ -405,11 +495,17 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   }
   function trustedPanel(event) { return panelAlive() && trustedContentsSender(event, panelContents, 'index.html'); }
   function canRead(event) { return trustedPanel(event) || trustedSender(event, overlay, 'overlay.html'); }
-  ipcMain.handle('companion:snapshot', event => canRead(event) ? snapshot() : trustedSender(event, filtersWidget, 'filters-widget.html') ? filtersWidgetSnapshot() : null);
+  ipcMain.handle('companion:snapshot', event => canRead(event) ? snapshot() : trustedSender(event, filtersWidget, 'filters-widget.html') ? filtersWidgetSnapshot() : catalogueAllowed() && trustedSender(event, catalogueWidget, 'catalogue-widget.html') ? catalogueWidgetSnapshot() : null);
   ipcMain.handle('companion:command', async (event, command, payload) => {
-    if (disposing || stopTask || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command)) || !validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
+    const mini = catalogueAllowed() && trustedCatalogueWidgetCommand(event, catalogueWidget, command, payload);
+    if (disposing || stopTask || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini) || !validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
     if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
+      if (command === 'catalogue.widget') { await setCatalogueWidget(payload.enabled); return { ok: true }; }
+      if (command === 'panels.appearance') {
+        await floatingPanels.update(payload); publish();
+        return { ok: true, result: mini ? floatingPanelSnapshot('catalogue') : trustedPanel(event) ? floatingPanels.status() : floatingPanelSnapshot('filters') };
+      }
       if (command.startsWith('mock.') && integration.status().mode !== 'mock') return { ok: false, error: 'Les commandes de démonstration sont disponibles uniquement en mode Démonstration.' };
       if (command === 'profile.save') {
         const result = await trackProfileWrite(profiles.save({ revision: payload.profilesRevision, ...(payload.id ? { id: payload.id } : {}), name: payload.name, document: { version: 3, ...editorDocument() } }));
@@ -512,12 +608,16 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         const status = streamStatus();
         if (!status.enabled || !status.url) return { ok: false, error: 'Activez le serveur OBS avant de copier son adresse.' };
         clipboard.writeText(status.url);
-      } else if (command.startsWith('library.') && command !== 'library.query' && command !== 'library.openFolder' && (cleanupDialogOpen || cleanupTask)) {
+      } else if (command.startsWith('library.') && !['library.query', 'library.openFolder', 'library.cleanupHistory'].includes(command) && (cleanupDialogOpen || cleanupTask)) {
         return { ok: false, error: 'Terminez ou annulez le nettoyage des copies avant cette action.' };
       } else if (command === 'library.query') {
         return { ok: true, result: await library.query(payload) };
       } else if (command === 'library.verifyAllDuplicates') {
         return { ok: true, result: await library.verifyAllDuplicates() };
+      } else if (command === 'library.cancelDuplicateVerification') {
+        return { ok: true, result: await library.cancelDuplicateVerification() };
+      } else if (command === 'library.cleanupHistory') {
+        return { ok: true, result: await library.cleanupHistory(payload) };
       } else if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate' || command === 'library.prepareCleanup') {
         return { ok: true, result: await library[command.slice('library.'.length)](payload) };
       } else if (command === 'library.forceRecycleDuplicate') {
@@ -535,7 +635,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
             detail: tr(`Version conservée : ${review.keep.targetRelativePath}\n\nCopie à supprimer : ${candidate.targetRelativePath}\nTaille conservée : ${review.keep.bytes} octets\nTaille de la copie : ${candidate.bytes} octets\nAudio conservé : ${review.keep.audio.bytes} octets\nAudio de la copie : ${candidate.audio.bytes} octets\n\nL’audio et/ou des fichiers non audio peuvent être différents. La copie complète sera envoyée à la Corbeille Windows. Cette action n’est pas automatique et aucune suppression définitive ne sera utilisée.`, `Kept version: ${review.keep.targetRelativePath}\n\nCopy to delete: ${candidate.targetRelativePath}\nKept size: ${review.keep.bytes} bytes\nCopy size: ${candidate.bytes} bytes\nKept audio: ${review.keep.audio.bytes} bytes\nCopy audio: ${candidate.audio.bytes} bytes\n\nAudio and/or non-audio files may differ. The complete copy will be sent to the Windows Recycle Bin. This action is not automatic and permanent deletion is never used.`),
             buttons: [tr('Annuler', 'Cancel'), tr('Supprimer quand même', 'Delete anyway')], defaultId: 0, cancelId: 0, noLink: true });
           if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
-          cleanupApproval = { owner, lifecycle, root, targets: new Set([path.resolve(root, candidate.targetRelativePath)]) };
+          cleanupApproval = { owner, lifecycle, root, keep: path.resolve(root, review.keep.targetRelativePath), targets: new Set([path.resolve(root, candidate.targetRelativePath)]) };
           cleanupTask = library.forceRecycleDuplicate(request);
           return { ok: true, result: await cleanupTask };
         } finally { cleanupApproval = null; cleanupTask = null; cleanupDialogOpen = false; }
@@ -552,7 +652,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
             detail: tr(`Version conservée : ${review.keep.targetRelativePath}\n\nCopies sélectionnées :\n${review.candidates.map(item => `${item.kind === 'folder' ? 'Dossier entier' : 'Fichier SNG'} : ${item.targetRelativePath}`).join('\n')}\n\nLes dossiers sont déplacés avec tous leurs fichiers. Aucune suppression définitive ne sera utilisée si la Corbeille est indisponible.`, `Kept version: ${review.keep.targetRelativePath}\n\nSelected copies:\n${review.candidates.map(item => `${item.kind === 'folder' ? 'Entire folder' : 'SNG file'} : ${item.targetRelativePath}`).join('\n')}\n\nFolders are moved with all their files. Permanent deletion is never used if the Recycle Bin is unavailable.`),
             buttons: [tr('Annuler', 'Cancel'), tr('Envoyer à la Corbeille', 'Send to Recycle Bin')], defaultId: 0, cancelId: 0, noLink: true });
           if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
-          cleanupApproval = { owner, lifecycle, root, targets: new Set(review.candidates.map(item => path.resolve(root, item.targetRelativePath))) };
+          cleanupApproval = { owner, lifecycle, root, keep: path.resolve(root, review.keep.targetRelativePath), targets: new Set(review.candidates.map(item => path.resolve(root, item.targetRelativePath))) };
           cleanupTask = library.recycleDuplicates(request);
           return { ok: true, result: await cleanupTask };
         } finally { cleanupApproval = null; cleanupTask = null; cleanupDialogOpen = false; }
@@ -587,23 +687,37 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       } else if (command === 'catalogue.open') {
         await shell.openExternal(await catalogue.openUrl(payload.chartId));
       } else if (command === 'downloads.chooseRoot') {
-        if (!await chooseDownloadRoot()) return { ok: true, cancelled: true };
+        const owner = mini ? catalogueWidget : panel;
+        if (mini) await requireCatalogueAuthorization(owner);
+        if (!await chooseDownloadRoot(owner)) return { ok: true, cancelled: true };
       } else if (command === 'downloads.enqueue') {
+        const owner = mini ? catalogueWidget : panel, revision = lifecycleRevision;
+        const notificationScope = downloadNotice('capture');
+        if (mini) await requireCatalogueAuthorization(owner, revision);
         // Validate catalogue membership before any dialog, and again after its await.
         catalogue.downloadDescriptor(payload.chartId);
-        if (!downloads.status().rootPath && !await chooseDownloadRoot()) return { ok: true, cancelled: true };
-        return { ok: true, result: await downloads.enqueue(catalogue.downloadDescriptor(payload.chartId)) };
+        if (!downloads.status().rootPath && !await chooseDownloadRoot(owner)) return { ok: true, cancelled: true };
+        if (mini) await requireCatalogueAuthorization(owner, revision);
+        const before = downloads.status(), existing = before.items.some(item => item.chartId === payload.chartId && item.rootPath === before.rootPath && item.state !== 'Cancelled');
+        const result = await downloads.enqueue(catalogue.downloadDescriptor(payload.chartId));
+        if (!existing) downloadNotice('track', notificationScope, result.id, downloads.status());
+        return { ok: true, result };
       } else if (command === 'downloads.openFolder') {
         const owner = panel, revision = lifecycleRevision;
         const folder = await downloads.resolveFolder(payload.id);
         if (disposing || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed() || !folder || await shell.openPath(folder)) return { ok: false, error: 'Le dossier de ce téléchargement n’est plus accessible.' };
       } else if (['downloads.pause', 'downloads.resume', 'downloads.cancel', 'downloads.retry', 'downloads.remove'].includes(command)) {
+        const notificationScope = ['downloads.resume', 'downloads.retry'].includes(command) ? downloadNotice('capture') : null;
         await downloads[command.slice('downloads.'.length)](payload.id);
+        if (notificationScope) downloadNotice('track', notificationScope, payload.id, downloads.status(), { restart: true });
       } else if (command === 'overlay.enabled') await setOverlay(payload.enabled);
       publish();
       return { ok: true, revision: editorRevision };
     } catch (error) {
       logger.error('Companion command failed');
+      if (command === 'panels.appearance') return { ok: false, ...(error?.code === 'STALE_FLOATING_PANELS' ? { code: error.code } : {}), error: ['FLOATING_PANELS_SAFE', 'STALE_FLOATING_PANELS'].includes(error?.code) ? error.message : 'Les réglages des panneaux n’ont pas pu être enregistrés.' };
+      if (error?.code === 'CATALOGUE_WIDGET_SAFE' || command === 'catalogue.widget') return { ok: false, error: 'Le mini Catalogue nécessite une connexion ChartsHub active.' };
+      if (command === 'library.cleanupHistory') return { ok: false, error: 'L’historique des nettoyages est indisponible. Les résultats du nettoyage restent inchangés.' };
       if (['library.prepareCleanup', 'library.recycleDuplicates', 'library.forceRecycleDuplicate', 'library.verifyAllDuplicates'].includes(command) || error?.code === 'LIBRARY_CLEANUP_SAFE') {
         return { ok: false, error: ['LIBRARY_CLEANUP_SAFE', 'LIBRARY_COMPARISON_SAFE'].includes(error?.code) ? error.message : 'Le nettoyage n’a pas pu être terminé. Vérifiez les copies puis relancez la vérification.' };
       }
@@ -619,6 +733,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function stop() {
     if (stopTask) return stopTask;
     lifecycleRevision++;
+    hostActive = false; catalogueWidgetTicket++; catalogueWidgetEnabled = false;
+    unregisterCatalogueShortcut();
+    if (catalogueWidget && !catalogueWidget.isDestroyed()) catalogueWidget.destroy();
+    catalogueWidgetLoad = null;
     clearInterval(filtersTimer); filtersTimer = null;
     filtersWidgetEnabled = false;
     if (filtersWidget && !filtersWidget.isDestroyed()) filtersWidget.destroy();
@@ -638,7 +756,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         ? Promise.resolve().then(() => reshadeSetup.whenIdle()).catch(() => { logger.warn('ReShade installation ended with an error'); })
       : Promise.resolve();
     if (saveTimer) void saveSettings();
-    const task = (async () => { await pendingSave; await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
+    const task = (async () => { await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
     const done = task.finally(() => { if (stopTask === done) stopTask = null; });
     stopTask = done;
     return done;
@@ -651,11 +769,13 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       const openingRevision = lifecycleRevision;
       await services.start();
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
+      hostActive = true;
       if (panelAlive()) {
         if (embedded) await embedded.activate();
         else { if (panel.isMinimized()) panel.restore(); panel.focus(); }
         if (!panelAlive() || disposing || openingRevision !== lifecycleRevision) return null;
         startFiltersPolling();
+        registerCatalogueShortcut(); publishPanel();
         return panel;
       }
       await library.start();
@@ -691,6 +811,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (embedded) await embedded.activate(); else window.show();
       if (!panelAlive() || disposing || openingRevision !== lifecycleRevision) return null;
       startFiltersPolling();
+      registerCatalogueShortcut(); publishPanel();
       return window;
     })();
     const done = task.finally(() => { if (openTask === done) openTask = null; });
@@ -726,8 +847,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     })();
     return disposeTask;
   }
-  return { open, stop, snapshot, services, integration, registry, setLanguage, setOverlay, setStream, setFiltersWidget, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
-    getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, dispose
+  return { open, stop, snapshot, services, integration, registry, setLanguage, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
+    getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, dispose
   };
 }
 module.exports = { registerCompanionScheme, createCompanionHost };

@@ -1,0 +1,8 @@
+html { background: transparent; }
+.filters-widget-body { background: var(--floating-background, #151719e6); color: var(--floating-text, #eef1f2); font-family: var(--floating-font, "Segoe UI", sans-serif); font-size: var(--floating-font-size, 14px); }
+.floating-titlebar { display:flex; align-items:center; justify-content:space-between; padding:10px 14px; -webkit-app-region:drag; user-select:none; }
+.floating-titlebar button { -webkit-app-region:no-drag; background:transparent; color:inherit; border:1px solid currentColor; border-radius:6px; width:32px; height:30px; cursor:pointer; }
+.filters-widget-body .filters-widget-panel { background:transparent; color:inherit; padding-top:6px; }
+.filters-widget-body :is(p,label,strong,h4,span,button,select,input) { color:inherit; font-size:inherit; font-family:inherit; }
+.filters-widget-body :is(select,input,button) { -webkit-app-region:no-drag; }
+.filters-widget-body :is(.reshade-parameters,.reshade-technique,.reshade-uniform) { background:transparent; }

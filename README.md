@@ -33,6 +33,46 @@ npm start
 
 Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartineau/chartshub-desktop/releases). Le workflow `Desktop release` teste et compile Windows x64, Linux x64, macOS Intel et macOS Apple Silicon sur leurs systèmes respectifs. Une modification des sources sur `main` lance ce workflow : il publie la version correspondant à `package.json` après la réussite des quatre compilations, avec les empreintes SHA-256 des archives et le statut `Latest` pour l’affichage sur le dépôt. Une version déjà publiée conserve ses archives et son tag ; il faut augmenter le numéro de version pour distribuer un nouveau paquet.
 
+Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
+
+### Version 0.14.8
+
+Cette version rassemble le nettoyage sûr des doublons, les différences fichier par fichier et leur historique, le Catalogue flottant personnalisable et les notifications des téléchargements. [Notes complètes de la version](docs/RELEASE-0.14.8.md).
+
+Le centre de notifications du compte, les profils de charters et le preview néon dans le catalogue principal sont partagés avec le site et nécessitent le déploiement de ChartsHub **1.8.3**. Le nouveau preview préserve les cinq couleurs de notes, distingue normale/HOPO/TAP et conserve les pads, cymbales et kick violet. Il n’est pas embarqué dans l’archive Desktop ni dans le mini Catalogue flottant.
+
+### Doublons
+
+Choisissez explicitement la version à conserver, puis cochez individuellement les copies à envoyer à la Corbeille. Aucune copie n'est cochée par défaut. Le récapitulatif indique les chemins et tailles sélectionnés ; la confirmation Windows est obligatoire et propose Annuler par défaut. La version conservée et les copies non cochées restent en place. Le choix de version est mémorisé entre les sessions.
+
+Le nettoyage vérifie les identités et l'état de tous les fichiers depuis le scan, compare leurs contenus puis les revérifie avant l'appel natif à la Corbeille. Les changements, liens/jonctions, chemins hors du dossier Songs sélectionné et cibles ambiguës bloquent le nettoyage. Un ancien index doit être rescanné avant de permettre une suppression. Aucun recours à une suppression définitive n'est autorisé.
+
+Dépliez « Comparer les fichiers » pour consulter les notes, l’audio, les illustrations et les autres fichiers : identiques, modifiés ou présents dans une seule version, avec leurs tailles. Un fichier non vérifié reste signalé comme tel. Les différences des conteneurs SNG sont également affichées ; ce détail ne donne aucune autorisation supplémentaire de suppression.
+
+Le bouton « Arrêter la vérification » interrompt la vérification globale et conserve les résultats des groupes terminés. La vérification peut ensuite être relancée ; le choix des versions conservées reste enregistré.
+
+L’historique indique la date, la version gardée et le résultat de chaque copie sélectionnée : envoyée à la Corbeille, échec ou non tentée. Il est conservé dans le profil Companion après redémarrage et affiche uniquement le dossier Songs actif. La rétention est limitée aux 200 derniers nettoyages et à 2 Mio ; les annulations avant confirmation ne créent aucune entrée. Une erreur d’enregistrement est signalée sans modifier le résultat réel du nettoyage. La restauration des copies reste accessible dans la Corbeille Windows.
+
+Validation : `npm test` et `npm run test:companion:duplicates -- <dossier-de-resultats>`. Le test Electron utilise uniquement des Songs synthétiques isolés ; les fenêtres de confirmation et l'appel Corbeille sont interceptés. Le reste du flux (interface, IPC, worker, vérification et persistance) est réel. Le workflow PR « Companion duplicate safety » exécute les deux suites sur Windows.
+
+### Catalogue flottant
+
+Le panneau Catalogue du Companion peut s’ouvrir dans une petite fenêtre au-dessus du jeu. Le raccourci `Ctrl+Maj+K` sous Windows (`Commande+Maj+K` sous macOS) affiche ou masque cette fenêtre lorsque la session ChartsHub est active. Déplacez-la par sa barre de titre ; le bouton Fermer ou `Échap` la masque sans arrêter les téléchargements.
+
+Les onglets Recherche, Téléchargements et Récents permettent de chercher par titre, artiste ou charter, d’affiner par instrument ou difficulté, puis de suivre la progression. Chaque ajout à la file exige un clic ; choisissez explicitement le dossier de destination avant de télécharger. Pause, reprise, annulation et nouvelle tentative restent disponibles dans la file. Après l’installation de nouvelles chansons, lancez **Scan Songs** dans Clone Hero pour les indexer.
+
+Le volet Apparence propose couleur de fond, transparence, couleur du texte, police et taille. L’aperçu reste local jusqu’à « Enregistrer ». Les réglages du Catalogue et du panneau Filtres sont indépendants et conservés après redémarrage dans `companion/floating-panels.json`. Le bouton des valeurs par défaut prépare un aperçu à enregistrer ; il ne modifie pas les widgets de jeu.
+
+Utilisez Clone Hero en mode fenêtré ou sans bordures : l’affichage au-dessus d’un jeu en plein écran exclusif n’est pas garanti. Si une autre application réserve le raccourci, le panneau reste accessible depuis le Companion.
+
+Validation : `npm test` et `npm run test:companion:catalogue-widget -- <dossier-de-resultats>`. Le test Electron utilise un catalogue local et des téléchargements simulés dans un dossier Songs isolé ; il couvre recherche, file, fermeture, langue et persistance de l’apparence. Le workflow Windows « Companion duplicate safety » publie son rapport JSON et ses captures comme artefacts. Une réussite de ces tests ne remplace pas un essai visuel au-dessus de Clone Hero.
+
+### Notifications du compte et alertes natives
+
+Les résultats des nouveaux téléchargements du Catalogue et du Companion sont enregistrés pour le compte qui les a lancés. Le centre partagé avec le site permet de filtrer les notifications lues/non lues, de supprimer une notification déjà lue ou toutes les lues, sans supprimer les non lues, et d’ajuster les catégories proposées : téléchargements, compte, annonces, nouveautés du catalogue et événements sociaux.
+
+Les alertes natives de téléchargement suivent ces préférences. « Suspendre les alertes Windows quand Clone Hero est détecté » garde le centre actif tout en évitant les alertes du bureau lorsque le processus du jeu est présent ou que sa présence ne peut pas être vérifiée. Cela ne détecte pas précisément le début d’un morceau. Un clic sur une alerte ouvre le centre ; une déconnexion ou un changement de compte invalide les événements encore en attente. Aucun chemin ou nom de fichier local n’est envoyé dans ces résumés.
+
 ### Version 0.14.7
 
 - Le bouton « Supprimer quand même » est maintenant disponible pour une copie entièrement vérifiée ayant les mêmes notes, même si l’audio ou certains fichiers non audio diffèrent.

@@ -7,6 +7,8 @@ import { ThemeControls } from '../dist/settings/ThemeControls.js';
 import { StreamControls } from '../dist/settings/StreamControls.js';
 import { StreamRenderer } from '../dist/overlay/stream/StreamRenderer.js';
 import { LibraryControls } from '../dist/settings/LibraryControls.js';
+import { CleanupHistoryControls } from '../dist/settings/CleanupHistoryControls.js';
+import { FloatingPanelsControls } from './floating-panels-controls.js';
 import { CatalogueControls } from '../dist/settings/CatalogueControls.js';
 import { DownloadsControls } from '../dist/settings/DownloadsControls.js';
 import { FiltersControls } from './filters-controls.js';
@@ -52,6 +54,8 @@ const builder = new WidgetBuilder({
 const themes = new ThemeControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const stream = new StreamControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
+const cleanupHistory = new CleanupHistoryControls({ root: query('#library-history-container'), command: (name, payload) => command(name, payload) });
+const floatingPanels = new FloatingPanelsControls({ root: query('#floating-panels-settings'), command: (name, payload) => command(name, payload) });
 const catalogue = new CatalogueControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const downloads = new DownloadsControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const filters = new FiltersControls({ root: query('#filters-classic-controls'), focusRoot: query('#game-filters'), command: (name, payload) => command(name, payload) });
@@ -155,6 +159,13 @@ function applySnapshot(snapshot) {
   themes.update(snapshot);
   stream.update(snapshot);
   library.update(snapshot);
+  cleanupHistory.update({ rootPath: snapshot.library?.settings?.rootPath ?? null, revision: snapshot.library?.revision ?? 0 });
+  floatingPanels.update(snapshot);
+  query('#catalogue-widget-toggle').checked = Boolean(snapshot.catalogueWidgetEnabled);
+  query('#catalogue-widget-toggle').disabled = !api;
+  query('#catalogue-widget-shortcut').textContent = snapshot.catalogueShortcut?.registered
+    ? 'Ctrl + Maj + K : ouvrir ou masquer le catalogue flottant.'
+    : snapshot.catalogueShortcut?.error || 'Le catalogue flottant reste accessible avec le bouton ci-dessus.';
   catalogue.update(snapshot);
   downloads.update(snapshot);
   filters.update(snapshot);
@@ -244,7 +255,7 @@ function selectPreview(destination) {
 
 async function command(name, payload, control) {
   if (!api) return;
-  const libraryQuery = name === 'library.query';
+  const libraryQuery = name === 'library.query' || name === 'library.cleanupHistory';
   const catalogueCommand = name.startsWith('catalogue.');
   const downloadsCommand = name.startsWith('downloads.');
   const sourceCommand = name.startsWith('clonehero.');
@@ -279,6 +290,7 @@ controls.next.addEventListener('click', () => { void command('mock.next', undefi
 controls.reset.addEventListener('click', () => { void command('mock.reset', undefined, controls.reset); });
 controls.state.addEventListener('change', () => { void command('mock.state', { state: controls.state.value }, controls.state); });
 controls.overlay.addEventListener('change', () => { void command('overlay.enabled', { enabled: controls.overlay.checked }, controls.overlay); });
+query('#catalogue-widget-toggle').addEventListener('change', event => { void command('catalogue.widget', { enabled: event.target.checked }, event.target); });
 query('#clonehero-mode').addEventListener('change', event => { void changeSource('clonehero.mode', { mode: event.target.value }); });
 query('#clonehero-choose-file').addEventListener('click', () => { void changeSource('clonehero.chooseFile'); });
 query('#clonehero-detect').addEventListener('click', () => { void changeSource('clonehero.detect'); });
@@ -322,6 +334,8 @@ window.addEventListener('beforeunload', () => {
   stream.dispose();
   streamPreview.dispose();
   library.dispose();
+  cleanupHistory.dispose();
+  floatingPanels.dispose();
   catalogue.dispose();
   downloads.dispose();
   filters.dispose();

@@ -5,7 +5,8 @@ const path = require('node:path');
 const os = require('node:os');
 const { createHash } = require('node:crypto');
 const { Module, createRequire } = require('node:module');
-const { inspectChartBundle, revalidateBundle, recheckBundleIdentity } = require('../companion/chart-bundle.cjs');
+const { inspectChartBundle, revalidateBundle, recheckBundleIdentity, captureBundleSnapshot, bundleSnapshot } = require('../companion/chart-bundle.cjs');
+const { describeBundleDifferences } = require('../companion/library-bundle-differences.cjs');
 
 const chart = Buffer.from('[Song]\n{\n  Name = "Example"\n  Resolution = 192\n}\n[ExpertSingle]\n{\n  0 = N 0 192\n}\n');
 const audio = Buffer.from('Fixture audio bytes, compared exactly, without decoding sound.');
@@ -81,6 +82,36 @@ test('complete folder comparison covers exact notes, song audio, previews and ev
   assert.notEqual((await f.inspect('B/notes.chart')).bundleHash, a.bundleHash);
 });
 
+test('scan snapshots cover every asset without opening content and reject changed identity even with restored size and mtime', async t => {
+  const f = await fixture(t); await f.song('A', { 'album.png': Buffer.from('cover'), 'readme.txt': Buffer.from('extra') });
+  let opens = 0;
+  const api = await injected({ 'node:fs/promises': { ...fs, open: async () => { opens++; throw Error('Scan must not read audio'); } } });
+  const options = { rootPath: f.root, relativePath: 'A/notes.chart', format: 'chart' };
+  const snapshot = await api.captureBundleSnapshot(options);
+  assert.match(snapshot, /^[a-f0-9]{64}$/); assert.equal(opens, 0);
+  assert.equal(snapshot, bundleSnapshot((await f.inspect('A/notes.chart')).identity));
+  await f.song('sibling'); assert.equal(await captureBundleSnapshot(options), snapshot);
+  const filename = path.join(f.root, 'A', 'song.ogg'), before = await fs.stat(filename);
+  await fs.writeFile(filename, Buffer.alloc(audio.length, 42)); await fs.utimes(filename, before.atime, before.mtime);
+  assert.notEqual(await captureBundleSnapshot(options), snapshot);
+  const changed = await captureBundleSnapshot(options);
+  await f.write('A/another-extra.txt', Buffer.from('new')); assert.notEqual(await captureBundleSnapshot(options), changed);
+  await fs.mkdir(path.join(f.root, 'A', 'nested')); assert.equal(await captureBundleSnapshot(options), null);
+});
+
+test('scan snapshots fail closed for unsafe paths, junctions, hardlinks, root charts and unsupported formats', async t => {
+  const f = await fixture(t); await f.song('A');
+  for (const relativePath of ['../A/notes.chart', 'A/../A/notes.chart', 'A\\notes.chart', 'NUL/notes.chart', 'notes.chart']) {
+    assert.equal(await captureBundleSnapshot({ rootPath: f.root, relativePath, format: 'chart' }), null);
+  }
+  await fs.symlink(path.join(f.root, 'A'), path.join(f.root, 'junction'), process.platform === 'win32' ? 'junction' : 'dir');
+  assert.equal(await captureBundleSnapshot({ rootPath: f.root, relativePath: 'junction/notes.chart', format: 'chart' }), null);
+  await fs.link(path.join(f.root, 'A', 'song.ogg'), path.join(f.root, 'other.ogg'));
+  assert.equal(await captureBundleSnapshot({ rootPath: f.root, relativePath: 'A/notes.chart', format: 'chart' }), null);
+  const signal = AbortSignal.abort();
+  await assert.rejects(captureBundleSnapshot({ rootPath: f.root, relativePath: 'A/notes.chart', format: 'chart', signal }), { name: 'AbortError' });
+});
+
 test('audio normalization covers all stems but an audio filename or extra file difference protects a bundle', async t => {
   const f = await fixture(t); await f.song('A', { 'guitar.opus': Buffer.from('guitar') });
   await f.write('B/notes.chart', chart); await f.write('B/SONG.OGG', audio); await f.write('B/GUITAR.OPUS', Buffer.from('guitar'));
@@ -149,8 +180,20 @@ test('SNG verification hashes decoded notes/audio while conservatively preservin
   assert.equal(a.bundleHash, digest(sng(members).bytes)); assert.equal(a.totalBytes, sng(members).bytes.length); assert.equal(a.entryCount, members.length);
   const remasked = await f.inspect('remasked.sng', 'sng');
   assert.equal(remasked.audio.digest, a.audio.digest); assert.notEqual(remasked.bundleHash, a.bundleHash);
+  assert.deepEqual(a.files, plain.files, 'SNG files are hashed after decoding and include every logical member');
+  const remaskedDifference = describeBundleDifferences(a, remasked);
+  assert.equal(remaskedDifference.status, 'verified');
+  assert.equal(remaskedDifference.files.find(file => file.name === 'SNG: container').status, 'changed');
+  assert.ok(remaskedDifference.files.filter(file => file.name !== 'SNG: container').every(file => file.status === 'identical'));
+  await f.write('metadata.sng', sng(members, { title: 'Another' }).bytes);
+  const metadataDifference = describeBundleDifferences(a, await f.inspect('metadata.sng', 'sng'));
+  assert.equal(metadataDifference.files.find(file => file.name === 'SNG: metadata').status, 'changed');
   await f.write('B.sng', sng([...members, { name: 'album.png', bytes: Buffer.from('art') }]).bytes);
   const extra = await f.inspect('B.sng', 'sng'); assert.equal(extra.audio.digest, a.audio.digest); assert.notEqual(extra.bundleHash, a.bundleHash);
+  assert.deepEqual(describeBundleDifferences(a, extra).files.find(file => file.name === 'album.png'), {
+    name: 'album.png', category: 'artwork', status: 'only-copy', keeperBytes: null, copyBytes: 3,
+  });
+  assert.doesNotMatch(JSON.stringify(describeBundleDifferences(a, extra)), /sha256|bundleHash|identity/);
   await f.write('B.sng', sng(members.map(member => member.name === 'song.ogg' ? { ...member, bytes: Buffer.from('changed') } : member)).bytes);
   assert.notEqual((await f.inspect('B.sng', 'sng')).audio.digest, a.audio.digest);
   assert.equal(await f.revalidate('A.sng', a, 'sng'), path.join(f.root, 'A.sng'));

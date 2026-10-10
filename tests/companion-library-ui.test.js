@@ -27,6 +27,7 @@ class Element extends EventTarget {
     return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
   }
   focus() { this.ownerDocument.activeElement = this; }
+  scrollIntoView() { this.scrollCount = (this.scrollCount ?? 0) + 1; }
   click() { if (!this.disabled) this.dispatchEvent(new Event('click')); }
 }
 function fixture() {
@@ -218,8 +219,8 @@ test('choosing a version to keep automatically verifies the other copies before 
   assert.equal(card(ui, 'b').querySelector('.library-preferred-badge').hidden, false);
   assert.equal(card(ui, 'a').querySelector('.library-preferred-badge').hidden, true);
   assert.equal(ui.get('#library-comparison-clear').hidden, false);
-  assert.equal(cleanupCheck(ui, 'a').checked, true);
-  assert.equal(ui.get('#library-cleanup-recycle').textContent, 'Supprimer l’autre version');
+  assert.equal(cleanupCheck(ui, 'a').checked, false, 'choosing the keeper does not select a copy for deletion');
+  assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
   ui.get('#library-comparison-clear').click(); const clear = await ui.request(4);
   assert.deepEqual(clear.payload, { contextId: 'e'.repeat(32), revision: 1, id: null });
   clear.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: null } }); await tick();
@@ -338,7 +339,7 @@ async function preparedCleanup(t, plan = cleanupPlan()) {
   prepare.resolve({ ok: true, result: plan }); await tick(); return ui;
 }
 
-test('cleanup preselects safe copies while unsafe copies and the keeper remain protected', async t => {
+test('cleanup requires individual selection while unsafe copies, unchecked copies and the keeper remain protected', async t => {
   const initial = await openComparison(t);
   assert.equal(initial.get('#library-cleanup-prepare').hidden, true);
   initial.get('#library-cleanup-prepare').click(); await tick(); assert.equal(initial.calls.length, 2);
@@ -356,14 +357,24 @@ test('cleanup preselects safe copies while unsafe copies and the keeper remain p
   assert.match(ui.get('#library-cleanup-candidates').textContent, /42\s?000 octets/);
   assert.match(ui.get('#library-cleanup-candidates').textContent, /Audio vérifié · 2 fichier\(s\) · 40\s?000 octets/);
   assert.match(ui.get('#library-cleanup-candidates').textContent, /Fichiers supplémentaires ou métadonnées différents/);
-  assert.equal(cleanupCheck(ui, 'b').checked, true, 'safe folder copy is preselected');
-  assert.equal(cleanupCheck(ui, 'd').checked, true, 'safe SNG copy is preselected');
-  assert.equal(cleanupCheck(ui, 'c').checked, false, 'unsafe copy is never preselected');
+  assert.equal(cleanupCheck(ui, 'b').checked, false, 'safe folder copy requires explicit selection');
+  assert.equal(cleanupCheck(ui, 'd').checked, false, 'safe SNG copy requires explicit selection');
+  assert.equal(cleanupCheck(ui, 'c').checked, false, 'unsafe copy remains unchecked');
   assert.equal(cleanupCheck(ui, 'c').disabled, true);
   checkCleanup(ui, 'c'); assert.equal(cleanupCheck(ui, 'c').checked, false, 'even a dispatched disabled change cannot select an unsafe copy');
+  assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+  assert.equal(ui.get('#library-cleanup-summary').hidden, true);
+  assert.match(ui.get('#library-cleanup-selection').textContent, /0 copie\(s\) sélectionnée\(s\).*3 autre\(s\) copie\(s\) non cochée\(s\) restent en place/);
+  ui.get('#library-cleanup-recycle').click(); await tick(); assert.equal(ui.calls.length, 3, 'no command without an individual selection');
+  checkCleanup(ui, 'b'); checkCleanup(ui, 'd');
   assert.equal(ui.get('#library-cleanup-recycle').disabled, false);
-  assert.equal(ui.get('#library-cleanup-recycle').textContent, 'Supprimer les 2 autres versions');
-  checkCleanup(ui, 'd', false); assert.equal(ui.get('#library-cleanup-recycle').textContent, 'Supprimer l’autre version');
+  assert.equal(ui.get('#library-cleanup-recycle').textContent, 'Envoyer les 2 copies sélectionnées à la Corbeille…');
+  assert.equal(ui.get('#library-cleanup-summary').hidden, false);
+  assert.deepEqual(ui.get('#library-cleanup-selected-targets').querySelectorAll('code').map(element => element.textContent), ['Charts/b', 'Charts/<unsafe & archive>.sng']);
+  assert.match(ui.get('#library-cleanup-selection').textContent, /2 copie\(s\) sélectionnée\(s\) · 84\s?000 octets.*1 autre\(s\) copie\(s\) non cochée\(s\) restent en place/);
+  checkCleanup(ui, 'd', false); assert.equal(ui.get('#library-cleanup-recycle').textContent, 'Envoyer la copie sélectionnée à la Corbeille…');
+  assert.deepEqual(ui.get('#library-cleanup-selected-targets').querySelectorAll('code').map(element => element.textContent), ['Charts/b']);
+  assert.match(ui.get('#library-cleanup-selection').textContent, /1 copie\(s\) sélectionnée\(s\) · 42\s?000 octets.*2 autre\(s\) copie\(s\) non cochée\(s\) restent en place/);
   ui.get('#library-cleanup-recycle').click(); const recycle = await ui.request(3);
   assert.deepEqual({ name: recycle.name, payload: recycle.payload }, {
     name: 'library.recycleDuplicates', payload: { planId: 'a'.repeat(32), revision: 1, ids: [variantId('b')] },
@@ -380,8 +391,8 @@ test('cleanup preselects safe copies while unsafe copies and the keeper remain p
   assert.equal(ui.get('#library-cleanup-prepare').disabled, false);
   ui.get('#library-cleanup-prepare').click(); const again = await ui.request(4);
   again.resolve({ ok: true, result: cleanupPlan({ planId: 'b'.repeat(32) }) }); await tick();
-  assert.equal(cleanupCheck(ui, 'b').checked, true, 'a fresh verification preselects safe copies again');
-  assert.equal(cleanupCheck(ui, 'd').checked, true, 'all safe copies are preselected on a fresh plan');
+  assert.equal(cleanupCheck(ui, 'b').checked, false, 'cancelling does not preserve an earlier deletion selection');
+  assert.equal(cleanupCheck(ui, 'd').checked, false, 'fresh plans always require individual selections');
 });
 
 test('verified but different copy stays unselected and offers a separate delete-anyway action', async t => {
@@ -407,6 +418,54 @@ test('verified but different copy stays unselected and offers a separate delete-
   }
 });
 
+test('file comparison expands for different copies and shows categories, exact sizes and missing or extra files', async t => {
+  const files = [
+    { name: 'notes.chart', category: 'notes', status: 'identical', keeperBytes: 123, copyBytes: 123 },
+    { name: 'song.ogg', category: 'audio', status: 'changed', keeperBytes: 500, copyBytes: 500 },
+    { name: 'album.png', category: 'artwork', status: 'only-keeper', keeperBytes: 80, copyBytes: null },
+    { name: 'credits & thanks.txt', category: 'other', status: 'only-copy', keeperBytes: null, copyBytes: 30 },
+    { name: 'SNG: metadata', category: 'metadata', status: 'changed', keeperBytes: 20, copyBytes: 21 },
+  ];
+  const ui = await preparedCleanup(t, cleanupPlan({ candidates: [cleanupTarget('b', { forceable: true,
+    differences: { status: 'verified', counts: { identical: 1, changed: 2, onlyKeeper: 1, onlyCopy: 1, unverified: 0 }, files },
+  })] }));
+  const candidate = ui.get('#library-cleanup-candidates').children[0], details = candidate.querySelector('.library-file-differences');
+  assert.equal(details.open, true, 'a forceable copy reveals the differences before its separate confirmation action');
+  assert.equal(details.querySelector('summary').textContent, 'Comparer les fichiers · 4 différence(s)');
+  assert.match(details.querySelector('p').textContent, /1 identique\(s\) · 2 modifié\(s\) · 1 uniquement dans la version conservée · 1 uniquement dans cette copie/);
+  const rows = details.querySelector('tbody').children;
+  assert.deepEqual(rows[1].children.map(cell => cell.textContent), ['song.ogg', 'Audio', 'Modifié', '500', '500']);
+  assert.deepEqual(rows[2].children.map(cell => cell.textContent), ['album.png', 'Illustration', 'Uniquement dans la version conservée', '80', '—']);
+  assert.deepEqual(rows[3].children.map(cell => cell.textContent), ['credits & thanks.txt', 'Autre', 'Uniquement dans cette copie', '—', '30']);
+  assert.equal(rows[3].querySelector('code').textContent, 'credits & thanks.txt');
+  assert.equal(rows[4].children[0].textContent, 'Métadonnées du conteneur .sng');
+  assert.equal(cleanupCheck(ui, 'b').checked, false); assert.equal(cleanupCheck(ui, 'b').disabled, true);
+  assert.equal(cleanupCheck(ui, 'a'), undefined, 'the keeper has no deletion checkbox');
+  assert.equal(candidate.querySelector('.library-cleanup-force').disabled, false);
+});
+
+test('unverified file comparisons never label unknown content as absent or alter explicit selection', async t => {
+  const ui = await preparedCleanup(t, cleanupPlan({ candidates: [
+    cleanupTarget('b', { eligible: true, differences: { status: 'verified', counts: { identical: 1, changed: 0, onlyKeeper: 0, onlyCopy: 0, unverified: 0 },
+      files: [{ name: 'notes.chart', category: 'notes', status: 'identical', keeperBytes: 123, copyBytes: 123 }] } }),
+    cleanupTarget('c', { differences: { status: 'unavailable', counts: { identical: 0, changed: 0, onlyKeeper: 0, onlyCopy: 0, unverified: 1 },
+      files: [{ name: 'song.ogg', category: 'audio', status: 'unverified', keeperBytes: 500, copyBytes: null }] } }),
+  ] }));
+  const verified = ui.get('#library-cleanup-candidates').children[0].querySelector('.library-file-differences');
+  const unavailable = ui.get('#library-cleanup-candidates').children[1].querySelector('.library-file-differences');
+  assert.equal(verified.open, false);
+  assert.equal(verified.querySelector('summary').textContent, 'Comparer les fichiers · 0 différence(s)');
+  assert.equal(unavailable.querySelector('summary').textContent, 'Comparaison des fichiers indisponible');
+  assert.match(unavailable.textContent, /non vérifié ne doit pas être considéré comme absent/);
+  assert.equal(unavailable.querySelector('tbody').children[0].dataset.fileStatus, 'unverified');
+  assert.doesNotMatch(unavailable.textContent, /Uniquement dans/);
+  assert.equal(cleanupCheck(ui, 'b').checked, false);
+  checkCleanup(ui, 'b');
+  ui.get('#library-cleanup-recycle').click(); const recycle = await ui.request(3);
+  assert.deepEqual(recycle.payload.ids, [variantId('b')]);
+  recycle.resolve({ ok: true, cancelled: true }); await tick();
+});
+
 test('missing or unavailable audio remains visibly blocked even if a malformed candidate says eligible', async t => {
   const ui = await preparedCleanup(t, cleanupPlan({ candidates: [
     cleanupTarget('b', { audio: { status: 'missing', count: 0, bytes: 0 }, eligible: true, reason: 'Audio absent.' }),
@@ -430,8 +489,9 @@ test('unavailable target summaries remain visible without blocking an eligible p
   assert.equal(blocked.querySelector('code').textContent, 'Charts/c');
   assert.match(blocked.textContent, /Cible non vérifiée · Taille non vérifiée/);
   assert.match(blocked.textContent, /contenu complet de cette version ne peut pas être vérifié/);
-  assert.equal(cleanupCheck(ui, 'b').checked, true);
-  assert.equal(ui.get('#library-cleanup-recycle').disabled, false);
+  assert.equal(cleanupCheck(ui, 'b').checked, false);
+  assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+  checkCleanup(ui, 'b'); assert.equal(ui.get('#library-cleanup-recycle').disabled, false);
   const missingKeeper = await preparedCleanup(t, cleanupPlan({ keep: cleanupTarget('a', { targetRelativePath: null, kind: null, bytes: null }) }));
   assert.equal(missingKeeper.get('#library-cleanup-plan').hidden, false);
   assert.equal(cleanupCheck(missingKeeper, 'b').disabled, true);
@@ -440,6 +500,7 @@ test('unavailable target summaries remain visible without blocking an eligible p
 
 test('changing or clearing the preferred version discards the old plan and automatically prepares the new keeper', async t => {
   const ui = await preparedCleanup(t);
+  checkCleanup(ui, 'b');
   card(ui, 'c').querySelector('.library-variant-choose').click(); const choose = await ui.request(3);
   assert.equal(ui.get('#library-cleanup-plan').hidden, true);
   choose.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: variantId('c') } }); await tick();
@@ -447,12 +508,90 @@ test('changing or clearing the preferred version discards the old plan and autom
   assert.equal(next.name, 'library.prepareCleanup');
   assert.equal(next.payload.keepId, variantId('c'));
   next.resolve({ ok: true, result: cleanupPlan({ keepId: variantId('c'), keep: cleanupTarget('c'), candidates: [cleanupTarget('b', { eligible: true, reason: null })] }) }); await tick();
-  assert.equal(cleanupCheck(ui, 'b').checked, true);
-  assert.equal(ui.get('#library-cleanup-recycle').textContent, 'Supprimer l’autre version');
+  assert.equal(cleanupCheck(ui, 'b').checked, false, 'a keeper change clears previous deletion selections');
+  assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
   ui.get('#library-comparison-clear').click(); const clear = await ui.request(5);
   assert.equal(ui.get('#library-cleanup-plan').hidden, true);
   clear.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: null } }); await tick();
   assert.equal(ui.get('#library-cleanup-prepare').hidden, true);
+});
+
+test('a saved keeper survives closing and reopening while deletion selections never do', async t => {
+  const ui = await preparedCleanup(t);
+  assert.equal(card(ui, 'a').querySelector('.library-preferred-badge').hidden, false);
+  assert.equal(card(ui, 'a').querySelector('.library-variant-choose').disabled, true);
+  checkCleanup(ui, 'b');
+  ui.get('#library-comparison-close').click();
+  ui.get('#library-rows').children[0].querySelector('.library-compare').click();
+  const reopened = await ui.request(3);
+  reopened.resolve({ ok: true, result: comparison({ preferredId: variantId('a') }) }); await tick();
+  assert.equal(card(ui, 'a').querySelector('.library-preferred-badge').hidden, false);
+  assert.equal(ui.get('#library-cleanup-plan').hidden, true);
+  ui.get('#library-cleanup-prepare').click(); const prepare = await ui.request(4);
+  assert.equal(prepare.payload.keepId, variantId('a'));
+  prepare.resolve({ ok: true, result: cleanupPlan({ planId: 'b'.repeat(32) }) }); await tick();
+  assert.equal(cleanupCheck(ui, 'b').checked, false);
+  assert.equal(cleanupCheck(ui, 'd').checked, false);
+  assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+  assert.equal(ui.calls.some(call => call.name === 'library.chooseDuplicate' || call.name === 'library.recycleDuplicates'), false);
+});
+
+test('successful cleanup submits only the selected copy and reports the protected keeper', async t => {
+  const ui = await preparedCleanup(t);
+  checkCleanup(ui, 'd');
+  ui.get('#library-cleanup-recycle').click(); const recycle = await ui.request(3);
+  assert.deepEqual(recycle.payload.ids, [variantId('d')]);
+  assert.equal(recycle.payload.ids.includes(variantId('a')), false);
+  assert.equal(recycle.payload.ids.includes(variantId('b')), false);
+  recycle.resolve({ ok: true, result: { recycledIds: [variantId('d')], failed: [], cancelled: false, refreshRequested: true } }); await tick();
+  assert.match(ui.get('#library-cleanup-result').textContent, /1 copie\(s\) envoyée\(s\).*Version conservée : Charts\/a/s);
+  assert.equal(ui.get('#library-cleanup-result').attributes['is-error'], false);
+  assert.equal(ui.get('#library-cleanup-plan').hidden, true);
+  assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+  assert.equal(ui.get('#library-comparison-retry').hidden, false);
+  const result = ui.get('#library-cleanup-result');
+  assert.equal(ui.document.activeElement, result);
+  assert.equal(result.scrollCount, 1, 'the finished operation reveals its outcome');
+  ui.controls.update(snapshot({ revision: 2 })); await ui.respond(4, { revision: 2 });
+  assert.equal(result.scrollCount, 2, 'the cleanup refresh keeps the outcome visible when comparison collapses');
+  ui.get('#library-search').focus();
+  ui.controls.update(snapshot({ revision: 3 })); await ui.respond(5, { revision: 3 });
+  assert.equal(result.scrollCount, 2, 'later unrelated scans never steal the viewport');
+  assert.equal(ui.document.activeElement, ui.get('#library-search'));
+});
+
+test('history write warnings preserve native success and the keeper for normal and force cleanup', async t => {
+  const warning = 'Le nettoyage est terminé, mais son historique n’a pas pu être enregistré.';
+  for (const force of [false, true]) {
+    const ui = await preparedCleanup(t, cleanupPlan({ candidates: [cleanupTarget('b', { eligible: !force, forceable: force })] }));
+    if (force) ui.get('#library-cleanup-candidates').querySelector('.library-cleanup-force').click();
+    else { checkCleanup(ui, 'b'); ui.get('#library-cleanup-recycle').click(); }
+    const request = await ui.request(3);
+    assert.equal(request.name, force ? 'library.forceRecycleDuplicate' : 'library.recycleDuplicates');
+    request.resolve({ ok: true, result: { recycledIds: [variantId('b')], failed: [], cancelled: false, refreshRequested: true, historyError: warning } }); await tick();
+    const result = ui.get('#library-cleanup-result');
+    assert.ok(result.textContent.includes(warning));
+    assert.ok(result.children.some(line => line.textContent.trim() === warning), 'the history warning has its own translatable text node');
+    assert.match(result.textContent, /1 copie.*envoyée.*Corbeille Windows/);
+    assert.match(result.textContent, /Version conservée : Charts\/a/);
+    assert.equal(result.attributes['is-error'], false, 'recording failure must not report native recycling as failed');
+    assert.equal(result.hidden, false); assert.equal(ui.document.activeElement, result);
+    assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+    const frenchResult = result.textContent;
+    const nodes = result.children.map(line => ({ parentElement: line,
+      get nodeValue() { return line.textContent; }, set nodeValue(value) { line.textContent = value; } }));
+    const document = { body: result, readyState: 'loading', documentElement: { lang: 'fr' }, addEventListener() {},
+      createTreeWalker() { let index = 0; return { nextNode: () => nodes[index++] ?? null }; } };
+    const window = { ChartsHubCompanion: { initialLanguage: 'fr' }, dispatchEvent() {} };
+    require('node:vm').runInNewContext(readFileSync(require.resolve('../companion/ui/localization.js'), 'utf8'), {
+      window, document, Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 }, NodeFilter: { SHOW_TEXT: 4 }, CustomEvent: class {},
+    });
+    window.ChartshubCompanionLanguage.apply('en');
+    assert.match(result.textContent, /Cleanup has finished, but its history could not be saved\./);
+    assert.ok(result.textContent.includes('Charts/a'), 'translation preserves the selected keeper path');
+    window.ChartshubCompanionLanguage.apply('fr');
+    assert.equal(result.textContent, frenchResult, 'switching back restores all result lines and newlines');
+  }
 });
 
 test('closing verification and revision or root changes invalidate cleanup plans and late replies', async t => {
@@ -508,6 +647,8 @@ test('partial cleanup reports exact outcomes and stays visible after automatic i
   assert.match(result.textContent, /Charts\/<unsafe & archive>\.sng : Fichier verrouillé/);
   assert.match(result.textContent, /Actualisation de la bibliothèque demandée/);
   assert.equal(result.attributes['is-error'], true);
+  assert.equal(ui.document.activeElement, result);
+  assert.equal(result.scrollCount, 1, 'a response after refresh reveals the completed outcome');
   const retained = result.textContent;
   ui.change('#library-audio', 'missing'); await ui.respond(5, { revision: 2 });
   assert.equal(result.textContent, retained); assert.equal(result.hidden, false);
@@ -544,7 +685,7 @@ test('global duplicate verification shows progress, refreshes all duplicate rows
   assert.match(ui.get('#library-verify-all-duplicates').textContent, /2 \/ 3/);
   assert.match(ui.get('#library-verify-all-status').textContent, /2 \/ 3 groupes/);
   assert.equal(ui.get('#library-verify-all-duplicates').disabled, true);
-  verify.resolve({ ok: true, result: { revision: 1, totalGroups: 3, readyGroups: 1, needsKeeperGroups: 1, blockedGroups: 1, eligibleCopies: 2 } });
+  verify.resolve({ ok: true, result: { revision: 1, totalGroups: 3, processedGroups: 3, cancelled: false, readyGroups: 1, needsKeeperGroups: 1, blockedGroups: 1, eligibleCopies: 2 } });
   const refresh = await ui.request(2);
   assert.equal(refresh.name, 'library.query');
   assert.equal(refresh.payload.duplicates, 'possible');
@@ -555,4 +696,58 @@ test('global duplicate verification shows progress, refreshes all duplicate rows
   const badge = ui.get('#library-rows').children[0].querySelector('.library-duplicate-badge');
   assert.match(badge.textContent, /Prêt à nettoyer.*2 copie\(s\) vérifiée\(s\)/);
   assert.equal(badge.dataset.verification, 'ready');
+});
+
+test('global verification has its own stop action, shows partial results and can restart', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); await ui.respond(0);
+  const stop = ui.get('#library-cancel-duplicate-verification');
+  assert.equal(stop.hidden, true); assert.equal(stop.disabled, true);
+  ui.get('#library-verify-all-duplicates').click(); const verify = await ui.request(1);
+  ui.controls.update(snapshot({ duplicateVerification: { running: true, stopping: false, processed: 1, total: 3 } }));
+  assert.equal(stop.hidden, false); assert.equal(stop.disabled, false);
+  assert.equal(ui.get('#library-cancel').hidden, true, 'scan cancellation is separate');
+  stop.click(); const cancel = await ui.request(2);
+  assert.equal(cancel.name, 'library.cancelDuplicateVerification'); assert.equal(cancel.payload, undefined);
+  assert.equal(stop.disabled, true); assert.match(stop.textContent, /Arrêt en cours/);
+  assert.match(ui.get('#library-verify-all-status').textContent, /Arrêt.*1 \/ 3/);
+  stop.click(); assert.equal(ui.calls.length, 3, 'only one stop request is sent');
+  const result = { revision: 1, totalGroups: 3, processedGroups: 1, cancelled: true, readyGroups: 1, needsKeeperGroups: 0, blockedGroups: 0, eligibleCopies: 2 };
+  ui.controls.update(snapshot({ duplicateVerification: null }));
+  verify.resolve({ ok: true, result }); cancel.resolve({ ok: true, result });
+  await ui.respond(3);
+  assert.equal(stop.hidden, true);
+  assert.match(ui.get('#library-verify-all-status').textContent, /Vérification interrompue : 1 \/ 3.*1 groupe\(s\) prêt\(s\).*Aucun fichier n’a été supprimé/);
+  assert.equal(ui.get('#library-verify-all-status').attributes['is-error'], false);
+  assert.equal(ui.get('#library-verify-all-duplicates').disabled, false);
+  ui.get('#library-verify-all-duplicates').click(); const restarted = await ui.request(4);
+  assert.equal(restarted.name, 'library.verifyAllDuplicates');
+  restarted.resolve({ ok: true, result: { ...result, processedGroups: 3, readyGroups: 3, eligibleCopies: 6, cancelled: false } });
+  await ui.respond(5);
+  assert.doesNotMatch(ui.get('#library-verify-all-status').textContent, /interrompue/);
+});
+
+test('a panel opened during global verification can stop it and display the partial result', async t => {
+  const ui = await setup(t);
+  ui.controls.update(snapshot({ duplicateVerification: { running: true, stopping: false, processed: 0, total: 2 } }));
+  await ui.respond(0);
+  ui.get('#library-cancel-duplicate-verification').click(); const cancel = await ui.request(1);
+  ui.controls.update(snapshot({ duplicateVerification: null }));
+  cancel.resolve({ ok: true, result: { revision: 1, totalGroups: 2, processedGroups: 0, cancelled: true, readyGroups: 0, needsKeeperGroups: 0, blockedGroups: 0, eligibleCopies: 0 } });
+  await ui.respond(2);
+  assert.match(ui.get('#library-verify-all-status').textContent, /Vérification interrompue : 0 \/ 2/);
+  assert.equal(ui.get('#library-cancel-duplicate-verification').hidden, true);
+});
+
+test('late stop responses do not overwrite a restarted verification or write after disposal', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); await ui.respond(0);
+  ui.get('#library-verify-all-duplicates').click(); const verify = await ui.request(1);
+  ui.get('#library-cancel-duplicate-verification').click(); const cancel = await ui.request(2);
+  const result = { revision: 1, totalGroups: 2, processedGroups: 0, cancelled: true, readyGroups: 0, needsKeeperGroups: 0, blockedGroups: 0, eligibleCopies: 0 };
+  verify.resolve({ ok: true, result }); await ui.respond(3);
+  ui.get('#library-verify-all-duplicates').click(); const restarted = await ui.request(4);
+  cancel.resolve({ ok: true, result }); await tick();
+  assert.match(ui.get('#library-verify-all-status').textContent, /Vérification des notes/);
+  ui.controls.dispose(); const writes = ui.document.writes;
+  restarted.resolve({ ok: true, result }); await tick();
+  assert.equal(ui.document.writes, writes);
 });

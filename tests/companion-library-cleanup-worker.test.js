@@ -134,7 +134,7 @@ async function realFixture(t, recycle = async () => {}) {
     await fs.writeFile(path.join(directory, 'song.ogg'), 'fixture audio bytes');
   }
   const workers = [], sent = [], received = [], calls = [];
-  const service = createBackgroundLibraryService({ dataDirectory, recycle: async target => { calls.push(target); await recycle(target); }, workerFactory: (filename, options) => {
+  const service = createBackgroundLibraryService({ dataDirectory, recycle: async (target, proof) => { calls.push(target); await recycle(target, proof); }, workerFactory: (filename, options) => {
     const worker = new Worker(filename, options), post = worker.postMessage.bind(worker);
     worker.postMessage = message => { sent.push(message); return post(message); };
     worker.on('message', message => received.push(message)); workers.push(worker); return worker;
@@ -158,17 +158,59 @@ test('real worker prepares, reviews and executes only selected bundles through t
   const f = await realFixture(t), candidate = f.plan.candidates.find(item => item.targetRelativePath === 'B'), selection = f.selection([candidate]);
   assert.deepEqual(f.calls, []); assert.ok(!JSON.stringify(f.plan).includes(f.root));
   const reviewed = await f.service.cleanupReview(selection); assert.deepEqual(reviewed.candidates.map(item => item.id), [candidate.id]);
+  assert.equal((await f.service.cleanupHistory({ offset: 0, limit: 10 })).total, 0, 'review creates no cleanup record');
   assert.deepEqual(f.calls, []);
   const result = await f.service.recycleDuplicates(selection);
   assert.deepEqual(result, { recycledIds: [candidate.id], failed: [], cancelled: false, refreshRequested: true });
   assert.deepEqual(f.calls, [path.join(f.root, 'B')]);
+  const history = await f.service.cleanupHistory({ offset: 0, limit: 10 });
+  assert.equal(history.total, 1); assert.equal(history.entries[0].keep.id, f.plan.keepId);
+  assert.deepEqual(history.entries[0].candidates.map(item => [item.id, item.status]), [[candidate.id, 'recycled']]);
+  assert.ok(!JSON.stringify(history).includes(f.root));
   const relay = f.received.filter(message => message.type === 'recycle'); assert.equal(relay.length, 1);
+  assert.equal(relay[0].proof.rootPath, f.root);
+  assert.equal(relay[0].proof.keeper.relativePath, 'A/notes.chart');
+  assert.equal(relay[0].proof.target.relativePath, 'B/notes.chart');
+  assert.equal(relay[0].proof.target.expected.status, 'verified');
+  assert.ok(!JSON.stringify(reviewed).includes('identity'), 'identity receipts stay private to worker and native host');
   assert.equal(f.sent.find(message => message.id === relay[0].requestId && message.method)?.method, 'recycleDuplicates');
   assert.ok(f.sent.some(message => message.type === 'recycle-result' && message.id === relay[0].id && message.ok));
   for (const name of ['A', 'B', 'C']) assert.equal((await fs.stat(path.join(f.root, name))).isDirectory(), true, 'fake callback never deletes fixture bundles');
   await until(() => f.service.status().status === 'ready');
   await assert.rejects(f.service.recycleDuplicates(selection), failure => failure.code === 'LIBRARY_CLEANUP_SAFE');
   assert.equal(f.calls.length, 1);
+});
+
+test('real worker records failed and unattempted copies, survives reload, and scopes history to current Songs', async t => {
+  const f = await realFixture(t, async () => { throw Error('Fixture native failure'); });
+  const result = await f.service.recycleDuplicates(f.selection());
+  assert.equal(result.recycledIds.length, 0); assert.equal(result.failed.length, 1);
+  const history = await f.service.cleanupHistory({ offset: 0, limit: 10 });
+  assert.deepEqual(history.entries[0].candidates.map(item => item.status), ['failed', 'not-attempted']);
+  await f.service.stop(); await f.service.load();
+  assert.deepEqual(await f.service.cleanupHistory({ offset: 0, limit: 10 }), history);
+  const other = path.join(f.base, 'other-songs'); await fs.mkdir(other); await f.service.selectRoot(other);
+  await until(() => f.service.status().status === 'ready');
+  assert.equal((await f.service.cleanupHistory({ offset: 0, limit: 10 })).total, 0);
+  await f.service.selectRoot(f.root); await until(() => f.service.status().status === 'ready');
+  assert.equal((await f.service.cleanupHistory({ offset: 0, limit: 10 })).total, 1);
+});
+
+test('native identity gate rejects a copy replaced after the real worker validation', async t => {
+  const { verifyNativeCleanup } = require('../companion/native-cleanup.cjs');
+  let nativeCalls = 0;
+  const f = await realFixture(t, async (target, proof) => {
+    const moved = path.join(f.base, 'original-copy');
+    await fs.rename(target, moved);
+    await fs.cp(moved, target, { recursive: true, preserveTimestamps: true });
+    await verifyNativeCleanup({ root: f.root, keep: path.join(f.root, 'A'), target, proof });
+    nativeCalls++;
+  });
+  const result = await f.service.recycleDuplicates(f.selection([f.plan.candidates[0]]));
+  assert.equal(nativeCalls, 0);
+  assert.deepEqual(result.recycledIds, []);
+  assert.equal(result.failed.length, 1);
+  for (const folder of ['A', 'B', 'C']) assert.ok((await fs.stat(path.join(f.root, folder))).isDirectory());
 });
 
 test('real worker returns native failures safely and stops before the next selected candidate', async t => {
@@ -178,6 +220,18 @@ test('real worker returns native failures safely and stops before the next selec
   assert.equal(result.failed[0].id, f.plan.candidates[0].id); assert.ok(!JSON.stringify(result).includes('Private'));
   assert.equal(f.calls.length, 1); assert.equal(result.refreshRequested, true);
   assert.ok(f.sent.some(message => message.type === 'recycle-result' && message.ok === false));
+});
+
+test('global duplicate verification crosses the real worker without authorizing any recycle', async t => {
+  const f = await realFixture(t);
+  const result = await f.service.verifyAllDuplicates();
+  assert.deepEqual(result, { revision: f.plan.revision, totalGroups: 1, readyGroups: 1, needsKeeperGroups: 0, blockedGroups: 0, eligibleCopies: 2, processedGroups: 1, cancelled: false });
+  const page = await f.service.query({ duplicates: 'possible' });
+  assert.ok(page.items.every(item => item.duplicateVerification === 'ready' && item.verifiedEligibleCopies === 2));
+  assert.equal(f.calls.length, 0);
+  assert.equal(f.received.filter(message => message.type === 'recycle').length, 0);
+  assert.ok(f.sent.some(message => message.method === 'verifyAllDuplicates'));
+  await assert.rejects(f.service.recycleDuplicates(f.selection()), failure => failure.code === 'LIBRARY_CLEANUP_SAFE');
 });
 
 test('real worker shutdown drains the started native operation and cancels the remaining selected bundle', async t => {

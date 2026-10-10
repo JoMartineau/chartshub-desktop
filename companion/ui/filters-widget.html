@@ -6,8 +6,11 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'">
   <title>ChartsHub · Filtres du jeu</title>
   <link rel="stylesheet" href="./companion.css">
+  <link rel="stylesheet" href="./floating-panels-controls.css">
+  <link rel="stylesheet" href="./floating-surfaces.css">
 </head>
 <body class="filters-widget-body">
+  <header class="floating-titlebar"><strong>ChartsHub · Filtres</strong><button id="filters-widget-close" type="button" aria-label="Fermer le panneau">×</button></header>
   <main id="filters-widget-panel" class="filters-widget-panel">
     <label class="filters-widget-engine" for="filters-widget-engine"><span>Filtres du jeu</span><select id="filters-widget-engine"><option value="reshade">ReShade</option><option value="classic">ChartsHub classique</option></select></label>
     <section id="reshade-widget-controls" class="reshade-mini">
@@ -28,6 +31,6 @@
     <p id="filters-feedback" class="clonehero-feedback" role="alert" hidden></p>
     </section>
   </main>
-  <script type="module" src="./filters-widget.js"></script>
+  <script src="./localization.js"></script><script type="module" src="./filters-widget.js"></script>
 </body>
 </html>

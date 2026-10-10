@@ -1,0 +1,43 @@
+name: Companion duplicate safety
+on:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Verify duplicate cleanup in Electron
+        shell: pwsh
+        run: npm run test:companion:duplicates -- "$env:RUNNER_TEMP/companion-duplicates"
+      - name: Verify floating catalogue in Electron
+        shell: pwsh
+        run: npm run test:companion:catalogue-widget -- "$env:RUNNER_TEMP/companion-catalogue-widget"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: companion-duplicates-verification
+          path: |
+            ${{ runner.temp }}/companion-duplicates/**/verification.json
+            ${{ runner.temp }}/companion-duplicates/**/failure.json
+            ${{ runner.temp }}/companion-duplicates/**/failure.png
+            ${{ runner.temp }}/companion-duplicates/**/selected-copy-summary.png
+            ${{ runner.temp }}/companion-duplicates/**/partial-success.png
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: companion-catalogue-widget-verification
+          path: |
+            ${{ runner.temp }}/companion-catalogue-widget/**/report.json
+            ${{ runner.temp }}/companion-catalogue-widget/**/*.png
+          if-no-files-found: ignore

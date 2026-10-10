@@ -1,5 +1,6 @@
 import { FiltersControls } from './filters-controls.js';
 import { ReShadeControls } from './reshade-controls.js';
+import { applyFloatingAppearance } from './floating-panels-controls.js';
 const api = window.ChartsHubCompanion;
 let disposed = false, received = false, unsubscribe = () => {};
 const command = async (name, payload) => {
@@ -9,7 +10,13 @@ const command = async (name, payload) => {
 };
 const controls = new FiltersControls({ root: document.querySelector('#filters-widget-legacy'), mini: true, command });
 const reshade = new ReShadeControls({ root: document.querySelector('#reshade-widget-controls'), mini: true, command });
-function update(snapshot) { controls.update(snapshot); reshade.update(snapshot); }
+function update(snapshot) {
+  if (snapshot.language) window.ChartshubCompanionLanguage?.apply(snapshot.language);
+  applyFloatingAppearance(document.body, snapshot.floatingPanels?.appearance?.filters);
+  controls.update(snapshot); reshade.update(snapshot);
+}
+document.querySelector('#filters-widget-close').addEventListener('click', () => window.close());
+window.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); window.close(); } });
 document.querySelector('#filters-widget-engine').addEventListener('change', event => {
   document.querySelector('#reshade-widget-controls').hidden = event.target.value !== 'reshade';
   document.querySelector('#filters-widget-legacy').hidden = event.target.value !== 'classic';

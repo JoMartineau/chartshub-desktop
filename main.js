@@ -1,13 +1,16 @@
 'use strict';
-const {app,BrowserWindow,ipcMain,dialog,Menu,shell,session,nativeTheme}=require('electron');
+const {app,BrowserWindow,ipcMain,dialog,Menu,shell,session,nativeTheme,Notification}=require('electron');
 const path=require('node:path');
 const {registerCompanionScheme,createCompanionHost}=require('./companion/host.cjs');
 const {createDesktopShell}=require('./desktop/controller.cjs');
+const {createDownloadNotifications}=require('./desktop/download-notifications.cjs');
+const {createCloneHeroProcessProbe}=require('./companion/clonehero-process.cjs');
 registerCompanionScheme();
 const profileIndex=process.argv.indexOf('--companion-profile');
 if(profileIndex>=0&&process.argv[profileIndex+1])app.setPath('userData',path.resolve(process.argv[profileIndex+1]));
 let desktop,web,companionHostPromise,closing=false,allowClose=false,companionAvailable=false,companionLanguage='en';
 let loadCatalogue=()=>{},canOpenCompanion=async()=>false;
+let notificationBroker=null;
 let requestedTab=process.argv.includes('--companion')?'companion':'catalogue';
 const focusWindow=()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
 const openCompanion=async()=>{
@@ -16,7 +19,7 @@ const openCompanion=async()=>{
  if(closing)return;
  if(!await canOpenCompanion()){if(!closing&&requestedTab==='companion')await selectTab('catalogue');return;}
  if(closing||requestedTab!=='companion')return;
- if(!companionHostPromise)companionHostPromise=createCompanionHost({embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
+ if(!companionHostPromise)companionHostPromise=createCompanionHost({isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
  const host=await companionHostPromise;
  host.setLanguage?.(companionLanguage);
  if(closing||!companionAvailable||requestedTab!=='companion')return;
@@ -56,6 +59,11 @@ else{
   ses.on('will-download',(event)=>event.preventDefault());
   desktop=createDesktopShell({cataloguePreferences:{session:ses,preload:path.join(__dirname,'preload.js'),additionalArguments:['--chartshub-tabbed'],contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,backgroundThrottling:false},onSelectTab:selectTab});
   win=desktop.window;web=desktop.catalogueView.webContents;
+  if(process.platform==='win32')app.setAppUserModelId?.('ca.chartshub.desktop');
+  notificationBroker=createDownloadNotifications({fetcher:(url,options)=>ses.fetch(url,options),probeGame:createCloneHeroProcessProbe(),language:()=>companionLanguage,
+   showNative:(options,onClick)=>{if(process.platform!=='win32'||!Notification?.isSupported())return;const notice=new Notification({...options,icon:path.join(__dirname,'icon.ico')});notice.on('click',onClick);notice.on('failed',()=>{});notice.show();},
+   openCentre:async current=>{if(!current()||closing)return;await selectTab('catalogue');if(current()&&!closing&&web&&!web.isDestroyed())await web.loadURL(ORIGIN+'/index.html?notifications=1');}
+  });
   web.setWindowOpenHandler(({url})=>{if(trusted(url))void web.loadURL(url).catch(()=>{});else void external(url);return {action:'deny'};});
   web.on('will-navigate',(event,url)=>{if(!trusted(url)){event.preventDefault();void external(url);}});
   web.on('will-redirect',(event,url)=>{if(!trusted(url))event.preventDefault();});
@@ -74,12 +82,13 @@ else{
   const catalogueAlive=()=>win&&!win.isDestroyed()&&web&&!web.isDestroyed();
   const downloads=createAccountBoundDownloads({readAccount,cancel:()=>job?.abort(),publish:snapshot=>{if(catalogueAlive()&&trusted(web.getURL()))web.send('chartshub:download-state',snapshot);}});
   let accountRevision=0;
+  const syncCatalogueAccess=()=>{if(companionHostPromise)void companionHostPromise.then(host=>host.setCatalogueAvailable(companionAvailable&&!closing)).catch(()=>{});};
   const refreshAccount=async()=>{
    const revision=accountRevision,result=await downloads.refresh();
-   if(!closing&&revision===accountRevision){companionAvailable=result.ok&&Boolean(result.user);desktop.setCompanionAvailable(companionAvailable);}
+   if(!closing&&revision===accountRevision){notificationBroker.setAccount(result.ok?result.user:null);companionAvailable=result.ok&&Boolean(result.user);desktop.setCompanionAvailable(companionAvailable);syncCatalogueAccess();}
    return result;
   };
-  const invalidateAccount=()=>{accountRevision++;companionAvailable=false;desktop.setCompanionAvailable(false);downloads.invalidate();};
+  const invalidateAccount=()=>{accountRevision++;notificationBroker.invalidate();companionAvailable=false;desktop.setCompanionAvailable(false);syncCatalogueAccess();downloads.invalidate();};
   canOpenCompanion=async()=>{await refreshAccount();return companionAvailable&&!closing;};
   const reportProgress=(token,data)=>{if(!downloads.progress(token,data))return;if(catalogueAlive()){if(trusted(web.getURL()))web.send('chartshub:progress',data);win.setProgressBar(data.percent/100);}};
   ipcMain.handle('chartshub:download-state',async event=>{if(!allowedSender(event))return null;await refreshAccount();return allowedSender(event)?downloads.snapshot():null;});
@@ -178,28 +187,30 @@ else{
    if(!allowedSender(event)||!batchValid(endpoints))return {ok:false,error:'Sélection non autorisée.'};
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const controller=new AbortController();job=controller;
-   let result,token;
+   let result,token,notificationScope;
    try{
     const account=await refreshAccount();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
     controller.signal.throwIfAborted();if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
     token=downloads.begin(endpoints,'batch');
+    notificationScope=notificationBroker.capture();
     const directory=await chooseFolder('catalogue');
     if(!directory)return result={ok:false,cancelled:true,results:[]};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
     result=await downloadBatch({endpoints,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data)});
     await refreshAccount();return downloads.current(token)?result:{ok:false,cancelled:true,results:[]};
    }catch(error){return result={ok:false,error:error.message,cancelled:controller.signal.aborted};}
-   finally{downloads.finish(token,result);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
+   finally{downloads.finish(token,result);notificationBroker.finishNative(notificationScope,endpoints,result);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
   ipcMain.handle('chartshub:download',async(event,endpoint)=>{
    if(!allowedSender(event)||!endpointValid(endpoint))return {ok:false,error:'Demande non autorisée.'};
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const controller=new AbortController();job=controller;
-   let outcome,token;
+   let outcome,token,notificationScope;
    try{
     const account=await refreshAccount();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
     controller.signal.throwIfAborted();if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
     token=downloads.begin([endpoint],'single');
+    notificationScope=notificationBroker.capture();
     const directory=await chooseFolder(endpoint.includes('/admin/')?'review':'catalogue');
     if(!directory)return outcome={ok:false,cancelled:true};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
@@ -209,14 +220,15 @@ else{
     shell.showItemInFolder(result.destination);
     return outcome={ok:true,folderName:result.folderName,files:result.files};
    }catch(error){return outcome=controller.signal.aborted?{ok:false,cancelled:true}:{ok:false,error:error.message};}
-   finally{downloads.finish(token,outcome);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
+   finally{downloads.finish(token,outcome);notificationBroker.finishNative(notificationScope,[endpoint],outcome);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
   ipcMain.handle('chartshub:cancel',event=>{if(allowedSender(event))job?.abort();});
   const finishClose=async()=>{
    closing=true;
+   notificationBroker?.invalidate();
    try{if(companionHostPromise)await (await companionHostPromise).dispose();}
    catch(error){console.error('Companion shutdown:',error.message);}
-   finally{await desktop.dispose();allowClose=true;if(!win.isDestroyed())win.close();}
+   finally{await notificationBroker?.dispose();await desktop.dispose();allowClose=true;if(!win.isDestroyed())win.close();}
   };
   let closePrompt=false;
   win.on('close',event=>{

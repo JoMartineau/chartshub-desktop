@@ -3,18 +3,20 @@ const { parentPort, workerData } = require('node:worker_threads');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { createInstalledLibraryService } = require('./library-service.cjs');
 
-const METHODS = new Set(['load', 'start', 'stop', 'selectRoot', 'configure', 'requestScan', 'cancel', 'query', 'compareDuplicates', 'chooseDuplicate', 'resolveSongFolder', 'prepareCleanup', 'cleanupReview', 'cleanupForceReview', 'recycleDuplicates', 'forceRecycleDuplicate']);
+const METHODS = new Set(['load', 'start', 'stop', 'selectRoot', 'configure', 'requestScan', 'cancel', 'query', 'verifyAllDuplicates', 'compareDuplicates', 'chooseDuplicate', 'resolveSongFolder', 'prepareCleanup', 'cleanupReview', 'cleanupForceReview', 'recycleDuplicates', 'forceRecycleDuplicate']);
 let lastRoot, lastRevision, stopping = false;
+METHODS.add('cancelDuplicateVerification');
+METHODS.add('cleanupHistory');
 const pending = new Set();
 const requests = new AsyncLocalStorage(), recycleRequests = new Map();
 let nextRecycleId = 0;
 const service = createInstalledLibraryService({ dataDirectory: workerData.dataDirectory,
-  recycle: target => new Promise((resolve, reject) => {
+  recycle: (target, proof) => new Promise((resolve, reject) => {
     const request = requests.getStore();
     if (stopping || !['recycleDuplicates', 'forceRecycleDuplicate'].includes(request?.method)) return reject(Error('Nettoyage arrêté.'));
     const id = ++nextRecycleId;
     recycleRequests.set(id, { resolve, reject });
-    parentPort.postMessage({ type: 'recycle', id, requestId: request.id, target });
+    parentPort.postMessage({ type: 'recycle', id, requestId: request.id, target, proof });
   }), onChange: () => {
   parentPort.postMessage({ type: 'change', state: snapshot() });
 } });
@@ -53,7 +55,7 @@ parentPort.on('message', message => {
     parentPort.postMessage({ type: 'reply', id: message.id, ok: true, result, state: snapshot() });
   }, failure => {
     parentPort.postMessage({ type: 'reply', id: message.id, ok: false,
-      ...(['LIBRARY_COMPARISON_SAFE', 'LIBRARY_CLEANUP_SAFE'].includes(failure?.code) ? { code: failure.code } : {}),
+      ...(['LIBRARY_COMPARISON_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY'].includes(failure?.code) ? { code: failure.code } : {}),
       error: typeof failure?.message === 'string' ? failure.message : 'Requête de bibliothèque invalide.', state: snapshot() });
   }).finally(() => pending.delete(task));
 });

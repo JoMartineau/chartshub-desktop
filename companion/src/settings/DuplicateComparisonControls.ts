@@ -15,11 +15,17 @@ interface CleanupTarget {
   id: string; relativePath: string; targetRelativePath: string | null; kind: 'folder' | 'sng' | null; bytes: number | null;
   audio: { status: 'verified' | 'missing' | 'unavailable'; count: number; bytes: number };
 }
+interface BundleDifferences {
+  status: 'verified' | 'unavailable';
+  counts: { identical: number; changed: number; onlyKeeper: number; onlyCopy: number; unverified: number };
+  files: { name: string; category: 'notes' | 'audio' | 'artwork' | 'metadata' | 'other';
+    status: 'identical' | 'changed' | 'only-keeper' | 'only-copy' | 'unverified'; keeperBytes: number | null; copyBytes: number | null }[];
+}
 interface CleanupPlan {
   planId: string; contextId: string; revision: number; keepId: string; keep: CleanupTarget;
-  candidates: (CleanupTarget & { eligible: boolean; forceable: boolean; reason: string | null })[];
+  candidates: (CleanupTarget & { eligible: boolean; forceable: boolean; reason: string | null; differences?: BundleDifferences })[];
 }
-interface CleanupResult { recycledIds: string[]; failed: { id: string; reason: string }[]; cancelled: boolean; refreshRequested: boolean; }
+interface CleanupResult { recycledIds: string[]; failed: { id: string; reason: string }[]; cancelled: boolean; refreshRequested: boolean; historyError?: string; }
 interface ComparisonOptions {
   root: HTMLElement;
   command: (name: string, payload?: unknown) => Promise<unknown>;
@@ -51,6 +57,7 @@ export class DuplicateComparisonControls {
   private cleanupAbort = new AbortController();
   private readonly cleanupChecks = new Map<string, HTMLInputElement>();
   private readonly cleanupForceButtons = new Map<string, HTMLButtonElement>();
+  private cleanupFocusAfterRefresh: { rootPath: string; revision: number } | null = null;
   private needsReload = false;
   private disposed = false;
 
@@ -67,12 +74,16 @@ export class DuplicateComparisonControls {
   update(state: ComparisonState): void {
     if (this.disposed) return;
     const changed = this.state && (state.rootPath !== this.state.rootPath || state.revision !== this.state.revision);
+    const revealCleanupResult = changed && this.cleanupFocusAfterRefresh?.rootPath === state.rootPath
+      && this.cleanupFocusAfterRefresh.revision === this.state?.revision;
     this.state = state;
     if (changed && this.targetId) {
       this.close(false);
       this.options.feedback('La bibliothèque a changé. Relancez « Comparer » pour vérifier les versions actuelles.');
     }
     this.refreshAvailability();
+    if (changed) this.cleanupFocusAfterRefresh = null;
+    if (revealCleanupResult) this.revealCleanupResult();
   }
 
   open(id: string, title: string, trigger: HTMLButtonElement): void {
@@ -97,6 +108,7 @@ export class DuplicateComparisonControls {
   private close(restoreFocus: boolean): void {
     this.serial++; this.targetId = null; this.result = null; this.loading = false; this.saving = false; this.opening = false; this.needsReload = false;
     this.preparing = false; this.clearCleanup();
+    this.cleanupFocusAfterRefresh = null;
     this.clearCards(); this.element('#library-comparison').hidden = true;
     if (restoreFocus && this.trigger?.isConnected !== false) this.trigger?.focus({ preventScroll: true });
     this.trigger = null;
@@ -185,11 +197,28 @@ export class DuplicateComparisonControls {
     this.element('#library-cleanup-plan').hidden = true;
     this.element('#library-cleanup-keep').textContent = '';
     this.element('#library-cleanup-candidates').textContent = '';
+    this.element('#library-cleanup-summary').hidden = true;
+    this.element('#library-cleanup-selected-targets').textContent = '';
   }
 
   private cleanupFeedback(message: string, error = false): void {
     const status = this.element('#library-cleanup-result');
-    status.textContent = message; status.hidden = !message; status.classList.toggle('is-error', error);
+    status.textContent = '';
+    const lines = message.split('\n');
+    for (const [index, line] of lines.entries()) {
+      // Keep each status/warning independently translatable, including after
+      // a language switch. Filename-bearing lines remain ordinary text.
+      const entry = this.options.root.ownerDocument.createElement('span');
+      entry.textContent = line + (index < lines.length - 1 ? '\n' : ''); status.append(entry);
+    }
+    status.hidden = !message; status.classList.toggle('is-error', error);
+  }
+
+  private revealCleanupResult(): void {
+    const status = this.element('#library-cleanup-result');
+    if (status.hidden) return;
+    status.focus({ preventScroll: true });
+    status.scrollIntoView?.({ block: 'nearest' });
   }
 
   private cleanupAvailable(): boolean {
@@ -224,12 +253,11 @@ export class DuplicateComparisonControls {
       }
       this.cleanupPlan = plan;
       const eligibleCandidates = plan.candidates.filter(candidate => this.eligible(candidate, plan));
-      for (const candidate of eligibleCandidates) this.cleanupSelection.add(candidate.id);
       this.renderCleanup();
       const eligible = eligibleCandidates.length, forceable = plan.candidates.filter(candidate => candidate.forceable).length;
       const blocked = plan.candidates.length - eligible - forceable;
       this.feedback(eligible
-        ? `${number(eligible)} autre(s) version(s) sûre(s) présélectionnée(s) pour la Corbeille.${forceable ? ` ${number(forceable)} version(s) vérifiée(s) mais différente(s) peuvent être supprimées manuellement.` : ''}${blocked ? ` ${number(blocked)} version(s) restent protégées.` : ''} Vérifiez puis confirmez la suppression.`
+        ? `${number(eligible)} copie(s) vérifiée(s) disponible(s). Cochez individuellement les copies à envoyer à la Corbeille.${forceable ? ` ${number(forceable)} version(s) vérifiée(s) mais différente(s) peuvent être supprimées manuellement.` : ''}${blocked ? ` ${number(blocked)} version(s) restent protégées.` : ''} Aucune copie n’est sélectionnée automatiquement.`
         : forceable
           ? `${number(forceable)} autre(s) version(s) ont les mêmes notes, mais leur audio ou certains fichiers diffèrent. Utilisez « Supprimer quand même » uniquement si vous acceptez de perdre ces différences.`
           : 'Aucune autre version n’est suffisamment vérifiée pour être supprimée. Consultez les raisons indiquées.');
@@ -276,6 +304,7 @@ export class DuplicateComparisonControls {
         : candidate.forceable ? 'Les notes sont identiques et la copie est entièrement vérifiée, mais son audio ou certains fichiers diffèrent. Cette copie ne sera jamais présélectionnée.'
         : candidate.reason || 'Nettoyage bloqué : les fichiers et un audio présent doivent être entièrement vérifiés.';
       check.setAttribute('aria-describedby', reason.id); item.append(reason);
+      this.renderDifferences(candidate, item);
       if (!eligible && candidate.forceable) {
         const force = document.createElement('button'); force.type = 'button'; force.className = 'button secondary library-cleanup-force';
         force.textContent = 'Supprimer quand même'; force.setAttribute('aria-label', `Supprimer quand même cette copie : ${candidate.relativePath}`);
@@ -291,6 +320,71 @@ export class DuplicateComparisonControls {
       this.cleanupChecks.set(candidate.id, check);
     }
     this.element('#library-cleanup-plan').hidden = false;
+  }
+
+  private renderDifferences(candidate: CleanupPlan['candidates'][number], container: HTMLElement): void {
+    const document = this.options.root.ownerDocument;
+    const details = document.createElement('details'); details.className = 'library-file-differences';
+    details.open = candidate.forceable;
+    const summary = document.createElement('summary');
+    const differences = candidate.differences;
+    const categories = { notes: 'Notes', audio: 'Audio', artwork: 'Illustration', metadata: 'Métadonnées', other: 'Autre' };
+    const statuses = { identical: 'Identique', changed: 'Modifié', 'only-keeper': 'Uniquement dans la version conservée', 'only-copy': 'Uniquement dans cette copie', unverified: 'Non vérifié' };
+    const safeBytes = (bytes: unknown): boolean => bytes === null || (Number.isSafeInteger(bytes) && (bytes as number) >= 0);
+    const valid = differences && ['verified', 'unavailable'].includes(differences.status) && Array.isArray(differences.files)
+      && differences.files.every(file => !!file && typeof file.name === 'string' && !!file.name && Object.hasOwn(categories, file.category)
+        && Object.hasOwn(statuses, file.status) && safeBytes(file.keeperBytes) && safeBytes(file.copyBytes));
+    const files = valid ? differences.files : [];
+    const verified = valid && differences.status === 'verified';
+    const count = (status: BundleDifferences['files'][number]['status']): string => number(files.filter(file => file.status === status).length);
+    summary.textContent = verified ? `Comparer les fichiers · ${number(files.filter(file => file.status !== 'identical').length)} différence(s)` : 'Comparaison des fichiers indisponible';
+    details.append(summary);
+    const description = document.createElement('p');
+    description.textContent = verified
+      ? `${count('identical')} identique(s) · ${count('changed')} modifié(s) · ${count('only-keeper')} uniquement dans la version conservée · ${count('only-copy')} uniquement dans cette copie · ${count('unverified')} non vérifié(s)`
+      : 'Le contenu complet ne peut pas être comparé. Un fichier non vérifié ne doit pas être considéré comme absent.';
+    details.append(description);
+    if (files.length) {
+      const table = document.createElement('table'); table.className = 'library-file-differences-table';
+      const caption = document.createElement('caption'); caption.textContent = 'Comparaison du contenu des fichiers avec la version conservée';
+      const head = document.createElement('thead'), heading = document.createElement('tr');
+      for (const label of ['Fichier', 'Type', 'Comparaison', 'Version conservée (octets)', 'Cette copie (octets)']) {
+        const cell = document.createElement('th'); cell.setAttribute('scope', 'col'); cell.textContent = label; heading.append(cell);
+      }
+      head.append(heading); const body = document.createElement('tbody');
+      for (const file of files) {
+        const row = document.createElement('tr'); row.dataset.fileStatus = verified ? file.status : 'unverified';
+        const name = document.createElement('td');
+        if (file.name === 'SNG: metadata' || file.name === 'SNG: container') {
+          name.textContent = file.name === 'SNG: metadata' ? 'Métadonnées du conteneur .sng' : 'Encodage du conteneur .sng';
+        } else {
+          const code = document.createElement('code'); code.textContent = file.name; name.append(code);
+        }
+        row.append(name);
+        for (const value of [categories[file.category], statuses[verified ? file.status : 'unverified'], file.keeperBytes === null ? '—' : number(file.keeperBytes), file.copyBytes === null ? '—' : number(file.copyBytes)]) {
+          const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
+        }
+        body.append(row);
+      }
+      table.append(caption, head, body); details.append(table);
+    }
+    container.append(details);
+  }
+
+  private refreshCleanupSummary(): void {
+    const plan = this.cleanupPlan;
+    const selected = plan?.candidates.filter(candidate => this.eligible(candidate, plan) && this.cleanupSelection.has(candidate.id)) ?? [];
+    const unchecked = (plan?.candidates.length ?? 0) - selected.length;
+    const bytes = selected.reduce((total, candidate) => total + (candidate.bytes ?? 0), 0);
+    this.element('#library-cleanup-selection').textContent = `${number(selected.length)} copie(s) sélectionnée(s) · ${number(bytes)} octets. ${number(unchecked)} autre(s) copie(s) non cochée(s) restent en place. La version conservée est protégée.`;
+    const list = this.element('#library-cleanup-selected-targets'); list.textContent = '';
+    for (const candidate of selected) {
+      const item = this.options.root.ownerDocument.createElement('li');
+      const path = this.options.root.ownerDocument.createElement('code'); path.className = 'library-cleanup-path';
+      path.textContent = candidate.targetRelativePath;
+      item.append(path); list.append(item);
+    }
+    this.element('#library-cleanup-summary').hidden = !selected.length;
   }
 
   private async recycle(): Promise<void> {
@@ -311,16 +405,21 @@ export class DuplicateComparisonControls {
         const result = response.result;
         if (!result || !Array.isArray(result.recycledIds) || !Array.isArray(result.failed)
           || result.recycledIds.some(id => !ids.includes(id)) || result.failed.some(failure => !ids.includes(failure.id) || typeof failure.reason !== 'string')
-          || typeof result.cancelled !== 'boolean' || typeof result.refreshRequested !== 'boolean') {
+          || typeof result.cancelled !== 'boolean' || typeof result.refreshRequested !== 'boolean'
+          || (result.historyError !== undefined && typeof result.historyError !== 'string')) {
           throw new Error('Le résultat du nettoyage n’a pas pu être confirmé. Actualisez la bibliothèque avant de réessayer.');
         }
         const messages = [`${number(result.recycledIds.length)} copie(s) envoyée(s) à la Corbeille Windows. Version conservée : ${plan.keep.targetRelativePath}.`];
         if (result.failed.length) messages.push(`${number(result.failed.length)} copie(s) non envoyée(s).`);
         if (result.cancelled) messages.push('Opération interrompue ; certaines copies peuvent rester en place.');
         for (const failure of result.failed) messages.push(`${plan.candidates.find(candidate => candidate.id === failure.id)?.targetRelativePath ?? failure.id} : ${failure.reason}`);
+        if (result.historyError) messages.push(result.historyError);
         messages.push(result.refreshRequested ? 'Actualisation de la bibliothèque demandée.' : 'Actualisez la bibliothèque pour vérifier les fichiers actuels.');
         this.cleanupFeedback(messages.join('\n'), result.failed.length > 0);
-        if (this.current(serial, root, revision)) this.needsReload = true;
+        if (this.current(serial, root, revision)) {
+          this.needsReload = true;
+          if (result.refreshRequested) this.cleanupFocusAfterRefresh = { rootPath: root, revision };
+        }
       }
       if (this.current(serial, root, revision)) this.feedback('Cette sélection a été utilisée. Une nouvelle vérification est nécessaire avant tout autre nettoyage.');
     } catch (error) {
@@ -328,7 +427,7 @@ export class DuplicateComparisonControls {
       this.cleanupFeedback(error instanceof Error ? error.message : 'Nettoyage indisponible. Actualisez la bibliothèque avant de réessayer.', true);
       if (this.current(serial, root, revision)) this.needsReload = true;
     } finally {
-      if (!this.disposed && execution === this.executionSerial) { this.executing = false; this.clearCleanup(); this.refreshAvailability(); }
+      if (!this.disposed && execution === this.executionSerial) { this.executing = false; this.clearCleanup(); this.refreshAvailability(); this.revealCleanupResult(); }
     }
   }
 
@@ -348,7 +447,8 @@ export class DuplicateComparisonControls {
         const result = response.result;
         if (!result || !Array.isArray(result.recycledIds) || !Array.isArray(result.failed)
           || result.recycledIds.some(value => value !== id) || result.failed.some(failure => failure.id !== id || typeof failure.reason !== 'string')
-          || typeof result.cancelled !== 'boolean' || typeof result.refreshRequested !== 'boolean') {
+          || typeof result.cancelled !== 'boolean' || typeof result.refreshRequested !== 'boolean'
+          || (result.historyError !== undefined && typeof result.historyError !== 'string')) {
           throw new Error('Le résultat de la suppression forcée n’a pas pu être confirmé. Actualisez la bibliothèque.');
         }
         const messages = [result.recycledIds.length
@@ -356,9 +456,13 @@ export class DuplicateComparisonControls {
           : 'Aucune copie n’a été envoyée à la Corbeille.'];
         if (result.failed[0]) messages.push(result.failed[0].reason);
         if (result.cancelled) messages.push('Opération interrompue.');
+        if (result.historyError) messages.push(result.historyError);
         messages.push(result.refreshRequested ? 'Actualisation de la bibliothèque demandée.' : 'Actualisez la bibliothèque pour vérifier les fichiers actuels.');
         this.cleanupFeedback(messages.join('\n'), result.failed.length > 0);
-        if (this.current(serial, root, revision)) this.needsReload = true;
+        if (this.current(serial, root, revision)) {
+          this.needsReload = true;
+          if (result.refreshRequested) this.cleanupFocusAfterRefresh = { rootPath: root, revision };
+        }
       }
       if (this.current(serial, root, revision)) this.feedback('Cette vérification a été utilisée. Une nouvelle vérification est nécessaire avant toute autre suppression.');
     } catch (error) {
@@ -366,7 +470,7 @@ export class DuplicateComparisonControls {
       this.cleanupFeedback(error instanceof Error ? error.message : 'Suppression forcée indisponible. Actualisez la bibliothèque.', true);
       if (this.current(serial, root, revision)) this.needsReload = true;
     } finally {
-      if (!this.disposed && execution === this.executionSerial) { this.executing = false; this.clearCleanup(); this.refreshAvailability(); }
+      if (!this.disposed && execution === this.executionSerial) { this.executing = false; this.clearCleanup(); this.refreshAvailability(); this.revealCleanupResult(); }
     }
   }
 
@@ -416,12 +520,8 @@ export class DuplicateComparisonControls {
     const recycle = this.element<HTMLButtonElement>('#library-cleanup-recycle');
     const selected = this.cleanupSelection.size;
     recycle.disabled = !this.cleanupPlan || !this.cleanupAvailable() || !selected;
-    recycle.textContent = selected === 1 ? 'Supprimer l’autre version' : selected > 1 ? `Supprimer les ${number(selected)} autres versions` : 'Aucune autre version sûre à supprimer';
-    this.element('#library-cleanup-selection').textContent = selected === 1
-      ? '1 autre version sera envoyée à la Corbeille. La version conservée est protégée.'
-      : selected > 1
-        ? `${number(selected)} autres versions seront envoyées à la Corbeille. La version conservée est protégée.`
-        : 'Aucune autre version sûre n’est sélectionnée. La version conservée est protégée.';
+    recycle.textContent = selected === 1 ? 'Envoyer la copie sélectionnée à la Corbeille…' : selected > 1 ? `Envoyer les ${number(selected)} copies sélectionnées à la Corbeille…` : 'Cochez les copies à envoyer à la Corbeille';
+    this.refreshCleanupSummary();
     for (const [id, check] of this.cleanupChecks) {
       const candidate = this.cleanupPlan?.candidates.find(value => value.id === id);
       check.disabled = !this.cleanupAvailable() || !this.cleanupPlan || !candidate || !this.eligible(candidate, this.cleanupPlan);

@@ -622,3 +622,17 @@ select { min-width: 122px; min-height: 35px; background: #171c1f; color: #dce3e7
 @media (max-width: 1050px) { .companion-app { padding: 0 22px 18px; } .workspace { grid-template-columns: minmax(0,1fr) 256px; gap: 15px; } .state-field { flex-basis: 100%; margin: 5px 0 0; justify-content: space-between; } .state-field select { flex: 1; max-width: 175px; } }
 @media (max-width: 780px) { .workspace { grid-template-columns: 1fr; } .settings-column { display: grid; grid-template-columns: 1fr 1fr; align-items: start; gap: 15px; } .behavior-note { grid-column: 1 / -1; } .page-heading { gap: 14px; } .overlay-switch { max-width: 190px; white-space: normal; line-height: 1.4; } .subtitle { max-width: 300px; font-size: 12px; } .state-field { flex-basis: auto; margin: 0 0 0 auto; } }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+.library-file-differences { max-width: 100%; min-width: 0; overflow-x: auto; margin-top: 12px; }
+.library-file-differences summary { cursor: pointer; color: #c0d3bd; }
+.library-file-differences-table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
+.library-file-differences-table th, .library-file-differences-table td { padding: 7px; text-align: left; border-bottom: 1px solid #374139; overflow-wrap: anywhere; }
+.library-file-differences-table code { white-space: normal; }
+.library-cleanup-history { margin-top: 22px; padding-top: 18px; border-top: 1px solid #374139; }
+.library-cleanup-history p { color: #adbfab; font-size: 12px; line-height: 1.6; }
+.library-cleanup-history button { margin: 6px 8px 6px 0; }
+.library-cleanup-history-entry { margin-top: 12px; padding: 14px; border: 1px solid #374139; border-radius: 8px; }
+.library-cleanup-history-entry time { color: #c0d3bd; font-size: 12px; }
+.library-cleanup-history-entry code { display: block; margin: 5px 0; white-space: normal; overflow-wrap: anywhere; }
+.library-cleanup-history-entry li { margin: 10px 0; font-size: 12px; }
+.floating-panels-card { padding:24px; margin-top:24px; }
+.floating-panels-card > .helper-text { margin:12px 0; line-height:1.6; }

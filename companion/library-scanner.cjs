@@ -3,6 +3,7 @@ const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
+const { captureBundleSnapshot } = require('./chart-bundle.cjs');
 
 const TEXT_LIMIT = 256 * 1024, SNG_SECTION_LIMIT = 1024 * 1024, SNG_COUNT_LIMIT = 4096;
 const AUDIO = /\.(?:ogg|opus|mp3|wav|flac|aiff?|m4a)$/i;
@@ -169,7 +170,9 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
     const relevant = format === 'sng' ? [entry] : files.filter(file => /^(?:song\.ini|notes\.(?:chart|mid))$/i.test(file.name) || isAudio(file.name));
     const fingerprint = signature(relevant), relativePath = portable(path.relative(root, entry.filename)), old = previous.get(relativePath);
     if (old && hasPreservedPrefix(relativePath)) { add({ ...old }); return; }
-    if (mode === 'quick' && old?.signature === fingerprint) { if (old.audio === 'unknown') warningCount++; add({ ...old, id: digest(relativePath), relativePath, folderRelativePath: portable(path.relative(root, folder)) }); return; }
+    const snapshotOptions = { rootPath: root, relativePath, format, signal };
+    const cleanupSnapshot = await captureBundleSnapshot(snapshotOptions); abort(signal);
+    if (mode === 'quick' && old?.signature === fingerprint && old.cleanupSnapshot === cleanupSnapshot) { if (old.audio === 'unknown') warningCount++; add({ ...old, id: digest(relativePath), relativePath, folderRelativePath: portable(path.relative(root, folder)) }); return; }
     let metadata = {}, audio = format === 'sng' ? 'unknown' : files.some(file => isAudio(file.name)) ? 'present' : 'missing';
     try {
       if (format === 'sng') {
@@ -186,7 +189,10 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
       if (old && error?.code && !missing(error)) { add({ ...old }); preserved.add(format === 'sng' ? relativePath : portable(path.relative(root, folder))); return; }
       if (missing(error)) { skippedCount++; return; }
     }
-    add(itemFor(entry, folder, format, fingerprint, metadata, audio));
+    // Metadata reads cannot silently advance the cleanup baseline when files
+    // changed during this song's scan. A fresh scan is required in that case.
+    const finalSnapshot = cleanupSnapshot && await captureBundleSnapshot(snapshotOptions); abort(signal);
+    add({ ...itemFor(entry, folder, format, fingerprint, metadata, audio), cleanupSnapshot: cleanupSnapshot === finalSnapshot ? cleanupSnapshot : null });
   }
 
   progress(true); abort(signal);
