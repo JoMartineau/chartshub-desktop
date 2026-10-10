@@ -504,7 +504,7 @@ test('filter widget has isolated reads and cannot install modules or control the
   assert.equal(widget.options.alwaysOnTop, true);
   assert.equal(host.getOverlay().options.focusable, false);
   const snapshot = handlers.get('companion:snapshot')(eventFor(widget));
-  assert.deepEqual(Object.keys(snapshot).sort(), ['filters', 'filtersWidgetEnabled', 'reshade']);
+  assert.deepEqual(Object.keys(snapshot).sort(), ['filters', 'filtersWidgetEnabled', 'floatingPanels', 'language', 'reshade']);
   assert.equal(snapshot.filters.rootPath, undefined);
   assert.equal(snapshot.filters.message, undefined);
   for (const name of ['filters.install', 'filters.restore', 'filters.chooseRoot', 'filters.refresh', 'downloads.chooseRoot']) assert.equal((await invoke(widget, name)).ok, false);

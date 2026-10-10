@@ -530,6 +530,24 @@ Il faut ensuite recopier l’URL dans OBS. Le port ne change pas pendant que
 le serveur est actif ; annuler un changement de port exige aussi son arrêt.
 Les demandes de chansons et les widgets de veille viendront ultérieurement.
 
+CATALOGUE FLOTTANT
+Depuis le Companion, ouvrir le mini Catalogue, ou utiliser Ctrl+Maj+K
+(Commande+Maj+K sur macOS) avec une session ChartsHub active.
+La barre de titre permet de déplacer la fenêtre au-dessus du jeu.
+Fermer ou Échap masque le panneau sans interrompre la file de téléchargements.
+Recherche propose titre, artiste, charter, instrument et difficulté.
+Choisir explicitement le dossier de destination, puis cliquer sur Télécharger
+pour ajouter une chart. Téléchargements donne accès à la progression, pause,
+reprise, annulation et nouvelle tentative ; Récents affiche les charts terminées.
+Après installation, utiliser Scan Songs dans Clone Hero pour les indexer.
+Utiliser le jeu fenêtré ou sans bordures ; le plein écran exclusif n'est pas garanti.
+Si le raccourci est occupé, ouvrir le panneau depuis le Companion.
+
+Apparence règle le fond, sa transparence, le texte, la police et la taille.
+L'aperçu et les valeurs par défaut demandent un clic sur Enregistrer pour être
+appliqués. Catalogue et Filtres possèdent chacun leur style, mémorisé dans
+companion/floating-panels.json après redémarrage, indépendamment des widgets.
+
 RÉGLAGES
 Cinq widgets indépendants : titre, artiste, charter, instrument et difficulté.
 Le direct n'alimente que les trois premiers ; les champs absents sont masqués.
@@ -578,6 +596,10 @@ Node.js et npm sont nécessaires seulement pour compiler les sources.
   npm run package -- win32 x64
 Test natif :
   node_modules\.bin\electron tests\companion-electron.cjs C:\chemin\tests
+Test du Catalogue flottant :
+  npm run test:companion:catalogue-widget -- C:\chemin\tests-catalogue
+Ce test Electron produit report.json et des captures avec un catalogue local,
+un dossier Songs isolé et des transferts simulés. La CI Windows le lance aussi.
 Utiliser un dossier de test neuf. Il contient réglages, logs et captures.
 Les tests automatisés de nettoyage utilisent des fixtures temporaires et une
 API Corbeille simulée : aucun fichier d'une bibliothèque réelle n'est envoyé

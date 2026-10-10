@@ -23,14 +23,30 @@ function trustedContentsSender(event, contents, page) {
 function trustedSender(event, window, page) {
   return !!window && !window.isDestroyed() && trustedContentsSender(event, window.webContents, page);
 }
-function trustedFiltersWidgetCommand(event, window, command) {
-  return ['filters.settings', 'filters.openPanel', 'reshade.command'].includes(command) && trustedSender(event, window, 'filters-widget.html');
+function trustedFiltersWidgetCommand(event, window, command, payload) {
+  return (['filters.settings', 'filters.openPanel', 'reshade.command'].includes(command)
+    || (command === 'panels.appearance' && payload?.panel === 'filters')) && trustedSender(event, window, 'filters-widget.html');
+}
+function trustedCatalogueWidgetCommand(event, window, command, payload) {
+  return (['catalogue.widget', 'catalogue.search', 'catalogue.refresh', 'downloads.enqueue', 'downloads.chooseRoot', 'downloads.pause', 'downloads.resume', 'downloads.cancel', 'downloads.retry'].includes(command)
+    || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
   if (['mock.next', 'mock.reset', 'editor.undo', 'editor.redo'].includes(command)) return payload === undefined || payload === null;
   if (['stream.copyUrl', 'library.chooseRoot', 'library.cancel', 'library.verifyAllDuplicates', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'library.cancelDuplicateVerification') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+  if (command === 'catalogue.widget') return Object.keys(payload).length === 1 && typeof payload.enabled === 'boolean';
+  if (command === 'panels.appearance') {
+    const style = payload.appearance;
+    return Object.keys(payload).length === 3 && Object.keys(payload).every(key => ['revision', 'panel', 'appearance'].includes(key))
+      && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && ['catalogue', 'filters'].includes(payload.panel)
+      && !!style && typeof style === 'object' && !Array.isArray(style) && Object.keys(style).length === 4
+      && Object.keys(style).every(key => ['backgroundColor', 'textColor', 'fontFamily', 'fontSize'].includes(key))
+      && ['backgroundColor', 'textColor'].every(key => typeof style[key] === 'string' && style[key].length > 0 && style[key].length <= 128)
+      && ['system', 'arial', 'verdana', 'georgia', 'consolas'].includes(style.fontFamily)
+      && Number.isInteger(style.fontSize) && style.fontSize >= 10 && style.fontSize <= 24;
+  }
   if (command === 'library.cleanupHistory') return Object.keys(payload).every(key => ['offset', 'limit'].includes(key))
     && (payload.offset === undefined || (Number.isSafeInteger(payload.offset) && payload.offset >= 0 && payload.offset <= 200))
     && (payload.limit === undefined || (Number.isSafeInteger(payload.limit) && payload.limit >= 1 && payload.limit <= 50));
@@ -143,4 +159,4 @@ function validCommand(command, payload, widgetIds) {
   }
   return false;
 }
-module.exports = { assetPath, trustedSender, trustedContentsSender, trustedFiltersWidgetCommand, validCommand };
+module.exports = { assetPath, trustedSender, trustedContentsSender, trustedFiltersWidgetCommand, trustedCatalogueWidgetCommand, validCommand };
