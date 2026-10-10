@@ -13,7 +13,7 @@ interface LibrarySummary {
   error: string | null;
   watcher: 'off' | 'watching' | 'unavailable';
   revision: number;
-  duplicateVerification?: { running: boolean; processed: number; total: number } | null;
+  duplicateVerification?: { running: boolean; stopping?: boolean; processed: number; total: number } | null;
 }
 interface LibraryItem {
   id: string; relativePath: string; title: string; artist: string; charter: string;
@@ -26,7 +26,8 @@ interface LibraryItem {
 interface LibraryQueryResult { items: LibraryItem[]; total: number; offset: number; limit: number; revision: number; }
 interface LibraryResponse { ok: boolean; result?: LibraryQueryResult; error?: string; }
 interface BulkDuplicateResult {
-  revision: number; totalGroups: number; readyGroups: number; needsKeeperGroups: number; blockedGroups: number; eligibleCopies: number;
+  revision: number; totalGroups: number; processedGroups: number; cancelled: boolean;
+  readyGroups: number; needsKeeperGroups: number; blockedGroups: number; eligibleCopies: number;
 }
 interface LibraryOptions { root: HTMLElement; command: (name: string, payload?: unknown) => Promise<unknown>; }
 interface LibraryRow {
@@ -66,6 +67,7 @@ export class LibraryControls {
   private actionSerial = 0;
   private bulkSerial = 0;
   private bulkPending = false;
+  private bulkCancelling = false;
   private bulkResult: BulkDuplicateResult | null = null;
   private bulkMessage = '';
   private bulkError = false;
@@ -121,6 +123,7 @@ export class LibraryControls {
     this.element('#library-next').addEventListener('click', () => { if (this.offset + this.limit < this.total) { this.offset += this.limit; this.scheduleQuery(0); } }, { signal });
     this.element('#library-query-retry').addEventListener('click', () => { this.staleRetries = 0; this.scheduleQuery(0); }, { signal });
     this.element('#library-verify-all-duplicates').addEventListener('click', () => { void this.verifyAllDuplicates(); }, { signal });
+    this.element('#library-cancel-duplicate-verification').addEventListener('click', () => { void this.cancelDuplicateVerification(); }, { signal });
     this.refreshAvailability();
     this.renderBulkVerification();
   }
@@ -240,32 +243,55 @@ export class LibraryControls {
     const summary = this.summary;
     if (!summary?.settings.rootPath || this.disposed || summary.status === 'scanning' || this.bulkPending || this.pendingActions.size) return;
     const serial = ++this.bulkSerial, root = summary.settings.rootPath, revision = summary.revision;
-    this.bulkPending = true; this.bulkResult = null; this.bulkMessage = ''; this.bulkError = false;
+    this.bulkPending = true; this.bulkCancelling = false; this.bulkResult = null; this.bulkMessage = ''; this.bulkError = false;
     this.renderBulkVerification(); this.refreshAvailability();
     try {
       const response = await this.options.command('library.verifyAllDuplicates') as { ok: boolean; result?: BulkDuplicateResult; error?: string } | undefined;
       if (this.disposed || serial !== this.bulkSerial || root !== this.summary?.settings.rootPath || revision !== this.summary?.revision) return;
-      const result = response?.result;
-      const values = result ? [result.revision, result.totalGroups, result.readyGroups, result.needsKeeperGroups, result.blockedGroups, result.eligibleCopies] : [];
-      if (!response?.ok || !result || values.some(value => !Number.isSafeInteger(value) || value < 0)
-        || result.revision !== revision || result.readyGroups + result.needsKeeperGroups + result.blockedGroups !== result.totalGroups) {
-        throw new Error(response?.error || 'La vérification globale n’a pas pu être confirmée.');
-      }
-      this.bulkResult = result;
-      this.bulkMessage = result.totalGroups === 0
-        ? 'Aucun groupe de doublons n’a été détecté.'
-        : `${count(result.readyGroups)} groupe(s) prêt(s) · ${count(result.needsKeeperGroups)} choix de version requis · ${count(result.blockedGroups)} bloqué(s) · ${count(result.eligibleCopies)} copie(s) vérifiée(s).`;
-      this.duplicates = 'possible'; this.offset = 0; this.staleRetries = 0;
-      this.element<HTMLSelectElement>('#library-duplicates').value = 'possible';
-      this.scheduleQuery(0);
+      if (!response?.ok || !response.result) throw new Error(response?.error || 'La vérification globale n’a pas pu être confirmée.');
+      this.acceptBulkResult(response.result, revision);
     } catch (error) {
       if (this.disposed || serial !== this.bulkSerial) return;
       this.bulkResult = null; this.bulkError = true;
       this.bulkMessage = error instanceof Error ? error.message : 'La vérification globale est indisponible. Réessayez.';
     } finally {
       if (!this.disposed && serial === this.bulkSerial) {
-        this.bulkPending = false; this.renderBulkVerification(); this.refreshAvailability();
+        this.bulkPending = false; this.bulkCancelling = false; this.renderBulkVerification(); this.refreshAvailability();
       }
+    }
+  }
+
+  private acceptBulkResult(result: BulkDuplicateResult, revision: number): void {
+    const values = [result.revision, result.totalGroups, result.processedGroups, result.readyGroups, result.needsKeeperGroups, result.blockedGroups, result.eligibleCopies];
+    if (values.some(value => !Number.isSafeInteger(value) || value < 0) || typeof result.cancelled !== 'boolean'
+      || result.revision !== revision || result.processedGroups > result.totalGroups
+      || result.readyGroups + result.needsKeeperGroups + result.blockedGroups !== result.processedGroups
+      || (!result.cancelled && result.processedGroups !== result.totalGroups)) throw new Error('La vérification globale n’a pas pu être confirmée.');
+    this.bulkResult = result; this.bulkError = false;
+    const counts = `${count(result.readyGroups)} groupe(s) prêt(s) · ${count(result.needsKeeperGroups)} choix de version requis · ${count(result.blockedGroups)} bloqué(s) · ${count(result.eligibleCopies)} copie(s) vérifiée(s).`;
+    this.bulkMessage = result.cancelled
+      ? `Vérification interrompue : ${count(result.processedGroups)} / ${count(result.totalGroups)} groupe(s) vérifié(s). ${counts} Aucun fichier n’a été supprimé.`
+      : result.totalGroups === 0 ? 'Aucun groupe de doublons n’a été détecté.' : counts;
+    this.duplicates = 'possible'; this.offset = 0; this.staleRetries = 0;
+    this.element<HTMLSelectElement>('#library-duplicates').value = 'possible';
+    this.scheduleQuery(0);
+  }
+
+  private async cancelDuplicateVerification(): Promise<void> {
+    if (this.disposed || this.bulkCancelling || (!this.bulkPending && !this.summary?.duplicateVerification?.running)) return;
+    const serial = this.bulkSerial, root = this.summary?.settings.rootPath, revision = this.summary?.revision;
+    this.bulkCancelling = true; this.renderBulkVerification();
+    try {
+      const response = await this.options.command('library.cancelDuplicateVerification') as { ok: boolean; result?: BulkDuplicateResult | null; error?: string } | undefined;
+      if (this.disposed || serial !== this.bulkSerial || root !== this.summary?.settings.rootPath || revision !== this.summary?.revision) return;
+      if (!response?.ok) throw new Error(response?.error || 'L’arrêt de la vérification n’a pas pu être confirmé.');
+      // The original request normally supplies the result. A panel opened while
+      // verification was already running obtains it from the stop response.
+      if (!this.bulkPending && !this.bulkResult && response.result && revision !== undefined) this.acceptBulkResult(response.result, revision);
+    } catch (error) {
+      if (!this.disposed && serial === this.bulkSerial && !this.bulkResult) this.feedback(error instanceof Error ? error.message : 'L’arrêt de la vérification n’a pas pu être confirmé.', true);
+    } finally {
+      if (!this.disposed && serial === this.bulkSerial) { this.bulkCancelling = false; this.renderBulkVerification(); this.refreshAvailability(); }
     }
   }
 
@@ -273,13 +299,19 @@ export class LibraryControls {
     const progress = this.summary?.duplicateVerification;
     const running = this.bulkPending || (progress?.running === true && !this.bulkResult && !this.bulkMessage);
     const button = this.element<HTMLButtonElement>('#library-verify-all-duplicates');
+    const stopping = running && (this.bulkCancelling || progress?.stopping === true);
+    const cancel = this.element<HTMLButtonElement>('#library-cancel-duplicate-verification');
+    cancel.hidden = !running; cancel.disabled = !running || stopping;
+    cancel.textContent = stopping ? 'Arrêt en cours…' : 'Arrêter la vérification';
     button.textContent = running
       ? `Vérification ${count(progress?.processed ?? 0)} / ${count(progress?.total ?? 0)}…`
       : 'Vérifier l’audio de tous les doublons';
     const status = this.element('#library-verify-all-status');
     status.classList.toggle('is-error', this.bulkError);
     if (running) {
-      status.textContent = `Vérification des notes, de l’audio et des fichiers : ${count(progress?.processed ?? 0)} / ${count(progress?.total ?? 0)} groupes.`;
+      status.textContent = stopping
+        ? `Arrêt de la vérification en cours : ${count(progress?.processed ?? 0)} / ${count(progress?.total ?? 0)} groupes. Les résultats terminés seront conservés.`
+        : `Vérification des notes, de l’audio et des fichiers : ${count(progress?.processed ?? 0)} / ${count(progress?.total ?? 0)} groupes.`;
       status.hidden = false;
     } else if (this.bulkMessage) {
       status.textContent = this.bulkMessage; status.hidden = false;

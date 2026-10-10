@@ -29,7 +29,11 @@ function trustedFiltersWidgetCommand(event, window, command) {
 function validCommand(command, payload, widgetIds) {
   if (['mock.next', 'mock.reset', 'editor.undo', 'editor.redo'].includes(command)) return payload === undefined || payload === null;
   if (['stream.copyUrl', 'library.chooseRoot', 'library.cancel', 'library.verifyAllDuplicates', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (command === 'library.cancelDuplicateVerification') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+  if (command === 'library.cleanupHistory') return Object.keys(payload).every(key => ['offset', 'limit'].includes(key))
+    && (payload.offset === undefined || (Number.isSafeInteger(payload.offset) && payload.offset >= 0 && payload.offset <= 200))
+    && (payload.limit === undefined || (Number.isSafeInteger(payload.limit) && payload.limit >= 1 && payload.limit <= 50));
   if (command === 'reshade.setupPrepare') return Object.keys(payload).length === 1 && typeof payload.includeStarterEffects === 'boolean';
   if (command === 'reshade.command') {
     const keys = Object.keys(payload), only = allowed => keys.length === allowed.length && keys.every(key => allowed.includes(key));

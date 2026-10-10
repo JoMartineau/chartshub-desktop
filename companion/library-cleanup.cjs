@@ -3,8 +3,10 @@
 const path = require('node:path');
 const { randomBytes } = require('node:crypto');
 const { inspectChartBundle, revalidateBundle, recheckBundleIdentity, bundleSnapshot } = require('./chart-bundle.cjs');
+const { describeBundleDifferences } = require('./library-bundle-differences.cjs');
 
 const HEX = /^[a-f0-9]{64}$/, TOKEN = /^[a-f0-9]{32}$/;
+const historyWarning = 'Le nettoyage est terminé, mais son historique n’a pas pu être enregistré.';
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const safeError = () => Object.assign(new Error('Ce nettoyage ne peut pas être vérifié. Recomparez les versions et préparez un nouveau nettoyage.'), { code: 'LIBRARY_CLEANUP_SAFE' });
 const reason = {
@@ -38,7 +40,11 @@ function summary(member, bundle) {
     audio: audio(bundle?.audio)
   };
 }
-function copySummary(value) { return { ...value, audio: { ...value.audio } }; }
+function copySummary(value) {
+  return { ...value, audio: { ...value.audio }, ...(value.differences ? { differences: {
+    ...value.differences, counts: { ...value.differences.counts }, files: value.differences.files.map(file => ({ ...file }))
+  } } : {}) };
+}
 function comparisonUnchanged(member, bundle) {
   return typeof member.cleanupSnapshot === 'string' && HEX.test(member.cleanupSnapshot) &&
     bundle?.status === 'verified' && bundleSnapshot(bundle.identity) === member.cleanupSnapshot &&
@@ -47,8 +53,8 @@ function comparisonUnchanged(member, bundle) {
 
 /** Plans expose only IDs and relative labels. Only the checked executor can
  * cross the native recycling boundary; there is no permanent-delete fallback. */
-function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = async () => {} } = {}) {
-  if (typeof getDocument !== 'function' || typeof getContext !== 'function' || typeof recycle !== 'function' || typeof onCleaned !== 'function') throw safeError();
+function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = async () => {}, onCompleted = async () => {} } = {}) {
+  if (typeof getDocument !== 'function' || typeof getContext !== 'function' || typeof recycle !== 'function' || typeof onCleaned !== 'function' || typeof onCompleted !== 'function') throw safeError();
   let plan = null, preparing = null, executing = null, stopping = null;
   const pending = new Set();
   function track(task) {
@@ -120,7 +126,8 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
         const sameSafeKind = bundle?.kind === 'folder' && keptBundle.kind === 'folder';
         const forceable = [reason.audio, reason.contents].includes(blocked) && validKeep && notesMatch && !blockedTarget
           && sameSafeKind && verifiedAudio;
-        current.candidates.push({ ...summary(member, bundle), eligible: !blocked, forceable, reason: blocked });
+        current.candidates.push({ ...summary(member, bundle), eligible: !blocked, forceable, reason: blocked,
+          differences: describeBundleDifferences(keptBundle, bundle) });
       }
       // Even a malformed index cannot authorize overlapping recycle targets.
       for (const candidate of current.candidates) {
@@ -168,9 +175,9 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
     if (!current) throw safeError();
     const operation = { controller: current.controller }; executing = operation;
     const result = { recycledIds: [], failed: [], cancelled: false, refreshRequested: false };
-    let attempted = false;
+    let attempted = false, selectedValues = [];
     try {
-      const values = await selected(current, request, force); attempted = true;
+      const values = await selected(current, request, force); selectedValues = values; attempted = true;
       const keeper = current.members.find(member => member.id === current.keepId);
       for (const candidate of values) {
         if (current.controller.signal.aborted) { result.cancelled = true; break; }
@@ -205,6 +212,13 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
       else throw safeError();
     } finally {
       if (plan === current) { current.controller.abort(); plan = null; }
+      if (attempted) {
+        try {
+          const recorded = await onCompleted({ rootPath: current.rootPath, keep: copySummary(current.keep), candidates: selectedValues.map(copySummary),
+            result: { recycledIds: [...result.recycledIds], failed: result.failed.map(value => ({ ...value })), cancelled: result.cancelled }, mode: force ? 'force' : 'normal' });
+          if (recorded?.recorded === false) result.historyError = historyWarning;
+        } catch (_) { result.historyError = historyWarning; /* Native results remain authoritative. */ }
+      }
       if (executing === operation) executing = null;
       if (attempted) {
         try { await onCleaned(); result.refreshRequested = true; } catch (_) { /* A refresh failure cannot undo a successful native recycle. */ }

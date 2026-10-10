@@ -7,6 +7,7 @@ const { scanLibrary } = require('./library-scanner.cjs');
 const { createLibraryQuery } = require('./library-query.cjs');
 const { createLibraryDuplicates } = require('./library-duplicates.cjs');
 const { createLibraryCleanup } = require('./library-cleanup.cjs');
+const { createLibraryCleanupHistory } = require('./library-cleanup-history.cjs');
 
 const VERSION = 1;
 const TEXT_FIELDS = ['title', 'artist', 'charter', 'album', 'year'];
@@ -57,9 +58,11 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   let matchingCache = null, matchingRoot = null;
   const queryIndex = createLibraryQuery({ textFields: TEXT_FIELDS, publicFields: PUBLIC_FIELDS });
   const duplicates = createLibraryDuplicates({ dataDirectory, getDocument: () => document });
+  const history = createLibraryCleanupHistory({ directory: dataDirectory });
   let deferredCleanupScan = false;
   const cleanup = createLibraryCleanup({ getDocument: () => document,
     getContext: options => duplicates.cleanupContext(options), recycle: recycle ?? (async () => { throw Error('Corbeille indisponible.'); }),
+    onCompleted: event => history.append(event),
     onCleaned: () => { if (stopTask) throw Error('Bibliothèque arrêtée.'); deferredCleanupScan = false; requestScan('quick'); } });
   function requireCleanupIdle() {
     if (cleanup.busy() || duplicateVerification) throw Object.assign(Error('Attendez la fin de la vérification ou du nettoyage des copies.'), { code: 'LIBRARY_CLEANUP_SAFE' });
@@ -68,7 +71,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     return { settings: { ...document.settings }, status: phase, mode, progress: { ...progress }, count: document.items.length,
       lastScanAt: document.lastScanAt, changes: { ...document.changes }, warningCount: document.warningCount, skippedCount: document.skippedCount,
       error, watcher: watcherState, revision: document.revision,
-      duplicateVerification: duplicateVerification ? { running: true, processed: duplicateVerification.processed, total: duplicateVerification.total } : null };
+      duplicateVerification: duplicateVerification ? { running: true, stopping: duplicateVerification.controller.signal.aborted, processed: duplicateVerification.processed, total: duplicateVerification.total } : null };
   }
   function notify() { try { onChange?.(status()); } catch { console.warn('La notification de bibliothèque a échoué.'); } }
   function enqueue(action) { const task = serial.then(action); serial = task.catch(() => {}); return task; }
@@ -299,16 +302,20 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
       const group = groupsByKey.get(key); if (group) group.push(item); else groupsByKey.set(key, [item]);
     }
     const groups = [...groupsByKey.entries()].filter(([, members]) => new Set(members.map(item => item.relativePath)).size > 1);
-    const current = { controller: new AbortController(), root: rootPath, revision, items, processed: 0, total: groups.length, promise: null };
-    duplicateVerification = current; verifiedDuplicateGroups = null; notify();
+    const current = { controller: new AbortController(), cancelled: false, root: rootPath, revision, items, processed: 0, total: groups.length, promise: null };
+    duplicateVerification = current; verifiedDuplicateGroups = null;
+    const sameIndex = () => duplicateVerification === current && document.revision === revision && document.items === items && document.settings.rootPath === rootPath;
     const assertCurrent = () => {
-      if (current.controller.signal.aborted || duplicateVerification !== current || document.revision !== revision || document.items !== items || document.settings.rootPath !== rootPath) {
+      if (current.controller.signal.aborted || !sameIndex()) {
         throw Object.assign(Error('La bibliothèque a changé pendant la vérification. Relancez-la.'), { code: 'LIBRARY_COMPARISON_SAFE' });
       }
     };
-    const result = { revision, totalGroups: groups.length, readyGroups: 0, needsKeeperGroups: 0, blockedGroups: 0, eligibleCopies: 0 };
+    const result = { revision, totalGroups: groups.length, processedGroups: 0, cancelled: false, readyGroups: 0, needsKeeperGroups: 0, blockedGroups: 0, eligibleCopies: 0 };
     const cache = new Map();
-    current.promise = (async () => {
+    // Defer work until the promise is available: a cancel request can arrive
+    // synchronously from the first progress notification.
+    current.promise = Promise.resolve().then(async () => {
+      try {
       for (const [key, members] of groups) {
         assertCurrent(); cleanup.invalidate();
         let status = 'blocked', eligibleCopies = 0;
@@ -331,18 +338,33 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
         if (status === 'ready') { result.readyGroups++; result.eligibleCopies += eligibleCopies; }
         else if (status === 'needs_keeper') result.needsKeeperGroups++;
         else result.blockedGroups++;
-        current.processed++; notify();
+        result.processedGroups = ++current.processed; notify();
       }
       assertCurrent();
+      } catch (failure) {
+        if (!current.cancelled || !sameIndex()) throw failure;
+        result.cancelled = true;
+      }
+      // Only completed groups reach the cache; a partially hashed group stays
+      // unverified, while users can still see work completed before stopping.
       verifiedDuplicateGroups = { root: rootPath, revision, groups: cache };
       return result;
-    })();
-    try { return await current.promise; }
-    finally {
+    }).finally(() => {
       cleanup.invalidate(); duplicates.invalidate();
       if (duplicateVerification === current) duplicateVerification = null;
       notify();
-    }
+    });
+    notify();
+    return current.promise;
+  }
+  async function cancelDuplicateVerification() {
+    const current = duplicateVerification;
+    if (!current) return null;
+    current.cancelled = true; current.controller.abort();
+    // The comparison and preparation each own their hashing signal. Abort both
+    // immediately rather than waiting for the current group to finish reading.
+    cleanup.invalidate(); duplicates.invalidate(); notify();
+    return current.promise;
   }
   async function resolveSongFolder(id) {
     if (typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id)) throw safeError('Chanson de bibliothèque invalide.');
@@ -374,7 +396,8 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     });
     return matchingCache;
   }
-  return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, verifyAllDuplicates, resolveSongFolder, matchingSnapshot,
+  return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, verifyAllDuplicates, cancelDuplicateVerification, resolveSongFolder, matchingSnapshot,
+    cleanupHistory: (options = {}) => history.list({ ...options, rootPath: document.settings.rootPath }),
     prepareCleanup: options => cleanupOperation('prepare', options), cleanupReview: options => cleanupOperation('review', options),
     cleanupForceReview: options => cleanupOperation('forceReview', options), recycleDuplicates: options => cleanupOperation('execute', options),
     forceRecycleDuplicate: options => cleanupOperation('forceExecute', options) };

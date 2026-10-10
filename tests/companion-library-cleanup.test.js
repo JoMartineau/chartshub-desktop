@@ -40,6 +40,7 @@ async function fixture(t, hooks = {}) {
   const service = createLibraryCleanup({ getDocument: () => document,
     getContext: async request => { if (hooks.context) await hooks.context(request); if (request.contextId !== context.contextId || request.revision !== context.revision || request.keepId !== context.keepId) throw Error('Private filesystem context'); return context; },
     recycle: async (target, proof) => { recycled.push(target); await hooks.recycle?.(target, proof); },
+    onCompleted: event => hooks.onCompleted?.(event),
     onCleaned: async () => { refreshes++; await hooks.onCleaned?.(); }
   });
   t.after(async () => {
@@ -55,6 +56,35 @@ async function fixture(t, hooks = {}) {
   };
 }
 const safe = failure => failure.code === 'LIBRARY_CLEANUP_SAFE' && !failure.message.includes('Private');
+
+test('completed cleanup reports only the selection and true partial outcome before refreshing', async t => {
+  const events = []; let calls = 0;
+  const f = await fixture(t, { recycle: async () => { if (++calls === 2) throw Error('Native recycle failed'); },
+    onCompleted: async event => { events.push(event); assert.equal(f.service.busy(), true); assert.equal(f.refreshes, 0); } });
+  const plan = await f.prepare(), result = await f.service.execute(f.select(plan));
+  assert.equal(events.length, 1); assert.equal(events[0].rootPath, f.rootPath); assert.equal(events[0].keep.id, plan.keepId);
+  assert.deepEqual(events[0].candidates.map(item => item.id), plan.candidates.map(item => item.id));
+  assert.deepEqual(events[0].result.recycledIds, [plan.candidates[0].id]);
+  assert.deepEqual(events[0].result.failed.map(item => item.id), [plan.candidates[1].id]);
+  assert.equal(events[0].mode, 'normal'); assert.equal(result.refreshRequested, true);
+});
+
+test('history exceptions never hide a successful native recycle and invalid keeper requests create no record', async t => {
+  let events = 0;
+  const f = await fixture(t, { onCompleted: async () => { events++; throw Error('History unavailable'); } });
+  let plan = await f.prepare();
+  await assert.rejects(f.service.execute(f.select(plan, [plan.keepId])), safe); assert.equal(events, 0);
+  plan = await f.prepare(); const result = await f.service.execute(f.select(plan, [plan.candidates[1].id]));
+  assert.deepEqual(result.recycledIds, [plan.candidates[1].id]); assert.equal(result.refreshRequested, true); assert.equal(events, 1);
+  assert.equal(result.historyError, 'Le nettoyage est terminé, mais son historique n’a pas pu être enregistré.');
+});
+
+test('a refused history write is reported without converting native success into a failure', async t => {
+  const f = await fixture(t, { onCompleted: async () => ({ recorded: false, error: 'private path' }) });
+  const plan = await f.prepare(), result = await f.service.execute(f.select(plan, [plan.candidates[0].id]));
+  assert.deepEqual(result.recycledIds, [plan.candidates[0].id]); assert.deepEqual(result.failed, []);
+  assert.equal(result.historyError, 'Le nettoyage est terminé, mais son historique n’a pas pu être enregistré.');
+});
 
 test('prepare verifies keeper first and exposes relative summaries without internal hashes or absolute paths', async t => {
   const f = await fixture(t), prepared = await f.prepare();

@@ -50,3 +50,21 @@ test('duplicate selection and protection summaries translate with actual counts 
  assert.equal(language.translate('1 copie(s) vérifiée(s) disponible(s). Cochez individuellement les copies à envoyer à la Corbeille. Aucune copie n’est sélectionnée automatiquement.'),'1 verified copy/copies available. Select each copy to send to the Recycle Bin individually. No copy is selected automatically.');
  language.apply('fr'); assert.equal(language.translate(summary),summary); assert.equal(document.documentElement.lang,'fr');
 });
+
+test('cleanup history, file differences and interrupted verification follow French and English',()=>{
+ const {runInNewContext}=require('node:vm');
+ const window={ChartsHubCompanion:{initialLanguage:'en'},dispatchEvent(){}},document={readyState:'loading',documentElement:{},addEventListener(){}};
+ runInNewContext(read('companion/ui/localization.js'),{window,document,CustomEvent:class {}});
+ const language=window.ChartshubCompanionLanguage;
+ const messages=[
+  ['Historique des nettoyages','Cleanup history'],
+  ['Arrêter la vérification','Stop verification'],
+  ['Comparer les fichiers · 2 différence(s)','Compare files · 2 difference(s)'],
+  ['2 identique(s) · 1 modifié(s) · 0 uniquement dans la version conservée · 1 uniquement dans cette copie · 0 non vérifié(s)','2 identical · 1 changed · 0 only in the kept version · 1 only in this copy · 0 unverified'],
+  ['Arrêt de la vérification en cours : 1 / 5 groupes. Les résultats terminés seront conservés.','Stopping verification: 1 / 5 groups. Completed results will be kept.'],
+  ['Vérification interrompue : 1 / 5 groupe(s) vérifié(s). 1 groupe(s) prêt(s) · 0 choix de version requis · 0 bloqué(s) · 2 copie(s) vérifiée(s). Aucun fichier n’a été supprimé.','Verification interrupted: 1 / 5 group(s) checked. 1 ready group(s) · 0 keeper choice(s) required · 0 blocked · 2 verified copy/copies. No files were deleted.'],
+  ['Le nettoyage est terminé, mais son historique n’a pas pu être enregistré.','Cleanup has finished, but its history could not be saved.']
+ ];
+ for(const [fr,en] of messages)assert.equal(language.translate(fr),en);
+ language.apply('fr'); for(const [fr] of messages)assert.equal(language.translate(fr),fr);
+});

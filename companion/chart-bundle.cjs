@@ -205,7 +205,8 @@ async function sngIndex(read, size, signal) {
     }
     if (end !== size) fail('invalid-container');
     if (!chart && !midi) fail('missing-notes', 'unsupported');
-    return { members, notes: chart || midi, mask: header.subarray(10, 26) };
+    return { members, notes: chart || midi, mask: header.subarray(10, 26),
+      metadata: { bytes: metadata.data.length, sha256: createHash('sha256').update(metadata.data).digest('hex') } };
   } catch (error) {
     if (error?.name === 'AbortError' || error?.reason) throw error;
     fail('invalid-container');
@@ -230,19 +231,22 @@ async function inspectChartBundle({ rootPath, relativePath, format, signal } = {
     const ancestry = await inspectPath(root, targetRelativePath, kind, signal), leaf = ancestry[ancestry.length - 1];
     const identity = { version: 1, targetRelativePath, kind,
       ancestors: ancestry.slice(0, -1).map(entry => descriptor(entry.stat, false)), target: descriptor(leaf.stat), files: [] };
-    let notes, audio, nonAudioHash = null, bundleHash, totalBytes, entryCount;
+    let notes, audio, nonAudioHash = null, bundleHash, totalBytes, entryCount, bundleFiles, containerMetadata = null;
     if (kind === 'sng') {
       if (leaf.stat.size > BigInt(Number.MAX_SAFE_INTEGER)) fail('unavailable-file');
       const result = await openRead(target, leaf.stat, signal, async (read, size) => {
         await inspectPath(root, targetRelativePath, kind, signal, ancestry);
         const index = await sngIndex(read, size, signal);
-        const noteHash = await hashRange(read, index.notes.position, index.notes.bytes, signal, index.mask), members = [];
-        for (const member of index.members.filter(entry => AUDIO.test(entry.name))) members.push({ ...member,
+        const members = [];
+        for (const member of index.members) members.push({ name: member.name, bytes: member.bytes,
           sha256: await hashRange(read, member.position, member.bytes, signal, index.mask) });
+        members.sort((left, right) => sortNames(left.name, right.name));
+        const noteHash = members.find(member => member.name === index.notes.name).sha256;
         return { notes: { format: index.notes.format, sha256: noteHash, bytes: index.notes.bytes }, audio: audioSummary(members), nonAudioHash: null,
-          bundleHash: await hashRange(read, 0, size, signal), totalBytes: size, entryCount: index.members.length };
+          bundleHash: await hashRange(read, 0, size, signal), totalBytes: size, entryCount: index.members.length,
+          bundleFiles: members, containerMetadata: index.metadata };
       });
-      ({ notes, audio, nonAudioHash, bundleHash, totalBytes, entryCount } = result);
+      ({ notes, audio, nonAudioHash, bundleHash, totalBytes, entryCount, bundleFiles, containerMetadata } = result);
     } else {
       const names = (await fs.readdir(target)).sort(sortNames); abort(signal);
       const normalized = new Set(), files = [], entries = [];
@@ -274,11 +278,13 @@ async function inspectChartBundle({ rootPath, relativePath, format, signal } = {
       audio = audioSummary(entries);
       nonAudioHash = manifestDigest('chartshub-nonaudio-v1', entries.filter(entry => !AUDIO.test(entry.name)));
       bundleHash = manifestDigest('chartshub-folder-v1', entries);
+      bundleFiles = entries;
       totalBytes = entries.reduce((sum, entry) => sum + entry.bytes, 0); entryCount = entries.length;
       if (!Number.isSafeInteger(totalBytes)) fail('unavailable-file');
     }
     await inspectPath(root, targetRelativePath, kind, signal, ancestry); abort(signal);
-    return { status: 'verified', reason: null, kind, targetRelativePath, notes, audio, nonAudioHash, bundleHash, totalBytes, entryCount, identity };
+    return { status: 'verified', reason: null, kind, targetRelativePath, notes, audio, nonAudioHash, bundleHash, totalBytes, entryCount, identity,
+      files: bundleFiles, containerMetadata };
   } catch (error) {
     abort(signal);
     if (error?.name === 'AbortError') throw error;

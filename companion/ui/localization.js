@@ -4,6 +4,19 @@
   let language = initial;
   let writing = false;
   const exact = new Map([
+    ['Le nettoyage est terminé, mais son historique n’a pas pu être enregistré.','Cleanup has finished, but its history could not be saved.'],
+    ['Arrêter la vérification','Stop verification'],['Arrêt en cours…','Stopping…'],['L’arrêt de la vérification n’a pas pu être confirmé.','Stopping verification could not be confirmed.'],
+    ['Historique des nettoyages','Cleanup history'],['Les 200 derniers nettoyages sont conservés. Seuls ceux du dossier Songs actuel sont affichés.','The last 200 cleanups are retained. Only records for the current Songs folder are shown.'],
+    ['Afficher l’historique','Show history'],['Masquer l’historique','Hide history'],['Actualiser l’historique','Refresh history'],['Nettoyages plus récents','Newer cleanups'],['Nettoyages plus anciens','Older cleanups'],
+    ['Chargement de l’historique…','Loading history…'],['Historique du dossier Songs actuel.','History for the current Songs folder.'],['Aucun nettoyage enregistré pour ce dossier Songs.','No cleanup recorded for this Songs folder.'],
+    ['L’historique des nettoyages est indisponible. Les résultats du nettoyage restent inchangés.','Cleanup history is unavailable. Cleanup results are unchanged.'],
+    ['Suppression avec différences confirmées','Deletion with confirmed differences'],['Nettoyage de copies identiques','Identical copies cleanup'],['Version conservée','Kept version'],
+    ['Envoyée à la Corbeille','Sent to the Recycle Bin'],['Échec de la mise à la Corbeille','Failed to send to the Recycle Bin'],['Non tentée — conservée','Not attempted — kept'],
+    ['La mise à la corbeille n’a pas pu être vérifiée ou effectuée.','Sending to the Recycle Bin could not be verified or completed.'],['Nettoyage interrompu. Les copies non traitées ont été conservées.','Cleanup interrupted. Unprocessed copies were kept.'],
+    ['Comparaison des fichiers indisponible','File comparison unavailable'],['Le contenu complet ne peut pas être comparé. Un fichier non vérifié ne doit pas être considéré comme absent.','The complete contents cannot be compared. An unverified file must not be considered missing.'],
+    ['Comparaison du contenu des fichiers avec la version conservée','File contents compared with the kept version'],['Fichier','File'],['Type','Type'],['Comparaison','Comparison'],['Version conservée (octets)','Kept version (bytes)'],['Cette copie (octets)','This copy (bytes)'],
+    ['Notes','Notes'],['Audio','Audio'],['Illustration','Artwork'],['Métadonnées','Metadata'],['Autre','Other'],['Identique','Identical'],['Modifié','Changed'],['Uniquement dans la version conservée','Only in the kept version'],['Uniquement dans cette copie','Only in this copy'],
+    ['Métadonnées du conteneur .sng','.sng container metadata'],['Encodage du conteneur .sng','.sng container encoding'],
     ['MODE DÉMO','DEMO MODE'],['CLONE HERO COMPANION','CLONE HERO COMPANION'],['Now Playing','Now Playing'],
     ['Les informations du morceau, visibles au bon moment.','Song information, visible at the right time.'],
     ['Activer l’overlay du jeu','Enable game overlay'],['Source des informations','Information source'],
@@ -200,6 +213,10 @@
   ]);
 
   const rules = [
+    [/^Arrêt de la vérification en cours : (.+) \/ (.+) groupes\. Les résultats terminés seront conservés\.$/, m => `Stopping verification: ${m[1]} / ${m[2]} groups. Completed results will be kept.`],
+    [/^Vérification interrompue : (.+) \/ (.+) groupe\(s\) vérifié\(s\)\. (.+) Aucun fichier n’a été supprimé\.$/, m => `Verification interrupted: ${m[1]} / ${m[2]} group(s) checked. ${english(m[3])} No files were deleted.`],
+    [/^Comparer les fichiers · (\d+) différence\(s\)$/, m => `Compare files · ${m[1]} difference(s)`],
+    [/^(\d+) identique\(s\) · (\d+) modifié\(s\) · (\d+) uniquement dans la version conservée · (\d+) uniquement dans cette copie · (\d+) non vérifié\(s\)$/, m => `${m[1]} identical · ${m[2]} changed · ${m[3]} only in the kept version · ${m[4]} only in this copy · ${m[5]} unverified`],
     [/^Choisissez le dossier de destination, puis utilisez .*Ajouter à la file.* sur une chart téléchargeable\.$/, () => 'Choose a destination folder, then use “Add to queue” on a downloadable chart.'],
     [/^\+(.+) ajouté(?:s)? · −(.+) supprimé(?:s)? · (.+) modifié(?:s)?$/, m => `+${m[1]} added · −${m[2]} removed · ${m[3]} modified`],
     [/^(.+) avertissement(?:s)? · (.+) élément(?:s)? ignoré(?:s)? lors de la dernière analyse\.$/, m => `${m[1]} warning(s) · ${m[2]} item(s) skipped during the last scan.`],

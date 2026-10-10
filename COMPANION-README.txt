@@ -1,3 +1,10 @@
+DOUBLONS — MODIFICATIONS EN PRÉPARATION
+Choisissez la version à conserver, puis cochez chaque copie à envoyer à la Corbeille. Aucune case n’est cochée automatiquement.
+« Comparer les fichiers » détaille les notes, l’audio, les illustrations, les métadonnées et les autres fichiers, avec les tailles et différences.
+« Arrêter la vérification » interrompt la vérification globale ; les groupes terminés et les choix de versions restent conservés.
+L’historique présente la version gardée et le résultat de chaque copie sélectionnée. Il persiste après redémarrage, reste limité au dossier Songs actif et conserve jusqu’à 200 opérations / 2 Mio.
+Un problème d’historique est signalé sans modifier le résultat du nettoyage. Les copies non cochées et la version gardée restent protégées ; changements depuis le scan, chemins hors Songs, liens/jonctions et cibles ambiguës sont refusés. Confirmation native et Corbeille Windows uniquement.
+
 ChartsHub Desktop 0.14.7 — Catalogue et Companion
 
 CORRECTIFS 0.14.7

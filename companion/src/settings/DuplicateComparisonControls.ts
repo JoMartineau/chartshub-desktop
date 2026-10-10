@@ -15,11 +15,17 @@ interface CleanupTarget {
   id: string; relativePath: string; targetRelativePath: string | null; kind: 'folder' | 'sng' | null; bytes: number | null;
   audio: { status: 'verified' | 'missing' | 'unavailable'; count: number; bytes: number };
 }
+interface BundleDifferences {
+  status: 'verified' | 'unavailable';
+  counts: { identical: number; changed: number; onlyKeeper: number; onlyCopy: number; unverified: number };
+  files: { name: string; category: 'notes' | 'audio' | 'artwork' | 'metadata' | 'other';
+    status: 'identical' | 'changed' | 'only-keeper' | 'only-copy' | 'unverified'; keeperBytes: number | null; copyBytes: number | null }[];
+}
 interface CleanupPlan {
   planId: string; contextId: string; revision: number; keepId: string; keep: CleanupTarget;
-  candidates: (CleanupTarget & { eligible: boolean; forceable: boolean; reason: string | null })[];
+  candidates: (CleanupTarget & { eligible: boolean; forceable: boolean; reason: string | null; differences?: BundleDifferences })[];
 }
-interface CleanupResult { recycledIds: string[]; failed: { id: string; reason: string }[]; cancelled: boolean; refreshRequested: boolean; }
+interface CleanupResult { recycledIds: string[]; failed: { id: string; reason: string }[]; cancelled: boolean; refreshRequested: boolean; historyError?: string; }
 interface ComparisonOptions {
   root: HTMLElement;
   command: (name: string, payload?: unknown) => Promise<unknown>;
@@ -197,7 +203,15 @@ export class DuplicateComparisonControls {
 
   private cleanupFeedback(message: string, error = false): void {
     const status = this.element('#library-cleanup-result');
-    status.textContent = message; status.hidden = !message; status.classList.toggle('is-error', error);
+    status.textContent = '';
+    const lines = message.split('\n');
+    for (const [index, line] of lines.entries()) {
+      // Keep each status/warning independently translatable, including after
+      // a language switch. Filename-bearing lines remain ordinary text.
+      const entry = this.options.root.ownerDocument.createElement('span');
+      entry.textContent = line + (index < lines.length - 1 ? '\n' : ''); status.append(entry);
+    }
+    status.hidden = !message; status.classList.toggle('is-error', error);
   }
 
   private revealCleanupResult(): void {
@@ -290,6 +304,7 @@ export class DuplicateComparisonControls {
         : candidate.forceable ? 'Les notes sont identiques et la copie est entièrement vérifiée, mais son audio ou certains fichiers diffèrent. Cette copie ne sera jamais présélectionnée.'
         : candidate.reason || 'Nettoyage bloqué : les fichiers et un audio présent doivent être entièrement vérifiés.';
       check.setAttribute('aria-describedby', reason.id); item.append(reason);
+      this.renderDifferences(candidate, item);
       if (!eligible && candidate.forceable) {
         const force = document.createElement('button'); force.type = 'button'; force.className = 'button secondary library-cleanup-force';
         force.textContent = 'Supprimer quand même'; force.setAttribute('aria-label', `Supprimer quand même cette copie : ${candidate.relativePath}`);
@@ -305,6 +320,55 @@ export class DuplicateComparisonControls {
       this.cleanupChecks.set(candidate.id, check);
     }
     this.element('#library-cleanup-plan').hidden = false;
+  }
+
+  private renderDifferences(candidate: CleanupPlan['candidates'][number], container: HTMLElement): void {
+    const document = this.options.root.ownerDocument;
+    const details = document.createElement('details'); details.className = 'library-file-differences';
+    details.open = candidate.forceable;
+    const summary = document.createElement('summary');
+    const differences = candidate.differences;
+    const categories = { notes: 'Notes', audio: 'Audio', artwork: 'Illustration', metadata: 'Métadonnées', other: 'Autre' };
+    const statuses = { identical: 'Identique', changed: 'Modifié', 'only-keeper': 'Uniquement dans la version conservée', 'only-copy': 'Uniquement dans cette copie', unverified: 'Non vérifié' };
+    const safeBytes = (bytes: unknown): boolean => bytes === null || (Number.isSafeInteger(bytes) && (bytes as number) >= 0);
+    const valid = differences && ['verified', 'unavailable'].includes(differences.status) && Array.isArray(differences.files)
+      && differences.files.every(file => !!file && typeof file.name === 'string' && !!file.name && Object.hasOwn(categories, file.category)
+        && Object.hasOwn(statuses, file.status) && safeBytes(file.keeperBytes) && safeBytes(file.copyBytes));
+    const files = valid ? differences.files : [];
+    const verified = valid && differences.status === 'verified';
+    const count = (status: BundleDifferences['files'][number]['status']): string => number(files.filter(file => file.status === status).length);
+    summary.textContent = verified ? `Comparer les fichiers · ${number(files.filter(file => file.status !== 'identical').length)} différence(s)` : 'Comparaison des fichiers indisponible';
+    details.append(summary);
+    const description = document.createElement('p');
+    description.textContent = verified
+      ? `${count('identical')} identique(s) · ${count('changed')} modifié(s) · ${count('only-keeper')} uniquement dans la version conservée · ${count('only-copy')} uniquement dans cette copie · ${count('unverified')} non vérifié(s)`
+      : 'Le contenu complet ne peut pas être comparé. Un fichier non vérifié ne doit pas être considéré comme absent.';
+    details.append(description);
+    if (files.length) {
+      const table = document.createElement('table'); table.className = 'library-file-differences-table';
+      const caption = document.createElement('caption'); caption.textContent = 'Comparaison du contenu des fichiers avec la version conservée';
+      const head = document.createElement('thead'), heading = document.createElement('tr');
+      for (const label of ['Fichier', 'Type', 'Comparaison', 'Version conservée (octets)', 'Cette copie (octets)']) {
+        const cell = document.createElement('th'); cell.setAttribute('scope', 'col'); cell.textContent = label; heading.append(cell);
+      }
+      head.append(heading); const body = document.createElement('tbody');
+      for (const file of files) {
+        const row = document.createElement('tr'); row.dataset.fileStatus = verified ? file.status : 'unverified';
+        const name = document.createElement('td');
+        if (file.name === 'SNG: metadata' || file.name === 'SNG: container') {
+          name.textContent = file.name === 'SNG: metadata' ? 'Métadonnées du conteneur .sng' : 'Encodage du conteneur .sng';
+        } else {
+          const code = document.createElement('code'); code.textContent = file.name; name.append(code);
+        }
+        row.append(name);
+        for (const value of [categories[file.category], statuses[verified ? file.status : 'unverified'], file.keeperBytes === null ? '—' : number(file.keeperBytes), file.copyBytes === null ? '—' : number(file.copyBytes)]) {
+          const cell = document.createElement('td'); cell.textContent = value; row.append(cell);
+        }
+        body.append(row);
+      }
+      table.append(caption, head, body); details.append(table);
+    }
+    container.append(details);
   }
 
   private refreshCleanupSummary(): void {
@@ -341,13 +405,15 @@ export class DuplicateComparisonControls {
         const result = response.result;
         if (!result || !Array.isArray(result.recycledIds) || !Array.isArray(result.failed)
           || result.recycledIds.some(id => !ids.includes(id)) || result.failed.some(failure => !ids.includes(failure.id) || typeof failure.reason !== 'string')
-          || typeof result.cancelled !== 'boolean' || typeof result.refreshRequested !== 'boolean') {
+          || typeof result.cancelled !== 'boolean' || typeof result.refreshRequested !== 'boolean'
+          || (result.historyError !== undefined && typeof result.historyError !== 'string')) {
           throw new Error('Le résultat du nettoyage n’a pas pu être confirmé. Actualisez la bibliothèque avant de réessayer.');
         }
         const messages = [`${number(result.recycledIds.length)} copie(s) envoyée(s) à la Corbeille Windows. Version conservée : ${plan.keep.targetRelativePath}.`];
         if (result.failed.length) messages.push(`${number(result.failed.length)} copie(s) non envoyée(s).`);
         if (result.cancelled) messages.push('Opération interrompue ; certaines copies peuvent rester en place.');
         for (const failure of result.failed) messages.push(`${plan.candidates.find(candidate => candidate.id === failure.id)?.targetRelativePath ?? failure.id} : ${failure.reason}`);
+        if (result.historyError) messages.push(result.historyError);
         messages.push(result.refreshRequested ? 'Actualisation de la bibliothèque demandée.' : 'Actualisez la bibliothèque pour vérifier les fichiers actuels.');
         this.cleanupFeedback(messages.join('\n'), result.failed.length > 0);
         if (this.current(serial, root, revision)) {
@@ -381,7 +447,8 @@ export class DuplicateComparisonControls {
         const result = response.result;
         if (!result || !Array.isArray(result.recycledIds) || !Array.isArray(result.failed)
           || result.recycledIds.some(value => value !== id) || result.failed.some(failure => failure.id !== id || typeof failure.reason !== 'string')
-          || typeof result.cancelled !== 'boolean' || typeof result.refreshRequested !== 'boolean') {
+          || typeof result.cancelled !== 'boolean' || typeof result.refreshRequested !== 'boolean'
+          || (result.historyError !== undefined && typeof result.historyError !== 'string')) {
           throw new Error('Le résultat de la suppression forcée n’a pas pu être confirmé. Actualisez la bibliothèque.');
         }
         const messages = [result.recycledIds.length
@@ -389,6 +456,7 @@ export class DuplicateComparisonControls {
           : 'Aucune copie n’a été envoyée à la Corbeille.'];
         if (result.failed[0]) messages.push(result.failed[0].reason);
         if (result.cancelled) messages.push('Opération interrompue.');
+        if (result.historyError) messages.push(result.historyError);
         messages.push(result.refreshRequested ? 'Actualisation de la bibliothèque demandée.' : 'Actualisez la bibliothèque pour vérifier les fichiers actuels.');
         this.cleanupFeedback(messages.join('\n'), result.failed.length > 0);
         if (this.current(serial, root, revision)) {

@@ -53,12 +53,13 @@ async function openHost() {
   assert.equal((await command('library.settings', { watch: false, refreshOnStart: false })).ok, true);
 }
 const files = { 'notes.chart': '[Song]\n{\n Name = "Fixture duplicates"\n Artist = "Fixture artist"\n Charter = "Fixture charter"\n}\n[ExpertSingle]\n{\n 0 = N 0 0\n}\n', 'song.ini': '[song]\nname=Fixture duplicates\nartist=Fixture artist\ncharter=Fixture charter\n', 'song.ogg': 'synthetic audio bytes - original' };
-async function fixture(name, afterScan) {
+async function fixture(name, afterScan, beforeScan) {
   activeRoot = path.join(directory, name, 'Songs');
   for (const folder of ['A-unchecked', 'B-kept', 'C-selected']) {
     const target = path.join(activeRoot, folder); await fs.mkdir(target, { recursive: true });
     for (const [file, content] of Object.entries(files)) await fs.writeFile(path.join(target, file), content);
   }
+  await beforeScan?.(activeRoot);
   await click('#library-choose-root');
   await waitFor(() => host.snapshot().library.settings.rootPath === activeRoot && host.snapshot().library.status === 'ready' && host.snapshot().library.count === 3, name + ' scan');
   await waitFor(() => evaluate("document.querySelector('#library-results').getAttribute('aria-busy')==='false'&&document.querySelectorAll('#library-rows tr').length===3"), 'fixture rows');
@@ -107,6 +108,17 @@ async function forgedPlan(f) {
   assert.equal(plan.ok, true); return plan.result;
 }
 async function capture(name) { await fs.writeFile(path.join(directory, name + '.png'), (await panel.webContents.capturePage()).toPNG()); }
+async function cleanupHistory() {
+  const response = await command('library.cleanupHistory', { offset: 0, limit: 10 });
+  assert.equal(response.ok, true); return response.result;
+}
+async function showHistory(expectedStatus) {
+  if (await evaluate("document.querySelector('#library-cleanup-history-body').hidden")) await click('#library-cleanup-history-toggle');
+  else await click('#library-cleanup-history-refresh');
+  await waitFor(() => evaluate(`document.querySelectorAll('.library-cleanup-history-entry').length===1&&!!document.querySelector('[data-history-status="${expectedStatus}"]')`), 'history shows ' + expectedStatus);
+  const text = await evaluate("document.querySelector('.library-cleanup-history-entry').textContent");
+  assert.match(text, /B-kept/); assert.match(text, /C-selected/); assert.doesNotMatch(text, /A-unchecked/);
+}
 async function fail(error) {
   if (failing) return;
   failing = true;
@@ -172,6 +184,7 @@ app.whenReady().then(async () => {
   };
   await recycleAndSettle(); assert.equal(recycled.length, 0); await intact(f);
   assert.match(await evaluate("document.querySelector('#library-cleanup-result').textContent"), /annul|cancel/i);
+  assert.equal((await cleanupHistory()).total, 0, 'cancelling confirmation records no cleanup attempt');
   passed.push('explicit keeper and individual partial selection; clear selected-path summary; final cancellation leaves all files intact');
   await openComparison(3);
   assert.equal(await evaluate("document.querySelector('.library-variant.is-preferred').dataset.variantId"), f.keepId);
@@ -185,6 +198,7 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate("document.querySelector('#library-verify-all-status').classList.contains('is-error')"), false);
   assert.match(await evaluate("document.querySelector('#library-verify-all-status').textContent"), /1 groupe\(s\) prêt\(s\).*0 choix de version requis.*0 bloqué\(s\)/);
   assert.equal(confirmations.length, beforeBulkDialogs); assert.equal(recycled.length, 0); await intact(f);
+  assert.equal((await cleanupHistory()).total, 0, 'verification alone never creates cleanup history');
   await openComparison(3); await prepare(f, false);
   assert.equal(await evaluate("document.querySelector('.library-variant.is-preferred').dataset.variantId"), f.keepId);
   passed.push('global verification button completes via the worker and retains keeper without dialogs, recycling or automatically selected copies');
@@ -249,12 +263,37 @@ app.whenReady().then(async () => {
   assert.equal(recycled.length, 0);
   passed.push('ambiguous folder containing another chart is blocked');
 
+  f = await fixture('visible-file-differences', null, async root => {
+    await fs.writeFile(path.join(root, 'C-selected', 'song.ogg'), 'synthetic audio bytes - modified');
+    await fs.writeFile(path.join(root, 'C-selected', 'extra.txt'), 'copy-only fixture file');
+    await fs.writeFile(path.join(root, 'B-kept', 'cover.jpg'), 'keeper-only fixture artwork');
+  });
+  await prepare(f, false);
+  const selectedCard = `.library-cleanup-candidate[data-cleanup-id="${f.selectedId}"]`;
+  const rows = await evaluate(`(()=>{const card=document.querySelector(${JSON.stringify(selectedCard)});return {open:card.querySelector('.library-file-differences').open,rows:[...card.querySelectorAll('.library-file-differences-table tbody tr')].map(row=>({status:row.dataset.fileStatus,text:row.textContent}))}})()`);
+  assert.equal(rows.open, true, 'different files are expanded before any delete-anyway decision');
+  assert.ok(rows.rows.some(row => row.status === 'changed' && /song\.ogg.*Audio.*Modifié/.test(row.text)));
+  assert.ok(rows.rows.some(row => row.status === 'only-copy' && /extra\.txt.*Autre.*Uniquement dans cette copie/.test(row.text)));
+  assert.ok(rows.rows.some(row => row.status === 'only-keeper' && /cover\.jpg.*Illustration.*Uniquement dans la version conservée/.test(row.text)));
+  assert.ok(rows.rows.some(row => row.status === 'identical' && /notes\.chart.*Notes.*Identique/.test(row.text)));
+  assert.equal(await evaluate("document.querySelector('.library-variant.is-preferred').dataset.variantId"), f.keepId);
+  assert.equal((await cleanupHistory()).total, 0); assert.equal(recycled.length, 0);
+  assert.equal(await fs.readFile(path.join(f.root, 'C-selected', 'extra.txt'), 'utf8'), 'copy-only fixture file');
+  await capture('file-differences');
+  passed.push('file differences show changed audio, identical notes, extra copy files and keeper-only artwork without selecting or deleting anything');
+
   f = await fixture('native-bin-failure'); await prepare(f);
   dialogAction = async () => 1; nativeError = true;
   await recycleAndSettle(); nativeError = false; assert.equal(recycled.length, 0); await intact(f);
+  const failedHistory = await cleanupHistory();
+  assert.equal(failedHistory.total, 1); assert.equal(failedHistory.entries[0].keep.id, f.keepId);
+  assert.deepEqual(failedHistory.entries[0].candidates.map(candidate => ({ id: candidate.id, status: candidate.status })), [{ id: f.selectedId, status: 'failed' }]);
+  await showHistory('failed');
   passed.push('native Recycle Bin failure preserves all files with no permanent-deletion fallback');
+  passed.push('history records the failed selected copy and protected keeper without claiming a successful recycle');
 
   f = await fixture('partial-success'); await prepare(f);
+  assert.equal((await cleanupHistory()).total, 0, 'another Songs root does not expose previous cleanup history');
   dialogAction = async () => 1;
   await recycleAndSettle();
   assert.deepEqual(recycled, [path.join(f.root, 'C-selected')]);
@@ -264,7 +303,12 @@ app.whenReady().then(async () => {
   assert.match(await evaluate("document.querySelector('#library-cleanup-result').textContent"), /1 copie\(s\).*Corbeille Windows.*B-kept/);
   await waitFor(() => evaluate("(()=>{const n=document.querySelector('#library-cleanup-result'),r=n.getBoundingClientRect();return !n.hidden&&r.height>0&&r.top>=0&&r.bottom<=window.innerHeight})()"), 'cleanup outcome stays visible after comparison collapses');
   await capture('partial-success');
+  const successHistory = await cleanupHistory();
+  assert.equal(successHistory.total, 1); assert.equal(successHistory.entries[0].keep.id, f.keepId);
+  assert.deepEqual(successHistory.entries[0].candidates.map(candidate => ({ id: candidate.id, status: candidate.status })), [{ id: f.selectedId, status: 'recycled' }]);
+  await showHistory('recycled');
   passed.push('successful native-bin dispatch moves exactly the checked copy and refreshes index; keeper and unchecked copy remain byte-identical');
+  passed.push('history lists only the selected recycled copy with its protected keeper and isolates entries by Songs root');
 
   await host.dispose(); host = null; panel = null;
   await openHost();
@@ -273,6 +317,54 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate("document.querySelector('.library-variant.is-preferred').dataset.variantId"), f.keepId);
   await prepare(f, false);
   passed.push('keeper preference persists through host/worker restart after partial cleanup; remaining copy stays unchecked');
+  assert.deepEqual(await cleanupHistory(), successHistory);
+  await showHistory('recycled');
+  passed.push('cleanup history persists through host/worker restart and remains visible in the history panel');
+
+  await click('#library-comparison-close');
+  activeRoot = path.join(directory, 'interrupt-global-verification', 'Songs');
+  const groupCount = 80, syntheticAudio = Buffer.alloc(128 * 1024, 42);
+  for (let index = 0; index < groupCount; index++) for (const copy of ['A', 'B']) {
+    const title = 'Bulk ' + String(index).padStart(3, '0'), folder = path.join(activeRoot, title + '-' + copy);
+    await fs.mkdir(folder, { recursive: true });
+    await fs.writeFile(path.join(folder, 'notes.chart'), files['notes.chart'].replace('Fixture duplicates', title));
+    await fs.writeFile(path.join(folder, 'song.ini'), files['song.ini'].replace('Fixture duplicates', title));
+    await fs.writeFile(path.join(folder, 'song.ogg'), syntheticAudio);
+  }
+  await click('#library-choose-root');
+  await waitFor(() => host.snapshot().library.settings.rootPath === activeRoot && host.snapshot().library.status === 'ready' && host.snapshot().library.count === groupCount * 2, 'bulk interruption fixture scan');
+  const bulkPage = await command('library.query', { query: '', sort: 'title', audio: 'all', duplicates: 'possible', offset: 0, limit: 50 });
+  const bulkKeep = bulkPage.result.items[0].id, bulkRevision = host.snapshot().library.revision;
+  const bulkComparison = await command('library.compareDuplicates', { id: bulkKeep, revision: bulkRevision });
+  assert.equal((await command('library.chooseDuplicate', { contextId: bulkComparison.result.contextId, revision: bulkRevision, id: bulkKeep })).ok, true);
+  const choicesFile = path.join(dataDirectory, 'library-duplicate-choices.json'), choicesBefore = await fs.readFile(choicesFile);
+  const indexFile = path.join(dataDirectory, 'library.json'), indexBefore = await fs.readFile(indexFile);
+  const beforeStopDialogs = confirmations.length, beforeStopRecycled = recycled.length;
+  await click('#library-verify-all-duplicates');
+  await waitFor(() => (host.snapshot().library.duplicateVerification?.processed ?? 0) >= 1, 'one group completed before interruption');
+  await click('#library-cancel-duplicate-verification');
+  await waitFor(() => evaluate("document.querySelector('#library-verify-all-status').textContent.includes('Vérification interrompue')&&!document.querySelector('#library-verify-all-duplicates').disabled"), 'interruption reports partial completion');
+  assert.equal(host.snapshot().library.duplicateVerification, null);
+  const interrupted = await evaluate("document.querySelector('#library-verify-all-status').textContent");
+  assert.match(interrupted, /Vérification interrompue : \d+ \/ 80/); assert.match(interrupted, /Aucun fichier n’a été supprimé/);
+  const finishedGroups = Number(interrupted.match(/interrompue : (\d+)/)[1]);
+  assert.ok(finishedGroups >= 1 && finishedGroups < groupCount);
+  assert.equal(await evaluate("document.querySelector('#library-cancel-duplicate-verification').hidden"), true);
+  assert.equal(await evaluate("document.querySelector('#library-verify-all-status').classList.contains('is-error')"), false);
+  assert.deepEqual(await fs.readFile(choicesFile), choicesBefore); assert.deepEqual(await fs.readFile(indexFile), indexBefore);
+  assert.equal(confirmations.length, beforeStopDialogs); assert.equal(recycled.length, beforeStopRecycled);
+  assert.equal((await cleanupHistory()).total, 0);
+  await capture('global-verification-interrupted');
+  await click('#library-verify-all-duplicates');
+  await waitFor(() => evaluate("!document.querySelector('#library-verify-all-duplicates').disabled&&document.querySelector('#library-verify-all-status').textContent.includes('79 choix de version requis')"), 'verification restarts and finishes');
+  assert.deepEqual(await fs.readFile(choicesFile), choicesBefore); assert.deepEqual(await fs.readFile(indexFile), indexBefore);
+  for (let index = 0; index < groupCount; index++) for (const copy of ['A', 'B']) {
+    const folder = path.join(activeRoot, 'Bulk ' + String(index).padStart(3, '0') + '-' + copy);
+    assert.deepEqual(await fs.readFile(path.join(folder, 'song.ogg')), syntheticAudio);
+  }
+  const restored = await command('library.compareDuplicates', { id: bulkKeep, revision: bulkRevision });
+  assert.equal(restored.result.preferredId, bulkKeep);
+  passed.push('global verification stops during work with partial counts, then restarts; every synthetic song, saved index and keeper preference stays unchanged');
   await host.dispose(); host = null;
   dialog.showMessageBox = originalDialog; dialog.showOpenDialog = originalPicker; shell.trashItem = originalTrash;
   await fs.writeFile(path.join(directory, 'verification.json'), JSON.stringify({ result: 'COMPANION_DUPLICATES_VERIFIED', passed, nativeBin: 'intercepted only for synthetic fixture', confirmations: confirmations.length, recycled }, null, 2));

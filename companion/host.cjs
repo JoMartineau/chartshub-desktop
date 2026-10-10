@@ -510,12 +510,16 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         const status = streamStatus();
         if (!status.enabled || !status.url) return { ok: false, error: 'Activez le serveur OBS avant de copier son adresse.' };
         clipboard.writeText(status.url);
-      } else if (command.startsWith('library.') && command !== 'library.query' && command !== 'library.openFolder' && (cleanupDialogOpen || cleanupTask)) {
+      } else if (command.startsWith('library.') && !['library.query', 'library.openFolder', 'library.cleanupHistory'].includes(command) && (cleanupDialogOpen || cleanupTask)) {
         return { ok: false, error: 'Terminez ou annulez le nettoyage des copies avant cette action.' };
       } else if (command === 'library.query') {
         return { ok: true, result: await library.query(payload) };
       } else if (command === 'library.verifyAllDuplicates') {
         return { ok: true, result: await library.verifyAllDuplicates() };
+      } else if (command === 'library.cancelDuplicateVerification') {
+        return { ok: true, result: await library.cancelDuplicateVerification() };
+      } else if (command === 'library.cleanupHistory') {
+        return { ok: true, result: await library.cleanupHistory(payload) };
       } else if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate' || command === 'library.prepareCleanup') {
         return { ok: true, result: await library[command.slice('library.'.length)](payload) };
       } else if (command === 'library.forceRecycleDuplicate') {
@@ -602,6 +606,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       return { ok: true, revision: editorRevision };
     } catch (error) {
       logger.error('Companion command failed');
+      if (command === 'library.cleanupHistory') return { ok: false, error: 'L’historique des nettoyages est indisponible. Les résultats du nettoyage restent inchangés.' };
       if (['library.prepareCleanup', 'library.recycleDuplicates', 'library.forceRecycleDuplicate', 'library.verifyAllDuplicates'].includes(command) || error?.code === 'LIBRARY_CLEANUP_SAFE') {
         return { ok: false, error: ['LIBRARY_CLEANUP_SAFE', 'LIBRARY_COMPARISON_SAFE'].includes(error?.code) ? error.message : 'Le nettoyage n’a pas pu être terminé. Vérifiez les copies puis relancez la vérification.' };
       }

@@ -39,6 +39,12 @@ Choisissez explicitement la version à conserver, puis cochez individuellement l
 
 Le nettoyage vérifie les identités et l'état de tous les fichiers depuis le scan, compare leurs contenus puis les revérifie avant l'appel natif à la Corbeille. Les changements, liens/jonctions, chemins hors du dossier Songs sélectionné et cibles ambiguës bloquent le nettoyage. Un ancien index doit être rescanné avant de permettre une suppression. Aucun recours à une suppression définitive n'est autorisé.
 
+Dépliez « Comparer les fichiers » pour consulter les notes, l’audio, les illustrations et les autres fichiers : identiques, modifiés ou présents dans une seule version, avec leurs tailles. Un fichier non vérifié reste signalé comme tel. Les différences des conteneurs SNG sont également affichées ; ce détail ne donne aucune autorisation supplémentaire de suppression.
+
+Le bouton « Arrêter la vérification » interrompt la vérification globale et conserve les résultats des groupes terminés. La vérification peut ensuite être relancée ; le choix des versions conservées reste enregistré.
+
+L’historique indique la date, la version gardée et le résultat de chaque copie sélectionnée : envoyée à la Corbeille, échec ou non tentée. Il est conservé dans le profil Companion après redémarrage et affiche uniquement le dossier Songs actif. La rétention est limitée aux 200 derniers nettoyages et à 2 Mio ; les annulations avant confirmation ne créent aucune entrée. Une erreur d’enregistrement est signalée sans modifier le résultat réel du nettoyage. La restauration des copies reste accessible dans la Corbeille Windows.
+
 Validation : `npm test` et `npm run test:companion:duplicates -- <dossier-de-resultats>`. Le test Electron utilise uniquement des Songs synthétiques isolés ; les fenêtres de confirmation et l'appel Corbeille sont interceptés. Le reste du flux (interface, IPC, worker, vérification et persistance) est réel. Le workflow PR « Companion duplicate safety » exécute les deux suites sur Windows.
 
 ### Version 0.14.7

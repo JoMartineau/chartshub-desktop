@@ -1,6 +1,13 @@
 const test = require('node:test'), assert = require('node:assert/strict'), path = require('node:path');
 const { assetPath, trustedSender, trustedFiltersWidgetCommand, validCommand } = require('../companion/security.cjs');
 const root = path.resolve(__dirname, '../companion');
+
+test('history IPC accepts bounded pagination only and verification cancellation accepts no target', () => {
+  for (const payload of [{}, { offset: 0, limit: 10 }, { offset: 200, limit: 50 }]) assert.equal(validCommand('library.cleanupHistory', payload, []), true);
+  for (const payload of [{ rootPath: 'C:/Songs' }, { offset: -1 }, { offset: 201 }, { limit: 51 }, { limit: 0 }, { ids: [] }, { offset: 0.5 }, []]) assert.equal(validCommand('library.cleanupHistory', payload, []), false);
+  for (const payload of [undefined, null, {}]) assert.equal(validCommand('library.cancelDuplicateVerification', payload, []), true);
+  for (const payload of [{ ids: [] }, { rootPath: 'C:/Songs' }, []]) assert.equal(validCommand('library.cancelDuplicateVerification', payload, []), false);
+});
 test('companion assets remain in local UI/dist directories', () => {
   assert.equal(assetPath(root, 'https://app/ui/index.html'), null);
   assert.equal(assetPath(root, 'chartshub-companion://other/ui/index.html'), null);
