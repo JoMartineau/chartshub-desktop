@@ -28,7 +28,7 @@ function trustedFiltersWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'filters')) && trustedSender(event, window, 'filters-widget.html');
 }
 function trustedCatalogueWidgetCommand(event, window, command, payload) {
-  return (['catalogue.widget', 'catalogue.search', 'catalogue.refresh', 'downloads.enqueue', 'downloads.chooseRoot', 'downloads.pause', 'downloads.resume', 'downloads.cancel', 'downloads.retry'].includes(command)
+  return (['catalogue.widget', 'catalogue.search', 'catalogue.refresh', 'catalogue.favorite', 'downloads.enqueue', 'downloads.chooseRoot', 'downloads.pause', 'downloads.resume', 'downloads.cancel', 'downloads.retry'].includes(command)
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
@@ -84,12 +84,15 @@ function validCommand(command, payload, widgetIds) {
     && widgetIds.includes(payload.id) && typeof payload.fontSize === 'number' && Number.isFinite(payload.fontSize) && payload.fontSize >= 8 && payload.fontSize <= 200
     && Object.keys(payload).every(key => ['revision', 'id', 'fontSize'].includes(key));
   if (command === 'downloads.enqueue') return typeof payload.chartId === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/.test(payload.chartId) && Object.keys(payload).every(key => key === 'chartId');
+  if (command === 'catalogue.favorite') return Object.keys(payload).length === 2 && Object.keys(payload).every(key => ['chartId', 'favorite'].includes(key))
+    && typeof payload.chartId === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/.test(payload.chartId) && typeof payload.favorite === 'boolean';
   if (['downloads.pause', 'downloads.resume', 'downloads.cancel', 'downloads.retry', 'downloads.remove', 'downloads.openFolder'].includes(command)) return typeof payload.id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(payload.id) && Object.keys(payload).every(key => key === 'id');
   if (command === 'catalogue.search') {
     const textFields = ['query', 'artist', 'charter', 'genre', 'year', 'instrument', 'difficulty'];
-    return Object.keys(payload).every(key => [...textFields, 'verified', 'installed', 'page'].includes(key))
+    return Object.keys(payload).every(key => [...textFields, 'verified', 'installed', 'page', 'favorites'].includes(key))
       && textFields.every(key => typeof payload[key] === 'string' && payload[key].length <= (key === 'query' ? 200 : 128) && !/[\u0000-\u001f\u007f]/.test(payload[key]))
       && ['all', 'yes'].includes(payload.verified) && ['all', 'linked', 'unlinked'].includes(payload.installed)
+      && (!Object.hasOwn(payload, 'favorites') || ['all', 'yes'].includes(payload.favorites))
       && Number.isSafeInteger(payload.page) && payload.page >= 1 && payload.page <= 1000;
   }
   if (command === 'catalogue.candidates') return typeof payload.localId === 'string' && /^[a-f0-9]{64}$/.test(payload.localId) && Object.keys(payload).every(key => key === 'localId');

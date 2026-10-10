@@ -18,6 +18,7 @@ html, body { margin: 0; min-width: 0; min-height: 100%; background: transparent;
 .catalogue-widget-tabs [aria-selected="true"] { border-color: #a8e3ce; background: #9ddcc020; }
 .catalogue-widget-app label { display: flex; flex-direction: column; gap: 5px; font-size: .9em; }
 .catalogue-widget-app input { width: 100%; min-width: 0; }
+.catalogue-widget-app select { width: 100%; min-width: 0; }
 .catalogue-widget-filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
 .catalogue-widget-extra-filters { margin-top: 12px; }
 .catalogue-widget-app summary { cursor: pointer; padding: 5px 0; }
@@ -39,6 +40,17 @@ html, body { margin: 0; min-width: 0; min-height: 100%; background: transparent;
 .catalogue-charter-avatar img { object-fit: contain; }
 .catalogue-card-tags, .catalogue-card-charter, .catalogue-card-instruments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
 .catalogue-game-badge { border: 1px solid #5184a8; color: #8bd6ff; border-radius: 5px; padding: 1px 6px; font-size: .75em; }
+.catalogue-installed-badge { border: 1px solid #a8e3ce88; color: #a8e3ce; border-radius: 5px; padding: 1px 6px; font-size: .75em; }
+.catalogue-installed-badge[data-status="candidate"] { border-color: #e8cb8888; color: #e8cb88; }
+.catalogue-card-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 8px; }
+.catalogue-card-controls .catalogue-favorite { margin: 0; min-width: 36px; font-size: 1.15em; }
+.catalogue-favorite[aria-pressed="true"] { color: #ffe18e; border-color: #ffe18e88; }
+.catalogue-widget-app .catalogue-selection-label { flex-direction: row; align-items: center; min-width: 0; gap: 7px; cursor: pointer; }
+.catalogue-widget-app .catalogue-selection-check { width: 18px; height: 18px; min-height: 18px; padding: 0; margin: 0; flex: none; accent-color: #a8e3ce; }
+.catalogue-widget-selection { padding: 10px; margin: 12px 0; border: 1px solid #a8e3ce66; border-radius: 7px; overflow-wrap: anywhere; }
+.catalogue-widget-selection p { margin: 4px 0; }
+.catalogue-widget-selection ul { margin: 6px 0; padding-left: 22px; max-height: 160px; overflow: auto; }
+.catalogue-widget-selection button { max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
 .catalogue-charter-name { min-width: 0; font-weight: 600; }
 .catalogue-staff-badge { display: inline-flex; align-items: center; max-width: 100%; gap: 4px; padding: 2px 7px; border: 1px solid; border-radius: 999px; font-size: .7em; font-weight: 600; line-height: 1.4; }
 .catalogue-staff-moderator { border-color: #8a87f4; color: #8fddff; }

@@ -7,6 +7,10 @@ const snapshot = (extra = {}) => ({ language: 'fr', catalogue: { revision: 1, st
 const chart = (id, extra = {}) => ({ id, title: `Title ${id}`, artist: 'Artist', charter: 'Creator', downloadable: true, ...extra });
 const uuid = n => `${n.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`;
 const download = (n, state = 'Downloading', extra = {}) => ({ id: uuid(n), chartId: `chart-${n}`, title: `Download ${n}`, artist: 'Artist', state, receivedBytes: 25, totalBytes: 100, updatedAt: `2026-10-${String(Math.min(n + 1, 28)).padStart(2, '0')}T12:00:00.000Z`, ...extra });
+const cardFor = (ui, id) => ui.get('#catalogue-widget-results').children.find(card => card.dataset.chartId === id);
+function selectChart(ui, id, checked = true) {
+  const checkbox = cardFor(ui, id).querySelector('.catalogue-selection-check'); checkbox.checked = checked; checkbox.dispatchEvent(new Event('change'));
+}
 async function setup(t) {
   const { CatalogueWidgetControls } = await import('../companion/ui/catalogue-widget.js');
   const document = createDocument(), root = document.createElement('main'), calls = [];
@@ -38,8 +42,8 @@ test('search results render hostile metadata as text and enqueue sends only the 
   await ui.respond(0, { items: [result] });
   const row = ui.get('#catalogue-widget-results').children[0]; assert.equal(row.querySelector('h3').textContent, unsafe);
   assert.equal(row.querySelectorAll('p')[0].textContent, unsafe); assert.ok(!ui.root.textContent.includes('private.invalid'));
-  row.querySelector('button').click(); assert.deepEqual(ui.calls[1].payload, { chartId: 'chart-1' }); assert.equal(ui.calls[1].name, 'downloads.enqueue');
-  assert.equal(ui.get('#catalogue-widget-results').querySelector('button').disabled, true);
+  row.querySelector('.catalogue-download-single').click(); assert.deepEqual(ui.calls[1].payload, { chartId: 'chart-1' }); assert.equal(ui.calls[1].name, 'downloads.enqueue');
+  assert.equal(ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').disabled, true);
   ui.calls[1].resolve({ ok: true, result: { id: uuid(1) } }); await tick(); assert.match(ui.get('#catalogue-widget-feedback').textContent, /ajoutée/);
 });
 
@@ -124,7 +128,7 @@ test('download progress preserves card and image identity while queued chart cha
   const first = ui.get('#catalogue-widget-results').children[0];
   ui.controls.update(snapshot({ downloads: { revision: 2, hasRoot: true, items: [download(1)] } }));
   const queued = ui.get('#catalogue-widget-results').children[0], image = queued.querySelector('img'), details = queued.querySelector('details');
-  assert.notEqual(queued, first); assert.equal(queued.querySelector('button').disabled, true); assert.equal(queued.querySelector('button').textContent, 'Déjà dans la file');
+  assert.notEqual(queued, first); assert.equal(queued.querySelector('.catalogue-download-single').disabled, true); assert.equal(queued.querySelector('.catalogue-download-single').textContent, 'Déjà dans la file');
   details.open = true; details.dispatchEvent(new Event('toggle')); queued.querySelector('summary').focus();
   for (const [revision, receivedBytes] of [[3, 40], [4, 80]]) {
     ui.controls.update(snapshot({ downloads: { revision, hasRoot: true, items: [download(1, 'Downloading', { receivedBytes })] } }));
@@ -135,8 +139,110 @@ test('download progress preserves card and image identity while queued chart cha
   }
   ui.controls.update(snapshot({ downloads: { revision: 5, hasRoot: true, items: [download(1, 'Completed', { receivedBytes: 100 })] } }));
   const completed = ui.get('#catalogue-widget-results').children[0]; assert.notEqual(completed, queued);
-  assert.equal(completed.querySelector('button').disabled, false); assert.equal(completed.querySelector('button').textContent, 'Télécharger'); assert.equal(completed.querySelector('details').open, true);
+  assert.equal(completed.querySelector('.catalogue-download-single').disabled, false); assert.equal(completed.querySelector('.catalogue-download-single').textContent, 'Télécharger'); assert.equal(completed.querySelector('details').open, true);
   assert.equal(ui.calls.length, 1);
+});
+
+test('installed labels distinguish confirmed links from candidates and filters preserve that distinction', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot());
+  ui.get('#catalogue-widget-installed').value = 'unlinked'; ui.get('#catalogue-widget-favorites').value = 'yes'; ui.search('local');
+  assert.equal(ui.calls[0].payload.installed, 'unlinked'); assert.equal(ui.calls[0].payload.favorites, 'yes');
+  await ui.respond(0, { items: [chart('linked', { installed: { status: 'linked' } }), chart('candidate', { installed: { status: 'candidate' } }), chart('none', { installed: { status: 'none' }, installedTitle: 'Déjà installé' })] });
+  assert.equal(cardFor(ui, 'linked').querySelector('.catalogue-installed-badge').textContent, 'Déjà installé');
+  assert.equal(cardFor(ui, 'candidate').querySelector('.catalogue-installed-badge').textContent, 'À confirmer');
+  assert.equal(cardFor(ui, 'candidate').querySelector('.catalogue-installed-badge').dataset.status, 'candidate');
+  assert.equal(cardFor(ui, 'none').querySelector('.catalogue-installed-badge'), null);
+  assert.equal(cardFor(ui, 'linked').querySelector('.catalogue-selection-check').disabled, false);
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  assert.equal(cardFor(ui, 'linked').querySelector('.catalogue-installed-badge').textContent, 'Already installed');
+  assert.equal(cardFor(ui, 'candidate').querySelector('.catalogue-installed-badge').textContent, 'Needs confirmation');
+  assert.equal(ui.get('#catalogue-widget-favorites-yes').textContent, 'My favorites');
+  ui.get('#catalogue-widget-installed').value = 'linked'; ui.get('#catalogue-widget-favorites').value = 'all'; ui.search('local');
+  assert.equal(ui.calls[1].payload.installed, 'linked'); assert.equal(ui.calls[1].payload.favorites, undefined); assert.equal(ui.calls.some(call => call.name === 'downloads.enqueue'), false);
+});
+
+test('favorites wait for a persisted acknowledgement, reload the current filter and reject rapid duplicate toggles', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('favorite'); await ui.respond(0, { items: [chart('favorite', { favorite: false })] });
+  cardFor(ui, 'favorite').querySelector('.catalogue-favorite').click();
+  assert.deepEqual(ui.calls[1].payload, { chartId: 'favorite', favorite: true }); assert.equal(ui.calls[1].name, 'catalogue.favorite');
+  assert.equal(cardFor(ui, 'favorite').querySelector('.catalogue-favorite').getAttribute('aria-pressed'), 'false');
+  cardFor(ui, 'favorite').querySelector('.catalogue-favorite').click(); ui.search('should-not-submit'); assert.equal(ui.calls.length, 2);
+  ui.calls[1].resolve({ ok: true, result: { chartId: 'favorite', favorite: true } }); await tick();
+  assert.equal(ui.calls[2].name, 'catalogue.search'); assert.equal(ui.calls[2].payload.query, 'favorite');
+  await ui.respond(2, { items: [chart('favorite', { favorite: true })] });
+  assert.equal(cardFor(ui, 'favorite').querySelector('.catalogue-favorite').getAttribute('aria-pressed'), 'true');
+  assert.equal(cardFor(ui, 'favorite').querySelector('.catalogue-favorite').textContent, '★');
+  const reopened = await setup(t); reopened.controls.update(snapshot()); reopened.get('#catalogue-widget-favorites').value = 'yes'; reopened.search('favorite');
+  await reopened.respond(0, { items: [chart('favorite', { favorite: true })] });
+  assert.equal(cardFor(reopened, 'favorite').querySelector('.catalogue-favorite').getAttribute('aria-pressed'), 'true');
+  cardFor(reopened, 'favorite').querySelector('.catalogue-favorite').click(); assert.deepEqual(reopened.calls[1].payload, { chartId: 'favorite', favorite: false });
+  reopened.calls[1].resolve({ ok: true, result: { chartId: 'favorite', favorite: false } }); await tick();
+  assert.equal(reopened.calls[2].payload.favorites, 'yes'); await reopened.respond(2, { items: [] }); assert.equal(reopened.get('#catalogue-widget-results').children.length, 0);
+  assert.equal([...ui.calls, ...reopened.calls].some(call => call.name === 'downloads.enqueue'), false);
+});
+
+test('favorite failures and late acknowledgements after closing do not invent saved state or start a hidden search', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('favorite'); await ui.respond(0, { items: [chart('favorite', { favorite: false })] });
+  cardFor(ui, 'favorite').querySelector('.catalogue-favorite').click(); ui.calls[1].resolve({ ok: false, error: 'private ignored' }); await tick();
+  assert.equal(cardFor(ui, 'favorite').querySelector('.catalogue-favorite').getAttribute('aria-pressed'), 'false'); assert.equal(ui.calls.length, 2);
+  assert.match(ui.get('#catalogue-widget-feedback').textContent, /pas pu être enregistré/); assert.doesNotMatch(ui.root.textContent, /private ignored/);
+  cardFor(ui, 'favorite').querySelector('.catalogue-favorite').click(); ui.get('#catalogue-widget-close').click();
+  assert.equal(ui.calls[3].name, 'catalogue.widget'); ui.calls[3].resolve({ ok: true }); await tick();
+  ui.calls[2].resolve({ ok: true, result: { chartId: 'favorite', favorite: true } }); await tick();
+  assert.equal(ui.calls.length, 4); assert.equal(cardFor(ui, 'favorite').querySelector('.catalogue-favorite').getAttribute('aria-pressed'), 'false');
+});
+
+test('selection is explicit, can be cleared without transfer, and downloads only chosen charts with partial retry', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('batch');
+  await ui.respond(0, { items: [chart('a'), chart('b'), chart('c', { title: '<img src=x onerror=evil()>' })] });
+  selectChart(ui, 'a'); selectChart(ui, 'c');
+  assert.match(ui.get('#catalogue-widget-selection-summary').textContent, /^2 charts sélectionnées/);
+  assert.equal(ui.get('#catalogue-widget-selection-items').children.length, 2); assert.equal(ui.get('#catalogue-widget-selection-items').querySelectorAll('img').length, 0); assert.equal(ui.calls.length, 1);
+  ui.get('#catalogue-widget-clear-selection').click(); assert.equal(ui.get('#catalogue-widget-selection').hidden, true); assert.equal(ui.calls.length, 1);
+  selectChart(ui, 'a'); selectChart(ui, 'c'); ui.get('#catalogue-widget-download-selected').click();
+  assert.deepEqual(ui.calls[1].payload, { chartId: 'a' }); assert.equal(ui.calls[1].name, 'downloads.enqueue');
+  ui.get('#catalogue-widget-download-selected').click(); ui.search('blocked'); ui.get('#catalogue-widget-refresh').click(); assert.equal(ui.calls.length, 2);
+  assert.ok(ui.get('#catalogue-widget-results').querySelectorAll('.catalogue-selection-check').every(box => box.disabled));
+  ui.calls[1].resolve({ ok: true, result: { id: uuid(1) } }); await tick(); assert.deepEqual(ui.calls[2].payload, { chartId: 'c' });
+  ui.calls[2].resolve({ ok: false, error: 'synthetic failure' }); await tick();
+  assert.equal(cardFor(ui, 'a').querySelector('.catalogue-selection-check').checked, false); assert.equal(cardFor(ui, 'b').querySelector('.catalogue-selection-check').checked, false); assert.equal(cardFor(ui, 'c').querySelector('.catalogue-selection-check').checked, true);
+  assert.match(ui.get('#catalogue-widget-batch-status').textContent, /1 ajout\(s\).*1 échec\(s\)/);
+  ui.get('#catalogue-widget-download-selected').click(); assert.deepEqual(ui.calls[3].payload, { chartId: 'c' }); ui.calls[3].resolve({ ok: true, result: { id: uuid(3) } }); await tick();
+  assert.deepEqual(ui.calls.filter(call => call.name === 'downloads.enqueue').map(call => call.payload.chartId), ['a', 'c', 'c']);
+  assert.equal(ui.controls.selectedCharts.size, 0);
+});
+
+test('batch cancellation stops future additions, retains remaining selection and localizes the result', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('batch'); await ui.respond(0, { items: [chart('a'), chart('b')] });
+  selectChart(ui, 'a'); selectChart(ui, 'b'); ui.get('#catalogue-widget-download-selected').click();
+  ui.get('#catalogue-widget-cancel-batch').click(); ui.calls[1].resolve({ ok: true, result: { id: uuid(1) } }); await tick();
+  assert.equal(ui.calls.length, 2); assert.equal(cardFor(ui, 'b').querySelector('.catalogue-selection-check').checked, true);
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  assert.equal(ui.get('#catalogue-widget-selection-summary').textContent, '1 selected chart'); assert.match(ui.get('#catalogue-widget-batch-status').textContent, /Remaining additions stopped/);
+  assert.equal(cardFor(ui, 'b').querySelector('.catalogue-selection-check').checked, true); assert.equal(ui.calls.length, 2);
+  ui.get('#catalogue-widget-download-selected').click(); ui.calls[2].resolve({ ok: true, cancelled: true }); await tick();
+  assert.equal(cardFor(ui, 'b').querySelector('.catalogue-selection-check').checked, true); assert.equal(ui.calls.length, 3);
+});
+
+test('new searches clear selection and unavailable or newly queued charts cannot enter a batch', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot({ downloads: { revision: 1, hasRoot: true, items: [download(1)] } })); ui.search('batch');
+  await ui.respond(0, { items: [chart('chart-1'), chart('not-downloadable', { downloadable: false }), chart('a'), chart('b')] });
+  for (const id of ['chart-1', 'not-downloadable']) { assert.equal(cardFor(ui, id).querySelector('.catalogue-selection-check').disabled, true); selectChart(ui, id); }
+  assert.equal(ui.controls.selectedCharts.size, 0); selectChart(ui, 'a'); selectChart(ui, 'b');
+  ui.controls.update(snapshot({ downloads: { revision: 2, hasRoot: true, items: [download(1), download(2, 'Queued', { chartId: 'a' })] } }));
+  assert.equal(ui.controls.selectedCharts.has('a'), false); ui.get('#catalogue-widget-download-selected').click(); assert.deepEqual(ui.calls[1].payload, { chartId: 'b' }); ui.calls[1].resolve({ ok: false }); await tick();
+  ui.search('new'); assert.equal(ui.controls.selectedCharts.size, 0); await ui.respond(2, { items: [chart('new')] });
+  ui.get('#catalogue-widget-download-selected').click(); assert.equal(ui.calls.length, 3);
+  ui.controls.update(snapshot({ catalogue: { revision: 1, status: 'ready', demo: true } })); assert.equal(cardFor(ui, 'new').querySelector('.catalogue-selection-check').disabled, true);
+});
+
+test('closing during a batch prevents later chart IDs from being enqueued', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('batch'); await ui.respond(0, { items: [chart('a'), chart('b')] });
+  selectChart(ui, 'a'); selectChart(ui, 'b'); ui.get('#catalogue-widget-download-selected').click(); ui.get('#catalogue-widget-close').click();
+  assert.equal(ui.calls[2].name, 'catalogue.widget'); ui.calls[2].resolve({ ok: true }); await tick();
+  ui.calls[1].resolve({ ok: true, result: { id: uuid(1) } }); await tick();
+  assert.deepEqual(ui.calls.filter(call => call.name === 'downloads.enqueue').map(call => call.payload.chartId), ['a']);
+  assert.equal(cardFor(ui, 'b').querySelector('.catalogue-selection-check').checked, true);
 });
 
 test('late searches and refresh responses cannot replace the current results or trigger an automatic transfer', async t => {
@@ -153,18 +259,18 @@ test('pagination retains filters, and a changed catalogue blocks stale downloads
   ui.get('#catalogue-widget-next').click(); assert.equal(ui.calls[1].payload.query, 'song'); assert.equal(ui.calls[1].payload.page, 2);
   await ui.respond(1, { page: 2, total: 40, items: [chart('second')] }); assert.equal(ui.get('#catalogue-widget-next').disabled, true);
   ui.controls.update(snapshot({ catalogue: { revision: 2, status: 'ready', demo: false } }));
-  assert.equal(ui.get('#catalogue-widget-results').querySelector('button').disabled, true); assert.match(ui.get('#catalogue-widget-search-status').textContent, /catalogue a changé/);
-  ui.search('song'); await ui.respond(2); assert.equal(ui.get('#catalogue-widget-results').querySelector('button').disabled, false);
+  assert.equal(ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').disabled, true); assert.match(ui.get('#catalogue-widget-search-status').textContent, /catalogue a changé/);
+  ui.search('song'); await ui.respond(2); assert.equal(ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').disabled, false);
 });
 
 test('missing download root, demo entries and queued charts stay disabled, and choosing a folder is explicit', async t => {
   const ui = await setup(t); ui.controls.update(snapshot({ downloads: { revision: 1, hasRoot: false, items: [] } })); ui.search('song'); await ui.respond(0);
-  ui.get('#catalogue-widget-results').querySelector('button').click(); assert.equal(ui.calls.length, 1);
+  ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').click(); assert.equal(ui.calls.length, 1);
   ui.get('#catalogue-widget-choose-root').click(); assert.equal(ui.calls[1].name, 'downloads.chooseRoot'); assert.equal(ui.calls[1].payload, undefined);
   ui.calls[1].resolve({ ok: true, cancelled: true }); await tick(); assert.equal(ui.calls.length, 2);
-  ui.controls.update(snapshot({ catalogue: { revision: 1, status: 'ready', demo: true } })); assert.equal(ui.get('#catalogue-widget-results').querySelector('button').disabled, true);
+  ui.controls.update(snapshot({ catalogue: { revision: 1, status: 'ready', demo: true } })); assert.equal(ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').disabled, true);
   ui.controls.update(snapshot({ downloads: { revision: 2, hasRoot: true, items: [download(1)] } }));
-  assert.equal(ui.get('#catalogue-widget-results').querySelector('button').disabled, true); assert.match(ui.get('#catalogue-widget-results').textContent, /Déjà dans la file/);
+  assert.equal(ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').disabled, true); assert.match(ui.get('#catalogue-widget-results').textContent, /Déjà dans la file/);
 });
 
 test('download controls show real progress and send only allowed actions by queue id', async t => {

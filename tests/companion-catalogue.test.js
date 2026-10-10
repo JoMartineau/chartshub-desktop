@@ -41,6 +41,69 @@ test('startup is offline; first concurrent searches and candidates share one cat
   assert.equal(f.service.status().status, 'ready'); assert.equal(f.service.status().availableCount, 1);
 });
 
+test('local favorites annotate and filter known records, preserve manual-link meaning and persist without network refresh', async t => {
+  const f = await fixture(t, { records: [record(), record(2)] });
+  await assert.rejects(f.service.favorite({ chartId: record().id, favorite: true }), /catalogue chargé/);
+  assert.equal(f.requests.length, 0);
+  const first = await f.service.search(); assert.ok(first.items.every(item => item.favorite === false));
+  const context = await f.service.candidates(local.id), before = f.service.status().revision;
+  assert.deepEqual(await f.service.favorite({ chartId: record(2).id, favorite: true }), { chartId: record(2).id, favorite: true });
+  assert.equal(f.service.status().revision, before + 1); assert.equal(f.service.status().status, 'ready'); assert.equal(f.requests.length, 1);
+  await f.service.favorite({ chartId: record(2).id, favorite: true }); assert.equal(f.service.status().revision, before + 1, 'an unchanged favorite does not invalidate pages');
+  const favorites = await f.service.search({ favorites: 'yes' }); assert.equal(favorites.total, 1); assert.equal(favorites.items[0].id, record(2).id); assert.equal(favorites.items[0].installed.status, 'candidate');
+  assert.equal((await f.service.search({ favorites: 'yes', installed: 'linked' })).total, 0, 'metadata candidates are never treated as installed');
+  await f.service.link({ localId: local.id, chartId: record(2).id, contextId: context.contextId });
+  assert.equal((await f.service.search({ favorites: 'yes', installed: 'linked' })).total, 1, 'favorite changes do not invalidate explicit association contexts');
+  const other = f.create(); await other.load(); assert.equal((await other.search({ favorites: 'yes' })).items[0].favorite, true);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(f.directory, 'favorites.json'), 'utf8')), { version: 1, ids: [record(2).id] });
+  await f.service.stop(); await assert.rejects(f.service.favorite({ chartId: record(2).id, favorite: false }), /catalogue chargé/);
+  await f.service.start(); assert.equal((await f.service.search({ favorites: 'yes' })).total, 1);
+  await f.service.favorite({ chartId: record(2).id, favorite: false }); assert.equal((await f.service.search({ favorites: 'yes' })).total, 0);
+});
+
+test('favorite mutations reject unknown IDs and invalid payloads while retaining favorites absent from a refreshed catalogue', async t => {
+  const f = await fixture(t, { records: [record(), record(2)] }); await f.service.search();
+  for (const payload of [undefined, { chartId: 'unknown', favorite: true }, { chartId: '../outside', favorite: true }, { chartId: record().id, favorite: 1 }, { chartId: record().id, favorite: true, path: 'outside' }]) await assert.rejects(f.service.favorite(payload));
+  await assert.rejects(fs.stat(path.join(f.directory, 'favorites.json')), { code: 'ENOENT' });
+  await f.service.favorite({ chartId: record(2).id, favorite: true }); f.records = [record()]; await f.service.refresh();
+  await assert.rejects(f.service.favorite({ chartId: record(2).id, favorite: false }), /catalogue chargé/);
+  await f.service.favorite({ chartId: record().id, favorite: true });
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(f.directory, 'favorites.json'), 'utf8')).ids, [record().id, record(2).id]);
+  f.records.push(record(2)); await f.service.refresh(); assert.equal((await f.service.search({ favorites: 'yes' })).total, 2);
+  for (const favorites of [null, undefined, true, 'no']) await assert.rejects(f.service.search({ favorites }), /Filtres/);
+});
+
+test('catalogue reads remain usable with protected favorites and surface a storage warning without changing the file', async t => {
+  const f = await fixture(t), file = path.join(f.directory, 'favorites.json'), original = '{"version":8,"privateFuture":"preserve"}';
+  await fs.writeFile(file, original); const page = await f.service.search(); assert.equal(page.items[0].favorite, false); assert.equal(page.total, 1);
+  assert.match(f.service.status().warning, /favoris.*plus récente/);
+  await assert.rejects(f.service.favorite({ chartId: record().id, favorite: true }), /protégé/); assert.equal(await fs.readFile(file, 'utf8'), original);
+});
+
+test('favorite persistence failures never expose native paths to the renderer or claim a successful revision', async t => {
+  const favorites = require('../companion/catalogue-favorites.cjs');
+  const factory = await injected({ './catalogue-favorites.cjs': { createCatalogueFavorites(options) {
+    const store = favorites.createCatalogueFavorites(options);
+    return { ...store, set: async () => { throw Error('EACCES C:/private/chartshub-account/favorites.json'); } };
+  } } });
+  const f = await fixture(t, { factory }); await f.service.search(); const before = f.service.status().revision;
+  await assert.rejects(f.service.favorite({ chartId: record().id, favorite: true }), error => /Impossible/.test(error.message) && !/private|EACCES|favorites\.json/.test(error.message));
+  assert.equal(f.service.status().revision, before); assert.equal((await f.service.search()).items[0].favorite, false);
+});
+
+test('stop during favorite startup cannot reactivate catalogue requests when the older start completes', async t => {
+  const entered = deferred(), release = deferred(), favorites = require('../companion/catalogue-favorites.cjs');
+  const factory = await injected({ './catalogue-favorites.cjs': { createCatalogueFavorites(options) {
+    const store = favorites.createCatalogueFavorites(options);
+    return { ...store, async start() { await store.start(); entered.resolve(); await release.promise; return store.status(); } };
+  } } });
+  const f = await fixture(t, { factory }); await f.service.load();
+  const pendingStart = f.service.start(); await entered.promise; await f.service.stop();
+  release.resolve(); await pendingStart;
+  await assert.rejects(f.service.search(), /arrêté/); assert.equal(f.requests.length, 0);
+  await f.service.start(); assert.equal((await f.service.search()).total, 1); assert.equal(f.requests.length, 1);
+});
+
 test('card presentation snapshots are independent and charter icons use the known artwork proxy cache', async t => {
   const charterIconUrl = 'https://chartshub.ca/api/charts/11111111-1111-4111-8111-111111111111/FixtureCharterIcon/charter-icon';
   const f = await fixture(t, { records: [record(1, { charter: 'JoMartineau', charterSegments: [{ text: 'Jo', color: 'pink' }, { text: 'Martineau', color: 'cyan' }], charterIconUrl, staffRole: 'moderator', game: ['Clone Hero'], duration: 245, instrumentIntensities: { Guitar: 2 } })] });

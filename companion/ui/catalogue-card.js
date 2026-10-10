@@ -46,6 +46,13 @@ export function createCatalogueCard(document, item, { locale, demo, signal, expa
   body.append(make('h3', safeText(item.title) || '—'), make('p', safeText(item.artist) || '—', 'catalogue-item-artist'));
   const tags = make('div', '', 'catalogue-card-tags');
   if (Array.isArray(item.game) && item.game.includes('Clone Hero')) tags.append(make('span', 'Clone Hero', 'catalogue-game-badge'));
+  if (!demo && ['linked', 'candidate'].includes(item.installed?.status)) {
+    const linked = item.installed.status === 'linked';
+    const installed = make('span', linked ? tr('Déjà installé', 'Already installed') : tr('À confirmer', 'Needs confirmation'), 'catalogue-installed-badge');
+    installed.dataset.status = item.installed.status;
+    installed.title = linked ? tr('Association confirmée avec la bibliothèque locale.', 'Confirmed link to the local library.') : tr('Correspondance possible, installation non confirmée.', 'Possible match; installation is not confirmed.');
+    tags.append(installed);
+  }
   body.append(tags);
 
   const instruments = make('div', '', 'catalogue-card-instruments');

@@ -676,6 +676,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         if (!folder || await shell.openPath(folder)) return { ok: false, error: 'Ce dossier de chanson n’est plus accessible.' };
       } else if (command === 'catalogue.search') {
         return { ok: true, result: await catalogue.search(payload) };
+      } else if (command === 'catalogue.favorite') {
+        return { ok: true, result: await catalogue.favorite(payload) };
       } else if (command === 'catalogue.candidates') {
         return { ok: true, result: await catalogue.candidates(payload.localId) };
       } else if (command === 'catalogue.refresh') {

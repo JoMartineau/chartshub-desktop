@@ -14,8 +14,8 @@ const directory = path.join(output, 'catalogue-widget-' + randomUUID()), dataDir
 app.setPath('userData', path.join(directory, 'electron-profile')); app.disableHardwareAcceleration();
 app.on('window-all-closed', () => {}); registerCompanionScheme();
 const originalPicker = dialog.showOpenDialog, passed = [], runs = [], discarded = [], pickerOwners = [];
-const artworkRequests = [], layouts = [];
-let host, panel, mini, lastWait = null, failing = false, pickerCancelled = true, catalogueLoads = 0;
+const artworkRequests = [], layouts = [], batchRequests = [];
+let host, panel, mini, lastWait = null, failing = false, pickerCancelled = true, pickerTarget = songs, catalogueLoads = 0;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const abortError = () => Object.assign(Error('Synthetic transfer interrupted'), { name: 'AbortError', code: 'ABORT_ERR' });
 async function waitFor(check, label, timeout = 15000) {
@@ -39,7 +39,7 @@ async function fillFields(values) {
   await evaluate(`(()=>{for(const [selector,value] of Object.entries(${JSON.stringify(values)})){const n=document.querySelector(selector);if(!n||n.disabled)throw Error('Unavailable input: '+selector);n.value=value;n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));}})()`);
 }
 async function search(fields, ids) {
-  await fillFields(Object.fromEntries(['query', 'artist', 'charter', 'instrument', 'difficulty'].map(key => [`#catalogue-widget-${key}`, fields[key] ?? ''])));
+  await fillFields(Object.fromEntries(['query', 'artist', 'charter', 'instrument', 'difficulty', 'installed', 'favorites'].map(key => [`#catalogue-widget-${key}`, fields[key] ?? (['installed', 'favorites'].includes(key) ? 'all' : '')])));
   await click('#catalogue-widget-search');
   await waitFor(() => evaluate(`document.querySelector('#catalogue-widget-results').getAttribute('aria-busy')==='false'&&JSON.stringify([...document.querySelectorAll('#catalogue-widget-results article')].map(n=>n.dataset.chartId).sort())===${JSON.stringify(JSON.stringify([...ids].sort()))}`), 'catalogue search results ' + ids.join(', '));
 }
@@ -87,6 +87,162 @@ const charts = [
   ...item, viewUrl: `https://chartshub.ca/index.html?chart=${item.id}&share=2`,
   downloadEndpoint: `/api/charts/11111111-1111-4111-8111-111111111111/FixtureDownload${index}/download-manifest`,
 }));
+let fixtureCharts = charts, fixtureDemo = false, fixtureRevision = 0;
+const cardSelector = id => `article[data-chart-id="${id}"]`;
+const favoriteSelector = id => cardSelector(id) + ' .catalogue-favorite';
+const selectionSelector = id => cardSelector(id) + ' .catalogue-selection-check';
+const panelCommand = (name, payload) => panel.webContents.executeJavaScript(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`);
+async function selectedIds() {
+  return evaluate("[...document.querySelectorAll('.catalogue-selection-check:checked')].map(n=>n.dataset.chartId).sort()");
+}
+async function selectionIs(ids) {
+  await waitFor(async () => JSON.stringify(await selectedIds()) === JSON.stringify([...ids].sort()), 'individual selection ' + ids.join(', '));
+}
+async function replaceCatalogue(items, demo = false) {
+  fixtureCharts = items; fixtureDemo = demo; fixtureRevision++;
+  assert.equal((await command('catalogue.refresh')).ok, true);
+  await search({}, items.map(item => item.id));
+}
+function additionalCharts(prefix) {
+  return ['linked', 'candidate', 'absent'].map((label, index) => ({ id: `${prefix}-${label}`, title: `${prefix} ${label}`, artist: 'Synthetic catalogue artist', charter: 'Synthetic charter',
+    verified: false, instruments: ['Guitar'], difficulties: ['Expert'], instrumentDifficulties: { Guitar: ['Expert'] },
+    viewUrl: `https://chartshub.ca/index.html?chart=${prefix}-${label}&share=2`,
+    downloadEndpoint: `/api/charts/11111111-1111-4111-8111-111111111111/Fixture${prefix}${index}/download-manifest` }));
+}
+async function verifyFavorites() {
+  const count = runs.length, loads = catalogueLoads, id = charts[0].id;
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(favoriteSelector(id))}).getAttribute('aria-pressed')`), 'false');
+  assert.equal(await evaluate("[...document.querySelectorAll('.catalogue-favorite')].every(n=>!!n.getAttribute('aria-label')&&n.type==='button')&&['installed','favorites'].every(id=>document.querySelector('#catalogue-widget-'+id).labels.length>0)"), true, 'favorite buttons and filters have accessible names');
+  await click(favoriteSelector(id)); await search({ favorites: 'yes' }, [id]);
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(favoriteSelector(id))}).getAttribute('aria-pressed')`), 'true');
+  await click(favoriteSelector(id)); await search({ favorites: 'yes' }, []);
+  await search({}, charts.map(item => item.id));
+  await click(favoriteSelector(id)); await search({ favorites: 'yes' }, [id]);
+  const persisted = JSON.parse(await fs.readFile(path.join(dataDirectory, 'favorites.json'), 'utf8'));
+  assert.deepEqual(persisted, { version: 1, ids: [id] });
+  await capture('favorites-french');
+  host.setLanguage('en'); await waitFor(() => evaluate("document.documentElement.lang==='en'"), 'favorite labels English');
+  assert.match(await evaluate(`document.querySelector(${JSON.stringify(favoriteSelector(id))}).getAttribute('aria-label')`), /favorite/i);
+  await capture('favorites-english'); host.setLanguage('fr'); await waitFor(() => evaluate("document.documentElement.lang==='fr'"), 'favorite labels French');
+  await search({}, charts.map(item => item.id));
+  assert.equal(runs.length, count); assert.equal(catalogueLoads, loads, 'favorite toggles and filtering need no remote refresh');
+  passed.push('favorite add/remove updates the filtered list and accessible state, persists locally and never downloads automatically');
+}
+async function verifyInstalled() {
+  const items = additionalCharts('relation'), root = path.join(directory, 'Synthetic Library Songs'), transfersBefore = runs.length;
+  await fs.mkdir(root, { recursive: true });
+  for (const [folder, record] of [['linked', items[0]], ['candidate-one', items[1]], ['candidate-two', items[1]]]) {
+    const destination = path.join(root, folder); await fs.mkdir(destination);
+    await fs.writeFile(path.join(destination, 'song.ini'), `[Song]\nname = ${record.title}\nartist = ${record.artist}\ncharter = ${record.charter}\n`);
+    await fs.writeFile(path.join(destination, 'notes.chart'), '[Song]\n{\n  Resolution = 192\n}\n[ExpertSingle]\n{\n  0 = N 0 0\n}\n');
+  }
+  await replaceCatalogue(items);
+  pickerTarget = root;
+  try { assert.equal((await panelCommand('library.chooseRoot')).ok, true); }
+  finally { pickerTarget = songs; }
+  assert.equal(pickerOwners.at(-1), panel, 'only the main Companion can select the library root');
+  await waitFor(() => host.library.status().status === 'ready' && host.library.matchingSnapshot().items.length === 3, 'three real synthetic library charts indexed');
+  await host.library.configure({ watch: false, refreshOnStart: false });
+  const local = host.library.matchingSnapshot().items.find(item => item.title === items[0].title);
+  assert.ok(local, 'linked fixture is parsed by the actual library scanner');
+  const candidates = await panelCommand('catalogue.candidates', { localId: local.id }); assert.equal(candidates.ok, true);
+  const link = { localId: local.id, chartId: items[0].id, contextId: candidates.result.contextId };
+  assert.equal((await command('catalogue.link', link)).ok, false, 'floating widget cannot create library associations');
+  assert.equal((await panelCommand('catalogue.link', link)).ok, true);
+  await search({}, items.map(item => item.id));
+  const result = await command('catalogue.search', { query: '', artist: '', charter: '', genre: '', year: '', instrument: '', difficulty: '', verified: 'all', installed: 'all', page: 1 }); assert.equal(result.ok, true);
+  const states = Object.fromEntries(result.result.items.map(item => [item.id, item.installed]));
+  assert.equal(states[items[0].id].status, 'linked');
+  assert.equal(states[items[1].id].status, 'candidate'); assert.equal(states[items[1].id].localIds.length, 2);
+  assert.equal(states[items[2].id].status, 'none');
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(cardSelector(items[0].id) + ' .catalogue-installed-badge')}).dataset.status`), 'linked');
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(cardSelector(items[1].id) + ' .catalogue-installed-badge')}).dataset.status`), 'candidate');
+  assert.equal(await evaluate(`!!document.querySelector(${JSON.stringify(cardSelector(items[2].id) + ' .catalogue-installed-badge[data-status="linked"]')})`), false);
+  await capture('installed-and-ambiguous');
+  host.setLanguage('en');
+  await waitFor(() => evaluate(`document.querySelector(${JSON.stringify(cardSelector(items[0].id) + ' .catalogue-installed-badge')}).textContent==='Already installed'`), 'English installed label');
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(cardSelector(items[1].id) + ' .catalogue-installed-badge')}).textContent`), 'Needs confirmation');
+  await capture('installed-and-ambiguous-english'); host.setLanguage('fr');
+  await waitFor(() => evaluate(`document.querySelector(${JSON.stringify(cardSelector(items[0].id) + ' .catalogue-installed-badge')}).textContent==='Déjà installé'`), 'French installed label');
+  await search({ installed: 'linked' }, [items[0].id]);
+  await search({ installed: 'unlinked' }, [items[1].id, items[2].id]);
+  await search({}, items.map(item => item.id));
+  assert.equal(runs.length, transfersBefore, 'library scans, links and installation filters never enqueue downloads');
+  passed.push('only an explicit main-Companion association is installed; two metadata candidates remain unlinked in the real scanner and floating filters');
+  return items;
+}
+async function verifyBatch(items) {
+  const [first, second, untouched] = items, originalEnqueue = host.downloads.enqueue, attempts = [];
+  const queueBefore = host.downloads.status().items.map(item => item.id).sort(), runsBefore = runs.length;
+  for (const item of [first, second]) await click(selectionSelector(item.id));
+  await selectionIs([first.id, second.id]);
+  assert.equal(runs.length, runsBefore, 'checking individual cards never starts transfers');
+  assert.equal(await evaluate("document.querySelector('#catalogue-widget-selection-summary').getAttribute('aria-live')"), 'polite');
+  assert.match(await evaluate("document.querySelector('#catalogue-widget-selection-summary').textContent"), /^2\b/);
+  const summary = await evaluate("document.querySelector('#catalogue-widget-selection-items').textContent");
+  assert.ok(summary.includes(first.title) && summary.includes(second.title) && !summary.includes(untouched.title), 'summary names only the two checked charts');
+  await capture('batch-two-selected');
+  host.setLanguage('en'); await waitFor(() => evaluate("document.querySelector('#catalogue-widget-selection-summary').textContent==='2 selected charts'"), 'English batch count');
+  await selectionIs([first.id, second.id]); await capture('batch-two-selected-english');
+  host.setLanguage('fr'); await waitFor(() => evaluate("document.querySelector('#catalogue-widget-selection-summary').textContent==='2 charts sélectionnées'"), 'French batch count');
+  await click('#catalogue-widget-clear-selection'); await selectionIs([]);
+  assert.deepEqual(host.downloads.status().items.map(item => item.id).sort(), queueBefore);
+  for (const item of [first, second]) await click(selectionSelector(item.id));
+  let failSecond = true;
+  // Inject one safe service failure while keeping the actual renderer, scoped IPC,
+  // download validation, persistence and worker for all successful requests.
+  host.downloads.enqueue = async descriptor => {
+    attempts.push(descriptor.chartId); batchRequests.push({ phase: 'partial', chartId: descriptor.chartId });
+    if (descriptor.chartId === second.id && failSecond) { failSecond = false; throw Object.assign(Error('Synthetic queue refusal'), { code: 'DOWNLOAD_SAFE' }); }
+    return originalEnqueue(descriptor);
+  };
+  try {
+    await click('#catalogue-widget-download-selected');
+    await waitFor(() => attempts.length === 2 && evaluate("!document.querySelector('#catalogue-widget-download-selected').disabled"), 'partial batch settles and retry is enabled');
+    assert.deepEqual(attempts, [first.id, second.id]);
+    await selectionIs([second.id]);
+    const added = host.downloads.status().items.filter(item => !queueBefore.includes(item.id));
+    assert.deepEqual(added.map(item => item.chartId), [first.id]);
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(selectionSelector(first.id))}).disabled`), true, 'queued chart cannot be selected again');
+    assert.equal(host.downloads.status().items.some(item => item.chartId === untouched.id), false);
+    assert.match(await evaluate("document.querySelector('#catalogue-widget-batch-status').textContent"), /1 ajout\(s\).*1 échec\(s\)/);
+    await capture('batch-partial-failure');
+    await click('#catalogue-widget-download-selected'); await selectionIs([]);
+    await waitFor(() => host.downloads.status().items.some(item => item.chartId === second.id), 'explicit retry adds only failed selected chart');
+    assert.deepEqual(attempts, [first.id, second.id, second.id]);
+    await waitFor(() => runs.length > runsBefore, 'first selected chart transfer');
+    const firstRun = runs.find(run => run.id === added[0].id); assert.ok(firstRun); await complete(firstRun);
+    const secondId = host.downloads.status().items.find(item => item.chartId === second.id).id;
+    await waitFor(() => runs.some(run => run.id === secondId), 'second selected chart transfer');
+    await complete(runs.find(run => run.id === secondId));
+    assert.equal(host.downloads.status().items.some(item => item.chartId === untouched.id), false);
+    passed.push('two-of-three selection can be cleared without side effects; explicit serial batch preserves successes and retries only the failed checked chart');
+  } finally { host.downloads.enqueue = originalEnqueue; }
+
+  const cancelItems = additionalCharts('cancelbatch'); await replaceCatalogue(cancelItems);
+  for (const item of cancelItems.slice(0, 2)) await click(selectionSelector(item.id));
+  let release; const gate = new Promise(resolve => { release = resolve; }), cancelAttempts = [];
+  host.downloads.enqueue = async descriptor => {
+    cancelAttempts.push(descriptor.chartId); batchRequests.push({ phase: 'cancel', chartId: descriptor.chartId }); const result = await originalEnqueue(descriptor);
+    await gate; return result;
+  };
+  try {
+    await click('#catalogue-widget-download-selected');
+    await waitFor(() => host.downloads.status().items.some(item => item.chartId === cancelItems[0].id), 'first batch item accepted before delayed acknowledgment');
+    await click('#catalogue-widget-cancel-batch'); release();
+    await waitFor(() => evaluate("document.querySelector('#catalogue-widget-cancel-batch').hidden"), 'batch cancellation settles');
+    assert.deepEqual(cancelAttempts, [cancelItems[0].id], 'cancel stops every request not already submitted');
+    const current = host.downloads.status().items.find(item => item.chartId === cancelItems[0].id);
+    assert.ok(['Queued', 'Downloading'].includes(current.state), 'batch cancellation preserves the already accepted download');
+    assert.equal(host.downloads.status().items.some(item => cancelItems.slice(1).some(record => record.id === item.chartId)), false);
+    await capture('batch-cancelled'); await host.downloads.cancel(current.id);
+  } finally { release(); host.downloads.enqueue = originalEnqueue; }
+  const afterCancel = host.downloads.status().items.map(item => item.id).sort();
+  await replaceCatalogue(additionalCharts('demo'), true);
+  assert.equal(await evaluate("[...document.querySelectorAll('.catalogue-selection-check')].every(n=>n.disabled)&&document.querySelector('#catalogue-widget-download-selected').disabled"), true);
+  assert.deepEqual(host.downloads.status().items.map(item => item.id).sort(), afterCancel);
+  passed.push('cancel during a pending batch acknowledgement stops the remaining IDs without cancelling accepted transfers; demo cards stay unselectable');
+}
 let artworkPng;
 function syntheticArtwork() {
   if (!artworkPng) {
@@ -145,6 +301,8 @@ async function verifyCardPresentation() {
   passed.push('real local artwork decodes; absent/broken covers keep placeholders; colored charter identity, per-instrument ranks/levels and creator badges remain accurate across French/English');
 }
 async function verifyResponsiveCards() {
+  for (const item of charts.slice(0, 2)) await click(selectionSelector(item.id));
+  await selectionIs(charts.slice(0, 2).map(item => item.id));
   const snapshot = await evaluate('window.ChartsHubCompanion.getSnapshot()'), original = snapshot.floatingPanels.appearance.catalogue;
   const resized = await command('panels.appearance', { revision: snapshot.floatingPanels.revision, panel: 'catalogue', appearance: { ...original, fontSize: 24 } });
   assert.equal(resized.ok, true);
@@ -157,7 +315,7 @@ async function verifyResponsiveCards() {
       mini.setSize(width, 880);
       await waitFor(() => evaluate(`window.innerWidth===${width}`), 'widget content width ' + width);
       await evaluate("window.scrollTo({top:0,behavior:'instant'})"); await delay(100);
-      const layout = await evaluate(`(()=>{const page=document.documentElement,selectors=['.catalogue-widget-tabs button','.catalogue-card-body','.catalogue-instrument','.catalogue-staff-badge','.catalogue-card-details summary','.floating-catalogue-item button'];return {width:innerWidth,font:getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize,pageWidth:page.scrollWidth,clientWidth:page.clientWidth,overflow:selectors.flatMap(selector=>[...document.querySelectorAll(selector)].filter(n=>n.getClientRects().length&&n.scrollWidth>n.clientWidth+2).map(n=>({selector,text:n.textContent,width:n.clientWidth,scrollWidth:n.scrollWidth}))),outside:[...document.querySelectorAll('#catalogue-widget-results article')].map(n=>n.getBoundingClientRect()).some(r=>r.left<0||r.right>innerWidth+1)}})()`);
+      const layout = await evaluate(`(()=>{const page=document.documentElement,selectors=['.catalogue-widget-tabs button','.catalogue-card-body','.catalogue-instrument','.catalogue-staff-badge','.catalogue-card-details summary','.floating-catalogue-item button','.catalogue-selection-label','.catalogue-widget-selection button'];return {width:innerWidth,font:getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize,pageWidth:page.scrollWidth,clientWidth:page.clientWidth,overflow:selectors.flatMap(selector=>[...document.querySelectorAll(selector)].filter(n=>n.getClientRects().length&&n.scrollWidth>n.clientWidth+2).map(n=>({selector,text:n.textContent,width:n.clientWidth,scrollWidth:n.scrollWidth}))),outside:[...document.querySelectorAll('#catalogue-widget-results article')].map(n=>n.getBoundingClientRect()).some(r=>r.left<0||r.right>innerWidth+1)}})()`);
       layouts.push(layout);
       assert.ok(layout.pageWidth <= layout.clientWidth + 2, 'page overflow at width ' + width + ': ' + JSON.stringify(layout));
       assert.deepEqual(layout.overflow, [], 'card/controls overflow at width ' + width); assert.equal(layout.outside, false);
@@ -169,19 +327,20 @@ async function verifyResponsiveCards() {
     assert.equal((await command('panels.appearance', { revision: latest.floatingPanels.revision, panel: 'catalogue', appearance: original })).ok, true);
   }
   await waitFor(() => evaluate(`getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize===${JSON.stringify(original.fontSize + 'px')}`), 'original font restored');
+  await click('#catalogue-widget-clear-selection'); await selectionIs([]);
   passed.push('portrait catalogue cards and controls fit 650/390px and additional 320px CSS stress at the maximum 24px font');
 }
 async function openHost() {
   host = await createCompanionHost({ dataDirectory, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: false, sessions: [] }),
     isCatalogueAvailable: () => true, authorizeCatalogue: async () => true,
-    catalogueClient: { async load() { catalogueLoads++; return { items: charts, revision: 'mini-electron-fixture', demo: false }; }, async artwork(url) { artworkRequests.push(url); assert.ok(charts.some(item => item.artworkUrl === url || item.charterIconUrl === url), 'only known synthetic catalogue artwork is requested'); return url.includes('/FixtureArtwork00/') ? { bytes: syntheticArtwork(), contentType: 'image/png' } : null; } },
+    catalogueClient: { async load() { catalogueLoads++; return { items: fixtureCharts, revision: 'mini-electron-fixture-' + fixtureRevision, demo: fixtureDemo }; }, async artwork(url) { artworkRequests.push(url); assert.ok(charts.some(item => item.artworkUrl === url || item.charterIconUrl === url), 'only known synthetic catalogue artwork is requested'); return url.includes('/FixtureArtwork00/') ? { bytes: syntheticArtwork(), contentType: 'image/png' } : null; } },
     downloadWorker: worker() });
   panel = await host.open(); await host.setCatalogueWidget(true); mini = host.getCatalogueWidget(); mini.setSize(650, 880);
   await waitFor(() => evaluate("!!window.ChartsHubCompanion&&!document.querySelector('#catalogue-widget-search')?.disabled&&!!document.querySelector('#floating-panels-save')"), 'native mini ready');
 }
 async function fail(error) {
   if (failing) return; failing = true; console.error(error);
-  const report = { result: 'COMPANION_CATALOGUE_WIDGET_FAILED', error: String(error.stack || error), lastWait, passed, layouts, artworkRequests, runs: runs.map(run => ({ id: run.id, settled: run.settled, aborted: run.aborted })) };
+  const report = { result: 'COMPANION_CATALOGUE_WIDGET_FAILED', error: String(error.stack || error), lastWait, passed, layouts, artworkRequests, batchRequests, runs: runs.map(run => ({ id: run.id, settled: run.settled, aborted: run.aborted })) };
   if (mini && !mini.isDestroyed()) {
     try { report.renderer = await evaluate("({language:document.documentElement.lang,body:document.body.innerText.slice(0,14000),active:document.activeElement?.id})"); } catch (_) {}
     try { await capture('failure'); } catch (_) {}
@@ -190,11 +349,11 @@ async function fail(error) {
   console.error('Mini catalogue diagnostics: ' + path.join(directory, 'report.json'));
   try { await host?.dispose(); } catch (_) {} dialog.showOpenDialog = originalPicker; app.exit(1);
 }
-setTimeout(() => void fail(Error('Mini catalogue Electron verification timed out')), 150000).unref();
+setTimeout(() => void fail(Error('Mini catalogue Electron verification timed out')), 240000).unref();
 
 app.whenReady().then(async () => {
   await fs.mkdir(songs, { recursive: true });
-  dialog.showOpenDialog = async owner => { pickerOwners.push(owner); return pickerCancelled ? { canceled: true, filePaths: [] } : { canceled: false, filePaths: [songs] }; };
+  dialog.showOpenDialog = async owner => { pickerOwners.push(owner); return pickerCancelled ? { canceled: true, filePaths: [] } : { canceled: false, filePaths: [pickerTarget] }; };
   await openHost(); assert.equal(mini.isAlwaysOnTop(), true); assert.equal(catalogueLoads, 0); assert.equal(runs.length, 0);
   let scoped = await evaluate('window.ChartsHubCompanion.getSnapshot()');
   for (const key of ['logs', 'library', 'state', 'profiles', 'stream']) assert.equal(Object.hasOwn(scoped, key), false);
@@ -217,9 +376,9 @@ app.whenReady().then(async () => {
   assert.deepEqual(await evaluate("Object.fromEntries([...document.querySelectorAll('#catalogue-widget-results article')].map(n=>[n.dataset.chartId,n.querySelector('h3').textContent]))"), Object.fromEntries(charts.map(item => [item.id, item.title])));
   assert.equal(await evaluate("!!document.querySelector('#catalogue-widget-results script,#catalogue-widget-results [onerror]')||window.__unsafe===true"), false);
   await capture('search'); passed.push('title/artist/charter search renders hostile catalogue text inertly and never starts an automatic download');
-  await verifyCardPresentation(); await verifyResponsiveCards(); assert.equal(runs.length, 0);
+  await verifyCardPresentation(); await verifyResponsiveCards(); await verifyFavorites(); assert.equal(runs.length, 0);
 
-  await click('[data-chart-id="mini-complete"] button'); await waitFor(() => runs.length === 1, 'first synthetic transfer'); const firstId = runs[0].id;
+  await click('[data-chart-id="mini-complete"] .catalogue-download-single'); await waitFor(() => runs.length === 1, 'first synthetic transfer'); const firstId = runs[0].id;
   assert.equal(runs[0].rootPath, songs); assert.match(runs[0].endpoint, /download-manifest$/);
   runs[0].onProgress({ receivedBytes: 40, totalBytes: 100, completedFiles: 0, totalFiles: 1, currentFile: 'C:/private-fixture-not-exposed' });
   await click('#catalogue-widget-tab-downloads'); await waitFor(() => evaluate("document.querySelector('#catalogue-widget-downloads progress')?.value===40"), 'visible download progress');
@@ -239,7 +398,7 @@ app.whenReady().then(async () => {
   await capture('recent-english'); host.setLanguage('fr'); await waitFor(() => evaluate("document.documentElement.lang==='fr'"), 'French mini restored');
   passed.push('Escape hides without stopping the queue; completed recent chart and localized dates stay accurate across live French/English changes');
 
-  await click('#catalogue-widget-tab-search'); await click('[data-chart-id="mini-cancel"] button'); await waitFor(() => runs.length === 3, 'second chart starts'); const secondId = runs[2].id;
+  await click('#catalogue-widget-tab-search'); await click('[data-chart-id="mini-cancel"] .catalogue-download-single'); await waitFor(() => runs.length === 3, 'second chart starts'); const secondId = runs[2].id;
   await click('#catalogue-widget-tab-downloads'); await click(`[data-download-id="${secondId}"] [data-action="cancel"]`);
   await waitFor(() => state(secondId)?.state === 'Cancelled', 'cancelled synthetic download'); assert.equal(runs[2].aborted, true); assert.ok(discarded.includes(secondId));
   assert.equal(await fs.readFile(path.join(songs, `Synthetic-${firstId}`, 'notes.chart'), 'utf8'), 'synthetic chart content');
@@ -274,8 +433,14 @@ app.whenReady().then(async () => {
   assert.equal(runs.length, 4, 'restart must not start new transfers');
   for (const id of [firstId, secondId]) assert.equal(await fs.readFile(path.join(songs, `Synthetic-${id}`, 'notes.chart'), 'utf8'), 'synthetic chart content');
   await capture('restart'); passed.push('full host restart restores the appearance and recent downloads while synthetic chart contents remain intact');
+  await click('#catalogue-widget-tab-search'); await search({ favorites: 'yes' }, ['mini-complete']);
+  assert.equal(await evaluate("document.querySelector('.catalogue-favorite').getAttribute('aria-pressed')"), 'true');
+  assert.equal(runs.length, 4, 'favorite restoration must not enqueue a chart');
+  await capture('favorite-after-restart'); passed.push('favorite filter and pressed state survive the full host restart independently of the queue');
+  const related = await verifyInstalled(); await verifyBatch(related);
+  for (const id of [firstId, secondId]) assert.equal(await fs.readFile(path.join(songs, `Synthetic-${id}`, 'notes.chart'), 'utf8'), 'synthetic chart content', 'new catalogue actions preserve the already downloaded charts');
 
-  const report = { result: 'COMPANION_CATALOGUE_WIDGET_OK', count: passed.length, passed, layouts, artworkRequests, catalogueLoads, transferRuns: runs.length, directory };
+  const report = { result: 'COMPANION_CATALOGUE_WIDGET_OK', count: passed.length, passed, layouts, artworkRequests, batchRequests, catalogueLoads, transferRuns: runs.length, directory };
   await fs.writeFile(path.join(directory, 'report.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
   await host.dispose(); dialog.showOpenDialog = originalPicker; app.exit(0);
 }).catch(fail);
