@@ -23,5 +23,10 @@ jobs:
         if: always()
         with:
           name: companion-duplicates-verification
-          path: ${{ runner.temp }}/companion-duplicates/**/verification.json
+          path: |
+            ${{ runner.temp }}/companion-duplicates/**/verification.json
+            ${{ runner.temp }}/companion-duplicates/**/failure.json
+            ${{ runner.temp }}/companion-duplicates/**/failure.png
+            ${{ runner.temp }}/companion-duplicates/**/selected-copy-summary.png
+            ${{ runner.temp }}/companion-duplicates/**/partial-success.png
           if-no-files-found: ignore

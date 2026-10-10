@@ -18,9 +18,10 @@ app.on('window-all-closed', () => {}); // Keep the process alive for the host re
 registerCompanionScheme();
 const originalDialog = dialog.showMessageBox, originalPicker = dialog.showOpenDialog, originalTrash = shell.trashItem;
 const passed = [], recycled = [], confirmations = [];
-let host, panel, activeRoot, dialogAction = async () => 0, nativeError = false;
+let host, panel, activeRoot, dialogAction = async () => 0, nativeError = false, lastWait = null, failing = false;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function waitFor(check, label, timeout = 15000) {
+  lastWait = label;
   const deadline = Date.now() + timeout;
   while (Date.now() < deadline) { if (await check()) return; await delay(35); }
   throw Error('Timed out: ' + label);
@@ -78,15 +79,18 @@ async function openComparison(count) {
 async function prepare(f, select = true) {
   await click('#library-cleanup-prepare');
   await waitFor(() => evaluate("!document.querySelector('#library-cleanup-plan').hidden&&document.querySelector('#library-comparison').getAttribute('aria-busy')==='false'"), 'verified cleanup plan');
-  assert.equal(await evaluate("document.querySelectorAll('.library-cleanup-check:checked').length"), 0, 'no copy is preselected');
-  assert.equal(await evaluate("document.querySelector('#library-cleanup-recycle').disabled"), true);
-  assert.equal(await evaluate(`!!document.querySelector('.library-cleanup-check[data-cleanup-id="${f.keepId}"]')`), false, 'keeper never has a deletion checkbox');
+  await assertUnselectedPlan(f.keepId);
   if (select) {
     await click(`.library-cleanup-check[data-cleanup-id="${f.selectedId}"]`);
     assert.deepEqual(await evaluate("[...document.querySelectorAll('.library-cleanup-check:checked')].map(n=>n.dataset.cleanupId)"), [f.selectedId]);
     const summary = await evaluate("document.querySelector('#library-cleanup-summary').textContent");
     assert.match(summary, /C-selected/); assert.doesNotMatch(summary, /A-unchecked|B-kept/);
   }
+}
+async function assertUnselectedPlan(keepId) {
+  assert.equal(await evaluate("document.querySelectorAll('.library-cleanup-check:checked').length"), 0, 'no copy is preselected');
+  assert.equal(await evaluate("document.querySelector('#library-cleanup-recycle').disabled"), true);
+  assert.equal(await evaluate(`!!document.querySelector('.library-cleanup-check[data-cleanup-id="${keepId}"]')`), false, 'keeper never has a deletion checkbox');
 }
 async function intact(f, names = ['A-unchecked', 'B-kept', 'C-selected']) {
   for (const name of names) for (const [file, content] of Object.entries(files)) assert.equal(await fs.readFile(path.join(f.root, name, file), 'utf8'), content);
@@ -104,8 +108,29 @@ async function forgedPlan(f) {
 }
 async function capture(name) { await fs.writeFile(path.join(directory, name + '.png'), (await panel.webContents.capturePage()).toPNG()); }
 async function fail(error) {
+  if (failing) return;
+  failing = true;
   console.error(error);
-  try { await fs.mkdir(directory, { recursive: true }); await fs.writeFile(path.join(directory, 'failure.txt'), String(error.stack || error)); if (panel && !panel.isDestroyed()) await capture('failure'); } catch {}
+  const report = { result: 'COMPANION_DUPLICATES_FAILED', error: String(error.stack || error), lastWait, activeRoot, passed, recycled, confirmations, library: host?.snapshot().library ?? null };
+  if (panel && !panel.isDestroyed()) {
+    try {
+      report.renderer = await Promise.race([evaluate(`(()=>{
+        const selectors=['#library-comparison','#library-comparison-feedback','#library-comparison-summary','#library-cleanup-prepare','#library-cleanup-plan','#library-cleanup-recycle','#library-cleanup-result','#library-verify-all-status','#library-feedback','#library-error'];
+        return {url:location.href,readyState:document.readyState,activeElement:document.activeElement?.id,scrollY,viewport:{width:innerWidth,height:innerHeight},
+          controls:Object.fromEntries(selectors.map(selector=>{const n=document.querySelector(selector);return [selector,n?{hidden:n.hidden,disabled:n.disabled,busy:n.getAttribute('aria-busy'),text:n.textContent.trim().slice(0,2000)}:null]})),
+          variants:[...document.querySelectorAll('.library-variant')].map(n=>({id:n.dataset.variantId,preferred:n.classList.contains('is-preferred'),path:n.querySelector('.library-variant-path')?.textContent})),
+          candidates:[...document.querySelectorAll('.library-cleanup-check')].map(n=>({id:n.dataset.cleanupId,checked:n.checked,disabled:n.disabled}))};
+      })()`), delay(2000).then(() => ({ unavailable: 'renderer diagnostics timed out' }))]);
+    } catch (failure) { report.renderer = { unavailable: String(failure) }; }
+    try { await Promise.race([capture('failure'), delay(2000)]); } catch {}
+  }
+  try {
+    await fs.mkdir(directory, { recursive: true });
+    await fs.writeFile(path.join(directory, 'failure.txt'), report.error);
+    await fs.writeFile(path.join(directory, 'report.json'), JSON.stringify(report, null, 2));
+    await fs.writeFile(path.join(directory, 'failure.json'), JSON.stringify(report, null, 2));
+    console.error('Duplicate verification diagnostics: ' + path.join(directory, 'failure.json'));
+  } catch (failure) { console.error('Could not write diagnostics: ' + failure); }
   try { await host?.dispose(); } catch {}
   dialog.showMessageBox = originalDialog; dialog.showOpenDialog = originalPicker; shell.trashItem = originalTrash;
   app.exit(1);
@@ -133,8 +158,10 @@ app.whenReady().then(async () => {
   let f = await fixture('selection-cancel');
   await prepare(f);
   await click(`.library-variant[data-variant-id="${f.selectedId}"] .library-variant-choose`);
-  await waitFor(() => evaluate(`document.querySelector('.library-variant.is-preferred')?.dataset.variantId===${JSON.stringify(f.selectedId)}&&document.querySelector('#library-cleanup-plan').hidden`), 'previously selected copy becomes protected keeper');
-  await prepare({ ...f, keepId: f.selectedId }, false);
+  // Choosing a keeper automatically prepares its new plan. The old plan's
+  // hidden state is transient and may already have passed on a fast runner.
+  await waitFor(() => evaluate(`document.querySelector('.library-variant.is-preferred')?.dataset.variantId===${JSON.stringify(f.selectedId)}&&document.querySelector('#library-comparison').getAttribute('aria-busy')==='false'&&!document.querySelector('#library-cleanup-plan').hidden`), 'previously selected copy becomes protected keeper with a ready plan');
+  await assertUnselectedPlan(f.selectedId);
   await click(`.library-variant[data-variant-id="${f.keepId}"] .library-variant-choose`);
   await waitFor(() => evaluate(`document.querySelector('.library-variant.is-preferred')?.dataset.variantId===${JSON.stringify(f.keepId)}`), 'explicit keeper restored');
   await prepare(f); await capture('selected-copy-summary');
