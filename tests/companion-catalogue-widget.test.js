@@ -108,6 +108,25 @@ test('floating catalogue is hardened, searchable and receives no private panel d
   assert.equal(filterSnapshot.language, 'en');
 });
 
+test('floating catalogue favorite IPC persists only known IDs, filters results and rejects forged frames', async t => {
+  const f = await fixture(t), panel = await f.host.open();
+  await f.invoke(panel, 'catalogue.widget', { enabled: true }); const mini = f.host.getCatalogueWidget();
+  assert.equal((await f.invoke(mini, 'catalogue.favorite', { chartId: 'mini-chart', favorite: true })).ok, false, 'an ID must first be known to the loaded catalogue');
+  await f.invoke(mini, 'catalogue.search', search);
+  const before = f.snapshot(mini).catalogue.revision;
+  assert.deepEqual(await f.invoke(mini, 'catalogue.favorite', { chartId: 'mini-chart', favorite: true }), { ok: true, result: { chartId: 'mini-chart', favorite: true } });
+  assert.equal(f.snapshot(mini).catalogue.revision, before + 1);
+  const result = await f.invoke(mini, 'catalogue.search', { ...search, favorites: 'yes' });
+  assert.equal(result.result.total, 1); assert.equal(result.result.items[0].favorite, true);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(f.directory, 'favorites.json'), 'utf8')), { version: 1, ids: ['mini-chart'] });
+  for (const payload of [{ chartId: 'unknown', favorite: true }, { chartId: 'mini-chart', favorite: 'yes' }, { chartId: 'mini-chart', favorite: false, path: 'secret' }]) assert.equal((await f.invoke(mini, 'catalogue.favorite', payload)).ok, false);
+  const event = { ...f.eventFor(mini), senderFrame: { ...mini.webContents.mainFrame } };
+  assert.equal((await f.handlers.get('companion:command')(event, 'catalogue.favorite', { chartId: 'mini-chart', favorite: false })).ok, false);
+  await f.host.setFiltersWidget(true); assert.equal((await f.invoke(f.host.getFiltersWidget(), 'catalogue.favorite', { chartId: 'mini-chart', favorite: false })).ok, false);
+  assert.equal((await f.invoke(panel, 'catalogue.favorite', { chartId: 'mini-chart', favorite: false })).ok, true);
+  assert.equal((await f.invoke(mini, 'catalogue.search', { ...search, favorites: 'yes' })).result.total, 0);
+});
+
 test('catalogue shortcut toggles without ending services, revocation closes it and stop unregisters', async t => {
   let available = true, authCalls = 0;
   const f = await fixture(t, { available: () => available, authorize: async () => { authCalls++; return available; } });

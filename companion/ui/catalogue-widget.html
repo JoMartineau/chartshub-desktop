@@ -24,9 +24,19 @@
           <label for="catalogue-widget-query">Titre ou recherche libre</label><input id="catalogue-widget-query" type="search" maxlength="200" autocomplete="off" placeholder="Rechercher une chart…">
           <div class="catalogue-widget-filter-grid"><label for="catalogue-widget-artist">Artiste<input id="catalogue-widget-artist" type="text" maxlength="128" autocomplete="off"></label><label for="catalogue-widget-charter">Créateur de la chart<input id="catalogue-widget-charter" type="text" maxlength="128" autocomplete="off"></label></div>
           <details class="catalogue-widget-extra-filters"><summary>Filtres supplémentaires</summary><div class="catalogue-widget-filter-grid"><label for="catalogue-widget-instrument">Instrument<input id="catalogue-widget-instrument" type="text" maxlength="128" placeholder="guitar"></label><label for="catalogue-widget-difficulty">Difficulté<input id="catalogue-widget-difficulty" type="text" maxlength="128" placeholder="expert"></label></div></details>
+          <div class="catalogue-widget-filter-grid">
+            <label for="catalogue-widget-installed"><span id="catalogue-widget-installed-label">Installation</span><select id="catalogue-widget-installed"><option id="catalogue-widget-installed-all" value="all">Toutes les charts</option><option id="catalogue-widget-installed-linked" value="linked">Déjà installées</option><option id="catalogue-widget-installed-unlinked" value="unlinked">Sans installation confirmée</option></select></label>
+            <label for="catalogue-widget-favorites"><span id="catalogue-widget-favorites-label">Favoris</span><select id="catalogue-widget-favorites"><option id="catalogue-widget-favorites-all" value="all">Toutes les charts</option><option id="catalogue-widget-favorites-yes" value="yes">Mes favoris</option></select></label>
+          </div>
           <div class="catalogue-widget-actions"><button id="catalogue-widget-search" type="submit">Rechercher</button><button id="catalogue-widget-refresh" type="button">Actualiser le catalogue</button></div>
         </form>
         <p id="catalogue-widget-search-status" role="status" aria-live="polite">Lancez une recherche pour trouver des charts.</p>
+        <section id="catalogue-widget-selection" class="catalogue-widget-selection" aria-labelledby="catalogue-widget-selection-summary" hidden>
+          <p id="catalogue-widget-selection-summary" aria-live="polite"></p>
+          <ul id="catalogue-widget-selection-items" class="catalogue-item-details"></ul>
+          <div class="catalogue-widget-actions"><button id="catalogue-widget-download-selected" type="button">Télécharger la sélection</button><button id="catalogue-widget-clear-selection" type="button">Effacer la sélection</button><button id="catalogue-widget-cancel-batch" type="button" hidden>Arrêter les ajouts restants</button></div>
+          <p id="catalogue-widget-batch-status" role="status" aria-live="polite" hidden></p>
+        </section>
         <div id="catalogue-widget-results" aria-busy="false"></div>
         <nav class="catalogue-widget-pagination" aria-label="Pages du catalogue"><button id="catalogue-widget-prev" type="button" disabled>Précédent</button><span id="catalogue-widget-page"></span><button id="catalogue-widget-next" type="button" disabled>Suivant</button></nav>
       </div>

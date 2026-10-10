@@ -5,6 +5,7 @@ const { constants } = require('node:fs');
 const { createHash, randomBytes, randomUUID } = require('node:crypto');
 const { normalizeMetadata, findMatches, buildInstalledLookup, annotateInstalled } = require('./chart-matching.cjs');
 const { endpointValid } = require('../download.js');
+const { createCatalogueFavorites } = require('./catalogue-favorites.cjs');
 
 const HEX = /^[a-f0-9]{64}$/, ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/;
 const MAX_ARTWORK = 3 * 1024 * 1024, CACHE_BYTES = 32 * 1024 * 1024;
@@ -38,6 +39,7 @@ function allowedView(record) {
 function createCatalogueService({ dataDirectory, client, getLibrary, onChange } = {}) {
   if (typeof dataDirectory !== 'string' || !path.isAbsolute(dataDirectory) || typeof client?.load !== 'function' || typeof getLibrary !== 'function') throw failure('Configuration du catalogue invalide.');
   const filename = path.join(dataDirectory, 'matching.json');
+  const favorites = createCatalogueFavorites({ dataDirectory });
   let links = new Map(), protectedFile = null, storageWarning = null, loaded = false, loadingDisk = null, serial = Promise.resolve();
   let active = true, generation = 0, request = null, hasCatalogue = false, records = new Map();
   let phase = 'idle', error = null, networkWarning = null, staleWarning = null, revision = 0, lastLoadedAt = null, demo = false, remoteRevision = null;
@@ -46,13 +48,14 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
   let artworkGeneration = 0, artworkBytes = 0, artworkRunning = 0;
   const artworkUrls = new Map(), artworkCache = new Map(), artworkRequests = new Map(), artworkQueue = [], artworkControllers = new Set();
 
-  function status() { return { status: phase, error, warning: [networkWarning, staleWarning, storageWarning].filter(Boolean).join(' ') || null, revision, availableCount: records.size, lastLoadedAt, demo }; }
+  function status() { return { status: phase, error, warning: [networkWarning, staleWarning, storageWarning, favorites.status().warning].filter(Boolean).join(' ') || null, revision, availableCount: records.size, lastLoadedAt, demo }; }
   function notify() { try { onChange?.(status()); } catch { console.warn('La notification du catalogue a échoué.'); } }
   function enqueue(action) { const operation = serial.then(action); serial = operation.catch(() => {}); return operation; }
   async function load() {
     if (loaded) return status();
     if (loadingDisk) return loadingDisk;
     loadingDisk = (async () => {
+      await favorites.load();
       try {
         const stat = await fs.stat(filename); if (!stat.isFile()) throw Error('Invalid associations file');
         const value = JSON.parse(await fs.readFile(filename, 'utf8'));
@@ -75,13 +78,14 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     artworkRequests.clear();
   }
   async function start() {
-    const expected = generation; await load(); if (expected === generation) active = true; return status();
+    const expected = generation; await load(); if (expected === generation) { await favorites.start(); if (expected === generation) active = true; } return status();
   }
   async function stop() {
     active = false; generation++; request?.controller.abort(); request = null; contexts.clear(); clearArtwork();
+    const favoritesStopped = favorites.stop();
     records = new Map(); hasCatalogue = false; remoteRevision = null; libraryCache = null; linkedCache = null;
     phase = 'idle'; error = null; networkWarning = null; staleWarning = null; demo = false; revision++;
-    await serial; notify(); return status();
+    await serial; await favoritesStopped; notify(); return status();
   }
   function library() {
     const snapshot = getLibrary();
@@ -115,6 +119,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     if (record.charterIconUrl) result.charterIconUrl = `chartshub-companion://app/catalogue-artwork/${digest(record.charterIconUrl)}`;
     if (demo) delete result.staffRole;
     result.downloadable = !demo && publicDownload(record.downloadEndpoint);
+    result.favorite = favorites.has(record.id);
     result.installed = installed(record, current); return result;
   }
   function fetchCatalogue(force = false) {
@@ -152,10 +157,10 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
   async function ready() { await load(); await fetchCatalogue(); }
   async function refresh() { await load(); await fetchCatalogue(true); return status(); }
   function filters(value = {}) {
-    const keys = ['query', 'artist', 'charter', 'genre', 'year', 'instrument', 'difficulty', 'verified', 'installed', 'page'];
+    const keys = ['query', 'artist', 'charter', 'genre', 'year', 'instrument', 'difficulty', 'verified', 'installed', 'page', 'favorites'];
     if (!object(value) || Object.keys(value).some(key => !keys.includes(key))) throw failure('Filtres du catalogue invalides.');
-    const result = { query: '', artist: '', charter: '', genre: '', year: '', instrument: '', difficulty: '', verified: 'all', installed: 'all', page: 1, ...value };
-    if (keys.slice(0, 7).some(key => typeof result[key] !== 'string' || result[key].length > 200) || !['all', 'yes'].includes(result.verified) || !['all', 'linked', 'unlinked'].includes(result.installed) || !Number.isSafeInteger(result.page) || result.page < 1 || result.page > 1000000) throw failure('Filtres du catalogue invalides.');
+    const result = { query: '', artist: '', charter: '', genre: '', year: '', instrument: '', difficulty: '', verified: 'all', installed: 'all', favorites: 'all', page: 1, ...value };
+    if (keys.slice(0, 7).some(key => typeof result[key] !== 'string' || result[key].length > 200) || !['all', 'yes'].includes(result.verified) || !['all', 'yes'].includes(result.favorites) || !['all', 'linked', 'unlinked'].includes(result.installed) || !Number.isSafeInteger(result.page) || result.page < 1 || result.page > 1000000) throw failure('Filtres du catalogue invalides.');
     return result;
   }
   async function search(input = {}) {
@@ -176,6 +181,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
         if (!pair || !Array.isArray(pair[1]) || !pair[1].some(value => normalizeMetadata(value) === normalizeMetadata(selected.difficulty))) continue;
       }
       if (selected.verified === 'yes' && (demo || record.verified !== true)) continue;
+      if (selected.favorites === 'yes' && !favorites.has(record.id)) continue;
       // Installation filters concern explicit links only. Build potentially large
       // metadata-match badges only for the page returned to the renderer.
       const linked = associations?.has(record.id);
@@ -185,6 +191,18 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     const offset = (selected.page - 1) * 20;
     return { items: matching.slice(offset, offset + 20).map(record => publicRecord(record, current)), page: selected.page, pageSize: 20, total: matching.length, hasMore: offset + 20 < matching.length,
       facets: { instruments: [...instruments].sort(), difficulties: [...difficulties].sort() } };
+  }
+  async function favorite(payload) {
+    if (!object(payload) || Object.keys(payload).length !== 2 || Object.keys(payload).some(key => !['chartId', 'favorite'].includes(key))
+      || typeof payload.chartId !== 'string' || !ID.test(payload.chartId) || typeof payload.favorite !== 'boolean') throw failure('Favori invalide.');
+    const expected = generation;
+    const guard = () => { if (!active || !hasCatalogue || expected !== generation || !records.has(payload.chartId)) throw failure('Ce chart n’est plus disponible dans le catalogue chargé.'); };
+    guard();
+    try {
+      const result = await favorites.set(payload, guard);
+      if (result.changed) { revision++; notify(); }
+      return { chartId: result.chartId, favorite: result.favorite };
+    } catch { notify(); throw failure(favorites.status().warning || 'Impossible d’enregistrer ce favori. Le fichier précédent reste conservé.'); }
   }
   async function candidates(localId) {
     if (typeof localId !== 'string' || !HEX.test(localId)) throw failure('Chanson locale invalide.');
@@ -278,7 +296,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     const task = { key, url: artworkUrls.get(key), generation: artworkGeneration, resolve: null, promise: null };
     task.promise = new Promise(resolve => { task.resolve = resolve; }); artworkRequests.set(key, task.promise); artworkQueue.push(task); pumpArtwork(); return task.promise;
   }
-  return { load, start, stop, status, search, refresh, candidates, link, unlink, openUrl, downloadDescriptor, artwork, libraryChanged };
+  return { load, start, stop, status, search, refresh, favorite, candidates, link, unlink, openUrl, downloadDescriptor, artwork, libraryChanged };
 }
 function publicDownload(endpoint) { return typeof endpoint === 'string' && endpoint.startsWith('/api/charts/') && endpointValid(endpoint); }
 module.exports = { createCatalogueService };
