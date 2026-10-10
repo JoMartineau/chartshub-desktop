@@ -117,6 +117,28 @@ test('artwork retries are bounded, use only the original proxy and stop when the
   assert.equal(replacement.src, ''); assert.equal(ui.calls.length, 1);
 });
 
+test('download progress preserves card and image identity while queued chart changes update download actions', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('progress');
+  const artworkUrl = 'chartshub-companion://app/catalogue-artwork/' + 'e'.repeat(64);
+  await ui.respond(0, { items: [chart('chart-1', { artworkUrl, album: 'Album' })] });
+  const first = ui.get('#catalogue-widget-results').children[0];
+  ui.controls.update(snapshot({ downloads: { revision: 2, hasRoot: true, items: [download(1)] } }));
+  const queued = ui.get('#catalogue-widget-results').children[0], image = queued.querySelector('img'), details = queued.querySelector('details');
+  assert.notEqual(queued, first); assert.equal(queued.querySelector('button').disabled, true); assert.equal(queued.querySelector('button').textContent, 'Déjà dans la file');
+  details.open = true; details.dispatchEvent(new Event('toggle')); queued.querySelector('summary').focus();
+  for (const [revision, receivedBytes] of [[3, 40], [4, 80]]) {
+    ui.controls.update(snapshot({ downloads: { revision, hasRoot: true, items: [download(1, 'Downloading', { receivedBytes })] } }));
+    assert.equal(ui.get('#catalogue-widget-results').children[0], queued);
+    assert.equal(queued.querySelector('img'), image); assert.equal(queued.querySelector('details'), details);
+    assert.equal(ui.document.activeElement, queued.querySelector('summary')); assert.equal(details.open, true);
+    assert.equal(ui.get('#catalogue-widget-downloads').querySelector('progress').value, receivedBytes);
+  }
+  ui.controls.update(snapshot({ downloads: { revision: 5, hasRoot: true, items: [download(1, 'Completed', { receivedBytes: 100 })] } }));
+  const completed = ui.get('#catalogue-widget-results').children[0]; assert.notEqual(completed, queued);
+  assert.equal(completed.querySelector('button').disabled, false); assert.equal(completed.querySelector('button').textContent, 'Télécharger'); assert.equal(completed.querySelector('details').open, true);
+  assert.equal(ui.calls.length, 1);
+});
+
 test('late searches and refresh responses cannot replace the current results or trigger an automatic transfer', async t => {
   const ui = await setup(t); ui.controls.update(snapshot()); ui.search('old'); ui.search('new');
   await ui.respond(1, { items: [chart('new')] }); await ui.respond(0, { items: [chart('old')] });

@@ -42,11 +42,16 @@ export class CatalogueWidgetControls {
     const value = field => this.element(`#catalogue-widget-${field}`).value.trim().slice(0, field === 'query' ? 200 : 128);
     return { query: value('query'), artist: value('artist'), charter: value('charter'), instrument: value('instrument'), difficulty: value('difficulty'), genre: '', year: '', verified: 'all', installed: 'all' };
   }
+  resultConditions() {
+    const queued = [...new Set((this.downloads?.items ?? []).filter(item => ['Queued', 'Downloading', 'Paused'].includes(item.state)).map(item => item.chartId))].sort();
+    return JSON.stringify([this.catalogue, this.stale, this.downloads?.hasRoot, this.downloads?.error, queued]);
+  }
   update(snapshot) {
     if (this.disposed || !snapshot) return;
     this.appearance.update(snapshot); applyFloatingAppearance(this.root, snapshot.floatingPanels?.appearance?.catalogue);
     const signature = JSON.stringify([snapshot.catalogue, snapshot.downloads, snapshot.catalogueShortcut]); if (signature === this.snapshotSignature) return;
     this.snapshotSignature = signature;
+    const previousConditions = this.resultConditions();
     if (snapshot.catalogue) {
       if (this.catalogue && this.catalogue.revision !== snapshot.catalogue.revision && this.items.length && !this.loading) {
         this.stale = true; this.element('#catalogue-widget-search-status').textContent = 'Le catalogue a changé. Relancez la recherche.';
@@ -57,7 +62,10 @@ export class CatalogueWidgetControls {
     this.element('#catalogue-widget-root-status').textContent = this.downloads?.hasRoot ? 'Dossier de téléchargement prêt.' : 'Choisissez un dossier de téléchargement.';
     const shortcut = this.element('#catalogue-widget-shortcut');
     shortcut.textContent = snapshot.catalogueShortcut?.registered ? 'Raccourci : Ctrl + Maj + K' : snapshot.catalogueShortcut?.error ? 'Raccourci indisponible. Utilisez le bouton du Companion.' : '';
-    this.renderResults(); this.renderDownloads(); this.availability();
+    // Progress bytes do not affect catalogue cards. Keep their images, bounded
+    // retry timers, disclosure state and keyboard focus while the queue updates.
+    if (previousConditions !== this.resultConditions()) this.renderResults();
+    this.renderDownloads(); this.availability();
   }
   selectTab(tab) {
     if (this.disposed || !tabs.includes(tab)) return;
