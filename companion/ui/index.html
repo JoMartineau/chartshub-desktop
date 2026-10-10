@@ -6,6 +6,7 @@
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
   <title>ChartsHub · Companion</title>
   <link rel="stylesheet" href="./companion.css">
+  <link rel="stylesheet" href="./floating-panels-controls.css">
   <script src="./localization.js"></script>
 </head>
 <body>
@@ -172,6 +173,13 @@
       </div>
     </section>
 
+    <section class="card floating-panels-card" aria-labelledby="floating-panel-heading">
+      <h2 id="floating-panel-heading">Panneaux au-dessus du jeu</h2>
+      <label class="filters-switch"><input id="catalogue-widget-toggle" type="checkbox" disabled><span>Ouvrir le catalogue flottant</span></label>
+      <p id="catalogue-widget-shortcut" class="helper-text" role="status"></p>
+      <p class="helper-text">Recherchez et téléchargez des charts sans fermer Clone Hero. Utilisez le mode fenêtré ou sans bordure pour afficher les panneaux au-dessus du jeu. Après téléchargement, lancez Scan Songs dans Clone Hero.</p>
+      <div id="floating-panels-settings"></div>
+    </section>
     <section id="catalogue-panel" class="card catalogue-panel" aria-labelledby="catalogue-title">
       <div class="card-heading"><div><p class="eyebrow">CATALOGUE EN LIGNE</p><h2 id="catalogue-title">Catalogue ChartsHub</h2><span class="helper-text">Recherchez des charts et comparez les versions d’un morceau.</span></div><span id="catalogue-status" class="status-pill">À la demande</span></div>
       <div class="catalogue-content">

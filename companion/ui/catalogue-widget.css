@@ -1,0 +1,40 @@
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-width: 320px; min-height: 100%; background: transparent; }
+[hidden] { display: none !important; }
+.catalogue-widget-app { min-height: 100vh; border: 1px solid #ffffff30; border-radius: 10px; background: var(--floating-background, #151719e6); color: var(--floating-text, #eef1f2); font: var(--floating-font-size, 14px)/1.5 var(--floating-font, "Segoe UI", Arial, sans-serif); }
+.catalogue-widget-titlebar { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid #ffffff25; -webkit-app-region: drag; user-select: none; }
+.catalogue-widget-titlebar strong { font-size: 1em; }
+.catalogue-widget-titlebar button { font-size: 1.4em; min-width: 36px; padding: 0 8px; }
+.catalogue-widget-content { padding: 14px; }
+.catalogue-widget-app button, .catalogue-widget-app input, .catalogue-widget-app select, .catalogue-widget-app summary, .catalogue-widget-app a { -webkit-app-region: no-drag; }
+.catalogue-widget-app button, .catalogue-widget-app input, .catalogue-widget-app select { font: inherit; color: inherit; border: 1px solid #ffffff40; border-radius: 6px; background: #00000024; padding: 7px 10px; min-height: 36px; }
+.catalogue-widget-app button { cursor: pointer; }
+.catalogue-widget-app button:disabled { opacity: .5; cursor: default; }
+.catalogue-widget-app button:hover:not(:disabled) { background: #ffffff15; }
+.catalogue-widget-app :focus-visible { outline: 2px solid #a8e3ce; outline-offset: 3px; }
+.catalogue-widget-tabs { display: flex; gap: 6px; margin-bottom: 18px; }
+.catalogue-widget-tabs button { flex: 1; min-width: 0; padding: 7px; font-size: .92em; }
+.catalogue-widget-tabs [aria-selected="true"] { border-color: #a8e3ce; background: #9ddcc020; }
+.catalogue-widget-app label { display: flex; flex-direction: column; gap: 5px; font-size: .9em; }
+.catalogue-widget-app input { width: 100%; min-width: 0; }
+.catalogue-widget-filter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.catalogue-widget-extra-filters { margin-top: 12px; }
+.catalogue-widget-app summary { cursor: pointer; padding: 5px 0; }
+.catalogue-widget-actions, .catalogue-widget-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
+.catalogue-widget-pagination { justify-content: space-between; }
+.catalogue-widget-feedback { padding: 10px; border: 1px solid #a8e3ce66; border-radius: 6px; overflow-wrap: anywhere; }
+.catalogue-widget-feedback.is-error { border-color: #e9a398; }
+.floating-catalogue-item, .floating-download-item { padding: 14px 0; border-bottom: 1px solid #ffffff25; min-width: 0; overflow-wrap: anywhere; }
+.catalogue-widget-app h3 { margin: 0 0 5px; font-size: 1.08em; font-weight: 600; color: inherit; }
+.floating-catalogue-item p, .floating-download-item p { margin: 4px 0; }
+.catalogue-item-artist, .catalogue-item-details { font-size: .9em; }
+.floating-catalogue-item button { margin-top: 8px; }
+.floating-download-item progress { display: block; width: 100%; height: 12px; margin: 10px 0; accent-color: #a8e3ce; }
+.floating-download-item time { font-size: .85em; }
+.catalogue-widget-destination { border-top: 1px solid #ffffff25; margin-top: 20px; padding-top: 10px; font-size: .9em; }
+.catalogue-widget-destination p { margin: 4px 0 10px; }
+.catalogue-widget-appearance { margin-top: 18px; }
+.catalogue-widget-appearance .floating-panels-controls { margin-top: 8px; background: #151719; }
+.catalogue-widget-shortcut { font-size: .8em; margin-bottom: 0; }
+@media (max-width: 400px) { .catalogue-widget-filter-grid { grid-template-columns: minmax(0, 1fr); } .catalogue-widget-tabs { gap: 4px; } .catalogue-widget-tabs button { font-size: .85em; } }

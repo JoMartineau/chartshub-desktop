@@ -47,6 +47,18 @@ L’historique indique la date, la version gardée et le résultat de chaque cop
 
 Validation : `npm test` et `npm run test:companion:duplicates -- <dossier-de-resultats>`. Le test Electron utilise uniquement des Songs synthétiques isolés ; les fenêtres de confirmation et l'appel Corbeille sont interceptés. Le reste du flux (interface, IPC, worker, vérification et persistance) est réel. Le workflow PR « Companion duplicate safety » exécute les deux suites sur Windows.
 
+### Catalogue flottant — modifications en préparation
+
+Le panneau Catalogue du Companion peut s’ouvrir dans une petite fenêtre au-dessus du jeu. Le raccourci `Ctrl+Maj+K` sous Windows (`Commande+Maj+K` sous macOS) affiche ou masque cette fenêtre lorsque la session ChartsHub est active. Déplacez-la par sa barre de titre ; le bouton Fermer ou `Échap` la masque sans arrêter les téléchargements.
+
+Les onglets Recherche, Téléchargements et Récents permettent de chercher par titre, artiste ou charter, d’affiner par instrument ou difficulté, puis de suivre la progression. Chaque ajout à la file exige un clic ; choisissez explicitement le dossier de destination avant de télécharger. Pause, reprise, annulation et nouvelle tentative restent disponibles dans la file. Après l’installation de nouvelles chansons, lancez **Scan Songs** dans Clone Hero pour les indexer.
+
+Le volet Apparence propose couleur de fond, transparence, couleur du texte, police et taille. L’aperçu reste local jusqu’à « Enregistrer ». Les réglages du Catalogue et du panneau Filtres sont indépendants et conservés après redémarrage dans `companion/floating-panels.json`. Le bouton des valeurs par défaut prépare un aperçu à enregistrer ; il ne modifie pas les widgets de jeu.
+
+Utilisez Clone Hero en mode fenêtré ou sans bordures : l’affichage au-dessus d’un jeu en plein écran exclusif n’est pas garanti. Si une autre application réserve le raccourci, le panneau reste accessible depuis le Companion.
+
+Validation : `npm test` et `npm run test:companion:catalogue-widget -- <dossier-de-resultats>`. Le test Electron utilise un catalogue local et des téléchargements simulés dans un dossier Songs isolé ; il couvre recherche, file, fermeture, langue et persistance de l’apparence. Le workflow Windows « Companion duplicate safety » publie son rapport JSON et ses captures comme artefacts. Une réussite de ces tests ne remplace pas un essai visuel au-dessus de Clone Hero.
+
 ### Version 0.14.7
 
 - Le bouton « Supprimer quand même » est maintenant disponible pour une copie entièrement vérifiée ayant les mêmes notes, même si l’audio ou certains fichiers non audio diffèrent.

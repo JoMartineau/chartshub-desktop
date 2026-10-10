@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
+  <title>ChartsHub · Catalogue flottant</title>
+  <link rel="stylesheet" href="./catalogue-widget.css">
+  <link rel="stylesheet" href="./floating-panels-controls.css">
+  <script src="./localization.js" defer></script>
+</head>
+<body>
+  <main id="catalogue-widget-app" class="catalogue-widget-app">
+    <header class="catalogue-widget-titlebar"><strong>ChartsHub · Catalogue</strong><button id="catalogue-widget-close" type="button" aria-label="Fermer le catalogue flottant">×</button></header>
+    <div class="catalogue-widget-content">
+      <div id="catalogue-widget-tabs" class="catalogue-widget-tabs" role="tablist" aria-label="Catalogue flottant">
+        <button id="catalogue-widget-tab-search" type="button" role="tab" aria-controls="catalogue-widget-search-panel" aria-selected="true">Rechercher</button>
+        <button id="catalogue-widget-tab-downloads" type="button" role="tab" aria-controls="catalogue-widget-downloads-panel" aria-selected="false" tabindex="-1">Téléchargements</button>
+        <button id="catalogue-widget-tab-recent" type="button" role="tab" aria-controls="catalogue-widget-recent-panel" aria-selected="false" tabindex="-1">Récents</button>
+      </div>
+      <p id="catalogue-widget-feedback" class="catalogue-widget-feedback" role="status" aria-live="polite" hidden></p>
+      <div id="catalogue-widget-search-panel" role="tabpanel" aria-labelledby="catalogue-widget-tab-search">
+        <form id="catalogue-widget-search-form">
+          <label for="catalogue-widget-query">Titre ou recherche libre</label><input id="catalogue-widget-query" type="search" maxlength="200" autocomplete="off" placeholder="Rechercher une chart…">
+          <div class="catalogue-widget-filter-grid"><label for="catalogue-widget-artist">Artiste<input id="catalogue-widget-artist" type="text" maxlength="128" autocomplete="off"></label><label for="catalogue-widget-charter">Créateur de la chart<input id="catalogue-widget-charter" type="text" maxlength="128" autocomplete="off"></label></div>
+          <details class="catalogue-widget-extra-filters"><summary>Filtres supplémentaires</summary><div class="catalogue-widget-filter-grid"><label for="catalogue-widget-instrument">Instrument<input id="catalogue-widget-instrument" type="text" maxlength="128" placeholder="guitar"></label><label for="catalogue-widget-difficulty">Difficulté<input id="catalogue-widget-difficulty" type="text" maxlength="128" placeholder="expert"></label></div></details>
+          <div class="catalogue-widget-actions"><button id="catalogue-widget-search" type="submit">Rechercher</button><button id="catalogue-widget-refresh" type="button">Actualiser le catalogue</button></div>
+        </form>
+        <p id="catalogue-widget-search-status" role="status" aria-live="polite">Lancez une recherche pour trouver des charts.</p>
+        <div id="catalogue-widget-results" aria-busy="false"></div>
+        <nav class="catalogue-widget-pagination" aria-label="Pages du catalogue"><button id="catalogue-widget-prev" type="button" disabled>Précédent</button><span id="catalogue-widget-page"></span><button id="catalogue-widget-next" type="button" disabled>Suivant</button></nav>
+      </div>
+      <div id="catalogue-widget-downloads-panel" role="tabpanel" aria-labelledby="catalogue-widget-tab-downloads" hidden><p id="catalogue-widget-queue-status">Aucun téléchargement en cours.</p><div id="catalogue-widget-downloads"></div></div>
+      <div id="catalogue-widget-recent-panel" role="tabpanel" aria-labelledby="catalogue-widget-tab-recent" hidden><p id="catalogue-widget-recent-status">Aucun téléchargement terminé.</p><div id="catalogue-widget-recent"></div></div>
+      <div class="catalogue-widget-destination"><p id="catalogue-widget-root-status">Choisissez un dossier de téléchargement.</p><button id="catalogue-widget-choose-root" type="button">Choisir le dossier de téléchargement</button></div>
+      <details class="catalogue-widget-appearance"><summary>Apparence</summary><div id="catalogue-widget-appearance-controls"></div></details>
+      <p id="catalogue-widget-shortcut" class="catalogue-widget-shortcut"></p>
+    </div>
+  </main>
+  <script type="module" src="./catalogue-widget.js"></script>
+</body>
+</html>
