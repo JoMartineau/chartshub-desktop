@@ -237,11 +237,27 @@ test('watcher debounces recursively, queues one scan, reports unavailable, and c
 });
 
 test('native recursive watcher refreshes changed metadata when supported', async t => {
-  const f = await fixture(t); const directory = await song(f.root, 'Watched', '[song]\nname=Before\n');
+  let nativeEvents = 0;
+  const module = await injected('../companion/library-service.cjs', {
+    'node:fs': { ...nativeFs, watch: (root, options, callback) => nativeFs.watch(root, options, (...args) => { nativeEvents++; callback(...args); }) }
+  });
+  const f = await fixture(t, module.createInstalledLibraryService); const directory = await song(f.root, 'Watched', '[song]\nname=Before\n');
   await f.service.selectRoot(f.root); await settled(f.service); await f.service.configure({ watch: true, refreshOnStart: false }); await f.service.start();
   if (f.service.status().watcher === 'unavailable') { t.diagnostic('Recursive filesystem watcher unavailable on this platform; deterministic watcher contract is covered separately.'); return; }
+  // fs.watch has no ready event. In particular, macOS can finish attaching
+  // FSEvents after start() returns. Prime the real callback with a harmless
+  // fixture file before making the single metadata change under test.
+  const revision = f.service.status().revision, started = Date.now();
+  while (!nativeEvents && Date.now() - started < 6000) {
+    await fs.writeFile(path.join(f.root, '.watcher-ready'), String(Date.now()));
+    await delay(100);
+  }
+  assert.ok(nativeEvents > 0, 'the native watcher must acknowledge a real filesystem event');
+  await until(() => f.service.status().revision > revision && f.service.status().status === 'ready');
+  assert.equal(f.service.query().items[0]?.title, 'Before');
+  const beforeChange = nativeEvents;
   await fs.writeFile(path.join(directory, 'song.ini'), '[song]\nname=After native event\n');
-  await until(() => f.service.query().items[0]?.title === 'After native event');
+  await until(() => nativeEvents > beforeChange && f.service.query().items[0]?.title === 'After native event');
   assert.equal(f.service.status().status, 'ready');
 });
 
