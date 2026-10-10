@@ -7,6 +7,7 @@ const MAX_JSON_BYTES = 24 * 1024 * 1024, MAX_ARTWORK_BYTES = 3 * 1024 * 1024, MA
 const INSTRUMENTS = ['Guitar', 'Bass', 'Drums', 'Vocals', 'Keys', 'Guitar Co-op', 'Rhythm', 'Guitar 6-fret', 'Guitar Co-op 6-fret', 'Rhythm 6-fret', 'Bass 6-fret', 'Pro Drums'];
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard', 'Expert'];
 const COVER_PATH = /^\/api\/charts\/[a-f0-9-]{36}\/[A-Za-z0-9_-]{10,200}\/cover$/;
+const ICON_PATH = /^\/api\/charts\/[a-f0-9-]{36}\/[A-Za-z0-9_-]{10,200}\/charter-icon$/;
 const SOURCE_PATH = /^\/api\/charts\/[a-f0-9-]{36}\/[A-Za-z0-9_-]{10,200}\/source$/;
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 function failure(code) {
@@ -24,11 +25,11 @@ function cleanText(value, max = 512) {
   return typeof value === 'string' ? value.slice(0, 8192).replace(/<[^>\r\n]{0,256}>/g, '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max) : '';
 }
 function validId(value) { return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/.test(value); }
-function artworkUrl(value) {
+function artworkUrl(value, kind) {
   if (typeof value !== 'string' || value.length > 512) return null;
   const relative = value.startsWith(ORIGIN + '/') ? value.slice(ORIGIN.length) : value;
   // Validate the original path before URL parsing can normalize dot segments.
-  if (!COVER_PATH.test(relative)) return null;
+  if (!(kind === 'cover' ? COVER_PATH.test(relative) : kind === 'icon' ? ICON_PATH.test(relative) : COVER_PATH.test(relative) || ICON_PATH.test(relative))) return null;
   return ORIGIN + relative;
 }
 function downloadEndpoint(value) {
@@ -43,11 +44,14 @@ function creatorBadges(value) {
   for (const creator of value.creators) {
     if (!record(creator) || !validId(creator.id)) { unavailable = true; continue; }
     if (result.has(creator.id) || typeof creator.verifiedCharter !== 'boolean') unavailable = true;
-    result.set(creator.id, result.has(creator.id) ? null : typeof creator.verifiedCharter === 'boolean' ? creator.verifiedCharter : null);
+    result.set(creator.id, result.has(creator.id) ? null : {
+      verified: typeof creator.verifiedCharter === 'boolean' ? creator.verifiedCharter : null,
+      staffRole: ['administrator', 'moderator'].includes(creator.staffRole) ? creator.staffRole : null
+    });
   }
   return { badges: result, unavailable };
 }
-function normalizeCharts(value, badges) {
+function normalizeCharts(value, badges, { charterSegments, parseCharter }) {
   if (!record(value) || !Array.isArray(value.charts) || typeof value.demo !== 'boolean') throw failure('CATALOGUE_INVALID');
   if (value.charts.length > MAX_ITEMS) throw failure('CATALOGUE_LIMIT');
   const seen = new Set(), items = [];
@@ -67,11 +71,21 @@ function normalizeCharts(value, badges) {
     }
     if (!available.size && DIFFICULTIES.includes(row.difficulty)) available.add(row.difficulty);
     const year = typeof row.year === 'number' && Number.isInteger(row.year) ? String(row.year) : typeof row.year === 'string' ? row.year.trim() : '';
+    const parsed = typeof row.charter === 'string' && row.charter.includes('<') ? parseCharter(row.charter) : { text: cleanText(row.charter) };
+    const nameSegments = charterSegments(parsed.text, row.charterSegments) || parsed.segments;
+    const role = badges.get(row.creatorId)?.staffRole;
+    const icon = artworkUrl(row.charterIconUrl, 'icon');
+    const instrumentIntensities = Object.fromEntries(instruments.filter(instrument => Number.isSafeInteger(row.instrumentIntensities?.[instrument]) && row.instrumentIntensities[instrument] >= 0 && row.instrumentIntensities[instrument] <= 1000).map(instrument => [instrument, row.instrumentIntensities[instrument]]));
     items.push({
-      id: row.id, title, artist, charter: cleanText(row.charter), verified: badges.get(row.creatorId) ?? null,
+      id: row.id, title, artist, charter: parsed.text, verified: badges.get(row.creatorId)?.verified ?? null,
+      ...(nameSegments ? { charterSegments: nameSegments } : {}), ...(role ? { staffRole: role } : {}),
+      ...(icon ? { charterIconUrl: icon } : {}),
+      ...(Object.keys(instrumentIntensities).length ? { instrumentIntensities } : {}),
+      ...(Number.isSafeInteger(row.duration) && row.duration >= 0 ? { duration: row.duration } : {}),
+      ...(Array.isArray(row.game) && row.game.includes('Clone Hero') ? { game: ['Clone Hero'] } : {}),
       album: cleanText(row.album), year: /^\d{4}$/.test(year) ? year : '', genre: cleanText(row.genre),
       instruments, difficulties: DIFFICULTIES.filter(level => available.has(level)), instrumentDifficulties,
-      artworkUrl: artworkUrl(row.coverUrl), viewUrl: `${ORIGIN}/index.html?chart=${encodeURIComponent(row.id)}&share=2`,
+      artworkUrl: artworkUrl(row.coverUrl, 'cover'), viewUrl: `${ORIGIN}/index.html?chart=${encodeURIComponent(row.id)}&share=2`,
       downloadEndpoint: downloadEndpoint(row.downloadUrl),
       contentHash: typeof row.contentHash === 'string' && /^[a-f0-9]{64}$/i.test(row.contentHash) ? row.contentHash.toLowerCase() : null
     });
@@ -148,7 +162,9 @@ function createChartsHubClient({ fetcher = globalThis.fetch, timeoutMs = 15000 }
         request(ORIGIN + '/api/creators', { signal: controller.signal }).catch(error => { if (error?.name === 'AbortError') throw error; return null; })
       ]);
       const { badges, unavailable } = creatorBadges(creators);
-      return { items: normalizeCharts(charts, badges), revision: null, demo: charts.demo, source: 'live',
+      const presentation = await import('./ui/catalogue-card-data.js');
+      if (controller.signal.aborted) throw cancelled();
+      return { items: normalizeCharts(charts, badges, presentation), revision: null, demo: charts.demo, source: 'live',
         ...(unavailable ? { warning: 'Le statut des créateurs vérifiés est temporairement indisponible.' } : {}) };
     } finally { signal?.removeEventListener('abort', relay); controller.abort(); }
   }

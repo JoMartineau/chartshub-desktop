@@ -61,6 +61,55 @@ test('ChartsHub client never derives badges from charter text or chart flags', a
   }
 });
 
+test('public catalogue preserves JoMartineau song.ini colors, canonical profile badges, actual game and per-instrument ranks', async () => {
+  const icon = cover.replace(/cover$/, 'charter-icon');
+  const segments = [{ text: 'Jo', color: '#ff0066' }, { text: 'Martineau', color: 'cyan' }];
+  const result = await fixture({ creators: [{ id: creator, verifiedCharter: true, staffRole: 'moderator', color: 'orange' }], charts: [chart({
+    charter: 'JoMartineau', charterSegments: segments, charterIconUrl: icon, game: ['Clone Hero', 'Untrusted game'], duration: 245,
+    instrumentIntensities: { Guitar: 2, Drums: 4, Bass: 9, Unsupported: 100 }, staffRole: 'administrator'
+  })] }).client.load();
+  const item = result.items[0];
+  assert.equal(item.charter, 'JoMartineau'); assert.deepEqual(item.charterSegments, segments);
+  assert.equal(item.staffRole, 'moderator'); assert.equal(item.verified, true); assert.equal(item.charterIconUrl, ORIGIN + icon);
+  assert.deepEqual(item.instrumentIntensities, { Guitar: 2, Drums: 4 }); assert.equal(item.duration, 245); assert.deepEqual(item.game, ['Clone Hero']);
+  assert.equal(item.color, undefined); assert.doesNotMatch(JSON.stringify(item), /orange|administrator|Untrusted/);
+});
+
+test('name colors use the same bounded palette as the main catalogue, never CSS or markup', async () => {
+  const { charterSegments, parseCharter } = await import('../companion/ui/catalogue-card-data.js');
+  for (const color of ['#abc', '#abcd', '#AABBCC', '#aabbccdd', 'pink', 'gold', 'violet', '"cyan"']) {
+    assert.ok(charterSegments('Jo', [{ text: 'Jo', color }]), color);
+  }
+  for (const color of ['linear-gradient(red,blue)', 'red;background:url(https://evil.invalid)', 'var(--private)', 'expression(alert(1))', '<style>', '#12345', 'transparent', {}, null]) {
+    assert.equal(charterSegments('Jo', [{ text: 'Jo', color }]), undefined, String(color));
+  }
+  for (const input of [[{ text: 'Wrong', color: 'red' }], [{ text: {}, color: 'red' }], Array(151).fill({ text: '', color: 'red' }), [{ text: 'J\u0000o', color: 'red' }]]) assert.equal(charterSegments('Jo', input), undefined);
+  assert.deepEqual(parseCharter('<color=#f06>Jo</color><color=cyan>Martineau</color>'), { text: 'JoMartineau', segments: [{ text: 'Jo', color: '#f06' }, { text: 'Martineau', color: 'cyan' }] });
+  const item = (await fixture({ charts: [chart({ charter: '<color=pink>Jo</color><color=gold>Martineau</color><img src=x>', charterSegments: [{ text: 'Administrator', color: 'red' }] })] }).client.load()).items[0];
+  assert.equal(item.charter, 'JoMartineau'); assert.deepEqual(item.charterSegments, [{ text: 'Jo', color: 'pink' }, { text: 'Martineau', color: 'gold' }]);
+});
+
+test('missing or malformed public profile and metadata cannot invent badges, ranks, duration or game support', async () => {
+  for (const creators of [[], [{ id: creator, verifiedCharter: false, staffRole: 'moderator;background:red' }], [{ id: creator, verifiedCharter: true, staffRole: 'administrator' }, { id: creator, verifiedCharter: true, staffRole: 'moderator' }]]) {
+    const item = (await fixture({ creators, charts: [chart({ charter: 'Moderator', verified: true, staffRole: 'moderator',
+      instrumentIntensities: { Guitar: '2', Drums: 1001 }, duration: '245', game: ['Other game'], charterIconUrl: 'https://evil.invalid/image.png' })] }).client.load()).items[0];
+    assert.equal(item.staffRole, undefined); assert.equal(item.instrumentIntensities, undefined); assert.equal(item.duration, undefined);
+    assert.equal(item.game, undefined); assert.equal(item.charterIconUrl, undefined);
+  }
+});
+
+test('charter icons use only exact public raster routes and the same bounded image pipeline as covers', async () => {
+  const icon = cover.replace(/cover$/, 'charter-icon'), bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const calls = [], client = createChartsHubClient({ fetcher: async url => { calls.push(url); return new Response(bytes, { headers: { 'content-type': 'image/png' } }); } });
+  assert.deepEqual(await client.artwork(icon), { bytes, contentType: 'image/png' }); assert.deepEqual(calls, [ORIGIN + icon]);
+  for (const value of [icon + '?x=1', icon + '#x', icon + '/..', icon.replace('/api/', '/%61pi/'), 'https://evil.invalid' + icon, '//chartshub.ca' + icon, 'file:///private', 'data:image/png;base64,abc']) {
+    assert.equal(await client.artwork(value), null, value);
+    const item = (await fixture({ charts: [chart({ charterIconUrl: value })] }).client.load()).items[0]; assert.equal(item.charterIconUrl, undefined);
+  }
+  assert.equal(calls.length, 1);
+  assert.equal((await fixture({ charts: [chart({ coverUrl: icon, charterIconUrl: cover })] }).client.load()).items[0].artworkUrl, null);
+});
+
 test('ChartsHub download descriptors trust only server-provided public source routes, never creator IDs', async () => {
   const source = `/api/charts/${folder}/SongFolderabcdefghij/source`;
   for (const downloadUrl of [source, ORIGIN + source]) {

@@ -41,6 +41,25 @@ test('startup is offline; first concurrent searches and candidates share one cat
   assert.equal(f.service.status().status, 'ready'); assert.equal(f.service.status().availableCount, 1);
 });
 
+test('card presentation snapshots are independent and charter icons use the known artwork proxy cache', async t => {
+  const charterIconUrl = 'https://chartshub.ca/api/charts/11111111-1111-4111-8111-111111111111/FixtureCharterIcon/charter-icon';
+  const f = await fixture(t, { records: [record(1, { charter: 'JoMartineau', charterSegments: [{ text: 'Jo', color: 'pink' }, { text: 'Martineau', color: 'cyan' }], charterIconUrl, staffRole: 'moderator', game: ['Clone Hero'], duration: 245, instrumentIntensities: { Guitar: 2 } })] });
+  const first = (await f.service.search()).items[0];
+  assert.equal(first.charterIconUrl, 'chartshub-companion://app/catalogue-artwork/' + digest(charterIconUrl));
+  assert.equal(first.staffRole, 'moderator'); assert.equal(first.duration, 245);
+  assert.doesNotMatch(JSON.stringify(first), /\/api\/charts/);
+  first.charterSegments[0].color = 'red'; first.instrumentIntensities.Guitar = 1000; first.game.push('Other');
+  const second = (await f.service.search()).items[0];
+  assert.equal(second.charterSegments[0].color, 'pink'); assert.equal(second.instrumentIntensities.Guitar, 2); assert.deepEqual(second.game, ['Clone Hero']);
+  const image = await f.service.artwork(digest(charterIconUrl)); assert.equal(image.contentType, 'image/png');
+  await f.service.stop(); assert.equal(await f.service.artwork(digest(charterIconUrl)), null);
+});
+
+test('demo catalogue suppresses creator role and verification badges', async t => {
+  const f = await fixture(t, { client: { load: async () => ({ demo: true, items: [record(1, { staffRole: 'administrator', verified: true })] }) } });
+  const item = (await f.service.search()).items[0]; assert.equal(item.verified, null); assert.equal(item.staffRole, undefined);
+});
+
 test('catalogue matching and associations include songs beyond the first 10000 library entries', async t => {
   const f = await fixture(t);
   f.library.items = [

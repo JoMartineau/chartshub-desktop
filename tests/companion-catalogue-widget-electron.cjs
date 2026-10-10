@@ -2,7 +2,7 @@
 // Real Electron renderer, IPC, host, catalogue, queue and appearance persistence.
 // Catalogue/network, native folder picker and transfer worker are synthetic.
 // This script never accesses a real chart folder or starts a network transfer.
-const { app, dialog } = require('electron');
+const { app, dialog, nativeImage } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -14,6 +14,7 @@ const directory = path.join(output, 'catalogue-widget-' + randomUUID()), dataDir
 app.setPath('userData', path.join(directory, 'electron-profile')); app.disableHardwareAcceleration();
 app.on('window-all-closed', () => {}); registerCompanionScheme();
 const originalPicker = dialog.showOpenDialog, passed = [], runs = [], discarded = [], pickerOwners = [];
+const artworkRequests = [], layouts = [];
 let host, panel, mini, lastWait = null, failing = false, pickerCancelled = true, catalogueLoads = 0;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const abortError = () => Object.assign(Error('Synthetic transfer interrupted'), { name: 'AbortError', code: 'ABORT_ERR' });
@@ -71,22 +72,116 @@ async function complete(run) {
   await waitFor(() => state(run.id)?.state === 'Completed', 'synthetic transfer completed');
 }
 const charts = [
-  { id: 'mini-complete', title: 'Notes', artist: '<img src=x onerror="window.__unsafe=true">', charter: 'Fixture charter' },
+  { id: 'mini-complete', title: 'Notes', artist: '<img src=x onerror="window.__unsafe=true">', charter: 'JoMartineau',
+    charterSegments: [{ text: 'Jo', color: '#ff4040' }, { text: 'Mart', color: '#50e080' }, { text: 'ineau', color: '#609cff' }],
+    artworkUrl: 'https://chartshub.ca/api/charts/22222222-2222-4222-8222-222222222222/FixtureArtwork00/cover',
+    charterIconUrl: 'https://chartshub.ca/api/charts/22222222-2222-4222-8222-222222222222/FixtureArtwork00/charter-icon',
+    verified: true, staffRole: 'moderator', album: 'Fixture Album', year: '2026', genre: 'Metalcore', duration: 249, game: ['Clone Hero'],
+    instruments: ['Guitar', 'Drums'], difficulties: ['Easy', 'Medium', 'Hard', 'Expert'],
+    instrumentDifficulties: { Guitar: ['Easy', 'Medium', 'Hard', 'Expert'], Drums: ['Easy', 'Expert'] }, instrumentIntensities: { Guitar: 2, Drums: 4 } },
   { id: 'mini-cancel', title: '<script>window.__unsafe=true</script>', artist: 'Fixture artist', charter: 'Fixture charter' },
-].map((item, index) => ({ ...item, verified: true, viewUrl: `https://chartshub.ca/index.html?chart=${item.id}&share=2`,
+  { id: 'mini-broken', title: 'Unavailable artwork', artist: 'Other synthetic artist', charter: 'Another charter',
+    artworkUrl: 'https://chartshub.ca/api/charts/33333333-3333-4333-8333-333333333333/FixtureArtwork02/cover',
+    charterIconUrl: 'https://chartshub.ca/api/charts/33333333-3333-4333-8333-333333333333/FixtureArtwork02/charter-icon' },
+].map((item, index) => ({ verified: false, instruments: ['Guitar'], difficulties: ['Expert'], instrumentDifficulties: { Guitar: ['Expert'] },
+  ...item, viewUrl: `https://chartshub.ca/index.html?chart=${item.id}&share=2`,
   downloadEndpoint: `/api/charts/11111111-1111-4111-8111-111111111111/FixtureDownload${index}/download-manifest`,
-  instruments: ['Guitar'], difficulties: ['Expert'], instrumentDifficulties: { Guitar: ['Expert'] } }));
+}));
+let artworkPng;
+function syntheticArtwork() {
+  if (!artworkPng) {
+    const width = 96, height = 96, pixels = Buffer.alloc(width * height * 4);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+      const offset = (y * width + x) * 4, stripe = x > 20 && x < 76 && y % 24 < 12;
+      pixels[offset] = stripe ? 255 : 70; pixels[offset + 1] = stripe ? 160 : 25; pixels[offset + 2] = stripe ? 65 : 20; pixels[offset + 3] = 255;
+    }
+    artworkPng = nativeImage.createFromBitmap(pixels, { width, height }).toPNG();
+    assert.ok(artworkPng.length > 32, 'synthetic artwork is a real encoded image');
+  }
+  return artworkPng;
+}
+async function verifyCardPresentation() {
+  for (const id of charts.map(item => item.id)) {
+    await evaluate(`document.querySelector('[data-chart-id="${id}"]').scrollIntoView({block:'center',behavior:'instant'})`);
+    await waitFor(() => evaluate(`(()=>{const card=document.querySelector('[data-chart-id="${id}"]');return [...card.querySelectorAll('img')].every(image=>image.hidden&&!image.hasAttribute('src')||image.complete&&image.naturalWidth>0)})()`), 'artwork loaded or visible fallback for ' + id);
+  }
+  const presentation = await evaluate(`(()=>{
+    const card=document.querySelector('[data-chart-id="mini-complete"]'), missing=document.querySelector('[data-chart-id="mini-cancel"]'), broken=document.querySelector('[data-chart-id="mini-broken"]');
+    const imageState=box=>({images:box.querySelectorAll('img').length,visibleFallback:!box.firstElementChild.hidden,loaded:!![...box.querySelectorAll('img')].find(image=>!image.hidden&&image.complete&&image.naturalWidth>0),src:box.querySelector('img')?.getAttribute('src')||null});
+    return {cover:imageState(card.querySelector('.catalogue-card-artwork')),icon:imageState(card.querySelector('.catalogue-charter-avatar')),missing:imageState(missing.querySelector('.catalogue-card-artwork')),broken:imageState(broken.querySelector('.catalogue-card-artwork')),brokenIcon:imageState(broken.querySelector('.catalogue-charter-avatar')),
+      charter:card.querySelector('.catalogue-charter-name').textContent,segments:[...card.querySelectorAll('.catalogue-charter-name span')].map(part=>({text:part.textContent,color:getComputedStyle(part).color})),
+      instruments:[...card.querySelectorAll('.catalogue-instrument')].map(n=>({instrument:n.dataset.instrument,intensity:n.querySelector('.catalogue-instrument-intensity').textContent,markers:[...n.querySelectorAll('.catalogue-instrument-levels span')].map(m=>({label:m.textContent,available:m.classList.contains('available')})),svg:!!n.querySelector('svg path')})),
+      badges:[...card.querySelectorAll('.catalogue-staff-badge')].map(n=>n.textContent),otherBadges:missing.querySelectorAll('.catalogue-staff-badge').length+broken.querySelectorAll('.catalogue-staff-badge').length,
+      game:card.querySelector('.catalogue-game-badge')?.textContent,unsafe:!!document.querySelector('#catalogue-widget-results script,#catalogue-widget-results [onerror],#catalogue-widget-results iframe')||window.__unsafe===true,
+      imageSources:[...document.querySelectorAll('#catalogue-widget-results img[src]')].map(n=>n.getAttribute('src'))};
+  })()`);
+  for (const kind of ['cover', 'icon']) {
+    assert.equal(presentation[kind].loaded, true, kind + ' decodes through the real local protocol');
+    assert.equal(presentation[kind].visibleFallback, false);
+    assert.match(presentation[kind].src, /^chartshub-companion:\/\/app\/catalogue-artwork\/[a-f0-9]{64}$/);
+  }
+  assert.equal(presentation.missing.images, 0); assert.equal(presentation.missing.visibleFallback, true);
+  for (const kind of ['broken', 'brokenIcon']) { assert.equal(presentation[kind].loaded, false); assert.equal(presentation[kind].src, null); assert.equal(presentation[kind].visibleFallback, true); }
+  assert.equal(presentation.charter, 'JoMartineau');
+  assert.deepEqual(presentation.segments, [{ text: 'Jo', color: 'rgb(255, 64, 64)' }, { text: 'Mart', color: 'rgb(80, 224, 128)' }, { text: 'ineau', color: 'rgb(96, 156, 255)' }]);
+  assert.deepEqual(presentation.instruments, [
+    { instrument: 'Guitar', intensity: '2', markers: ['E', 'M', 'H', 'X'].map(label => ({ label, available: true })), svg: true },
+    { instrument: 'Drums', intensity: '4', markers: ['E', 'M', 'H', 'X'].map(label => ({ label, available: ['E', 'X'].includes(label) })), svg: true }
+  ]);
+  assert.deepEqual(presentation.badges, ['Modérateur', 'Charter vérifié']); assert.equal(presentation.otherBadges, 0);
+  assert.equal(presentation.game, 'Clone Hero'); assert.equal(presentation.unsafe, false);
+  assert.ok(presentation.imageSources.every(src => /^chartshub-companion:\/\/app\/catalogue-artwork\/[a-f0-9]{64}$/.test(src)));
+  assert.ok(artworkRequests.includes(charts[0].artworkUrl)); assert.ok(artworkRequests.includes(charts[0].charterIconUrl));
+  await click('[data-chart-id="mini-complete"] details.catalogue-card-details > summary');
+  await waitFor(() => evaluate("document.querySelector('[data-chart-id=\"mini-complete\"] details.catalogue-card-details').open"), 'French card details open');
+  const details = () => evaluate(`(()=>{const n=document.querySelector('[data-chart-id="mini-complete"]');return {open:n.querySelector('details').open,summary:n.querySelector('summary').textContent,values:Object.fromEntries([...n.querySelectorAll('dl>div')].map(pair=>[pair.querySelector('dt').textContent,pair.querySelector('dd').textContent])),badges:[...n.querySelectorAll('.catalogue-staff-badge')].map(b=>b.textContent),instruments:[...n.querySelectorAll('.catalogue-instrument-name')].map(i=>i.textContent)}})()`);
+  assert.deepEqual(await details(), { open: true, summary: 'Voir les détails', values: { Album: 'Fixture Album', Année: '2026', Genre: 'Metalcore', Durée: '4:09' }, badges: ['Modérateur', 'Charter vérifié'], instruments: ['Guitare', 'Batterie'] });
+  await capture('catalogue-card-french');
+  host.setLanguage('en');
+  await waitFor(() => evaluate("document.documentElement.lang==='en'&&document.querySelector('[data-chart-id=\"mini-complete\"] summary')?.textContent==='View details'"), 'English card details and badges');
+  assert.deepEqual(await details(), { open: true, summary: 'View details', values: { Album: 'Fixture Album', Year: '2026', Genre: 'Metalcore', Length: '4:09' }, badges: ['Moderator', 'Verified Charter'], instruments: ['Guitar', 'Drums'] });
+  await capture('catalogue-card-english');
+  host.setLanguage('fr'); await waitFor(() => evaluate("document.documentElement.lang==='fr'&&document.querySelector('[data-chart-id=\"mini-complete\"] summary')?.textContent==='Voir les détails'"), 'French card restored');
+  passed.push('real local artwork decodes; absent/broken covers keep placeholders; colored charter identity, per-instrument ranks/levels and creator badges remain accurate across French/English');
+}
+async function verifyResponsiveCards() {
+  const snapshot = await evaluate('window.ChartsHubCompanion.getSnapshot()'), original = snapshot.floatingPanels.appearance.catalogue;
+  const resized = await command('panels.appearance', { revision: snapshot.floatingPanels.revision, panel: 'catalogue', appearance: { ...original, fontSize: 24 } });
+  assert.equal(resized.ok, true);
+  await waitFor(() => evaluate("getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize==='24px'"), 'maximum supported font size applied');
+  const originalMinimum = mini.getMinimumSize();
+  try {
+    // 390 is the actual native minimum; 320 additionally stresses the CSS only.
+    mini.setMinimumSize(320, originalMinimum[1]);
+    for (const width of [650, 390, 320]) {
+      mini.setSize(width, 880);
+      await waitFor(() => evaluate(`window.innerWidth===${width}`), 'widget content width ' + width);
+      await evaluate("window.scrollTo({top:0,behavior:'instant'})"); await delay(100);
+      const layout = await evaluate(`(()=>{const page=document.documentElement,selectors=['.catalogue-widget-tabs button','.catalogue-card-body','.catalogue-instrument','.catalogue-staff-badge','.catalogue-card-details summary','.floating-catalogue-item button'];return {width:innerWidth,font:getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize,pageWidth:page.scrollWidth,clientWidth:page.clientWidth,overflow:selectors.flatMap(selector=>[...document.querySelectorAll(selector)].filter(n=>n.getClientRects().length&&n.scrollWidth>n.clientWidth+2).map(n=>({selector,text:n.textContent,width:n.clientWidth,scrollWidth:n.scrollWidth}))),outside:[...document.querySelectorAll('#catalogue-widget-results article')].map(n=>n.getBoundingClientRect()).some(r=>r.left<0||r.right>innerWidth+1)}})()`);
+      layouts.push(layout);
+      assert.ok(layout.pageWidth <= layout.clientWidth + 2, 'page overflow at width ' + width + ': ' + JSON.stringify(layout));
+      assert.deepEqual(layout.overflow, [], 'card/controls overflow at width ' + width); assert.equal(layout.outside, false);
+      await capture('catalogue-font24-width' + width);
+    }
+  } finally {
+    mini.setMinimumSize(...originalMinimum); mini.setSize(650, 880);
+    const latest = await evaluate('window.ChartsHubCompanion.getSnapshot()');
+    assert.equal((await command('panels.appearance', { revision: latest.floatingPanels.revision, panel: 'catalogue', appearance: original })).ok, true);
+  }
+  await waitFor(() => evaluate(`getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize===${JSON.stringify(original.fontSize + 'px')}`), 'original font restored');
+  passed.push('portrait catalogue cards and controls fit 650/390px and additional 320px CSS stress at the maximum 24px font');
+}
 async function openHost() {
   host = await createCompanionHost({ dataDirectory, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: false, sessions: [] }),
     isCatalogueAvailable: () => true, authorizeCatalogue: async () => true,
-    catalogueClient: { async load() { catalogueLoads++; return { items: charts, revision: 'mini-electron-fixture', demo: false }; }, async artwork() { throw Error('No network in fixture'); } },
+    catalogueClient: { async load() { catalogueLoads++; return { items: charts, revision: 'mini-electron-fixture', demo: false }; }, async artwork(url) { artworkRequests.push(url); assert.ok(charts.some(item => item.artworkUrl === url || item.charterIconUrl === url), 'only known synthetic catalogue artwork is requested'); return url.includes('/FixtureArtwork00/') ? { bytes: syntheticArtwork(), contentType: 'image/png' } : null; } },
     downloadWorker: worker() });
   panel = await host.open(); await host.setCatalogueWidget(true); mini = host.getCatalogueWidget(); mini.setSize(650, 880);
   await waitFor(() => evaluate("!!window.ChartsHubCompanion&&!document.querySelector('#catalogue-widget-search')?.disabled&&!!document.querySelector('#floating-panels-save')"), 'native mini ready');
 }
 async function fail(error) {
   if (failing) return; failing = true; console.error(error);
-  const report = { result: 'COMPANION_CATALOGUE_WIDGET_FAILED', error: String(error.stack || error), lastWait, passed, runs: runs.map(run => ({ id: run.id, settled: run.settled, aborted: run.aborted })) };
+  const report = { result: 'COMPANION_CATALOGUE_WIDGET_FAILED', error: String(error.stack || error), lastWait, passed, layouts, artworkRequests, runs: runs.map(run => ({ id: run.id, settled: run.settled, aborted: run.aborted })) };
   if (mini && !mini.isDestroyed()) {
     try { report.renderer = await evaluate("({language:document.documentElement.lang,body:document.body.innerText.slice(0,14000),active:document.activeElement?.id})"); } catch (_) {}
     try { await capture('failure'); } catch (_) {}
@@ -115,11 +210,14 @@ app.whenReady().then(async () => {
 
   await search({ query: 'Notes' }, ['mini-complete']);
   await search({ artist: 'Fixture artist' }, ['mini-cancel']);
-  await search({ charter: 'Fixture charter', instrument: 'Guitar', difficulty: 'Expert' }, charts.map(item => item.id));
+  await search({ charter: 'JoMartineau' }, ['mini-complete']);
+  await search({ charter: 'Fixture charter' }, ['mini-cancel']);
+  await search({ instrument: 'Guitar', difficulty: 'Expert' }, charts.map(item => item.id));
   assert.equal(catalogueLoads, 1); assert.equal(runs.length, 0);
   assert.deepEqual(await evaluate("Object.fromEntries([...document.querySelectorAll('#catalogue-widget-results article')].map(n=>[n.dataset.chartId,n.querySelector('h3').textContent]))"), Object.fromEntries(charts.map(item => [item.id, item.title])));
-  assert.equal(await evaluate("!!document.querySelector('#catalogue-widget-results img,#catalogue-widget-results script')||window.__unsafe===true"), false);
+  assert.equal(await evaluate("!!document.querySelector('#catalogue-widget-results script,#catalogue-widget-results [onerror]')||window.__unsafe===true"), false);
   await capture('search'); passed.push('title/artist/charter search renders hostile catalogue text inertly and never starts an automatic download');
+  await verifyCardPresentation(); await verifyResponsiveCards(); assert.equal(runs.length, 0);
 
   await click('[data-chart-id="mini-complete"] button'); await waitFor(() => runs.length === 1, 'first synthetic transfer'); const firstId = runs[0].id;
   assert.equal(runs[0].rootPath, songs); assert.match(runs[0].endpoint, /download-manifest$/);
@@ -177,7 +275,7 @@ app.whenReady().then(async () => {
   for (const id of [firstId, secondId]) assert.equal(await fs.readFile(path.join(songs, `Synthetic-${id}`, 'notes.chart'), 'utf8'), 'synthetic chart content');
   await capture('restart'); passed.push('full host restart restores the appearance and recent downloads while synthetic chart contents remain intact');
 
-  const report = { result: 'COMPANION_CATALOGUE_WIDGET_OK', count: passed.length, passed, catalogueLoads, transferRuns: runs.length, directory };
+  const report = { result: 'COMPANION_CATALOGUE_WIDGET_OK', count: passed.length, passed, layouts, artworkRequests, catalogueLoads, transferRuns: runs.length, directory };
   await fs.writeFile(path.join(directory, 'report.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
   await host.dispose(); dialog.showOpenDialog = originalPicker; app.exit(0);
 }).catch(fail);
