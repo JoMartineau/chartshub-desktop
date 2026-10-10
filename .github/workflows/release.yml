@@ -1,10 +1,12 @@
 name: Desktop release
 on:
   workflow_dispatch:
+  pull_request:
+    branches: [main]
   push:
     branches: [main]
 concurrency:
-  group: desktop-release
+  group: desktop-release-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 permissions:
   contents: read
@@ -31,6 +33,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -76,13 +80,13 @@ jobs:
         run: tar -czf ChartsHub-linux-x64.tar.gz -C dist ChartsHub-linux-x64
       - uses: actions/upload-artifact@v4
         with:
-          name: ChartsHub-${{ matrix.platform }}-${{ matrix.arch }}
+          name: ChartsHub-${{ matrix.platform }}-${{ matrix.arch }}${{ github.event_name == 'pull_request' && '-candidate' || '' }}
           path: |
             ChartsHub-*.zip
             ChartsHub-*.tar.gz
           if-no-files-found: error
   release:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -106,31 +110,13 @@ jobs:
           set -euo pipefail
           VERSION="v$(node -p 'require("./package.json").version')"
           [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          NOTES_SOURCE="docs/RELEASE-${VERSION#v}.md"
+          test -s "$NOTES_SOURCE"
+          cp "$NOTES_SOURCE" release-assets/RELEASE-NOTES.txt
           cd release-assets
           ASSETS=(ChartsHub-win32-x64.zip ChartsHub-linux-x64.tar.gz ChartsHub-darwin-arm64.zip ChartsHub-darwin-x64.zip)
           for ASSET in "${ASSETS[@]}"; do test -s "$ASSET"; done
           sha256sum "${ASSETS[@]}" > SHA256SUMS.txt
-          printf 'ChartsHub Desktop %s — Windows, macOS et Linux.\n\n' "$VERSION" > RELEASE-NOTES.txt
-          cat >> RELEASE-NOTES.txt <<'NOTES'
-          - Doublons v0.14.7 : « Supprimer quand même » est disponible pour une copie entièrement vérifiée ayant les mêmes notes, même si l’audio ou certains fichiers non audio diffèrent ; les cas non vérifiés ou dangereux restent bloqués.
-          - Doublons v0.14.6 : « Supprimer quand même » permet, après avertissement renforcé, d’envoyer à la Corbeille une copie dont seul l’audio vérifié diffère ; les notes et fichiers non audio doivent être identiques et la version conservée reste protégée.
-          - Doublons v0.14.5 : choisir la version à garder vérifie et présélectionne automatiquement les autres copies sûres ; les copies différentes ou non vérifiées restent protégées et la confirmation Windows est obligatoire.
-          - Correctif v0.14.4 : les états dynamiques Clone Hero, ReShade et Filtres suivent complètement Français / English sans laisser de texte français en mode English.
-          - Companion synchronisé avec la langue Français / English choisie sur ChartsHub, y compris les fenêtres natives, nombres et dates.
-          - Vérification globale de tous les groupes de doublons de la Bibliothèque locale, avec progression et statut par groupe ; aucune suppression automatique.
-          - Le nettoyage des doublons conserve le choix explicite de la version à garder, la sélection individuelle, la revalidation finale et la Corbeille Windows.
-          - Navigation Compte/Catalogue/Companion stabilisée : plus de disparition temporaire de Companion pendant la revalidation du même compte.
-          - Panneau Thème du Companion : couleur du bloom, intensité, rayon, flou, opacité et mode économique.
-          - Sauvegarde locale du bloom, conservée après redémarrage ; notes, widgets et ReShade inchangés.
-          - Correction de la barre de menu du catalogue dans la fenêtre à onglets.
-          - Catalogue et Companion réunis dans deux onglets de la même fenêtre.
-          - Companion accessible avec un compte ChartsHub ordinaire ; les fonctions administratives conservent leurs contrôles d’accès.
-          - Réglages des widgets, dispositions, bibliothèque et préférences conservés localement sur cet ordinateur.
-          - Assistant ReShade et filtres natifs inclus pour Clone Hero sous Windows x64 ; pack d’effets optionnel téléchargé depuis ses sources officielles.
-
-          Téléchargez l’archive de votre système et consultez Lisez-moi.txt. Empreintes des quatre archives dans SHA256SUMS.txt.
-          Version expérimentale : Windows non signé commercialement, macOS non notarisé. Les fonctions ReShade et les filtres natifs nécessitent Windows x64.
-          NOTES
           if ! gh release view "$VERSION" >/dev/null 2>&1; then
             gh release create "$VERSION" --target "$GITHUB_SHA" --draft --title "ChartsHub $VERSION" --notes-file RELEASE-NOTES.txt
           fi

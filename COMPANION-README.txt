@@ -1,4 +1,15 @@
-DOUBLONS — MODIFICATIONS EN PRÉPARATION
+ChartsHub Desktop 0.14.8 — Catalogue et Companion
+
+NOUVEAUTÉS 0.14.8
+Catalogue flottant : recherche, filtres, téléchargements et récents dans une fenêtre au-dessus du jeu en mode fenêtré ou sans bordures. Ctrl+Maj+K affiche ou masque le panneau (Commande+Maj+K sur macOS).
+Personnalisez séparément le fond, la transparence, le texte, la police et la taille du Catalogue et du panneau Filtres. Prévisualisez puis enregistrez pour conserver les réglages après redémarrage.
+Les résultats des nouveaux téléchargements rejoignent le centre de notifications du compte. Les alertes natives suivent vos préférences et peuvent être suspendues quand Clone Hero est détecté. Une déconnexion ou un changement de compte invalide les notifications en attente.
+Le centre lu/non lu permet de supprimer uniquement les notifications déjà lues, individuellement ou ensemble, et de choisir les catégories reçues.
+Le nouveau preview néon du catalogue principal conserve les cinq couleurs de notes et distingue normale, HOPO, TAP, notes ouvertes, pads, cymbales et kick violet.
+Le centre du compte, les profils de charters et le preview sont partagés avec le site : ils nécessitent le déploiement de ChartsHub 1.8.3. L’archive Desktop ne déploie pas le site ; le mini Catalogue flottant ne contient pas le preview.
+Conservez votre profil ChartsHub, vos réglages et vos dossiers de chansons lors de la mise à jour.
+
+DOUBLONS 0.14.8
 Choisissez la version à conserver, puis cochez chaque copie à envoyer à la Corbeille. Aucune case n’est cochée automatiquement.
 « Comparer les fichiers » détaille les notes, l’audio, les illustrations, les métadonnées et les autres fichiers, avec les tailles et différences.
 « Arrêter la vérification » interrompt la vérification globale ; les groupes terminés et les choix de versions restent conservés.
