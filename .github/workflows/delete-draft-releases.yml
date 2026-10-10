@@ -1,0 +1,152 @@
+name: Delete audited desktop draft releases (2026-10-10)
+
+on:
+  push:
+    branches: [codex/delete-draft-releases-20261010]
+    paths: [.github/workflows/delete-draft-releases.yml]
+
+permissions: {}
+
+concurrency:
+  group: delete-audited-desktop-draft-releases-20261010
+  cancel-in-progress: false
+
+jobs:
+  delete-audited-drafts:
+    if: github.repository == 'JoMartineau/chartshub-desktop' && github.event_name == 'push' && github.ref == 'refs/heads/codex/delete-draft-releases-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      # No checkout, action dependency, user input, git command, or tag mutation.
+      - name: Recheck and remove only the seven audited draft release records
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs';
+
+          const repository = 'JoMartineau/chartshub-desktop';
+          const branch = 'refs/heads/codex/delete-draft-releases-20261010';
+          const api = 'https://api.github.com';
+          const audited = new Map([
+            [397257732, 'v0.1.0'],
+            [397261820, 'v0.1.1'],
+            [397266476, 'v0.1.2'],
+            [397270636, 'v0.1.3'],
+            [397272137, 'v0.1.4'],
+            [397294206, 'v0.1.5'],
+            [397297564, 'v0.1.6'],
+          ]);
+          const deleted = [];
+          const absent = new Set();
+          let current = null;
+
+          function describe(id) {
+            return `${audited.get(id)} (${id})`;
+          }
+
+          async function request(id, method = 'GET') {
+            // Both methods have exactly the same fixed endpoint allowlist.
+            // No caller can supply a repository, path, ref, asset, or URL.
+            if (!audited.has(id) || !['GET', 'DELETE'].includes(method)) {
+              throw new Error('Request outside the audited release allowlist.');
+            }
+            const url = `${api}/repos/${repository}/releases/${id}`;
+            let response;
+            try {
+              response = await fetch(url, {
+                method,
+                headers: {
+                  Accept: 'application/vnd.github+json',
+                  Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+                  'X-GitHub-Api-Version': '2022-11-28',
+                },
+                redirect: 'error',
+                signal: AbortSignal.timeout(15000),
+              });
+            } catch {
+              throw new Error(`${method} failed for audited release ${describe(id)}; no automatic retry.`);
+            }
+            if (response.redirected || response.url !== url) {
+              throw new Error(`Unexpected API destination for ${describe(id)}.`);
+            }
+            return response;
+          }
+
+          async function inspect(id) {
+            const response = await request(id);
+            if (response.status === 404) return null;
+            if (response.status !== 200) {
+              throw new Error(`GET ${describe(id)} returned HTTP ${response.status}.`);
+            }
+            let release;
+            try { release = await response.json(); }
+            catch { throw new Error(`Invalid release metadata for ${describe(id)}.`); }
+            if (release.id !== id || release.tag_name !== audited.get(id) ||
+                release.url !== `${api}/repos/${repository}/releases/${id}`) {
+              throw new Error(`Release identity changed for ${describe(id)}.`);
+            }
+            // A draft may have prerelease:true. Any published release, including
+            // a published prerelease, is refused unconditionally.
+            if (release.draft !== true || release.published_at !== null) {
+              throw new Error(`Refusing non-draft or published release ${describe(id)}.`);
+            }
+            return release;
+          }
+
+          function summary(success) {
+            const lines = [
+              success ? 'Audited draft cleanup completed.' : 'Audited draft cleanup stopped with an error.',
+              `Verified deleted: ${deleted.length ? deleted.map(describe).join(', ') : 'none'}.`,
+              `Already absent: ${absent.size ? [...absent].map(describe).join(', ') : 'none'}.`,
+              'No Git tag operation or published-release deletion was requested.',
+            ];
+            console.log(lines.join('\n'));
+            if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n\n') + '\n');
+          }
+
+          try {
+            if (process.env.GITHUB_REPOSITORY !== repository ||
+                process.env.GITHUB_REF !== branch ||
+                process.env.GITHUB_EVENT_NAME !== 'push' ||
+                process.env.GITHUB_API_URL !== api ||
+                !process.env.GITHUB_TOKEN ||
+                Number(process.versions.node.split('.')[0]) < 20) {
+              throw new Error('Unexpected repository, branch, event, API, token availability, or Node runtime.');
+            }
+
+            // Preflight every identity before the first destructive request.
+            for (const id of audited.keys()) {
+              current = id;
+              if (await inspect(id) === null) absent.add(id);
+            }
+            for (const id of audited.keys()) {
+              if (absent.has(id)) continue;
+              current = id;
+              // Re-read this exact ID immediately before DELETE. If it was
+              // published or retagged after preflight, stop without deleting it.
+              if (await inspect(id) === null) { absent.add(id); continue; }
+              const response = await request(id, 'DELETE');
+              if (response.status !== 204) {
+                throw new Error(`DELETE ${describe(id)} returned HTTP ${response.status}; not reported as deleted.`);
+              }
+              const verification = await request(id);
+              if (verification.status !== 404) {
+                throw new Error(`Deletion of ${describe(id)} is not confirmed (HTTP ${verification.status}).`);
+              }
+              deleted.push(id);
+              console.log(`Verified deletion of draft release ${describe(id)}.`);
+            }
+            current = null;
+            summary(true);
+          } catch (error) {
+            // Do not print response bodies, fetch internals, environment, or token.
+            console.error(`Draft cleanup failed${current === null ? '' : ` at ${describe(current)}`}: ${error.message}`);
+            try { summary(false); } catch { console.error('Could not write the cleanup summary.'); }
+            process.exitCode = 1;
+          }
+          NODE
+
