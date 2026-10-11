@@ -191,12 +191,53 @@ app.whenReady().then(async () => {
   await prepare(f, false);
   passed.push('reopened comparison restores saved keeper and resets deletion selection');
 
+  // Exercise the real no-cleanup action with an existing deletion selection.
+  // A visible label alone cannot prove that the preference and plan were cleared.
+  await click(`.library-cleanup-check[data-cleanup-id="${f.selectedId}"]`);
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('.library-cleanup-check:checked')].map(n=>n.dataset.cleanupId)"), [f.selectedId]);
+  const beforeKeepAllDialogs = confirmations.length, beforeKeepAllRecycled = recycled.length;
+  const preferenceFile = path.join(dataDirectory, 'library-duplicate-choices.json');
+  const keptPreferences = JSON.parse(await fs.readFile(preferenceFile, 'utf8'));
+  assert.deepEqual(Object.values(keptPreferences.choices).map(choice => choice.id), [f.keepId]);
+  assert.equal(await evaluate("document.querySelector('#library-comparison-clear').textContent.trim()"), 'Conserver toutes les versions');
+  await click('#library-comparison-clear');
+  await waitFor(() => evaluate("document.querySelector('#library-comparison').getAttribute('aria-busy')==='false'&&document.querySelectorAll('.library-variant.is-preferred').length===0&&document.querySelector('#library-comparison-clear').hidden&&document.querySelector('#library-cleanup-plan').hidden"), 'keep-all action clears the keeper and its cleanup plan');
+  assert.equal(await evaluate("document.querySelectorAll('.library-cleanup-check').length"), 0);
+  assert.equal(await evaluate("document.querySelectorAll('.library-cleanup-check:checked').length"), 0);
+  assert.equal(await evaluate("document.querySelector('#library-cleanup-recycle').disabled"), true);
+  assert.match(await evaluate("document.querySelector('#library-comparison-feedback').textContent"), /Toutes les versions sont conservées/);
+  assert.deepEqual(JSON.parse(await fs.readFile(preferenceFile, 'utf8')).choices, {}, 'keep-all removes the persisted keeper preference');
+  await openComparison(3);
+  assert.equal(await evaluate("document.querySelectorAll('.library-variant.is-preferred').length"), 0, 'a fresh comparison does not restore the cleared keeper');
+  assert.equal(await evaluate("document.querySelector('#library-cleanup-plan').hidden"), true);
+  assert.equal(await evaluate("document.querySelector('#library-cleanup-prepare').hidden"), true);
+  assert.equal(await evaluate("document.querySelectorAll('.library-cleanup-check').length"), 0, 'keeping all versions never creates a deletion selection');
+  assert.equal(confirmations.length, beforeKeepAllDialogs); assert.equal(recycled.length, beforeKeepAllRecycled);
+  assert.equal((await cleanupHistory()).total, 0); await intact(f);
+  await click(`.library-variant[data-variant-id="${f.keepId}"] .library-variant-choose`);
+  await waitFor(() => evaluate(`document.querySelector('.library-variant.is-preferred')?.dataset.variantId===${JSON.stringify(f.keepId)}&&document.querySelector('#library-comparison').getAttribute('aria-busy')==='false'&&!document.querySelector('#library-cleanup-plan').hidden`), 'explicit keeper restored after keeping all versions');
+  await assertUnselectedPlan(f.keepId);
+  assert.deepEqual(Object.values(JSON.parse(await fs.readFile(preferenceFile, 'utf8')).choices).map(choice => choice.id), [f.keepId]);
+  assert.equal(confirmations.length, beforeKeepAllDialogs); assert.equal(recycled.length, beforeKeepAllRecycled); await intact(f);
+  passed.push('keep-all clears the checked copies, cleanup plan and saved keeper; reopening keeps every version, and a new explicit keeper stays protected without selecting or recycling anything');
+
   await click('#library-comparison-close');
   const beforeBulkDialogs = confirmations.length;
   await click('#library-verify-all-duplicates');
-  await waitFor(() => evaluate("!document.querySelector('#library-verify-all-duplicates').disabled&&document.querySelector('#library-verify-all-status').textContent.includes('2 copie(s) vérifiée(s)')"), 'global duplicate verification completes through worker IPC');
+  let verifiedPage;
+  await waitFor(async () => {
+    const summary = host.snapshot().library;
+    if (summary.status !== 'ready' || summary.duplicateVerification !== null) return false;
+    if (!await evaluate("!document.querySelector('#library-verify-all-duplicates').disabled&&document.querySelector('#library-cancel-duplicate-verification').hidden&&document.querySelector('#library-results').getAttribute('aria-busy')==='false'&&!document.querySelector('#library-verify-all-status').hidden&&!!document.querySelector('#library-verify-all-status').textContent.trim()")) return false;
+    const response = await command('library.query', { query: '', sort: 'title', audio: 'all', duplicates: 'possible', offset: 0, limit: 50 });
+    if (!response.ok || response.result.revision !== summary.revision || response.result.total !== 3 || response.result.items.length !== 3
+      || !response.result.items.every(item => item.duplicateVerification === 'ready' && item.verifiedEligibleCopies === 2)) return false;
+    verifiedPage = response.result; return true;
+  }, 'global duplicate verification completes through worker IPC with two eligible copies');
+  assert.deepEqual(verifiedPage.items.map(item => item.id).sort(), Object.values(f.ids).sort());
   assert.equal(await evaluate("document.querySelector('#library-verify-all-status').classList.contains('is-error')"), false);
-  assert.match(await evaluate("document.querySelector('#library-verify-all-status').textContent"), /1 groupe\(s\) prêt\(s\).*0 choix de version requis.*0 bloqué\(s\)/);
+  const displayedCounts = (await evaluate("document.querySelector('#library-verify-all-status').textContent")).match(/\d+/g)?.map(Number);
+  assert.deepEqual(displayedCounts, [1, 0, 0, verifiedPage.items[0].verifiedEligibleCopies], 'the finished UI displays the actual ready-group and eligible-copy counts');
   assert.equal(confirmations.length, beforeBulkDialogs); assert.equal(recycled.length, 0); await intact(f);
   assert.equal((await cleanupHistory()).total, 0, 'verification alone never creates cleanup history');
   await openComparison(3); await prepare(f, false);
