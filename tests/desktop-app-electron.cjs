@@ -48,6 +48,9 @@ require(path.join(root,'main.js'));
 app.whenReady().then(async()=>{
  await waitFor(()=>desktop,'desktop construction');await desktop.ready;
  const frame=desktop.window.webContents,web=desktop.catalogueView.webContents;
+ const branding=await frame.executeJavaScript(`(async()=>{const images=Array.from(document.querySelectorAll('.titlebar .brand-mark,.appnav .brand-mark'));await Promise.all(images.map(image=>image.decode()));return {title:document.title,names:Array.from(document.querySelectorAll('.brand-name'),node=>node.textContent),images:images.map(image=>({width:image.naturalWidth,height:image.naturalHeight,path:new URL(image.currentSrc).pathname.split('/').pop(),renderedHeight:image.getBoundingClientRect().height}))}})()`);
+ assert.equal(branding.title,'ChartsHub.ca');assert.equal(desktop.window.getTitle(),'ChartsHub.ca');assert.deepEqual(branding.names,['ChartsHub.ca','ChartsHub.ca']);assert.equal(branding.images.length,2);assert.ok(branding.images.every(image=>image.path==='icon.png'&&image.width>0&&image.height>0));assert.deepEqual(branding.images.map(image=>image.renderedHeight),[18,37]);
+ passed.push('title bar and header load the bundled ChartsHub logo and website name');
  const state=()=>frame.executeJavaScript('window.chartsHubShell.getState()');
  const select=tab=>frame.executeJavaScript(`window.chartsHubShell.selectTab(${JSON.stringify(tab)})`);
  await waitFor(()=>web.getURL()==='https://chartshub.ca/'&&!web.isLoading(),'catalogue load');

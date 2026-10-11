@@ -1,5 +1,5 @@
 'use strict';
-const { BrowserWindow } = require('electron');
+const { BrowserWindow, desktopCapturer } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const http = require('node:http');
@@ -101,6 +101,51 @@ async function verifyStream(panel, host, data, passed) {
     assert.equal(initial.stream.clients, 0);
     assert.equal(initial.stream.url, null);
     panel.setSize(1250, 900);
+    const captureWindows = [];
+    const windowsCaptureCI = process.platform === 'win32' && process.env.CI === 'true';
+    if (windowsCaptureCI) {
+      for (const name of ['catalogue', 'filters']) assert.equal(initial.captureWindows?.[name]?.canOpen, true, 'Windows CI must exercise the actual ' + name + ' window');
+    }
+    for (const name of ['catalogue', 'filters']) {
+      const info = initial.captureWindows?.[name];
+      assert.equal(await evaluate(`document.querySelector('#stream-open-${name}').disabled`), info?.canOpen !== true, 'OBS button follows host readiness: ' + name);
+      if (!info?.canOpen) continue;
+      await click('#stream-open-' + name);
+      const native = () => name === 'catalogue' ? host.getCatalogueWidget() : host.getFiltersWidget();
+      await waitFor(() => native()?.isVisible(), 'OBS action opens native ' + name);
+      const window = native(); assert.equal(window.getTitle(), info.title);
+      assert.equal(await evaluate(`document.querySelector('#stream-${name}-window-title').textContent`), info.title);
+      captureWindows.push({ name, window, title: info.title });
+      await fs.writeFile(path.join(data, 'obs-window-' + name + '.png'), (await window.webContents.capturePage()).toPNG());
+    }
+    if (windowsCaptureCI) {
+      assert.deepEqual(captureWindows.map(item => item.name).sort(), ['catalogue', 'filters'], 'both native fixture windows were opened and captured');
+      assert.equal(new Set(captureWindows.map(item => item.window.getMediaSourceId())).size, 2, 'the captures belong to two distinct native windows');
+      // Enumerate eligible windows with zero-size thumbnails. Only our fixture
+      // window IDs/titles are inspected; no other titles or pixels are recorded.
+      await waitFor(async () => {
+        const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false });
+        return captureWindows.every(({ window, title }) => sources.some(source => source.id === window.getMediaSourceId() && source.name === title));
+      }, 'Windows capture enumeration contains only the expected matches for fixture catalogue/filters', 15000);
+      passed.push('Windows native capture enumeration recognizes the exact fixture Catalogue/Filters titles; actual OBS capture remains a manual integration check');
+    }
+    await host.setCatalogueWidget(Boolean(initial.catalogueWidgetEnabled));
+    await host.setFiltersWidget(Boolean(initial.filtersWidgetEnabled));
+    for (const language of ['fr', 'en']) {
+      host.setLanguage(language);
+      const expected = language === 'fr' ? 'Ouvrir le Catalogue' : 'Open Catalogue';
+      await waitFor(() => evaluate(`document.querySelector('#stream-open-catalogue').textContent===${JSON.stringify(expected)}`), 'OBS capture instructions ' + language);
+      if (captureWindows.length) {
+        const feedback = language === 'fr' ? 'Fenêtre ouverte. Sélectionnez son titre dans OBS.' : 'Window opened. Select its title in OBS.';
+        await waitFor(() => evaluate(`document.querySelector('#stream-feedback').textContent===${JSON.stringify(feedback)}`), 'existing OBS opening confirmation follows language ' + language);
+      }
+      await evaluate("document.querySelector('.stream-native-windows').scrollIntoView({block:'center',inline:'nearest'})");
+      await fs.writeFile(path.join(data, 'obs-window-instructions-' + language + '.png'), (await panel.webContents.capturePage()).toPNG());
+    }
+    host.setLanguage(initial.language);
+    assert.equal(host.snapshot().stream.enabled, false); assert.equal(host.snapshot().stream.url, null);
+    for (const key of ['widgets', 'theme', 'stream']) assert.deepEqual(host.snapshot().state[key], initial.state[key], 'opening capture windows does not change ' + key);
+    passed.push('OBS buttons open only existing permitted native windows with exact titles and bilingual guidance, without starting the browser server');
     await command('mock.state', { state: 'menu' });
     if (await evaluate("document.querySelector('#builder-toggle').getAttribute('aria-pressed')==='true'")) await click('#builder-toggle');
     await click('#preview-stream-tab');
@@ -225,6 +270,11 @@ async function verifyStream(panel, host, data, passed) {
   } finally {
     const failures = [];
     try { await host.setStream(false); } catch { failures.push('stop stream'); }
+    try {
+      await host.setCatalogueWidget(Boolean(initial.catalogueWidgetEnabled));
+      await host.setFiltersWidget(Boolean(initial.filtersWidgetEnabled));
+      host.setLanguage(initial.language);
+    } catch { failures.push('restore native capture windows'); }
     if (browser && !browser.isDestroyed()) browser.destroy();
     if (!panel.isDestroyed()) {
       try {

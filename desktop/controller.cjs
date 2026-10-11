@@ -18,15 +18,15 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
   if (typeof onSelectTab !== 'function') throw TypeError('Invalid desktop tab callback');
   const filename = path.join(__dirname, 'index.html'), shellUrl = pathToFileURL(filename).href;
   let disposed = false, companionView = null, activeTab = 'catalogue', companionAvailable = false;
-  let theme = { mode: 'dark', accent: '#91d6c4', color: '#0d1118', symbolColor: '#eef1f2' };
+  let theme = windowTheme({ mode: 'dark', accent: '#49bbff' });
   const state = {
     catalogue: { ready: false, loading: true, error: null },
     companion: { ready: false, loading: false, error: null }
   };
   const pending = new Map(), listeners = [], contentsByView = new WeakMap(), deadViews = new WeakSet();
   const window = new BrowserWindow({
-    width: 1400, height: 950, minWidth: 720, minHeight: 560, title: 'ChartsHub',
-    backgroundColor: '#151719', icon: path.join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
+    width: 1400, height: 950, minWidth: 720, minHeight: 560, title: 'ChartsHub.ca',
+    backgroundColor: '#090e19', icon: path.join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
     ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' }
       : { titleBarStyle: 'hidden', titleBarOverlay: { color: theme.color, symbolColor: theme.symbolColor, height: 36 } }),
     webPreferences: {

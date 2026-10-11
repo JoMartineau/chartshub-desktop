@@ -1,0 +1,12 @@
+:root {
+  --background: #080e1a;
+  --surface: #111c2e;
+  --surface-raised: #18263c;
+  --border: #2d4059;
+  --text: #eef4ff;
+  --muted: #9db2d0;
+  --accent: #48c7fa;
+  --accent-hover: #8adfff;
+  --accent-soft: #173648;
+  --accent-violet: #aa88ff;
+}

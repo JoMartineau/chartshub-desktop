@@ -1,20 +1,20 @@
-.floating-panels-controls { margin-top: 24px; padding: 20px; border: 1px solid #374139; border-radius: 10px; min-width: 0; }
-.floating-panels-controls h3 { margin: 0 0 8px; color: #e4ece7; font-size: 16px; }
-.floating-panels-hint { margin: 0 0 18px; color: #adbdb4; font-size: 12px; line-height: 1.6; }
+.floating-panels-controls { margin-top: 24px; padding: 20px; border: 1px solid var(--border); border-radius: 10px; min-width: 0; }
+.floating-panels-controls h3 { margin: 0 0 8px; color: var(--text); font-size: 16px; }
+.floating-panels-hint { margin: 0 0 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .floating-panels-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
-.floating-panels-grid label { display: flex; flex-direction: column; gap: 8px; color: #c4d2ca; font-size: 12px; min-width: 0; }
+.floating-panels-grid label { display: flex; flex-direction: column; gap: 8px; color: var(--muted); font-size: 12px; min-width: 0; }
 .floating-panels-grid input, .floating-panels-grid select { min-height: 36px; max-width: 100%; min-width: 0; font: inherit; }
 .floating-panels-grid input[type="color"] { width: 100%; cursor: pointer; }
 .floating-panels-grid input[type="range"] { width: 100%; cursor: pointer; }
-.floating-panels-grid output { color: #c7d5cc; }
+.floating-panels-grid output { color: var(--muted); }
 .floating-panels-grid [aria-invalid="true"] { outline: 2px solid #e6a39c; outline-offset: 2px; }
-.floating-panels-preview-wrap { margin-top: 20px; overflow: hidden; border: 1px solid #48524c; border-radius: 8px; background-color: #909b94; background-image: repeating-conic-gradient(#525f56 0% 25%, transparent 0% 50%); background-size: 20px 20px; }
-.floating-panels-preview { padding: 22px; background: var(--floating-background, #151719e6); color: var(--floating-text, #eef1f2); font-family: var(--floating-font, "Segoe UI", Arial, sans-serif); font-size: var(--floating-font-size, 14px); line-height: 1.5; overflow-wrap: anywhere; }
+.floating-panels-preview-wrap { margin-top: 20px; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background-color: var(--accent-hover); background-image: repeating-conic-gradient(var(--accent-soft) 0% 25%, transparent 0% 50%); background-size: 20px 20px; }
+.floating-panels-preview { padding: 22px; background: var(--floating-background, #151719e6); color: var(--floating-text, var(--text)); font-family: var(--floating-font, "Segoe UI", Arial, sans-serif); font-size: var(--floating-font-size, 14px); line-height: 1.5; overflow-wrap: anywhere; }
 .floating-panels-preview strong { color: inherit; font: inherit; font-weight: 700; }
 .floating-panels-preview p { margin: 8px 0 0; color: inherit; font: inherit; }
 .floating-panels-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
 .floating-panels-actions button { min-height: 38px; }
-.floating-panels-feedback { margin: 12px 0 0; color: #c3dccb; font-size: 12px; line-height: 1.6; }
+.floating-panels-feedback { margin: 12px 0 0; color: var(--text); font-size: 12px; line-height: 1.6; }
 .floating-panels-feedback.is-error { color: #efb7b0; }
 @media (max-width: 700px) { .floating-panels-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 500px) { .floating-panels-controls { padding: 14px; } .floating-panels-grid { grid-template-columns: minmax(0, 1fr); } }

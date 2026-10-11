@@ -44,6 +44,19 @@ async function search(fields, ids) {
   await waitFor(() => evaluate(`document.querySelector('#catalogue-widget-results').getAttribute('aria-busy')==='false'&&JSON.stringify([...document.querySelectorAll('#catalogue-widget-results article')].map(n=>n.dataset.chartId).sort())===${JSON.stringify(JSON.stringify([...ids].sort()))}`), 'catalogue search results ' + ids.join(', '));
 }
 async function capture(name) { await fs.writeFile(path.join(directory, `${name}.png`), (await mini.webContents.capturePage()).toPNG()); }
+async function resizeNative(width, height) {
+  assert.deepEqual(mini.getMinimumSize(), [280, 220], 'the production native window supports the compact size');
+  mini.setSize(width, height);
+  await waitFor(async () => mini.getSize()[0] === width && mini.getSize()[1] === height && await evaluate(`innerWidth===${width}&&innerHeight===${height}`), 'native/content size ' + width + 'x' + height);
+  assert.deepEqual(mini.getMinimumSize(), [280, 220], 'resizing never overrides the native minimum');
+}
+async function recordLayout(label) {
+  const layout = await evaluate(`(()=>{const page=document.documentElement,content=document.querySelector('.catalogue-widget-content'),header=document.querySelector('.catalogue-widget-titlebar'),close=document.querySelector('#catalogue-widget-close'),tabs=document.querySelector('.catalogue-widget-tabs'),selectors=['.catalogue-widget-tabs button','.catalogue-widget-actions button','.catalogue-widget-destination button','.catalogue-card-body','.catalogue-instrument','.catalogue-staff-badge','.catalogue-card-details summary','.floating-catalogue-item button','.catalogue-selection-label','.catalogue-widget-selection button'];const rect=n=>{const r=n.getBoundingClientRect();return {top:r.top,bottom:r.bottom,left:r.left,right:r.right,height:r.height}};return {language:document.documentElement.lang,width:innerWidth,height:innerHeight,font:getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize,pageWidth:page.scrollWidth,clientWidth:page.clientWidth,pageHeight:page.scrollHeight,clientHeight:page.clientHeight,content:{...rect(content),scrollTop:content.scrollTop,scrollHeight:content.scrollHeight,clientHeight:content.clientHeight},header:rect(header),tabs:rect(tabs),close:rect(close),overflow:selectors.flatMap(selector=>[...document.querySelectorAll(selector)].filter(n=>n.getClientRects().length&&n.scrollWidth>n.clientWidth+2).map(n=>({selector,text:n.textContent,width:n.clientWidth,scrollWidth:n.scrollWidth}))),outside:[...document.querySelectorAll('#catalogue-widget-results article')].map(n=>n.getBoundingClientRect()).some(r=>r.left<0||r.right>innerWidth+1)}})()`);
+  layouts.push({ label, ...layout });
+  assert.ok(layout.pageWidth <= layout.clientWidth + 2, 'page overflow: ' + JSON.stringify({ label, ...layout }));
+  assert.deepEqual(layout.overflow, [], 'card/control overflow: ' + label); assert.equal(layout.outside, false, 'cards remain inside window: ' + label);
+  return layout;
+}
 const state = id => host.downloads.status().items.find(item => item.id === id);
 function worker() {
   return {
@@ -307,28 +320,84 @@ async function verifyResponsiveCards() {
   const resized = await command('panels.appearance', { revision: snapshot.floatingPanels.revision, panel: 'catalogue', appearance: { ...original, fontSize: 24 } });
   assert.equal(resized.ok, true);
   await waitFor(() => evaluate("getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize==='24px'"), 'maximum supported font size applied');
-  const originalMinimum = mini.getMinimumSize();
   try {
-    // 390 is the actual native minimum; 320 additionally stresses the CSS only.
-    mini.setMinimumSize(320, originalMinimum[1]);
-    for (const width of [650, 390, 320]) {
-      mini.setSize(width, 880);
-      await waitFor(() => evaluate(`window.innerWidth===${width}`), 'widget content width ' + width);
-      await evaluate("window.scrollTo({top:0,behavior:'instant'})"); await delay(100);
-      const layout = await evaluate(`(()=>{const page=document.documentElement,selectors=['.catalogue-widget-tabs button','.catalogue-card-body','.catalogue-instrument','.catalogue-staff-badge','.catalogue-card-details summary','.floating-catalogue-item button','.catalogue-selection-label','.catalogue-widget-selection button'];return {width:innerWidth,font:getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize,pageWidth:page.scrollWidth,clientWidth:page.clientWidth,overflow:selectors.flatMap(selector=>[...document.querySelectorAll(selector)].filter(n=>n.getClientRects().length&&n.scrollWidth>n.clientWidth+2).map(n=>({selector,text:n.textContent,width:n.clientWidth,scrollWidth:n.scrollWidth}))),outside:[...document.querySelectorAll('#catalogue-widget-results article')].map(n=>n.getBoundingClientRect()).some(r=>r.left<0||r.right>innerWidth+1)}})()`);
-      layouts.push(layout);
-      assert.ok(layout.pageWidth <= layout.clientWidth + 2, 'page overflow at width ' + width + ': ' + JSON.stringify(layout));
-      assert.deepEqual(layout.overflow, [], 'card/controls overflow at width ' + width); assert.equal(layout.outside, false);
-      await capture('catalogue-font24-width' + width);
+    for (const language of ['fr', 'en']) {
+      host.setLanguage(language); await waitFor(() => evaluate(`document.documentElement.lang===${JSON.stringify(language)}`), 'responsive language ' + language);
+      for (const width of [650, 390, 320, 280]) {
+        await resizeNative(width, 880);
+        await evaluate("document.querySelector('.catalogue-widget-content').scrollTo({top:0,behavior:'instant'})");
+        await recordLayout('font24-' + language + '-' + width + 'x880');
+        await capture('catalogue-font24-' + language + '-width' + width);
+      }
     }
   } finally {
-    mini.setMinimumSize(...originalMinimum); mini.setSize(650, 880);
+    await resizeNative(650, 880); host.setLanguage('fr');
     const latest = await evaluate('window.ChartsHubCompanion.getSnapshot()');
     assert.equal((await command('panels.appearance', { revision: latest.floatingPanels.revision, panel: 'catalogue', appearance: original })).ok, true);
   }
   await waitFor(() => evaluate(`getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize===${JSON.stringify(original.fontSize + 'px')}`), 'original font restored');
   await click('#catalogue-widget-clear-selection'); await selectionIs([]);
-  passed.push('portrait catalogue cards and controls fit 650/390px and additional 320px CSS stress at the maximum 24px font');
+  passed.push('French and English cards and controls fit actual native widths 650/390/320/280 at 24px font without lowering the production minimum');
+}
+async function verifyCompactDownload() {
+  const snapshot = await evaluate('window.ChartsHubCompanion.getSnapshot()'), original = snapshot.floatingPanels.appearance.catalogue, before = runs.length;
+  assert.equal((await command('panels.appearance', { revision: snapshot.floatingPanels.revision, panel: 'catalogue', appearance: { ...original, fontSize: 24 } })).ok, true);
+  await waitFor(() => evaluate("getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize==='24px'"), 'compact 24px font applied');
+  try {
+    await resizeNative(280, 220);
+    for (const language of ['fr', 'en']) {
+      host.setLanguage(language); await waitFor(() => evaluate(`document.documentElement.lang===${JSON.stringify(language)}`), 'compact language ' + language);
+      for (const tab of ['recent', 'downloads', 'search']) {
+        await click('#catalogue-widget-tab-' + tab);
+        assert.equal(await evaluate(`document.querySelector('#catalogue-widget-tab-${tab}').getAttribute('aria-selected')==='true'&&!document.querySelector('#catalogue-widget-${tab}-panel').hidden`), true, 'native click selects compact tab ' + tab);
+      }
+      mini.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Right' }); mini.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Right' });
+      await waitFor(() => evaluate("document.activeElement?.id==='catalogue-widget-tab-downloads'&&document.querySelector('#catalogue-widget-tab-downloads').getAttribute('aria-selected')==='true'"), 'compact tabs keyboard navigation');
+      await click('#catalogue-widget-tab-search');
+      await capture('catalogue-compact-' + language + '-tabs');
+      await click('#catalogue-widget-query'); assert.equal(await evaluate('document.activeElement.id'), 'catalogue-widget-query', 'compact search input is reachable by native click');
+      await search({ query: 'Notes' }, ['mini-complete']);
+      const reachable = await evaluate(`(()=>{const n=document.querySelector('[data-chart-id="mini-complete"] .catalogue-download-single');n.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});const r=n.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return !n.disabled&&r.top>=document.querySelector('.catalogue-widget-content').getBoundingClientRect().top&&r.bottom<=innerHeight&&!!hit&&(hit===n||n.contains(hit))})()`);
+      assert.equal(reachable, true, 'compact card download is visible and unobstructed after scrolling');
+      const layout = await recordLayout('font24-' + language + '-280x220');
+      assert.ok(layout.content.clientHeight > 50 && layout.content.scrollHeight > layout.content.clientHeight && layout.content.scrollTop > 0, 'compact body actually scrolls to its card');
+      assert.ok(layout.header.top >= -1 && layout.header.bottom <= layout.content.top + 1, 'titlebar stays outside the scrolling body');
+      assert.ok(layout.tabs.top >= layout.header.bottom - 1 && layout.tabs.bottom <= layout.content.top + 1, 'all tabs stay above the scrolling body');
+      assert.ok(layout.close.top >= 0 && layout.close.bottom <= 220 && layout.close.left >= 0 && layout.close.right <= 280, 'close remains entirely visible while the card is scrolled');
+      assert.ok(layout.pageHeight <= layout.clientHeight + 2, 'the outer page does not scroll away the titlebar');
+      await capture('catalogue-compact-' + language + '-card');
+      await click('#catalogue-widget-close'); await waitFor(() => !mini.isVisible(), 'compact close ' + language);
+      assert.equal(runs.length, before, 'compact searches, tabs, resizing and close never enqueue automatically');
+      await host.setCatalogueWidget(true); await waitFor(() => mini.isVisible(), 'compact reopened ' + language);
+      assert.deepEqual(mini.getSize(), [280, 220]); assert.deepEqual(mini.getMinimumSize(), [280, 220]);
+    }
+    await click('[data-chart-id="mini-complete"] .catalogue-download-single');
+    await waitFor(() => runs.length === before + 1, 'native compact card explicitly starts one synthetic transfer');
+    await click('#catalogue-widget-tab-downloads');
+    await waitFor(() => evaluate("document.querySelectorAll('#catalogue-widget-downloads article').length===1"), 'compact download tab shows the queued chart');
+    await capture('catalogue-compact-download-started');
+  } finally {
+    await resizeNative(650, 880); host.setLanguage('fr');
+    const latest = await evaluate('window.ChartsHubCompanion.getSnapshot()');
+    assert.equal((await command('panels.appearance', { revision: latest.floatingPanels.revision, panel: 'catalogue', appearance: original })).ok, true);
+  }
+  await waitFor(() => evaluate(`document.documentElement.lang==='fr'&&getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize===${JSON.stringify(original.fontSize + 'px')}`), 'compact test restores language/font');
+  await click('#catalogue-widget-tab-search'); await search({}, charts.map(item => item.id)); await click('#catalogue-widget-tab-downloads');
+  passed.push('native 280x220 at 24px in French/English retains scroll, fixed close, searchable tabs, keyboard access and one explicit card download');
+}
+async function captureCompanionTheme() {
+  for (const language of ['fr', 'en']) {
+    host.setLanguage(language);
+    await waitFor(() => panel.webContents.executeJavaScript(`document.documentElement.lang===${JSON.stringify(language)}&&!!document.querySelector('h1')`), 'Companion theme language ' + language);
+    await panel.webContents.executeJavaScript("window.scrollTo({top:0,behavior:'instant'})");
+    const layout = await panel.webContents.executeJavaScript("({width:innerWidth,height:innerHeight,pageWidth:document.documentElement.scrollWidth,background:getComputedStyle(document.documentElement).backgroundColor,text:getComputedStyle(document.body).color,accent:getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),surface:getComputedStyle(document.querySelector('#clonehero-source')).backgroundColor})");
+    assert.ok(layout.pageWidth <= layout.width + 2, 'full Companion has no horizontal overflow');
+    assert.equal(layout.background, 'rgb(8, 14, 26)'); assert.equal(layout.surface, 'rgb(17, 28, 46)'); assert.equal(layout.accent, '#48c7fa');
+    layouts.push({ label: 'companion-theme-' + language, ...layout });
+    await fs.writeFile(path.join(directory, 'companion-theme-' + language + '.png'), (await panel.webContents.capturePage()).toPNG());
+  }
+  host.setLanguage('fr');
+  passed.push('full Companion theme captures in French and English retain the native panel layout');
 }
 async function openHost() {
   host = await createCompanionHost({ dataDirectory, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: false, sessions: [] }),
@@ -378,7 +447,7 @@ app.whenReady().then(async () => {
   await capture('search'); passed.push('title/artist/charter search renders hostile catalogue text inertly and never starts an automatic download');
   await verifyCardPresentation(); await verifyResponsiveCards(); await verifyFavorites(); assert.equal(runs.length, 0);
 
-  await click('[data-chart-id="mini-complete"] .catalogue-download-single'); await waitFor(() => runs.length === 1, 'first synthetic transfer'); const firstId = runs[0].id;
+  await verifyCompactDownload(); assert.equal(runs.length, 1); const firstId = runs[0].id;
   assert.equal(runs[0].rootPath, songs); assert.match(runs[0].endpoint, /download-manifest$/);
   runs[0].onProgress({ receivedBytes: 40, totalBytes: 100, completedFiles: 0, totalFiles: 1, currentFile: 'C:/private-fixture-not-exposed' });
   await click('#catalogue-widget-tab-downloads'); await waitFor(() => evaluate("document.querySelector('#catalogue-widget-downloads progress')?.value===40"), 'visible download progress');
@@ -439,6 +508,7 @@ app.whenReady().then(async () => {
   await capture('favorite-after-restart'); passed.push('favorite filter and pressed state survive the full host restart independently of the queue');
   const related = await verifyInstalled(); await verifyBatch(related);
   for (const id of [firstId, secondId]) assert.equal(await fs.readFile(path.join(songs, `Synthetic-${id}`, 'notes.chart'), 'utf8'), 'synthetic chart content', 'new catalogue actions preserve the already downloaded charts');
+  await captureCompanionTheme();
 
   const report = { result: 'COMPANION_CATALOGUE_WIDGET_OK', count: passed.length, passed, layouts, artworkRequests, batchRequests, catalogueLoads, transferRuns: runs.length, directory };
   await fs.writeFile(path.join(directory, 'report.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));

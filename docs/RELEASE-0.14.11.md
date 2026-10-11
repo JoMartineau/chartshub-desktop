@@ -1,0 +1,23 @@
+# ChartsHub Desktop 0.14.11
+
+Windows x64, Linux x64, macOS Intel et Apple Silicon.
+
+- **Catalogue flottant plus petit** : la fenêtre peut maintenant être réduite jusqu’à 280 × 220 pixels. Les onglets et le bouton de fermeture restent accessibles ; le contenu défile pour garder les recherches, filtres, cartes, téléchargements et réglages disponibles.
+- **Logo et nom ChartsHub** : l’en-tête de l’application reprend l’identité visuelle du site et le logo apparaît aussi dans la barre de titre de la fenêtre.
+- **Couleurs du Companion** : fonds bleu nuit, texte clair et accents cyan et violet pour les sections, boutons et contrôles. Vos réglages de bloom et d’apparence des panneaux flottants restent conservés.
+- **Pack ReShade** : le pack optionnel comprend Curves, MagicHDR et Technicolor2. Les effets restent désactivés par défaut et les shaders déjà installés sont conservés.
+- **OBS** : retrouvez les widgets du morceau dans la source navigateur transparente. La section Stream / OBS propose aussi des boutons pour ouvrir Catalogue et Filtres et les ajouter séparément comme captures de fenêtre, avec des titres stables.
+- **Bibliothèque au défilement** : les chansons suivantes se chargent automatiquement en arrivant au bas de la liste, sans changer de page. Les filtres et les choix de doublons sont conservés ; une erreur de chargement permet de réessayer sans perdre les résultats déjà affichés.
+- **Lecteur Songs** : écoutez les fichiers audio locaux avec recherche et filtres par artiste, créateur, album, année, genre, instrument, difficulté, présence audio et format, ainsi que pochette et informations, précédent/suivant, lecture/pause, position et volume. Instrument et difficulté doivent appartenir à la même piste connue. Le Companion et le lecteur flottant partagent un seul moteur audio ; masquer la fenêtre laisse la musique continuer. Aucun morceau ne démarre au lancement ou après un scan.
+- **Spectre et vidéos** : quatre styles mesurés sur l’audio — barres, courbe, cercle et miroir — avec couleurs personnalisables. La vidéo locale du morceau reste muette et suit la musique ; vous pouvez la désactiver pour afficher la pochette. Un format vidéo non pris en charge conserve l’audio et la pochette. Les couleurs, le style, le volume et la préférence vidéo sont enregistrés localement ; la lecture reste limitée à la session.
+- **Playlists locales** : créez, renommez et supprimez vos listes, ajoutez ou retirez les morceaux individuellement, puis lancez la liste choisie ou toute la bibliothèque. Le mode aléatoire mélange la file ; la fin réelle d’un morceau passe au suivant et la file s’arrête après le dernier. Les playlists et ce réglage sont conservés dans le profil, sans modifier Songs et sans reprendre la lecture au redémarrage.
+- **Song Request** : demandes Twitch et YouTube via Streamer.bot, et TikTok via TikFinity relié à Streamer.bot, pour les morceaux déjà présents dans Songs. La file affiche les pseudos, plateformes et votes ; vous choisissez les règles de durée, instrument et difficulté, puis acceptez, refusez, déplacez ou marquez les demandes comme jouées. La réception démarre arrêtée, la file reste limitée à la session et les règles et clés locales sont conservées.
+- **Liste publique des morceaux** : avec le site ChartsHub **1.8.4**, publiez manuellement les métadonnées des chansons disponibles, actualisez cet instantané ou retirez le partage. Les spectateurs consultent la page sans compte et copient une commande dans le chat. Aucun audio, contenu de notes, chemin local ou pseudo de la file n’est publié ; aucune chanson n’est téléchargée ou lancée par une demande.
+
+Les pochettes, couleurs des charters, badges, instruments, favoris, sélections et préférences restent disponibles. La page publique Song Request nécessite le déploiement du site 1.8.4 ; l’archive Desktop ne déploie pas le site. La configuration des ponts externes est détaillée dans [le guide Song Request](SONG-REQUESTS.md).
+
+Les validations automatisées utilisent une bibliothèque et des messages synthétiques. Le test du lecteur utilise du PCM et une vidéo WebM synthétiques ; il ne garantit pas tous les codecs de vos vidéos. La connexion aux comptes de streaming, le chat en direct et la capture OBS restent à vérifier dans votre installation.
+
+Conservez votre profil ChartsHub, vos réglages et vos dossiers de chansons lors de la mise à jour. Téléchargez l’archive de votre système et consultez `Lisez-moi.txt`. Les empreintes des quatre archives figurent dans `SHA256SUMS.txt`.
+
+Version expérimentale : Windows non signé commercialement, macOS non notarisé. L’affichage au-dessus d’un jeu en plein écran exclusif n’est pas garanti.

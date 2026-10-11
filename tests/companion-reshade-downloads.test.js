@@ -2,12 +2,15 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const os = require('node:os');
 const https = require('node:https');
 const { EventEmitter } = require('node:events');
 const { PassThrough } = require('node:stream');
 const { crc32, deflateRawSync } = require('node:zlib');
 const { createHash } = require('node:crypto');
 const { downloadRuntime, downloadStarterEffects, extractRuntime, RUNTIME_VERSION } = require('../companion/reshade-downloads.cjs');
+const { createReShadeSetupService } = require('../companion/reshade-setup.cjs');
+const starterSources = require('./fixtures/reshade-starter/sources.json');
 const safeError = error => error?.code === 'RESHADE_DOWNLOAD_SAFE';
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 
@@ -150,7 +153,7 @@ test('same-host redirect chains are bounded and shader downloads cannot redirect
   ]);
   await assert.rejects(downloadRuntime(), /redirections/); assert.equal(calls.length, 4);
   await assert.rejects(downloadStarterEffects(), safeError); assert.equal(calls.length, 5);
-  assert.match(calls[4].url, /^https:\/\/raw\.githubusercontent\.com\/luluco250\/FXShaders\/[a-f0-9]{40}\/Shaders\/ArcaneBloom\.fx$/);
+  assert.match(calls[4].url, /^https:\/\/raw\.githubusercontent\.com\/CeeJayDK\/SweetFX\/[a-f0-9]{40}\/Shaders\/SweetFX\/Curves\.fx$/);
 });
 
 test('declared size, response encoding and non-success status fail before consuming payloads', async t => {
@@ -204,32 +207,87 @@ test('the downloaded official setup extracts to the verified x64 runtime and rep
 });
 
 test('verified starter sources preserve licenses and change only active includes to isolated header names', async t => {
-  const directory = path.resolve(__dirname, '..', 'reshade-bridge', 'test', 'runtime-starter');
-  const fixtures = ['Shaders/ArcaneBloom.fx', 'Shaders/ArcaneBloom.fxh', 'Shaders/FilmGrain.fx', 'Shaders/ChromaticAberration.fx', 'Shaders/ReShade.fxh',
-    'ChartsHub-ReShade-Shaders/Licenses/FXShaders.txt', 'ChartsHub-ReShade-Shaders/Licenses/SweetFX.txt'];
-  let upstream;
-  try { upstream = await Promise.all(fixtures.map(filename => fs.readFile(path.join(directory, filename)))); }
-  catch (error) { if (error.code === 'ENOENT') { t.skip('Optional upstream files downloaded by the isolated GPU validation are absent'); return; } throw error; }
+  const upstream = starterSources.map(source => Buffer.from(source.content));
+  for (const [index, source] of starterSources.entries()) {
+    const bytes = upstream[index];
+    assert.equal(bytes.length, source.size);
+    assert.equal(createHash('sha1').update(Buffer.from('blob ' + bytes.length + '\0')).update(bytes).digest('hex'), source.blobSha);
+  }
   const calls = fakeNetwork(t, upstream.map(body => ({ body, headers: { 'content-length': String(body.length) } })));
   const files = await downloadStarterEffects();
-  assert.equal(calls.length, 7); assert.equal(files.length, 9);
+  assert.equal(calls.length, 12); assert.equal(files.length, 14);
+  assert.deepEqual(calls.map(call => call.url), starterSources.map(source => source.url));
+  assert.ok(calls.every(call => /^https:\/\/raw\.githubusercontent\.com\/[^/]+\/[^/]+\/[a-f0-9]{40}\//.test(call.url)));
   assert.equal(new Set(files.map(file => file.relativePath)).size, files.length);
+  assert.deepEqual(files.filter(file => file.relativePath.endsWith('.fx')).map(file => path.basename(file.relativePath)),
+    ['ChartsHub_Curves.fx', 'ChartsHub_MagicHDR.fx', 'ChartsHub_Technicolor2.fx']);
+  const headers = new Map(starterSources.filter(source => source.relativePath.endsWith('.fxh')).flatMap(source => {
+    const original = new URL(source.url).pathname.split('/').pop(), prefixed = path.basename(source.relativePath);
+    return [[original, prefixed], ['FXShaders/' + original, prefixed]];
+  }));
+  headers.set('ReShadeUI.fxh', 'ChartsHub_ReShadeUI.fxh');
+  const installedNames = new Set(files.map(file => path.basename(file.relativePath)));
   for (const file of files) {
     assert.match(file.relativePath, /^ChartsHub-ReShade-Shaders\/(?:Shaders|Licenses)\/[A-Za-z0-9_-][A-Za-z0-9_.-]{0,100}$/);
     assert.ok(Buffer.isBuffer(file.bytes));
     if (file.relativePath.endsWith('.fxh')) assert.match(path.basename(file.relativePath), /^ChartsHub_/);
+    if (/\.fxh?$/.test(file.relativePath)) for (const include of file.bytes.toString().matchAll(/^[ \t]*#[ \t]*include[ \t]+["<]([^">]+)[">]/gm)) {
+      assert.ok(installedNames.has(include[1]), file.relativePath + ' resolves ' + include[1]);
+      assert.match(include[1], /^ChartsHub_[A-Za-z0-9_.]+$/);
+    }
   }
-  const names = ['ChartsHub_ArcaneBloom.fx', 'ChartsHub_ArcaneBloom.fxh', 'ChartsHub_FilmGrain.fx', 'ChartsHub_ChromaticAberration.fx', 'ChartsHub_ReShade.fxh'];
-  for (let index = 0; index < names.length; index++) {
-    const bytes = files.find(file => file.relativePath.endsWith('/' + names[index])).bytes;
-    if (names[index].endsWith('.fx')) {
-      const text = bytes.toString('utf8');
-      assert.doesNotMatch(text, /^[ \t]*#[ \t]*include[ \t]+"(?:ReShadeUI|ReShade|ArcaneBloom)\.fxh"/m);
-      assert.equal(text.replace(/^([ \t]*#[ \t]*include[ \t]+")ChartsHub_/gm, '$1'), upstream[index].toString('utf8'));
-    } else assert.deepEqual(bytes, upstream[index]);
+  for (const source of starterSources) {
+    const expected = /\.fxh?$/.test(source.relativePath) ? source.content.replace(
+      /^([ \t]*#[ \t]*include[ \t]+")([^"\r\n]+)(")/gm,
+      (directive, opening, name, closing) => headers.has(name) ? opening + headers.get(name) + closing : directive) : source.content;
+    assert.deepEqual(files.find(file => file.relativePath === 'ChartsHub-ReShade-Shaders/' + source.relativePath).bytes, Buffer.from(expected));
   }
-  assert.deepEqual(files.find(file => file.relativePath.endsWith('/Licenses/FXShaders.txt')).bytes, upstream[5]);
-  assert.deepEqual(files.find(file => file.relativePath.endsWith('/Licenses/SweetFX.txt')).bytes, upstream[6]);
-  assert.match(files.find(file => file.relativePath.endsWith('/Licenses/SOURCES.txt')).bytes.toString(), /before include renaming/);
-  assert.match(files.find(file => file.relativePath.endsWith('/Shaders/ChartsHub_ReShadeUI.fxh')).bytes.toString(), /__UNIFORM_SLIDER_FLOAT2/);
+  const provenance = files.find(file => file.relativePath.endsWith('/Licenses/SOURCES.txt')).bytes.toString();
+  assert.match(provenance, /Curves, MagicHDR, Technicolor2/); assert.match(provenance, /before include renaming/);
+  for (const source of starterSources) { assert.ok(provenance.includes(source.url)); assert.ok(provenance.includes(sha256(Buffer.from(source.content)))); }
+  assert.match(files.find(file => file.relativePath.endsWith('/Shaders/ChartsHub_ReShadeUI.fxh')).bytes.toString(), /#define __UNIFORM_COLOR_FLOAT3 ui_type = "color";/);
+});
+
+test('every starter shader, dependency and license is hash-checked before continuing', async t => {
+  const routes = starterSources.flatMap((_, corruptIndex) => starterSources.slice(0, corruptIndex + 1).map((source, index) => ({
+    body: Buffer.from(source.content + (index === corruptIndex ? '\n// substituted upstream content' : ''))
+  })));
+  const calls = fakeNetwork(t, routes);
+  let completed = 0;
+  for (const [index, source] of starterSources.entries()) {
+    await assert.rejects(downloadStarterEffects(), /version vérifiée/);
+    completed += index + 1;
+    assert.equal(calls.length, completed, source.relativePath + ' stops the whole pack');
+    assert.equal(calls.at(-1).request.destroyed, true);
+  }
+});
+
+test('the real optional pack installs all includes after review, preserving earlier shaders and leaving effects disabled', async t => {
+  const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'chartshub-starter-pack-test-')));
+  const root = path.join(directory, 'Clone Hero'), data = path.join(directory, 'data'), addon = path.join(directory, 'bridge.addon64');
+  await fs.mkdir(root); await fs.mkdir(data);
+  await fs.writeFile(path.join(root, 'Clone Hero.exe'), pe({ dll: false }));
+  await fs.writeFile(path.join(root, 'UnityPlayer.dll'), 'fixture; never loaded'); await fs.writeFile(addon, pe());
+  const shaderDirectory = path.join(root, 'ChartsHub-ReShade-Shaders', 'Shaders');
+  await fs.mkdir(shaderDirectory, { recursive: true });
+  await fs.writeFile(path.join(shaderDirectory, 'ChartsHub_ArcaneBloom.fx'), 'earlier pack; user edited');
+  const calls = fakeNetwork(t, starterSources.map(source => ({ body: Buffer.from(source.content) })));
+  const service = createReShadeSetupService({ dataDirectory: data, platform: 'win32', addonBinaryPath: addon,
+    reshadeService: { status: () => ({ rootPath: root }), refresh: async () => {} },
+    probeClosed: async () => ({ running: false, sessions: [] }), downloadRuntime: async () => pe(), downloadStarterEffects });
+  t.after(async () => {
+    await service.dispose();
+    assert.equal(path.dirname(directory), await fs.realpath(os.tmpdir()));
+    assert.ok(path.basename(directory).startsWith('chartshub-starter-pack-test-'));
+    await fs.rm(directory, { recursive: true, force: true });
+  });
+  await service.prepare({ includeStarterEffects: true });
+  assert.equal(calls.length, 12); assert.equal(service.status().state, 'ready');
+  const reviewed = service.status().files.filter(name => name.startsWith('ChartsHub-ReShade-Shaders/'));
+  assert.equal(reviewed.length, 14);
+  await assert.rejects(fs.stat(path.join(shaderDirectory, 'ChartsHub_Curves.fx')), { code: 'ENOENT' });
+  await service.install(); assert.equal(service.status().state, 'complete');
+  for (const filename of reviewed) assert.ok((await fs.stat(path.join(root, filename))).isFile(), filename);
+  assert.equal(await fs.readFile(path.join(root, 'ChartsHub-ReShade-Preset.ini'), 'utf8'), 'Techniques=\r\nTechniqueSorting=\r\n');
+  assert.equal(await fs.readFile(path.join(shaderDirectory, 'ChartsHub_ArcaneBloom.fx'), 'utf8'), 'earlier pack; user edited');
 });

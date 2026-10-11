@@ -32,6 +32,66 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (command === 'player.search') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).every(key => ['query', 'offset', 'limit', 'filters'].includes(key))
+    && typeof payload.query === 'string' && payload.query.length <= 200 && !/[\x00-\x1f\x7f]/.test(payload.query)
+    && (payload.offset === undefined || (Number.isSafeInteger(payload.offset) && payload.offset >= 0 && payload.offset <= 1000000))
+    && (payload.limit === undefined || (Number.isSafeInteger(payload.limit) && payload.limit >= 1 && payload.limit <= 50))
+    && (payload.filters === undefined || (!!payload.filters && typeof payload.filters === 'object' && !Array.isArray(payload.filters)
+      && Object.keys(payload.filters).length === 9 && Object.keys(payload.filters).every(key => ['artist','charter','album','year','genre','audio','format','instrument','difficulty'].includes(key))
+      && ['artist','charter','album','year','genre'].every(key => typeof payload.filters[key] === 'string' && payload.filters[key].length <= 200 && !/[\x00-\x1f\x7f]/.test(payload.filters[key]))
+      && ['all','present','missing','unknown'].includes(payload.filters.audio) && ['all','chart','midi','sng'].includes(payload.filters.format)
+      && require('./song-requests.cjs').INSTRUMENTS.includes(payload.filters.instrument) && require('./song-requests.cjs').DIFFICULTIES.includes(payload.filters.difficulty)));
+  if (command === 'player.appearance') {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).length !== 1 || !Object.hasOwn(payload,'appearance')) return false;
+    try { require('./music-player-preferences.cjs').validateAppearance(payload.appearance); return true; } catch { return false; }
+  }
+  if (command === 'player.select') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === 1 && typeof payload.id === 'string' && /^[a-f0-9]{64}$/.test(payload.id);
+  if (['player.widget', 'player.video', 'player.shuffle'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === 1 && typeof payload.enabled === 'boolean';
+  if (command === 'player.ended') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 2 && Object.keys(payload).every(key => ['revision','epoch'].includes(key)) && [payload.revision,payload.epoch].every(value => Number.isSafeInteger(value) && value >= 0);
+  if (command === 'player.playPlaylist') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1
+    && (payload.id === null || (typeof payload.id === 'string' && require('./music-playlists.cjs').PLAYLIST_ID.test(payload.id)));
+  if (typeof command === 'string' && command.startsWith('player.playlist')) {
+    const { PLAYLIST_ID, validPlaylistName } = require('./music-playlists.cjs');
+    const fields = { 'player.playlistCreate': ['name'], 'player.playlistRename': ['id','name'], 'player.playlistDelete': ['id'], 'player.playlistAdd': ['id','songId'], 'player.playlistRemove': ['id','songId'] }[command];
+    return !!fields && !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === fields.length && Object.keys(payload).every(key => fields.includes(key))
+      && (!fields.includes('id') || (typeof payload.id === 'string' && PLAYLIST_ID.test(payload.id))) && (!fields.includes('name') || validPlaylistName(payload.name))
+      && (!fields.includes('songId') || (typeof payload.songId === 'string' && /^[a-f0-9]{64}$/.test(payload.songId)));
+  }
+  if (command === 'player.control') {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+    const value = ['seek', 'volume'].includes(payload.action);
+    return ['play', 'pause', 'stop', 'next', 'previous', 'seek', 'volume'].includes(payload.action)
+      && Object.keys(payload).length === (value ? 2 : 1) && Object.keys(payload).every(key => ['action', ...(value ? ['value'] : [])].includes(key))
+      && (!value || (Number.isFinite(payload.value) && payload.value >= 0 && payload.value <= (payload.action === 'volume' ? 1 : 86400)));
+  }
+  if (command === 'player.report') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === (payload.errorCode === undefined ? 6 : 7)
+    && Object.keys(payload).every(key => ['revision', 'epoch', 'playing', 'currentTime', 'duration', 'volume', 'errorCode'].includes(key))
+    && [payload.revision, payload.epoch].every(n => Number.isSafeInteger(n) && n >= 0) && typeof payload.playing === 'boolean'
+    && [payload.currentTime, payload.duration].every(n => Number.isFinite(n) && n >= 0 && n <= 86400)
+    && Number.isFinite(payload.volume) && payload.volume >= 0 && payload.volume <= 1
+    && (payload.errorCode === undefined || ['unavailable', 'unsupported', 'playback'].includes(payload.errorCode));
+  if (command === 'player.spectrum') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === 2 && Number.isSafeInteger(payload.revision) && payload.revision >= 0
+    && Array.isArray(payload.bands) && payload.bands.length === 32 && payload.bands.every(n => Number.isFinite(n) && n >= 0 && n <= 1);
+  if (['songRequests.copyBridgeConfiguration', 'songRequests.copyOverlayUrl', 'songRequests.resetOrder', 'songRequests.publishLibrary', 'songRequests.removeLibrary', 'songRequests.copyLibraryUrl'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (command === 'songRequests.configure') {
+    const { INSTRUMENTS, DIFFICULTIES } = require('./song-requests.cjs');
+    const rules = payload?.rules;
+    return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 3 && Object.keys(payload).every(key => ['enabled', 'port', 'rules'].includes(key))
+      && typeof payload.enabled === 'boolean' && Number.isInteger(payload.port) && payload.port >= 1024 && payload.port <= 65535
+      && !!rules && typeof rules === 'object' && !Array.isArray(rules) && Object.keys(rules).length === 3 && Object.keys(rules).every(key => ['maxDurationMinutes', 'instrument', 'difficulty'].includes(key))
+      && (rules.maxDurationMinutes === null || (Number.isInteger(rules.maxDurationMinutes) && rules.maxDurationMinutes >= 1 && rules.maxDurationMinutes <= 60))
+      && INSTRUMENTS.includes(rules.instrument) && DIFFICULTIES.includes(rules.difficulty);
+  }
+  if (['songRequests.accept', 'songRequests.reject', 'songRequests.played', 'songRequests.move'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(payload.id)
+    && Object.keys(payload).length === (command === 'songRequests.move' ? 2 : 1)
+    && Object.keys(payload).every(key => ['id', ...(command === 'songRequests.move' ? ['direction'] : [])].includes(key))
+    && (command !== 'songRequests.move' || ['up', 'down'].includes(payload.direction));
   if (['mock.next', 'mock.reset', 'editor.undo', 'editor.redo'].includes(command)) return payload === undefined || payload === null;
   if (['stream.copyUrl', 'library.chooseRoot', 'library.cancel', 'library.verifyAllDuplicates', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'library.cancelDuplicateVerification') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);

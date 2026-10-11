@@ -1,3 +1,18 @@
+ChartsHub Desktop 0.14.11 — Catalogue et Companion
+
+NOUVEAUTES 0.14.11
+Catalogue flottant redimensionnable jusqu’à 280 x 220 pixels. Les onglets et la fermeture restent visibles ; faites défiler le contenu pour retrouver les cartes et réglages.
+Le logo et le nom ChartsHub.ca apparaissent en haut de l’application. Le Companion reprend les fonds bleu nuit et les accents cyan et violet ChartsHub. Les préférences de bloom et des panneaux flottants sont conservées.
+Le pack optionnel ReShade comprend Curves, MagicHDR et Technicolor2. Les effets restent désactivés par défaut.
+Bibliothèque : les résultats suivants se chargent automatiquement quand vous faites défiler la liste jusqu’en bas. Les filtres et les choix de doublons restent conservés.
+Lecteur Songs : recherchez vos chansons locales et filtrez par artiste, créateur, album, année, genre, instrument, difficulté, présence audio et format. Instrument et difficulté doivent appartenir à la même piste connue. Choisissez un morceau et contrôlez lecture/pause, précédent/suivant, position et volume. La pochette et les informations s’affichent dans le Companion et le lecteur flottant, qui partagent le même moteur audio. Masquer la fenêtre laisse la musique continuer ; aucun morceau ne démarre au lancement ou après un scan.
+Choisissez les couleurs du lecteur et un spectre audio réel : barres, courbe, cercle ou miroir. La vidéo locale du morceau est muette et synchronisée ; désactivez-la pour garder la pochette. Un codec vidéo non pris en charge conserve la lecture audio. Couleurs, modèle, volume et préférence vidéo sont conservés localement ; aucune session de lecture ne reprend automatiquement.
+Playlists locales : créez, renommez ou supprimez une liste et ajoutez/retirez chaque morceau. Choisir une liste ne lance rien ; utilisez Lire la playlist. La fin d’un morceau passe au suivant, avec ordre aléatoire optionnel, puis s’arrête au dernier. Les playlists et le réglage aléatoire sont conservés dans le profil sans modifier Songs ni reprendre la lecture au démarrage.
+Stream / OBS : les widgets du morceau utilisent la source Navigateur transparente. Les boutons Catalogue et Filtres ouvrent leurs fenêtres flottantes ; ajoutez chacune comme source Capture de fenêtre dans OBS en choisissant le titre indiqué.
+Song Request : Twitch et YouTube via Streamer.bot, TikTok via TikFinity relié à Streamer.bot. Demandes limitées aux morceaux déjà présents dans Songs, avec pseudos, votes et règles de durée/instrument/difficulté.
+Avec le site ChartsHub 1.8.4, publier, actualiser ou retirer manuellement une liste publique de métadonnées. Les spectateurs consultent les chansons sans compte et copient une commande dans le chat. Aucun fichier de chanson ni chemin local n’est partagé.
+La réception est arrêtée au démarrage et la file reste dans la session. Les règles, le port et les clés locales sont conservés. Préservez votre profil ChartsHub, vos réglages et Songs lors de la mise à jour ; l’archive Desktop ne déploie pas le site.
+
 ChartsHub Desktop 0.14.8 — Catalogue et Companion
 
 NOUVEAUTÉS 0.14.8
@@ -80,8 +95,8 @@ Une analyse interrompue conserve le dernier index terminé.
 ASSISTANT D’INSTALLATION RESHADE 0.12.0
 Filtres du jeu propose le téléchargement officiel de ReShade 6.8 avec add-ons.
 Choisir le dossier de Clone Hero, préparer les fichiers, puis fermer le jeu
-et installer dans le dossier affiché. Le pack optionnel contient ArcaneBloom,
-FilmGrain et ChromaticAberration, désactivés au départ. Les fichiers remplacés
+et installer dans le dossier affiché. Le pack optionnel contient Curves,
+MagicHDR et Technicolor2, désactivés au départ. Les fichiers remplacés
 sont sauvegardés ; les presets et shaders déjà présents sont conservés.
 Les joueurs n’ont plus besoin de chercher les téléchargements eux-mêmes.
 
@@ -119,7 +134,9 @@ Le menu → Clone Hero Companion et Ctrl+Maj+C ouvrent le même onglet.
 La distribution Windows contient également Lancer Companion.cmd.
 Ce raccourci ouvre la même application et le même profil. Une connexion
 au compte doit être vérifiée pour accéder au Companion. Les fichiers
-et réglages du Companion restent locaux sur votre ordinateur.
+et réglages du Companion restent locaux sur votre ordinateur. Le partage
+Song Request envoie des métadonnées uniquement après votre clic sur Publier
+ou Actualiser la liste, comme décrit dans la section dédiée ci-dessous.
 
 CONNECTER CLONE HERO
 Dans Clone Hero : Settings > General > Export Current Song, activer l'export.
@@ -404,7 +421,8 @@ est écrit par lots et conserve son format compatible avec les profils existants
 La durée et la mémoire nécessaires dépendent de la taille de la bibliothèque.
 
 Le dossier choisi, les options et l'index résident dans library.json dans
-le profil Companion. Les métadonnées restent locales. Seule la page de
+le profil Companion. Le scan garde les métadonnées locales ; leur publication
+Song Request est une action séparée, explicite et facultative. Seule la page de
 résultats demandée passe à l'interface ; l'index n'est pas envoyé à OBS.
 Si l'index est endommagé, sélectionner à nouveau le dossier permet de le
 reconstruire en conservant une copie distincte library.json.corrupt-*.bak.
@@ -450,7 +468,9 @@ Les recherches, filtres et rapprochements suivants s'exécutent localement.
 Actualiser le catalogue recharge explicitement les données du site.
 La date de chargement est affichée. Si une actualisation échoue, l'ancien
 catalogue peut rester visible avec un avertissement.
-Aucune connexion réseau n'est lancée simplement en ouvrant le Companion.
+Le catalogue n'est chargé qu'après une recherche ou comparaison. Le statut
+d'une liste Song Request déjà partagée peut être consulté à l'ouverture,
+sans publier ni actualiser ses chansons automatiquement.
 Les requêtes publiques n'envoient ni cookies de compte ni fichiers locaux.
 Les titres de votre bibliothèque ne sont pas envoyés au serveur pour chercher.
 La fermeture du panneau efface le cache distant en mémoire.
@@ -539,7 +559,40 @@ Le compteur indique les pages navigateur connectées, y compris OBS.
 En cas de port occupé, arrêter le serveur, choisir un autre port et Appliquer.
 Il faut ensuite recopier l’URL dans OBS. Le port ne change pas pendant que
 le serveur est actif ; annuler un changement de port exige aussi son arrêt.
-Les demandes de chansons et les widgets de veille viendront ultérieurement.
+Les demandes de chansons disposent de la section Song Request ci-dessous.
+Les widgets de veille restent différés.
+
+SONG REQUEST — TWITCH, YOUTUBE ET TIKTOK
+Choisir et scanner Songs, puis régler la durée maximale, l'instrument et
+la difficulté. Seuls les morceaux locaux disponibles sont recevables ;
+les fichiers sont revérifiés avant réception et acceptation. Une demande
+ne télécharge aucune chart et ne démarre pas automatiquement le jeu.
+
+Activer explicitement Recevoir les demandes du chat. Configurer Twitch et
+YouTube dans Streamer.bot ; pour TikTok, relier TikFinity à Streamer.bot.
+Copier la configuration du pont uniquement dans cet outil local. Les comptes
+des plateformes se connectent dans ces outils externes, jamais dans le chat.
+Commandes : !sr artiste titre, !vote artiste titre, !queue et !song.
+La file indique pseudo, plateforme et votes. Accepter, refuser, déplacer ou
+marquer une demande jouée reste une action du streamer. Les pseudos gardent
+leur texte d'origine. L'URL OBS distincte affiche seulement la file.
+
+La réception reste arrêtée à chaque démarrage. Demandes et historique sont
+limités à la session ; règles, port et clés locales persistent dans le profil.
+La liste publique nécessite ChartsHub 1.8.4 : Publier la liste envoie seulement
+les métadonnées disponibles et les règles, sans audio, notes, chemins locaux,
+pseudos ou historique. Partager le lien public : aucun compte n'est nécessaire
+aux spectateurs pour consulter la liste et copier une commande dans le chat.
+Après modification de Songs, rescanner puis Actualiser la liste manuellement.
+Retirer le partage ferme cet accès sans supprimer de fichier ni vider la file.
+L'instantané public reste publié jusqu'à actualisation ou retrait ; il ne
+reflète pas en direct les fichiers ou les demandes de la session.
+
+Guide et adaptateur : docs/SONG-REQUESTS.md et
+docs/song-requests/ChartsHub-SongRequest.cs dans les sources.
+Les tests utilisent des morceaux et messages synthétiques. Une connexion
+à vos comptes, un chat en direct et la capture dans OBS restent à vérifier
+dans votre installation. Ces instructions ne confirment pas un déploiement.
 
 CATALOGUE FLOTTANT
 Depuis le Companion, ouvrir le mini Catalogue, ou utiliser Ctrl+Maj+K
@@ -629,9 +682,9 @@ le mode fenêtré ou sans bordures pour ce premier overlay.
 En Direct, le vidage de l’export masque les widgets ; aucun écran de résultats
 n’est détecté. Affichage post-chanson et Song Complete différés.
 Groupes permanents, duplication et ordre des couches différés.
-Thèmes séparés par destination, styles conditionnels,
-demandes, historique,
-métriques, Twitch et YouTube restent différés.
+Thèmes séparés par destination, styles conditionnels et métriques restent
+différés. Song Request utilise des ponts externes ; l'historique des demandes
+ne survit pas au redémarrage.
 Le catalogue et les téléchargements déjà présents dans ChartsHub restent
 en place. Le Companion réutilise leurs validations de fichiers et de chemins,
 avec une file persistante indépendante pour la pause et la reprise.

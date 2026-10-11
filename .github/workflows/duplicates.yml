@@ -22,6 +22,25 @@ jobs:
       - name: Verify floating catalogue in Electron
         shell: pwsh
         run: npm run test:companion:catalogue-widget -- "$env:RUNNER_TEMP/companion-catalogue-widget"
+      - name: Verify application branding and Companion in Electron
+        shell: pwsh
+        run: node node_modules/electron/cli.js tests/desktop-app-electron.cjs . "$env:RUNNER_TEMP/desktop-app"
+      - name: Verify Companion and OBS browser widgets in Electron
+        shell: pwsh
+        run: node node_modules/electron/cli.js tests/companion-electron.cjs "$env:RUNNER_TEMP/companion"
+      - name: Verify ReShade optional pack review in Electron
+        shell: pwsh
+        run: node node_modules/electron/cli.js tests/companion-reshade-setup-electron.cjs "$env:RUNNER_TEMP/reshade-setup"
+      - name: Verify local music player and spectrum models in Electron
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          node node_modules/electron/cli.js tests/companion-music-player-electron.cjs "$env:RUNNER_TEMP/music-player"
+          if ($LASTEXITCODE -ne 0) { throw 'Music player Electron verification failed' }
+          $reportPath = Join-Path $env:RUNNER_TEMP 'music-player/report.json'
+          if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Music player verification report missing' }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.ok -ne $true -or @($report.passed).Count -ne 9) { throw 'Music player verification did not finish every required stage' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -32,6 +51,38 @@ jobs:
             ${{ runner.temp }}/companion-duplicates/**/failure.png
             ${{ runner.temp }}/companion-duplicates/**/selected-copy-summary.png
             ${{ runner.temp }}/companion-duplicates/**/partial-success.png
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: companion-music-player-verification
+          path: |
+            ${{ runner.temp }}/music-player/**/report.json
+            ${{ runner.temp }}/music-player/**/failure.txt
+            ${{ runner.temp }}/music-player/**/*.png
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: reshade-setup-verification
+          path: ${{ runner.temp }}/reshade-setup/verification.json
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: companion-obs-verification
+          path: |
+            ${{ runner.temp }}/companion/electron-check.txt
+            ${{ runner.temp }}/companion/*.png
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: desktop-app-verification
+          path: |
+            ${{ runner.temp }}/desktop-app/verification.json
+            ${{ runner.temp }}/desktop-app/failure.txt
+            ${{ runner.temp }}/desktop-app/*.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()

@@ -4,6 +4,7 @@
   let language = initial;
   let writing = false;
   const exact = new Map([
+    ['Fenêtre ouverte. Sélectionnez son titre dans OBS.','Window opened. Select its title in OBS.'],
     ['Panneaux au-dessus du jeu','Panels above the game'],['Ouvrir le catalogue flottant','Open floating catalogue'],['Ctrl + Maj + K : ouvrir ou masquer le catalogue flottant.','Ctrl + Shift + K: show or hide the floating catalogue.'],['Le catalogue flottant reste accessible avec le bouton ci-dessus.','The floating catalogue is available using the button above.'],
     ['Recherchez et téléchargez des charts sans fermer Clone Hero. Utilisez le mode fenêtré ou sans bordure pour afficher les panneaux au-dessus du jeu. Après téléchargement, lancez Scan Songs dans Clone Hero.','Search and download charts without closing Clone Hero. Use windowed or borderless mode to show panels above the game. After downloading, run Scan Songs in Clone Hero.'],
     ['ChartsHub · Filtres','ChartsHub · Filters'],['Fermer le panneau','Close panel'],['ChartsHub · Catalogue flottant','ChartsHub · Floating catalogue'],['ChartsHub · Catalogue','ChartsHub · Catalogue'],['Fermer le catalogue flottant','Close floating catalogue'],['Catalogue flottant','Floating catalogue'],['Récents','Recent'],
@@ -45,7 +46,7 @@
     ['Installation de Clone Hero','Clone Hero installation'],['Aucun dossier sélectionné','No folder selected'],['Choisir le dossier du jeu','Choose game folder'],
     ['Installer l’intégration ReShade','Install ReShade integration'],['Actualiser l’état','Refresh status'],['Installer ou mettre à jour ReShade','Install or update ReShade'],
     ['Installer ReShade','Install ReShade'],['Téléchargez la version officielle, vérifiez les fichiers préparés, puis installez-les dans Clone Hero.','Download the official version, review the prepared files, then install them in Clone Hero.'],
-    ['Chargement…','Loading…'],['Ajouter le pack Bloom, FilmGrain et aberration chromatique','Add the Bloom, FilmGrain and chromatic aberration pack'],
+    ['Chargement…','Loading…'],['Ajouter le pack Curves, MagicHDR et Technicolor2','Add the Curves, MagicHDR and Technicolor2 pack'],
     ['Ces effets resteront désactivés par défaut. Vous pourrez les choisir après connexion.','These effects remain disabled by default. You can choose them after connecting.'],
     ['Choisissez le dossier du jeu ci-dessus pour commencer.','Choose the game folder above to begin.'],['Version officielle','Official version'],['Dossier cible','Target folder'],
     ['Fichiers préparés','Prepared files'],['Préparer le téléchargement','Prepare download'],['Installer dans Clone Hero','Install in Clone Hero'],['Annuler','Cancel'],
@@ -84,6 +85,7 @@
     ['Vérification globale des doublons','Global duplicate verification'],['Vérifier l’audio de tous les doublons','Verify audio for all duplicates'],
     ['Analyse tous les groupes détectés. Aucune copie n’est supprimée automatiquement.','Checks all detected groups. No copy is deleted automatically.'],
     ['Choisissez votre dossier Songs','Choose your Songs folder'],['Réessayer l’affichage','Retry display'],['Format','Format'],['Actions','Actions'],['50 morceaux par page','50 songs per page'],
+    ['Chargement automatique · lots de 50','Automatic loading · batches of 50'],['Charger plus','Load more'],['Réessayer le chargement','Retry loading'],['Chargement des résultats…','Loading results…'],['Affichage indisponible','Results unavailable'],
     ['Précédente','Previous'],['Suivante','Next'],['Comparer les versions','Compare versions'],['Fermer la comparaison','Close comparison'],
     ['Recharger la comparaison','Reload comparison'],['Effacer le choix','Clear choice'],['Nettoyer les copies vérifiées','Clean verified copies'],
     ['Vérifier l’audio et préparer le nettoyage','Verify audio and prepare cleanup'],['Revérifier les autres versions','Recheck other versions'],['Supprimer quand même','Delete anyway'],['Version à conserver','Version to keep'],['Ouvrir dossier','Open folder'],
@@ -221,6 +223,7 @@
   ]);
 
   const rules = [
+    [/^(.+) sur (.+) résultat(?:s)? affiché(?:s)?(?: · (Chargement de la suite…|Suite indisponible))?$/, m => `${m[1]} of ${m[2]} results displayed${m[3] ? m[3] === 'Suite indisponible' ? ' · More results unavailable' : ' · Loading more…' : ''}`],
     [/^Arrêt de la vérification en cours : (.+) \/ (.+) groupes\. Les résultats terminés seront conservés\.$/, m => `Stopping verification: ${m[1]} / ${m[2]} groups. Completed results will be kept.`],
     [/^Vérification interrompue : (.+) \/ (.+) groupe\(s\) vérifié\(s\)\. (.+) Aucun fichier n’a été supprimé\.$/, m => `Verification interrupted: ${m[1]} / ${m[2]} group(s) checked. ${english(m[3])} No files were deleted.`],
     [/^Comparer les fichiers · (\d+) différence\(s\)$/, m => `Compare files · ${m[1]} difference(s)`],
@@ -269,7 +272,7 @@
     [/^Audio vérifié · (.+) fichier\(s\) · (.+) octets$/, m => `Audio verified · ${m[1]} file(s) · ${m[2]} bytes`]
   ];
 
-  const blocked = 'code,pre,.companion-widget,.library-relative-path,.library-variant-path,.library-variant h4,.library-variant-metadata,.catalogue-item h3,.catalogue-item-artist,.catalogue-item-details,.download-item h3,.download-destination,.profile-item-name,#clonehero-file-path,#library-root,#downloads-root,#reshade-root,#filters-root,#reshade-preset';
+  const blocked = '#local-music-player-panel,#song-requests-panel,code,pre,.companion-widget,.library-relative-path,.library-variant-path,.library-variant h4,.library-variant-metadata,.catalogue-item h3,.catalogue-item-artist,.catalogue-item-details,.download-item h3,.download-destination,.profile-item-name,#clonehero-file-path,#library-root,#downloads-root,#reshade-root,#filters-root,#reshade-preset';
   const records = new WeakMap();
   const attrRecords = new WeakMap();
   const attrs = ['placeholder','title','aria-label'];

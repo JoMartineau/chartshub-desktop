@@ -8,14 +8,15 @@ INSTALLATION GUIDÉE
 
 1. Dans Filtres du jeu > Effets ReShade, choisissez le dossier qui contient
    Clone Hero.exe (Windows 64 bits).
-2. Ouvrez l’assistant. Le pack de départ optionnel comprend ArcaneBloom,
-   FilmGrain et ChromaticAberration. Les effets restent désactivés au départ.
+2. Ouvrez l’assistant. Le pack de départ optionnel comprend Curves, MagicHDR
+   et Technicolor2. Les effets restent désactivés au départ.
 3. Préparez les fichiers. ChartsHub télécharge le setup officiel ReShade 6.8.0
    avec add-ons, vérifie son empreinte et extrait seulement le moteur 64 bits.
    Il n’exécute pas le setup. Les effets sont téléchargés depuis leurs auteurs.
 4. Vérifiez le dossier affiché, fermez Clone Hero et cliquez Installer dans
    Clone Hero. Le moteur, le pont ChartsHub et les effets choisis sont ajoutés.
-5. Lancez Clone Hero et recherchez Bloom pour activer le bloom et ses réglages.
+5. Lancez Clone Hero, puis choisissez Curves, MagicHDR ou Technicolor2
+   pour activer l’effet souhaité et modifier ses réglages.
 
 Le téléchargement peut être annulé. Une connexion Internet est nécessaire
 pour la préparation seulement. Aucun compte ReShade n’est requis.
@@ -85,8 +86,11 @@ La communication passe par un canal Windows local réservé à votre compte.
 
 ReShade : https://reshade.me/
 API utilisée : https://github.com/crosire/reshade/tree/v6.8.0/include
-Bloom : https://github.com/luluco250/FXShaders (MIT)
-Grain / aberration chromatique : https://github.com/CeeJayDK/SweetFX (MIT)
+MagicHDR : https://github.com/luluco250/FXShaders (MIT)
+Curves / Technicolor2 : https://github.com/CeeJayDK/SweetFX (MIT)
 Les notices des shaders sont conservées dans ChartsHub-ReShade-Shaders/Licenses.
+Le pack inclut les six en-têtes FXShaders requis par MagicHDR, ainsi que
+ReShade.fxh et un helper d’annotations ChartsHub pour Curves et Technicolor2.
+Chaque source est vérifiée par SHA-256 avant le renommage de ses inclusions.
 Le téléchargement utilise des versions et empreintes fixes ; les shaders ne
 se mettent pas à jour automatiquement et vos modifications sont conservées.

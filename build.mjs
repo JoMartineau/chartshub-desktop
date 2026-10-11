@@ -1,6 +1,6 @@
 import {packager} from '@electron/packager';
 import path from 'node:path';
-import {readFileSync,writeFileSync,copyFileSync,existsSync} from 'node:fs';
+import {readFileSync,writeFileSync,copyFileSync,existsSync,mkdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 const version=JSON.parse(readFileSync(new URL('./package.json',import.meta.url),'utf8')).version;
 const platform=process.argv[2]||process.platform,arch=process.argv[3]||process.arch;
@@ -19,6 +19,9 @@ const outputs=await packager({dir:import.meta.dirname,name:'ChartsHub',appBundle
 if(!outputs.length)throw Error('No application was built. Build on a native runner for this platform.');
 for(const output of outputs){
  copyFileSync(new URL('./COMPANION-README.txt',import.meta.url),path.join(output,'Lisez-moi.txt'));
+ mkdirSync(path.join(output,'Song Request'),{recursive:true});
+ copyFileSync(new URL('./docs/SONG-REQUESTS.md',import.meta.url),path.join(output,'Song Request','Configuration.md'));
+ copyFileSync(new URL('./docs/song-requests/ChartsHub-SongRequest.cs',import.meta.url),path.join(output,'Song Request','ChartsHub-SongRequest.cs'));
  if(platform==='win32')writeFileSync(path.join(output,'Lancer Companion.cmd'),[
   '@echo off','setlocal','set "ELECTRON_RUN_AS_NODE="',
   'start "ChartsHub" "%~dp0ChartsHub.exe" --companion',

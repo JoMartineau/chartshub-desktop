@@ -21,11 +21,18 @@ const { createCharterColorResolver } = require('./charter-color-resolver.cjs');
 const { createCloneHeroProcessProbe } = require('./clonehero-process.cjs');
 const { createOverlayProfiles } = require('./overlay-profiles.cjs');
 const { createFloatingPanels } = require('./floating-panels.cjs');
+const { createSongRequests } = require('./song-requests.cjs');
+const { createSongRequestServer } = require('./song-request-server.cjs');
+const { createSongRequestPreferences } = require('./song-request-preferences.cjs');
+const { createMusicPlayer } = require('./music-player.cjs');
+const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs');
+const { changeMusicPlaylist } = require('./music-playlists.cjs');
 const SCHEME = 'chartshub-companion';
+const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu' });
 function registerCompanionScheme() {
-  protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
+  protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
   const [{ ServiceContainer }, { MockCloneHeroIntegration }, { createDefaultRegistry, createDefaultWidgets }, { WidgetRenderer }, { SettingsRepository, validateSettings }, { SnapshotHistory }, { ThemeService, createDefaultTheme }, { validateWidgetStyle }, { createDefaultStream, validateStream }] = await Promise.all([
@@ -40,6 +47,15 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let logTail = Promise.resolve(), pendingSave = Promise.resolve();
   let streamServer = null, streamInit = null, streamTask = Promise.resolve(), streamDesired = false, streamError = null;
   let library = null, rootPickerOpen = false;
+  let musicPlayer = null, playerWindow = null, playerWindowLoad = null, playerSpectrumAt = 0;
+  let playerPreferencesTask = Promise.resolve();
+  const playerPreferences = createMusicPlayerPreferences({ dataDirectory });
+  await playerPreferences.load();
+  let songRequests = null, songRequestServer = null, songRequestBusy = false;
+  let songRequestShare = { supported: !!sharingClient, url: null, count: 0, updatedAt: null, busy: false, error: null, unavailableCount: 0 };
+  let songRequestShareRevision = 0;
+  const songRequestPreferences = createSongRequestPreferences({ dataDirectory });
+  await songRequestPreferences.load();
   let cleanupDialogOpen = false, cleanupTask = null, cleanupApproval = null;
   let catalogue = null, libraryIndexRevision = -1;
   let downloads = null, downloadPickerOpen = false;
@@ -104,6 +120,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     // cannot turn this local route into a proxy for arbitrary URLs.
     let requested;
     try { requested = new URL(request.url); } catch { return new Response('Not found', { status: 404 }); }
+    const media = await musicPlayer?.serve(request);
+    if (media) return media;
     const artworkKey = /^\/catalogue-artwork\/([a-f0-9]{64})$/.exec(requested.pathname)?.[1];
     if (artworkKey && requested.protocol === `${SCHEME}:` && requested.hostname === 'app' && !requested.port && !requested.username && !requested.password && !requested.search && !requested.hash && request.method === 'GET') {
       try {
@@ -126,7 +144,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function harden(window, page) { window.setMenuBarVisibility(false); hardenContents(window.webContents, page); }
   const streamStatus = () => streamServer?.status() ?? { enabled: false, url: null, clients: 0, error: streamError };
   const catalogueShortcut = () => ({ accelerator: catalogueAccelerator, registered: shortcutRegistered, error: shortcutError });
-  const snapshot = () => ({ language, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const captureWindows = () => ({
+    catalogue: { canOpen: !disposing && !stopTask && catalogueAllowed(), title: CAPTURE_WINDOW_TITLES.catalogue },
+    filters: { canOpen: !disposing && !stopTask && (filters?.status()?.supported === true || reshade?.status()?.supported === true), title: CAPTURE_WINDOW_TITLES.filters }
+  });
+  const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), sharing: { ...songRequestShare }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
+  const snapshot = () => ({ language, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
     return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
@@ -154,7 +177,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function publish() {
     const value = snapshot();
     publishPanel(value);
-    if (overlay && !overlay.isDestroyed() && !overlay.webContents.isLoading()) overlay.webContents.send('companion:changed', value);
+    if (overlay && !overlay.isDestroyed() && !overlay.webContents.isLoading()) overlay.webContents.send('companion:changed', { ...value, songRequests: undefined, player: undefined });
     if (filtersWidget && !filtersWidget.isDestroyed() && !filtersWidget.webContents.isLoading()) filtersWidget.webContents.send('companion:changed', filtersWidgetSnapshot());
     syncOverlay();
     streamServer?.publish(value.state);
@@ -163,6 +186,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function catalogueAllowed() { try { return hostActive && catalogueAccess && !disposing && !stopTask && panelAlive() && isCatalogueAvailable() === true; } catch { return false; } }
   function publishPanel(value) {
     if (panelAlive() && !panelContents.isLoading()) panelContents.send('companion:changed', value ?? snapshot());
+    if (playerWindow && !playerWindow.isDestroyed() && !playerWindow.webContents.isLoading()) playerWindow.webContents.send('companion:changed', { language, player: musicPlayer.snapshot({ engine: true }) });
     if (catalogueAllowed() && catalogueWidget && !catalogueWidget.isDestroyed() && !catalogueWidget.webContents.isLoading()) catalogueWidget.webContents.send('companion:changed', catalogueWidgetSnapshot());
   }
   function setLanguage(value) { if (!['fr','en'].includes(value) || language === value) return language; language=value; publish(); return language; }
@@ -182,12 +206,92 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     approval.targets.delete(target);
     await shell.trashItem(target);
   }, onChange: () => {
-
+    musicPlayer?.libraryChanged();
     const revision = library?.status().revision ?? -1;
     if (revision !== libraryIndexRevision) { libraryIndexRevision = revision; catalogue?.libraryChanged(); }
     if (!disposing) publishPanel();
   } });
   await library.load();
+  musicPlayer = createMusicPlayer({ library, preferences: playerPreferences.status(), onChange: () => { if (!disposing) publishPanel(); }, onAction: value => {
+    if (playerWindow && !playerWindow.isDestroyed() && !playerWindow.webContents.isLoading()) playerWindow.webContents.send('companion:player-action', value);
+  } });
+  const normalizeRequestQuery = value => String(value ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/\s+/g, ' ');
+  songRequests = createSongRequests({
+    getLibrarySnapshot: () => library.matchingSnapshot(),
+    searchSongs: async ({ query, limit }) => {
+      const index = library.matchingSnapshot(), search = normalizeRequestQuery(query), tokens = search.split(' ').filter(Boolean);
+      const exact = index.items.filter(item => [item.title, `${item.artist} ${item.title}`, `${item.title} ${item.artist}`].some(value => normalizeRequestQuery(value) === search));
+      const matches = exact.length ? exact : index.items.filter(item => tokens.every(token => normalizeRequestQuery(`${item.title} ${item.artist} ${item.charter}`).includes(token)));
+      return { items: matches.slice(0, limit), total: matches.length, revision: index.revision };
+    },
+    resolveSong: (id, context) => library.resolveRequestSong(id, context),
+    getNowPlaying: () => {
+      const state = services.store.getState(), live = integration.status().mode === 'live';
+      return state.nowPlaying && (live ? state.gameplay.isChartActive : state.gameplay.state === 'playing')
+        ? { ...state.nowPlaying, state: live ? 'exported' : 'playing' } : null;
+    },
+    onChange: () => { if (!disposing) publishPanel(); }
+  });
+  const requestPreferences = songRequestPreferences.status();
+  songRequests.configure({ rules: requestPreferences.rules, enabled: false });
+  if (requestPreferences.ingestToken && requestPreferences.readToken && !requestPreferences.error) {
+    songRequestServer = createSongRequestServer({ root: __dirname, ingestToken: requestPreferences.ingestToken, readToken: requestPreferences.readToken,
+      receive: input => !hostActive || disposing || stopTask ? { ok: false, code: 'disabled' } : songRequests.receive(input),
+      getSnapshot: () => songRequests.snapshot(), getLanguage: () => language,
+      onStatus: status => { if (!status.enabled && songRequests.snapshot().enabled) songRequests.configure({ enabled: false }); if (!disposing) publishPanel(); }
+    });
+    songRequestServer.setPort(requestPreferences.port);
+  }
+  async function configureSongRequests(payload) {
+    if (songRequestBusy) return { ok: false, error: 'Une modification Song Request est déjà en cours.' };
+    const lifecycle = lifecycleRevision;
+    songRequestBusy = true;
+    try {
+      if (!payload.enabled) { songRequests.configure({ enabled: false }); await songRequestServer?.stop(); }
+      if (disposing || stopTask || !hostActive || lifecycle !== lifecycleRevision) return { ok: false, error: 'Le panneau a été fermé.' };
+      if (payload.enabled && (!songRequestServer || library.status().status !== 'ready' || library.status().count < 1)) return { ok: false, error: 'Scannez votre dossier Songs avant d’activer les demandes.' };
+      if (songRequestServer?.status().enabled && songRequestServer.status().port !== payload.port) return { ok: false, error: 'Arrêtez la réception avant de changer le port.' };
+      await songRequestPreferences.save({ port: payload.port, rules: payload.rules });
+      if (disposing || stopTask || !hostActive || lifecycle !== lifecycleRevision) return { ok: false, error: 'Le panneau a été fermé.' };
+      songRequests.configure({ rules: payload.rules });
+      if (!songRequestServer?.status().enabled) songRequestServer?.setPort(payload.port);
+      if (payload.enabled) {
+        await songRequestServer.start(payload.port);
+        if (disposing || stopTask || !hostActive || lifecycle !== lifecycleRevision) { await songRequestServer.stop(); return { ok: false, error: 'Le panneau a été fermé.' }; }
+        if (!songRequestServer.status().enabled) return { ok: false, error: songRequestServer.status().error };
+        songRequests.configure({ enabled: true });
+      }
+      publishPanel(); return { ok: true };
+    } finally { songRequestBusy = false; }
+  }
+  async function refreshSongRequestShare() {
+    if (!sharingClient || songRequestShare.busy || disposing || !hostActive) return;
+    const lifecycle = lifecycleRevision, revision = ++songRequestShareRevision;
+    const valid = () => !disposing && !stopTask && hostActive && lifecycle === lifecycleRevision && revision === songRequestShareRevision;
+    try { const status = await sharingClient.status(); if (valid()) songRequestShare = { ...songRequestShare, ...status, error: null }; }
+    catch { if (valid()) songRequestShare = { ...songRequestShare, url: null, count: 0, updatedAt: null, error: 'Le partage ChartsHub est indisponible. Vérifiez votre compte et la version du site.' }; }
+    if (valid()) publishPanel();
+  }
+  async function changeSongRequestShare(remove = false) {
+    if (!sharingClient || songRequestShare.busy || disposing || stopTask || !hostActive) return { ok: false };
+    const lifecycle = lifecycleRevision, revision = ++songRequestShareRevision;
+    const valid = () => !disposing && !stopTask && hostActive && lifecycle === lifecycleRevision && revision === songRequestShareRevision;
+    songRequestShare.busy = true; songRequestShare.error = null; publishPanel();
+    try {
+      const account = await sharingClient.capture?.();
+      if (!valid()) return { ok: false };
+      let result, unavailableCount = 0;
+      if (remove) result = await sharingClient.remove(account);
+      else {
+        const rules = songRequests.snapshot().rules, prepared = await library.requestLibraryForSharing();
+        if (!valid() || library.matchingSnapshot().rootKey !== prepared.rootKey || library.matchingSnapshot().revision !== prepared.revision || JSON.stringify(rules) !== JSON.stringify(songRequests.snapshot().rules)) return { ok: false };
+        result = await sharingClient.publish({ songs: prepared.songs, rules }, account); unavailableCount = prepared.unavailableCount;
+      }
+      if (!valid()) return { ok: false };
+      songRequestShare = { ...songRequestShare, ...result, unavailableCount, error: null }; return { ok: true };
+    } catch { if (valid()) songRequestShare.error = 'Le partage n’a pas pu être modifié. Vérifiez votre compte et relancez le scan.'; return { ok: false }; }
+    finally { if (revision === songRequestShareRevision) { songRequestShare.busy = false; if (!disposing) publishPanel(); } }
+  }
   catalogue = createCatalogueService({ dataDirectory, client: catalogueClient ?? createChartsHubClient({ fetcher: (url, options) => net.fetch(url, options) }), getLibrary: () => library.matchingSnapshot(), onChange: () => {
     if (!disposing) publishPanel();
   } });
@@ -435,11 +539,13 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (typeof enabled !== 'boolean') throw TypeError('Invalid catalogue availability');
     catalogueAccess = enabled;
     if (!enabled) {
+      songRequestShareRevision++;
+      songRequestShare = { ...songRequestShare, url: null, count: 0, updatedAt: null, busy: false, error: null, unavailableCount: 0 };
       catalogueWidgetTicket++; catalogueWidgetEnabled = false;
       unregisterCatalogueShortcut();
       if (catalogueWidget && !catalogueWidget.isDestroyed()) catalogueWidget.destroy();
       catalogueWidgetLoad = null;
-    } else registerCatalogueShortcut();
+    } else { registerCatalogueShortcut(); void refreshSongRequestShare(); }
     if (!disposing) publishPanel();
   }
   async function requireCatalogueAuthorization(owner, revision = lifecycleRevision) {
@@ -461,9 +567,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (ticket !== catalogueWidgetTicket) return;
     catalogueWidgetEnabled = true;
     if (!catalogueWidget || catalogueWidget.isDestroyed()) {
-      const window = new BrowserWindow({ width: 580, height: 720, minWidth: 390, minHeight: 360, show: false, frame: false, transparent: true, backgroundColor: '#00000000', alwaysOnTop: true, focusable: true, skipTaskbar: true, resizable: true, movable: true, title: 'ChartsHub — Mini Catalogue',
+      const window = new BrowserWindow({ width: 580, height: 720, minWidth: 280, minHeight: 220, show: false, frame: false, transparent: true, backgroundColor: '#00000000', alwaysOnTop: true, focusable: true, skipTaskbar: true, resizable: true, movable: true, title: CAPTURE_WINDOW_TITLES.catalogue,
         webPreferences: { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`] } });
       catalogueWidget = window; harden(window, 'catalogue-widget.html');
+      window.on('page-title-updated', event => event.preventDefault());
       window.setAlwaysOnTop(true, 'screen-saver');
       window.on('closed', () => {
         if (catalogueWidget === window) { catalogueWidget = null; catalogueWidgetLoad = null; catalogueWidgetEnabled = false; catalogueWidgetTicket++; if (!disposing) publishPanel(); }
@@ -482,9 +589,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     filtersWidgetEnabled = enabled;
     if (!enabled) { if (filtersWidget && !filtersWidget.isDestroyed()) filtersWidget.hide(); publish(); return; }
     if (!filtersWidget || filtersWidget.isDestroyed()) {
-      const window = new BrowserWindow({ width: 410, height: 610, minWidth: 360, minHeight: 360, show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: true, movable: true, title: 'ChartsHub — Filtres du jeu', backgroundColor: '#00000000', webPreferences: { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`] } });
+      const window = new BrowserWindow({ width: 410, height: 610, minWidth: 360, minHeight: 360, show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: true, movable: true, title: CAPTURE_WINDOW_TITLES.filters, backgroundColor: '#00000000', webPreferences: { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`] } });
       filtersWidget = window;
       harden(window, 'filters-widget.html');
+      window.on('page-title-updated', event => event.preventDefault());
       window.on('closed', () => { if (filtersWidget === window) { filtersWidget = null; filtersWidgetEnabled = false; publish(); } });
       filtersWidgetLoad = window.loadURL(`${SCHEME}://app/ui/filters-widget.html`).catch(error => { if (!window.isDestroyed() && filtersWidgetEnabled) throw error; });
     }
@@ -493,14 +601,105 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     filtersWidget.showInactive();
     publish();
   }
+  async function ensurePlayerWindow() {
+    if (disposing || stopTask || !hostActive || !panelAlive()) throw Error('Player unavailable');
+    const lifecycle = lifecycleRevision;
+    if (!playerWindow || playerWindow.isDestroyed()) {
+      const window = new BrowserWindow({ width: 380, height: 510, minWidth: 280, minHeight: 200, show: false, alwaysOnTop: true, skipTaskbar: true,
+        resizable: true, title: 'ChartsHub — Lecteur Songs', icon: path.join(__dirname, '..', 'icon.ico'), backgroundColor: '#0b1322',
+        webPreferences: { ...preferences, autoplayPolicy: 'no-user-gesture-required', additionalArguments: [`--chartshub-companion-language=${language}`] } });
+      playerWindow = window;
+      harden(window, 'music-player.html');
+      window.setAlwaysOnTop(true, 'screen-saver');
+      window.on('page-title-updated', event => event.preventDefault());
+      window.on('close', event => { if (!disposing && hostActive && !stopTask) { event.preventDefault(); window.hide(); musicPlayer.setWidget(false); } });
+      window.on('closed', () => { if (playerWindow === window) { playerWindow = null; playerWindowLoad = null; musicPlayer.stop(); } });
+      window.webContents.on('render-process-gone', () => { if (playerWindow === window) { musicPlayer.stop(); if (!window.isDestroyed()) window.destroy(); } });
+      playerWindowLoad = window.loadURL(`${SCHEME}://app/ui/music-player.html`).catch(error => { if (!window.isDestroyed()) window.destroy(); throw error; });
+    }
+    if (playerWindowLoad) await playerWindowLoad;
+    if (disposing || stopTask || !hostActive || lifecycle !== lifecycleRevision || !playerWindow || playerWindow.isDestroyed()) throw Error('Player unavailable');
+    publishPanel();
+    return playerWindow;
+  }
+  async function setPlayerWidget(enabled) {
+    musicPlayer.setWidget(enabled);
+    if (!enabled) { if (playerWindow && !playerWindow.isDestroyed()) playerWindow.hide(); return; }
+    try {
+      const window = await ensurePlayerWindow();
+      if (musicPlayer.snapshot().widgetEnabled) window.showInactive();
+    } catch (error) { musicPlayer.setWidget(false); throw error; }
+  }
   function trustedPanel(event) { return panelAlive() && trustedContentsSender(event, panelContents, 'index.html'); }
+  function savePlayerPreferences(change) {
+    const task = playerPreferencesTask.then(async () => {
+      const current = playerPreferences.status();
+      try {
+        const saved = await playerPreferences.save({ appearance: current.appearance, videoEnabled: current.videoEnabled, volume: current.volume, shuffle: current.shuffle, playlists: current.playlists, ...(typeof change === 'function' ? change(current) : change) });
+        musicPlayer.applyPreferences(saved);
+        return { ok: true };
+      } catch (error) {
+        musicPlayer.applyPreferences(playerPreferences.status());
+        throw error;
+      }
+    });
+    playerPreferencesTask = task.catch(() => {}); return task;
+  }
+  function trustedPlayer(event) { return trustedSender(event, playerWindow, 'music-player.html'); }
   function canRead(event) { return trustedPanel(event) || trustedSender(event, overlay, 'overlay.html'); }
-  ipcMain.handle('companion:snapshot', event => canRead(event) ? snapshot() : trustedSender(event, filtersWidget, 'filters-widget.html') ? filtersWidgetSnapshot() : catalogueAllowed() && trustedSender(event, catalogueWidget, 'catalogue-widget.html') ? catalogueWidgetSnapshot() : null);
+  ipcMain.handle('companion:snapshot', event => trustedPanel(event) ? snapshot() : trustedPlayer(event) ? { language, player: musicPlayer.snapshot({ engine: true }) } : canRead(event) ? { ...snapshot(), songRequests: undefined, player: undefined } : trustedSender(event, filtersWidget, 'filters-widget.html') ? filtersWidgetSnapshot() : catalogueAllowed() && trustedSender(event, catalogueWidget, 'catalogue-widget.html') ? catalogueWidgetSnapshot() : null);
   ipcMain.handle('companion:command', async (event, command, payload) => {
     const mini = catalogueAllowed() && trustedCatalogueWidgetCommand(event, catalogueWidget, command, payload);
-    if (disposing || stopTask || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini) || !validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
+    const playerSender = trustedPlayer(event) && typeof command === 'string' && command.startsWith('player.');
+    if (disposing || stopTask || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini || playerSender) || !validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
     if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
+      if (command === 'player.report' || command === 'player.spectrum' || command === 'player.ended') {
+        if (!trustedPlayer(event)) return { ok: false };
+        if (command === 'player.ended') return await musicPlayer.ended(payload);
+        if (command === 'player.report') return musicPlayer.report(payload);
+        if (!musicPlayer.acceptSpectrum(payload)) return { ok: false };
+        const now = performance.now();
+        if ((now - playerSpectrumAt >= 80 || payload.bands.every(value => value === 0)) && panelAlive() && !panelContents.isLoading()) { playerSpectrumAt = now; panelContents.send('companion:player-spectrum', payload); }
+        return { ok: true };
+      }
+      if (command === 'player.search') {
+        const result = await library.queryPlayback({ query: payload.query, offset: payload.offset ?? 0, limit: payload.limit ?? 50, ...(payload.filters ? { filters: payload.filters } : {}) });
+        return { ok: true, result: { ...result, items: result.items.map(item => Object.fromEntries(['id', 'title', 'artist', 'charter', 'album', 'year', 'genre', 'tracks', 'format', 'audio'].map(key => [key, item[key]]))) } };
+      }
+      if (command === 'player.select') { await ensurePlayerWindow(); return await musicPlayer.select(payload.id); }
+      if (command === 'player.control') return payload.action === 'volume' ? await savePlayerPreferences({ volume: payload.value }) : await musicPlayer.control(payload.action, payload.value);
+      if (command === 'player.widget') { await setPlayerWidget(payload.enabled); return { ok: true }; }
+      if (command === 'player.video') return await savePlayerPreferences({ videoEnabled: payload.enabled });
+      if (command === 'player.appearance') return await savePlayerPreferences({ appearance: payload.appearance });
+      if (command === 'player.shuffle') return await savePlayerPreferences({ shuffle: payload.enabled });
+      if (command === 'player.playPlaylist') { await ensurePlayerWindow(); return await musicPlayer.playPlaylist(payload.id); }
+      if (['player.playlistCreate', 'player.playlistRename', 'player.playlistDelete', 'player.playlistAdd', 'player.playlistRemove'].includes(command)) {
+        let playlistId;
+        const result = await savePlayerPreferences(current => {
+          if (library.status().status !== 'ready') throw Error('Library unavailable');
+          const updated = changeMusicPlaylist(current, command.slice('player.playlist'.length).toLowerCase(), payload, library.matchingSnapshot());
+          playlistId = updated.playlistId; return { playlists: updated.playlists };
+        });
+        return { ...result, playlistId };
+      }
+      if (command === 'songRequests.configure') return await configureSongRequests(payload);
+      if (command === 'songRequests.publishLibrary' || command === 'songRequests.removeLibrary') return await changeSongRequestShare(command.endsWith('removeLibrary'));
+      if (command === 'songRequests.copyLibraryUrl') {
+        if (!songRequestShare.url || songRequestShare.busy) return { ok: false };
+        clipboard.writeText(songRequestShare.url); return { ok: true };
+      }
+      if (['songRequests.accept', 'songRequests.reject', 'songRequests.played', 'songRequests.move', 'songRequests.resetOrder'].includes(command)) {
+        const action = command.slice('songRequests.'.length);
+        const result = await (action === 'resetOrder' ? songRequests.resetOrder() : action === 'move' ? songRequests.move(payload.id, { direction: payload.direction }) : songRequests[action](payload.id));
+        publishPanel(); return result;
+      }
+      if (command === 'songRequests.copyBridgeConfiguration' || command === 'songRequests.copyOverlayUrl') {
+        const bridge = songRequestServer?.status();
+        if (!songRequests.snapshot().enabled || !bridge?.enabled) return { ok: false, error: 'Activez la réception avant de copier la configuration.' };
+        clipboard.writeText(command.endsWith('copyOverlayUrl') ? bridge.overlayUrl : JSON.stringify(songRequestServer.bridgeConfiguration()));
+        return { ok: true };
+      }
       if (command === 'catalogue.widget') { await setCatalogueWidget(payload.enabled); return { ok: true }; }
       if (command === 'panels.appearance') {
         await floatingPanels.update(payload); publish();
@@ -717,6 +916,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       return { ok: true, revision: editorRevision };
     } catch (error) {
       logger.error('Companion command failed');
+      if (command.startsWith('player.')) return { ok: false, error: ['MUSIC_PLAYER_PREFERENCES_SAFE', 'MUSIC_PLAYLIST_SAFE'].includes(error?.code) ? error.message : 'Le lecteur n’a pas pu effectuer cette action. Vérifiez la bibliothèque et les réglages.' };
       if (command === 'panels.appearance') return { ok: false, ...(error?.code === 'STALE_FLOATING_PANELS' ? { code: error.code } : {}), error: ['FLOATING_PANELS_SAFE', 'STALE_FLOATING_PANELS'].includes(error?.code) ? error.message : 'Les réglages des panneaux n’ont pas pu être enregistrés.' };
       if (error?.code === 'CATALOGUE_WIDGET_SAFE' || command === 'catalogue.widget') return { ok: false, error: 'Le mini Catalogue nécessite une connexion ChartsHub active.' };
       if (command === 'library.cleanupHistory') return { ok: false, error: 'L’historique des nettoyages est indisponible. Les résultats du nettoyage restent inchangés.' };
@@ -735,7 +935,14 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function stop() {
     if (stopTask) return stopTask;
     lifecycleRevision++;
+    songRequestShareRevision++;
+    songRequestShare.busy = false;
+    songRequests.configure({ enabled: false });
+    const songRequestStop = songRequestServer?.stop();
     hostActive = false; catalogueWidgetTicket++; catalogueWidgetEnabled = false;
+    musicPlayer?.stop();
+    if (playerWindow && !playerWindow.isDestroyed()) playerWindow.destroy();
+    playerWindowLoad = null;
     unregisterCatalogueShortcut();
     if (catalogueWidget && !catalogueWidget.isDestroyed()) catalogueWidget.destroy();
     catalogueWidgetLoad = null;
@@ -758,7 +965,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         ? Promise.resolve().then(() => reshadeSetup.whenIdle()).catch(() => { logger.warn('ReShade installation ended with an error'); })
       : Promise.resolve();
     if (saveTimer) void saveSettings();
-    const task = (async () => { await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
+    const task = (async () => { await songRequestStop; await songRequestPreferences.flush(); await playerPreferencesTask; await playerPreferences.flush(); await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
     const done = task.finally(() => { if (stopTask === done) stopTask = null; });
     stopTask = done;
     return done;
@@ -772,6 +979,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       await services.start();
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
       hostActive = true;
+      void refreshSongRequestShare();
       if (panelAlive()) {
         if (embedded) await embedded.activate();
         else { if (panel.isMinimized()) panel.restore(); panel.focus(); }
@@ -850,7 +1058,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     return disposeTask;
   }
   return { open, stop, snapshot, services, integration, registry, setLanguage, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
-    getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, dispose
+    getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, getPlayerWidget: () => playerWindow, dispose
   };
 }
 module.exports = { registerCompanionScheme, createCompanionHost };
