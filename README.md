@@ -37,7 +37,7 @@ Les pull requests vers `main` exécutent les mêmes tests et compilations et pro
 
 ### Version 0.14.8
 
-Cette version rassemble le nettoyage sûr des doublons, les différences fichier par fichier et leur historique, le Catalogue flottant personnalisable et les notifications des téléchargements. [Notes complètes de la version](docs/RELEASE-0.14.8.md).
+Cette version améliore le passage au morceau suivant, la lecture vidéo avec ses proportions originales et le plein écran, les marges et le défilement automatique du lecteur Songs. Les playlists, Song Request, widgets personnalisables et le nettoyage sûr des doublons restent disponibles. [Notes complètes de la version](docs/RELEASE-0.14.12.md).
 
 Le centre de notifications du compte, les profils de charters et le preview néon dans le catalogue principal sont partagés avec le site et nécessitent le déploiement de ChartsHub **1.8.3**. Le nouveau preview préserve les cinq couleurs de notes, distingue normale/HOPO/TAP et conserve les pads, cymbales et kick violet. Il n’est pas embarqué dans l’archive Desktop ni dans le mini Catalogue flottant.
 

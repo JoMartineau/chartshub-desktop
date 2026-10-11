@@ -86,3 +86,44 @@ test('disposal removes listeners and late save responses never rewrite detached 
   const writes = ui.document.writes; ui.calls[0].resolve({ ok: true, result: state({ revision: 1 }) }); await tick();
   ui.controls.update({ floatingPanels: state({ revision: 2 }) }); ui.get('#floating-panels-reset').click(); assert.equal(ui.document.writes, writes);
 });
+
+test('centralized sections retain independent player drafts and unique accessible control IDs', async t => {
+  const { FloatingPanelsControls } = await import('../companion/ui/floating-panels-controls.js');
+  const document = createDocument(), root = document.createElement('main'), calls = [], sections = [];
+  for (const panel of ['catalogue', 'filters', 'player']) {
+    const section = document.createElement('section'); root.append(section);
+    const controls = new FloatingPanelsControls({ root: section, panels: [panel], idPrefix: `floating-${panel}`, command: (name, payload) => new Promise(resolve => calls.push({ name, payload, resolve })) });
+    sections.push(controls); t.after(() => controls.dispose());
+  }
+  const snapshot = { revision: 4, canWrite: true, error: null, appearance: { catalogue: defaults(), filters: defaults(), player: defaults() } };
+  sections.forEach(controls => controls.update({ floatingPanels: snapshot }));
+  const player = sections[2];
+  player.opacity.value = '35'; player.opacity.dispatchEvent(new Event('input'));
+  assert.equal(player.preview.style.getPropertyValue('--floating-background'), '#15171959');
+  assert.equal(sections[0].preview.style.getPropertyValue('--floating-background'), '#151719e6');
+  assert.equal(calls.length, 0);
+  assert.equal(player.opacity.getAttribute('aria-describedby'), 'floating-player-opacity-value');
+  assert.equal(root.querySelectorAll('#floating-player-opacity').length, 1);
+  player.panel.value = 'filters'; player.panel.dispatchEvent(new Event('change'));
+  player.save.click();
+  assert.deepEqual(calls[0].payload, { revision: 4, panel: 'player', appearance: { ...defaults(), backgroundColor: '#15171959' } });
+  const saved = { ...snapshot, revision: 5, appearance: { ...snapshot.appearance, player: calls[0].payload.appearance } };
+  calls[0].resolve({ ok: true, result: saved }); await tick();
+  sections.forEach(controls => controls.update({ floatingPanels: saved }));
+  assert.equal(player.save.disabled, true);
+  assert.equal(player.panel.value, 'player');
+  assert.equal(sections[0].preview.style.getPropertyValue('--floating-background'), '#151719e6');
+  assert.equal(sections[1].preview.style.getPropertyValue('--floating-background'), '#151719e6');
+});
+
+test('player-scoped appearance accepts no extra panel and rejects malformed snapshots', async t => {
+  const ui = await setup(t, ['player']);
+  ui.update(state({ appearance: { player: defaults() } }));
+  assert.deepEqual(ui.get('#floating-panels-panel').children.map(option => option.value), ['player']);
+  ui.change('#floating-panels-opacity', 0); ui.get('#floating-panels-save').click();
+  assert.equal(ui.calls[0].payload.panel, 'player');
+  assert.equal(ui.calls[0].payload.appearance.backgroundColor, '#15171900');
+  ui.calls[0].resolve({ ok: true, result: state({ revision: 1, appearance: { filters: defaults() } }) }); await tick();
+  assert.match(ui.get('#floating-panels-feedback').textContent, /n’a pas pu/);
+  assert.equal(ui.get('#floating-panels-save').disabled, false);
+});

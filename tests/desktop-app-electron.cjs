@@ -89,9 +89,18 @@ app.whenReady().then(async()=>{
  }
  await local.executeJavaScript('window.ChartshubBloom.open(); true');
  await waitFor(()=>local.executeJavaScript('document.querySelector("#ch-bloom-dialog").open && !document.querySelector("#ch-bloom-apply").disabled'),'bloom dialogue ready');
+ assert.equal(await local.executeJavaScript(`(()=>{
+  const app=document.querySelector('#companion-app'),dialog=document.querySelector('#ch-bloom-dialog'),form=document.querySelector('.ch-bloom-form');
+  return app.contains(dialog)&&['theme-panel','theme-catalogue-appearance','theme-filters-appearance','theme-player-appearance','local-player-appearance'].every(id=>dialog.contains(document.getElementById(id))&&!form.contains(document.getElementById(id)))&&document.querySelectorAll('form form').length===0&&!document.querySelector('.app-header .brand');
+ })()`),true,'all appearance sections retain their controller root and separate save forms');
+ await local.executeJavaScript(`document.querySelector('#theme-catalogue-appearance').open=true;document.querySelector('#floating-panels-opacity').value='57';document.querySelector('#floating-panels-opacity').dispatchEvent(new Event('input'));void 0`);
+ assert.equal(await local.executeJavaScript(`document.querySelector('#floating-panels-preview').style.getPropertyValue('--floating-background')`),'#15171991','centralized catalogue preview remains local');
  await local.executeJavaScript('document.querySelector("#ch-bloom-enabled").checked=true;document.querySelector("#ch-bloom-enabled").dispatchEvent(new Event("change"));document.querySelector("#ch-bloom-hex").value="#ff8000";document.querySelector("#ch-bloom-hex").dispatchEvent(new Event("input"));document.querySelector(".ch-bloom-form").requestSubmit();true');
  await waitFor(()=>local.executeJavaScript('window.ChartshubBloom.read().enabled && window.ChartshubBloom.read().color==="#ff8000" && !document.querySelector("#ch-bloom-apply").disabled'),'native bloom saved');
  assert.equal(JSON.parse(fs.readFileSync(stored,'utf8')).color,'#ff8000');
+ assert.equal(await local.executeJavaScript(`['.preview-card','.settings-card','.destinations-card'].every(selector=>getComputedStyle(document.querySelector(selector)).boxShadow!=='none')&&getComputedStyle(document.querySelector('#game-preview')).boxShadow==='none'`),true,'interface bloom includes the three nested cards without affecting the overlay surface');
+ await local.executeJavaScript(`document.querySelector('#theme-interface-appearance').open=false;document.querySelector('#theme-panel').open=false;document.querySelector('#theme-catalogue-appearance').open=false;document.querySelector('#theme-player-appearance').open=true;document.querySelector('#local-player-appearance').open=true;document.querySelector('#ch-bloom-dialog').scrollTop=0;void 0`);
+ await delay(100);fs.writeFileSync(path.join(directory,'theme-colors-player.png'),(await desktop.window.capturePage()).toPNG());
  const bytes=fs.readFileSync(stored);
  await local.executeJavaScript('document.querySelector("#ch-bloom-hex").value="#00ffff";document.querySelector("#ch-bloom-hex").dispatchEvent(new Event("input"));document.querySelector("#ch-bloom-cancel").click();true');
  await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open'),'bloom cancellation');
@@ -100,7 +109,7 @@ app.whenReady().then(async()=>{
  local.reload();
  await waitFor(()=>!local.isLoading(),'Companion reload');
  await waitFor(()=>local.executeJavaScript('Boolean(window.ChartshubBloom && window.ChartshubBloom.read().enabled && window.ChartshubBloom.read().color==="#ff8000")'),'reload restores native bloom');
- passed.push('native bloom saves and cancels with real disk IO and survives renderer reload');
+ passed.push('centralized appearance sections remain independent; native bloom covers nested cards, saves and cancels with real disk IO and survives renderer reload');
 
  await local.executeJavaScript('document.querySelector("#library-search").value="Recherche conservée";window.scrollTo({top:180,behavior:"instant"});true');
  const localScroll=await local.executeJavaScript('scrollY');

@@ -5,7 +5,9 @@ const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { captureBundleSnapshot } = require('./chart-bundle.cjs');
 
-const CHUNK_BYTES = 64 * 1024, ARTWORK_LIMIT = 8 * 1024 * 1024, VIDEO_LIMIT = 4 * 1024 * 1024 * 1024;
+// Keep every read bounded while amortizing the path/descriptor checks on local
+// media. Each chunk still revalidates the path and file before and after reading.
+const CHUNK_BYTES = 1024 * 1024, ARTWORK_LIMIT = 8 * 1024 * 1024, VIDEO_LIMIT = 4 * 1024 * 1024 * 1024;
 // Clone Hero Wiki links this specification for the reserved audio stem names:
 // https://thenathannator.github.io/GuitarGame_ChartFormats/Chart-File-Formats/Supported-Audio-Files/
 const ROLES = ['song', 'guitar', 'rhythm', 'bass', 'keys', 'drums', 'drums_1', 'drums_2', 'drums_3', 'drums_4',

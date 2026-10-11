@@ -4,6 +4,9 @@
   let language = initial;
   let writing = false;
   const exact = new Map([
+    ['Widgets du morceau','Song widgets'],['Couleurs et transparence de l’overlay Jeu et Stream','Colors and transparency of the Game and Stream overlay'],
+    ['ReShade / Filtres du jeu','ReShade / Game Filters'],['Lecteur Songs','Songs player'],['Aperçu du lecteur Songs','Songs player preview'],['Titre du morceau · Artiste · Lecture et volume.','Song title · Artist · Playback and volume.'],
+    ['Couleurs et transparence : Thème et couleurs dans le Companion.','Colors and transparency: Theme and colors in Companion.'],['Ouvrir le Lecteur Songs','Open Songs player'],
     ['Fenêtre ouverte. Sélectionnez son titre dans OBS.','Window opened. Select its title in OBS.'],
     ['Panneaux au-dessus du jeu','Panels above the game'],['Ouvrir le catalogue flottant','Open floating catalogue'],['Ctrl + Maj + K : ouvrir ou masquer le catalogue flottant.','Ctrl + Shift + K: show or hide the floating catalogue.'],['Le catalogue flottant reste accessible avec le bouton ci-dessus.','The floating catalogue is available using the button above.'],
     ['Recherchez et téléchargez des charts sans fermer Clone Hero. Utilisez le mode fenêtré ou sans bordure pour afficher les panneaux au-dessus du jeu. Après téléchargement, lancez Scan Songs dans Clone Hero.','Search and download charts without closing Clone Hero. Use windowed or borderless mode to show panels above the game. After downloading, run Scan Songs in Clone Hero.'],
@@ -87,7 +90,7 @@
     ['Choisissez votre dossier Songs','Choose your Songs folder'],['Réessayer l’affichage','Retry display'],['Format','Format'],['Actions','Actions'],['50 morceaux par page','50 songs per page'],
     ['Chargement automatique · lots de 50','Automatic loading · batches of 50'],['Charger plus','Load more'],['Réessayer le chargement','Retry loading'],['Chargement des résultats…','Loading results…'],['Affichage indisponible','Results unavailable'],
     ['Précédente','Previous'],['Suivante','Next'],['Comparer les versions','Compare versions'],['Fermer la comparaison','Close comparison'],
-    ['Recharger la comparaison','Reload comparison'],['Effacer le choix','Clear choice'],['Nettoyer les copies vérifiées','Clean verified copies'],
+    ['Recharger la comparaison','Reload comparison'],['Conserver toutes les versions','Keep all versions'],['Toutes les versions sont conservées. Aucun fichier déplacé ou supprimé.','All versions are kept. No files moved or deleted.'],['Nettoyer les copies vérifiées','Clean verified copies'],
     ['Vérifier l’audio et préparer le nettoyage','Verify audio and prepare cleanup'],['Revérifier les autres versions','Recheck other versions'],['Supprimer quand même','Delete anyway'],['Version à conserver','Version to keep'],['Ouvrir dossier','Open folder'],
     ['Cochez les copies à envoyer à la Corbeille','Select the copies to send to the Recycle Bin'],['Envoyer la copie sélectionnée à la Corbeille…','Send the selected copy to the Recycle Bin…'],['À envoyer à la Corbeille Windows après confirmation :','To send to the Windows Recycle Bin after confirmation:'],
     ['Version conservée · exclue du nettoyage','Kept version · excluded from cleanup'],['Notes, audio et tous les fichiers identiques à la version conservée.','Notes, audio and all files are identical to the kept version.'],['Les chemins ci-dessous sont relatifs au dossier Songs et désignent les éléments entiers concernés.','The paths below are relative to the Songs folder and identify the complete items concerned.'],
@@ -239,7 +242,7 @@
     [/^Prêt à nettoyer · (.+) copie\(s\) vérifiée\(s\)$/, m => `Ready to clean · ${m[1]} verified cop${m[1] === '1' ? 'y' : 'ies'}`],
     [/^Vérification (.+) \/ (.+)…$/, m => `Checking ${m[1]} / ${m[2]}…`],
     [/^Vérification des notes, de l’audio et des fichiers : (.+) \/ (.+) groupes\.$/, m => `Checking notes, audio and files: ${m[1]} / ${m[2]} groups.`],
-    [/^(\d[\d\s.,]*) groupe\(s\) prêt\(s\) · (\d[\d\s.,]*) choix de version requis · (\d[\d\s.,]*) bloqué\(s\) · (\d[\d\s.,]*) copie\(s\) vérifiée\(s\)\.$/, m => `${m[1]} ready group(s) · ${m[2]} keeper choice(s) required · ${m[3]} blocked · ${m[4]} verified copy/copies.`],
+    [/^(\d[\d\s.,]*) groupe\(s\) prêt\(s\) · (\d[\d\s.,]*) choix de version requis · (\d[\d\s.,]*) bloqué\(s\) · (\d[\d\s.,]*) copie\(s\) identique\(s\) prête\(s\) à sélectionner\. Ouvrez « Comparer » pour connaître les raisons précises\.$/, m => `${m[1]} ready group(s) · ${m[2]} keeper choice(s) required · ${m[3]} blocked · ${m[4]} identical copy/copies ready to select. Open “Compare” to see the exact reasons.`],
     [/^Comparer les versions · (.+)$/, m => `Compare versions · ${m[1]}`],
     [/^Créateur : (.+)$/, m => `Charter: ${m[1]}`],
     [/^Chart : (.+)$/, m => `Chart: ${m[1]}`],

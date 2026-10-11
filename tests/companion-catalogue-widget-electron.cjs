@@ -25,18 +25,19 @@ async function waitFor(check, label, timeout = 15000) {
 }
 const evaluate = code => mini.webContents.executeJavaScript(code);
 const command = (name, payload) => evaluate(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`);
-async function click(selector) {
+async function click(selector, target = mini) {
+  const evaluateControl = code => target.webContents.executeJavaScript(code);
   let point;
   await waitFor(async () => {
-    point = await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n||n.hidden||n.disabled)return null;n.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});const r=n.getBoundingClientRect(),p={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)},hit=document.elementFromPoint(p.x,p.y);return r.width&&r.height&&hit&&(hit===n||n.contains(hit))?p:null;})()`);
+    point = await evaluateControl(`(async()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n||n.hidden||n.disabled)return null;n.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const r=n.getBoundingClientRect(),p={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)},hit=document.elementFromPoint(p.x,p.y);return r.width&&r.height&&hit&&(hit===n||n.contains(hit))?p:null;})()`);
     return !!point;
   }, 'visible enabled mini control ' + selector);
-  mini.focus(); mini.webContents.focus(); mini.webContents.sendInputEvent({ type: 'mouseMove', ...point });
-  mini.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 });
-  mini.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 }); await delay(45);
+  target.focus(); target.webContents.focus(); target.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+  target.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 });
+  target.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 }); await delay(45);
 }
-async function fillFields(values) {
-  await evaluate(`(()=>{for(const [selector,value] of Object.entries(${JSON.stringify(values)})){const n=document.querySelector(selector);if(!n||n.disabled)throw Error('Unavailable input: '+selector);n.value=value;n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));}})()`);
+async function fillFields(values, target = mini) {
+  await target.webContents.executeJavaScript(`(()=>{for(const [selector,value] of Object.entries(${JSON.stringify(values)})){const n=document.querySelector(selector);if(!n||n.disabled)throw Error('Unavailable input: '+selector);n.value=value;n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));}})()`);
 }
 async function search(fields, ids) {
   await fillFields(Object.fromEntries(['query', 'artist', 'charter', 'instrument', 'difficulty', 'installed', 'favorites'].map(key => [`#catalogue-widget-${key}`, fields[key] ?? (['installed', 'favorites'].includes(key) ? 'all' : '')])));
@@ -405,7 +406,7 @@ async function openHost() {
     catalogueClient: { async load() { catalogueLoads++; return { items: fixtureCharts, revision: 'mini-electron-fixture-' + fixtureRevision, demo: fixtureDemo }; }, async artwork(url) { artworkRequests.push(url); assert.ok(charts.some(item => item.artworkUrl === url || item.charterIconUrl === url), 'only known synthetic catalogue artwork is requested'); return url.includes('/FixtureArtwork00/') ? { bytes: syntheticArtwork(), contentType: 'image/png' } : null; } },
     downloadWorker: worker() });
   panel = await host.open(); await host.setCatalogueWidget(true); mini = host.getCatalogueWidget(); mini.setSize(650, 880);
-  await waitFor(() => evaluate("!!window.ChartsHubCompanion&&!document.querySelector('#catalogue-widget-search')?.disabled&&!!document.querySelector('#floating-panels-save')"), 'native mini ready');
+  await waitFor(() => evaluate("!!window.ChartsHubCompanion&&!document.querySelector('#catalogue-widget-search')?.disabled"), 'native mini ready');
 }
 async function fail(error) {
   if (failing) return; failing = true; console.error(error);
@@ -475,11 +476,18 @@ app.whenReady().then(async () => {
   await click(`[data-download-id="${secondId}"] [data-action="retry"]`); await waitFor(() => runs.length === 4, 'explicit retry'); assert.equal(runs[3].id, secondId); await complete(runs[3]);
   passed.push('cancel and retry are explicit per-item actions and cancellation preserves the already completed chart');
 
-  await click('.catalogue-widget-appearance > summary');
-  await fillFields({ '#floating-panels-background': '#243447', '#floating-panels-text': '#ffeecc', '#floating-panels-opacity': '55', '#floating-panels-font': 'verdana', '#floating-panels-font-size': '18' });
+  assert.equal(await evaluate("document.querySelector('.floating-panels-controls')===null"), true, 'the mini window does not duplicate the centralized editor');
+  await host.setCatalogueWidget(false); panel.show(); panel.focus();
+  const panelEvaluate = code => panel.webContents.executeJavaScript(code);
+  if (await panelEvaluate("!!document.querySelector('#ch-bloom-open')")) await click('#ch-bloom-open', panel);
+  await click('#theme-catalogue-appearance > summary', panel);
+  await fillFields({ '#floating-panels-background': '#243447', '#floating-panels-text': '#ffeecc', '#floating-panels-opacity': '55', '#floating-panels-font': 'verdana', '#floating-panels-font-size': '18' }, panel);
   assert.notEqual(await evaluate("document.querySelector('#catalogue-widget-app').style.getPropertyValue('--floating-background')"), '#2434478c');
-  await click('#floating-panels-save');
-  await waitFor(() => host.snapshot().floatingPanels.appearance.catalogue.backgroundColor === '#2434478c' && evaluate("document.querySelector('#catalogue-widget-app').style.getPropertyValue('--floating-background')==='#2434478c'&&document.querySelector('.floating-panels-controls').getAttribute('aria-busy')==='false'&&!document.querySelector('#floating-panels-feedback').classList.contains('is-error')"), 'saved floating appearance applied');
+  await click('#floating-panels-save', panel);
+  await waitFor(async () => host.snapshot().floatingPanels.appearance.catalogue.backgroundColor === '#2434478c' && await evaluate("document.querySelector('#catalogue-widget-app').style.getPropertyValue('--floating-background')==='#2434478c'") && await panelEvaluate("document.querySelector('#floating-panels-controls').getAttribute('aria-busy')==='false'&&!document.querySelector('#floating-panels-feedback').classList.contains('is-error')"), 'saved floating appearance applied');
+  await fs.writeFile(path.join(directory, 'theme-catalogue-settings.png'), (await panel.webContents.capturePage()).toPNG());
+  if (await panelEvaluate("!!document.querySelector('#ch-bloom-dialog')?.open")) await click('#ch-bloom-close', panel);
+  await host.setCatalogueWidget(true);
   const expectedAppearance = { backgroundColor: '#2434478c', textColor: '#ffeecc', fontFamily: 'verdana', fontSize: 18 };
   assert.deepEqual(host.snapshot().floatingPanels.appearance.catalogue, expectedAppearance);
   assert.equal(await evaluate("getComputedStyle(document.querySelector('#catalogue-widget-app')).fontSize"), '18px');

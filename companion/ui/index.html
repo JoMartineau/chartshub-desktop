@@ -13,7 +13,6 @@
 <body>
   <main id="companion-app" class="companion-app">
     <header class="app-header">
-      <div class="brand"><span class="brand-mark" aria-hidden="true">C</span><span>ChartsHub <span class="brand-divider">/</span> <strong>Companion</strong></span></div>
       <span id="source-mode-badge" class="demo-badge"><span aria-hidden="true"></span><span id="source-mode-label">MODE DÉMO</span></span>
     </header>
 
@@ -157,7 +156,7 @@
           <p id="library-comparison-summary" class="library-comparison-summary" role="status"></p>
           <p id="library-comparison-scanning" class="library-warning" role="status" hidden>Analyse en cours. Les versions restent visibles ; attendez sa fin pour enregistrer un choix.</p>
           <p id="library-comparison-feedback" class="library-feedback" role="status" hidden></p>
-          <div class="library-comparison-actions"><button id="library-comparison-retry" class="button secondary" type="button" hidden>Recharger la comparaison</button><button id="library-comparison-clear" class="button secondary" type="button" hidden>Effacer le choix</button></div>
+          <div class="library-comparison-actions"><button id="library-comparison-retry" class="button secondary" type="button" hidden>Recharger la comparaison</button><button id="library-comparison-clear" class="button secondary" type="button" hidden>Conserver toutes les versions</button></div>
           <div id="library-comparison-cards" class="library-comparison-cards" tabindex="0" role="group" aria-label="Versions à comparer, défilement horizontal"></div>
           <div class="library-cleanup-intro"><h4>Nettoyer les copies vérifiées</h4><p class="library-comparison-help">Choisissez d’abord une version à conserver. ChartsHub vérifie ensuite automatiquement les notes, l’audio et tous les fichiers. Cochez individuellement les copies à supprimer ; aucune copie n’est sélectionnée automatiquement. Les copies non cochées restent en place. Après une confirmation finale, les dossiers sélectionnés, avec tout leur contenu, ou les fichiers .sng indiqués seront envoyés à la Corbeille Windows. Aucune suppression définitive.</p><button id="library-cleanup-prepare" class="button secondary" type="button" hidden disabled>Vérifier l’audio et préparer le nettoyage</button></div>
           <div id="library-cleanup-plan" class="library-cleanup-plan" role="group" aria-label="Sélection des copies à envoyer à la Corbeille" hidden>
@@ -179,7 +178,6 @@
       <label class="filters-switch"><input id="catalogue-widget-toggle" type="checkbox" disabled><span>Ouvrir le catalogue flottant</span></label>
       <p id="catalogue-widget-shortcut" class="helper-text" role="status"></p>
       <p class="helper-text">Recherchez et téléchargez des charts sans fermer Clone Hero. Utilisez le mode fenêtré ou sans bordure pour afficher les panneaux au-dessus du jeu. Après téléchargement, lancez Scan Songs dans Clone Hero.</p>
-      <div id="floating-panels-settings"></div>
     </section>
     <section id="catalogue-panel" class="card catalogue-panel" aria-labelledby="catalogue-title">
       <div class="card-heading"><div><p class="eyebrow">CATALOGUE EN LIGNE</p><h2 id="catalogue-title">Catalogue ChartsHub</h2><span class="helper-text">Recherchez des charts et comparez les versions d’un morceau.</span></div><span id="catalogue-status" class="status-pill">À la demande</span></div>
@@ -250,13 +248,15 @@
           <p id="stream-window-instructions" class="stream-instructions">Dans OBS, ajoutez une source « Capture de fenêtre » pour chaque panneau et sélectionnez son titre ci-dessous. Gardez ces fenêtres ouvertes pendant la capture.</p>
           <div class="stream-window-actions"><button id="stream-open-catalogue" class="button secondary" type="button" aria-describedby="stream-catalogue-window-title" disabled>Ouvrir le Catalogue</button><code id="stream-catalogue-window-title">ChartsHub — Mini Catalogue</code></div>
           <div class="stream-window-actions"><button id="stream-open-filters" class="button secondary" type="button" aria-describedby="stream-filters-window-title" disabled>Ouvrir les Filtres</button><code id="stream-filters-window-title">ChartsHub — Filtres du jeu</code></div>
+          <div class="stream-window-actions"><button id="stream-open-player" class="button secondary" type="button" aria-describedby="stream-player-window-title" disabled>Ouvrir le Lecteur Songs</button><code id="stream-player-window-title">ChartsHub — Lecteur Songs</code></div>
           <p id="stream-window-status" class="helper-text" role="status" hidden></p>
         </section>
       </div>
     </section>
 
+    <div id="theme-settings-sections" class="theme-settings-sections">
     <details id="theme-panel" class="card theme-panel" open>
-      <summary><span><strong>Thèmes et couleurs</strong><span class="helper-text">Apparence de l’overlay uniquement</span></span><span class="theme-summary-hint">Presets · Palette · Styles par widget</span></summary>
+      <summary><span><strong>Widgets du morceau</strong><span class="helper-text">Couleurs et transparence de l’overlay Jeu et Stream</span></span><span class="theme-summary-hint">Presets · Palette · Styles par widget</span></summary>
       <div class="theme-panel-content">
         <div class="theme-introduction"><p>Ces réglages changent l’overlay et son aperçu. L’interface ChartsHub conserve son apparence. Dans les menus, activez <strong>Modifier la disposition</strong> pour voir les couleurs sur la chanson de démonstration.</p><div class="theme-history"><button id="theme-undo" class="button secondary" type="button" disabled>Annuler</button><button id="theme-redo" class="button secondary" type="button" disabled>Rétablir</button></div></div>
         <p id="theme-feedback" class="theme-feedback" role="status" hidden></p>
@@ -286,6 +286,17 @@
         </div>
       </div>
     </details>
+    <details id="theme-catalogue-appearance" class="card theme-widget-section">
+      <summary>Catalogue flottant</summary><div id="floating-panels-settings"></div>
+    </details>
+    <details id="theme-filters-appearance" class="card theme-widget-section">
+      <summary>ReShade / Filtres du jeu</summary><div id="floating-filters-settings"></div>
+    </details>
+    <details id="theme-player-appearance" class="card theme-widget-section">
+      <summary>Lecteur Songs</summary><div id="floating-player-settings"></div>
+      <div id="theme-player-colors" translate="no"></div>
+    </details>
+    </div>
 
     <footer class="integration-note"><span class="integration-icon" aria-hidden="true">i</span><div><strong id="integration-note-title">Source Clone Hero simulée</strong><p id="integration-note-description">La démonstration utilise un scénario local. Choisissez Direct Clone Hero pour lire les informations exportées par le jeu.</p></div></footer>
     <p id="connection-status" class="connection-status" role="status">Connexion au Companion…</p>

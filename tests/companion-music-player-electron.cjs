@@ -35,11 +35,11 @@ async function videoFixture() {
     await window.loadURL('data:text/html,<meta http-equiv="Content-Security-Policy" content="default-src %27none%27"><title>Synthetic media fixture</title>');
     const bytes = await window.webContents.executeJavaScript(`(async()=>{
       if(!MediaRecorder.isTypeSupported('video/webm;codecs=vp8'))throw Error('Synthetic VP8 recording unavailable');
-      const canvas=document.createElement('canvas');canvas.width=160;canvas.height=90;const context=canvas.getContext('2d');
+      const canvas=document.createElement('canvas');canvas.width=640;canvas.height=360;const context=canvas.getContext('2d');
       const stream=canvas.captureStream(20),recorder=new MediaRecorder(stream,{mimeType:'video/webm;codecs=vp8'}),chunks=[];
       recorder.ondataavailable=event=>{if(event.data.size)chunks.push(event.data)};
       const finished=new Promise((resolve,reject)=>{recorder.onstop=resolve;recorder.onerror=reject});recorder.start(100);
-      for(let i=0;i<30;i++){context.fillStyle='#0b1322';context.fillRect(0,0,160,90);context.fillStyle=i%2?'#22d3ee':'#a855f7';context.fillRect(i*4,20,35,50);await new Promise(resolve=>setTimeout(resolve,40))}
+      for(let i=0;i<160;i++){context.fillStyle='#0b1322';context.fillRect(0,0,640,360);context.fillStyle=i%2?'#22d3ee':'#a855f7';context.fillRect((i*8)%600,80,35,200);await new Promise(resolve=>setTimeout(resolve,50))}
       recorder.stop();await finished;stream.getTracks().forEach(track=>track.stop());return [...new Uint8Array(await new Blob(chunks,{type:'video/webm'}).arrayBuffer())];
     })()`);
     assert.ok(bytes.length > 100 && bytes.length < 1024 * 1024); return Buffer.from(bytes);
@@ -96,13 +96,31 @@ app.whenReady().then(async () => {
         await fs.writeFile(path.join(folder, 'album.png'), png());
       }
     }
+    const shortWav = wav(220, 2);
+    for (let index = 0; index < 50; index++) {
+      const title = 'Z Extra ' + String(index).padStart(2, '0'), folder = path.join(root, title); await fs.mkdir(folder);
+      await fs.writeFile(path.join(folder, 'song.ini'), `[song]\nname = ${title}\nartist = Synthetic Artist\ncharter = Test Charter\ngenre = Scroll Fixture\n`);
+      await fs.writeFile(path.join(folder, 'notes.chart'), '[Song]\n{\n Resolution = 192\n}\n[ExpertSingle]\n{\n 0 = N 0 0\n}\n');
+      await fs.writeFile(path.join(folder, 'song.wav'), shortWav);
+    }
     host = await createCompanionHost({ dataDirectory: path.join(data, 'settings'), cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: false, sessions: [] }) });
     const panel = await host.open(); panel.setSize(1000, 900);
-    await host.library.selectRoot(root); await waitFor(() => host.library.status().status === 'ready' && host.library.status().count === 3, 'scan');
-    await waitFor(() => evaluate(panel, "document.querySelectorAll('.local-player-listen').length===3"), 'installed list');
+    await host.library.selectRoot(root); await waitFor(() => host.library.status().status === 'ready' && host.library.status().count === 53, 'scan');
+    await waitFor(() => evaluate(panel, "document.querySelectorAll('.local-player-listen').length===50"), 'installed list');
     assert.equal(host.snapshot().player.playing, false); assert.equal(host.snapshot().player.selection, null);
     assert.equal(await evaluate(panel, "document.querySelectorAll('#local-music-player-panel audio').length"), 0);
-    passed.push('Installed synthetic Songs listed without automatic playback; main panel owns no audio');
+    const firstPage = await evaluate(panel, "[...document.querySelectorAll('.local-player-song')].map(node=>node.dataset.songId)");
+    await click(panel, '#local-player-results');
+    panel.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'End', modifiers: ['control'] }); panel.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'End', modifiers: ['control'] });
+    // Native wheel input moves the list itself, rather than invoking its loader directly.
+    const listPoint = await evaluate(panel, "(()=>{const r=document.querySelector('#local-player-results').getBoundingClientRect();return{x:Math.round(r.left+r.width/2),y:Math.round(Math.min(innerHeight-20,r.top+r.height/2))}})()");
+    panel.webContents.sendInputEvent({ type: 'mouseWheel', ...listPoint, deltaY: -10000, deltaX: 0, canScroll: true });
+    await waitFor(() => evaluate(panel, "document.querySelectorAll('.local-player-listen').length===53"), 'native scroll next page');
+    const loaded = await evaluate(panel, "({ids:[...document.querySelectorAll('.local-player-song')].map(node=>node.dataset.songId),scroll:document.querySelector('#local-player-results').scrollTop,more:document.querySelector('#local-player-more').hidden})");
+    assert.deepEqual(loaded.ids.slice(0, 50), firstPage); assert.equal(new Set(loaded.ids).size, 53); assert.ok(loaded.scroll > 0); assert.equal(loaded.more, true);
+    assert.equal(host.snapshot().player.selection, null);
+    await shot(panel, 'player-scroll-loaded');
+    passed.push('Native scroll appends all 53 synthetic Songs once without losing the first page or position; no automatic playback or main-panel audio');
 
     const resultCount = count => waitFor(() => evaluate(panel, `!document.querySelector('#local-player-search').disabled&&document.querySelectorAll('.local-player-listen').length===${count}`), count + ' filtered songs');
     await click(panel, '#local-player-filters-label');
@@ -113,7 +131,7 @@ app.whenReady().then(async () => {
     assert.ok(await evaluate(panel, "document.querySelector('.local-player-song').textContent.includes('Alpha Fixture')&&document.querySelector('.local-player-song').textContent.includes('Post-Rock')"));
     await shot(panel, 'player-genre-instrument-filters');
     await type(panel, '#local-player-filter-genre', 'Jazz'); await click(panel, '#local-player-search'); await resultCount(0);
-    await type(panel, '#local-player-filter-genre', ''); await select(panel, '#local-player-filter-instrument', 'all'); await select(panel, '#local-player-filter-difficulty', 'all'); await click(panel, '#local-player-search'); await resultCount(3);
+    await type(panel, '#local-player-filter-genre', ''); await select(panel, '#local-player-filter-instrument', 'all'); await select(panel, '#local-player-filter-difficulty', 'all'); await click(panel, '#local-player-search'); await resultCount(50);
     await click(panel, '#local-player-filters-label');
     passed.push('Native genre/instrument/difficulty filters match the same parsed track; changing genre excludes incompatible songs without playback');
 
@@ -136,12 +154,22 @@ app.whenReady().then(async () => {
     const engine = host.getPlayerWidget(), contentsId = engine.webContents.id;
     assert.equal(engine.webContents.isAudioMuted(), true);
     assert.equal(host.snapshot().player.selection.title, 'Alpha Fixture'); assert.equal('mediaUrls' in host.snapshot().player.selection, false);
-    await waitFor(() => evaluate(engine, "document.querySelector('#local-player-video').videoWidth===160"), 'local WebM decoded');
+    await waitFor(() => evaluate(engine, "document.querySelector('#local-player-video').videoWidth===640"), 'local WebM decoded at source resolution');
     assert.equal(await evaluate(engine, "document.querySelector('#local-player-video').muted"), true);
     assert.equal(host.snapshot().player.activePlaylistId, playlist.id); assert.equal(host.snapshot().player.queueLength, 2);
     await click(panel, '#local-player-shuffle'); await waitFor(() => host.snapshot().player.shuffle === true, 'shuffle enabled');
     await click(panel, '#local-player-playlists-label');
-    passed.push('One isolated audio owner mixes real PCM, emits measured FFT, decodes local muted WebM; no audible CI output');
+    await waitFor(() => evaluate(panel, "document.querySelector('#local-player-video').videoWidth===640"), 'main WebM decoded');
+    const videoLayout = await evaluate(panel, "(()=>{const v=document.querySelector('#local-player-video'),f=document.querySelector('#local-player-video-frame');return {fit:getComputedStyle(v).objectFit,ratio:f.style.getPropertyValue('aspect-ratio'),width:v.videoWidth,height:v.videoHeight}})()");
+    assert.equal(videoLayout.fit, 'contain'); assert.equal(videoLayout.ratio, '640 / 360'); assert.equal(videoLayout.height, 360);
+    const position = await evaluate(panel, "document.querySelector('#local-player-video').currentTime"); await delay(350);
+    assert.ok(await evaluate(panel, `document.querySelector('#local-player-video').currentTime>${position}`), 'decoded native video advances during ordinary audio snapshots');
+    await click(panel, '#local-player-video-fullscreen');
+    await waitFor(() => evaluate(panel, "document.fullscreenElement?.id==='local-player-video-frame'"), 'explicit native fullscreen permission');
+    await shot(panel, 'player-video-fullscreen');
+    panel.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' }); panel.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' });
+    await waitFor(() => evaluate(panel, "!document.fullscreenElement"), 'exit fullscreen');
+    passed.push('One isolated PCM owner emits measured FFT; muted native video advances at original 640×360, fits entirely and enters fullscreen only by trusted click');
 
     await click(panel, '#local-player-pause'); await waitFor(() => !host.snapshot().player.playing, 'pause');
     await waitFor(() => evaluate(panel, "window.__musicFrames.at(-1).bands.every(value=>value===0)"), 'paused FFT cleared');
@@ -149,6 +177,14 @@ app.whenReady().then(async () => {
     await range(panel, '#local-player-volume', 25); await waitFor(() => Math.abs(host.snapshot().player.volume - .25) < .02, 'native volume');
     await click(panel, '#local-player-play'); await waitFor(() => host.snapshot().player.playing, 'resume');
     await click(panel, '#local-player-widget'); await waitFor(() => engine.isVisible(), 'floating window'); assert.equal(host.getPlayerWidget().webContents.id, contentsId);
+    assert.equal(engine.isAlwaysOnTop(), true); assert.equal(engine.getTitle(), 'ChartsHub — Lecteur Songs');
+    const floatingBefore = host.snapshot().floatingPanels, floatingAppearance = { ...floatingBefore.appearance.player, backgroundColor: '#22334480', textColor: '#f0f4ff', fontFamily: 'verdana', fontSize: 18 };
+    assert.equal((await command(panel, 'panels.appearance', { revision: floatingBefore.revision, panel: 'player', appearance: floatingAppearance })).ok, true);
+    await waitFor(() => evaluate(engine, "document.body.style.getPropertyValue('--floating-background')==='#22334480'&&getComputedStyle(document.querySelector('#local-music-player-panel')).fontFamily.toLowerCase().includes('verdana')"), 'transparent widget appearance applies');
+    const alpha = await evaluate(engine, "getComputedStyle(document.querySelector('#local-music-player-panel')).backgroundColor");
+    const alphaMatch = /^rgba\(34, 51, 68, ([\d.]+)\)$/.exec(alpha); assert.ok(alphaMatch); assert.ok(Number(alphaMatch[1]) >= .49 && Number(alphaMatch[1]) <= .51);
+    const scoped = await evaluate(engine, 'window.ChartsHubCompanion.getSnapshot()'); assert.deepEqual(Object.keys(scoped.floatingPanels.appearance), ['player']);
+    assert.equal((await command(engine, 'panels.appearance', { revision: scoped.floatingPanels.revision, panel: 'catalogue', appearance: floatingAppearance })).ok, false);
     assert.equal(await evaluate(engine, "document.querySelector('#local-player-title').textContent"), 'Alpha Fixture');
     await click(engine, '#local-player-video-enabled'); await waitFor(() => !host.snapshot().player.videoEnabled, 'video off shared');
     for (const window of [engine, panel]) assert.equal(await evaluate(window, "document.querySelector('#local-player-video').hasAttribute('src')"), false);
@@ -161,7 +197,7 @@ app.whenReady().then(async () => {
     for (const model of ['bars', 'curve', 'circle', 'mirror']) {
       const appearance = { backgroundColor: '#111827', textColor: '#f9fafb', accentColor: '#22d3ee', secondaryColor: '#a855f7', spectrumModel: model };
       assert.equal((await command(panel, 'player.appearance', { appearance })).ok, true);
-      await waitFor(() => evaluate(engine, `document.querySelector('#local-player-spectrum-model').value===${JSON.stringify(model)}`), model + ' synced');
+      await waitFor(() => evaluate(engine, `(async()=> (await window.ChartsHubCompanion.getSnapshot()).player.appearance.spectrumModel===${JSON.stringify(model)})()`), model + ' synced');
       await waitFor(() => evaluate(engine, "[...document.querySelector('#local-player-spectrum').getContext('2d').getImageData(0,0,640,80).data].some((v,i)=>i%4===3&&v>0)"), model + ' visible real spectrum');
       await shot(engine, 'player-spectrum-' + model);
     }
@@ -198,6 +234,7 @@ app.whenReady().then(async () => {
     host = await createCompanionHost({ dataDirectory: path.join(data, 'settings'), cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: false, sessions: [] }) });
     await host.open(); await waitFor(() => host.snapshot().player.playlists?.some(item => item.id === playlist.id && item.songIds.length === 2), 'playlist preferences reloaded');
     assert.equal(host.snapshot().player.shuffle, true); assert.equal(host.snapshot().player.playing, false); assert.equal(host.snapshot().player.selection, null);
+    assert.deepEqual(host.snapshot().floatingPanels.appearance.player, floatingAppearance);
     passed.push('Playlist membership and shuffle survive host restart while playback stays stopped');
     await fs.writeFile(path.join(data, 'report.json'), JSON.stringify({ ok: true, passed, rendererErrors: errors, blockedOrigins: blocked }, null, 2));
     await host.dispose(); clearTimeout(deadline); app.quit();

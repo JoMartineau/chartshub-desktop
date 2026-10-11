@@ -5,7 +5,7 @@ const os = require('node:os');
 const fs = require('node:fs/promises');
 const { randomBytes } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
-const { assetPath, trustedSender, trustedContentsSender, trustedFiltersWidgetCommand, trustedCatalogueWidgetCommand, validCommand } = require('./security.cjs');
+const { assetPath, trustedSender, trustedContentsSender, trustedPlayerFullscreen, trustedFiltersWidgetCommand, trustedCatalogueWidgetCommand, validCommand } = require('./security.cjs');
 const { createFiltersService } = require('./filters-service.cjs');
 const { createReShadeService } = require('./reshade-service.cjs');
 const { createReShadeSetupService } = require('./reshade-setup.cjs');
@@ -28,7 +28,7 @@ const { createMusicPlayer } = require('./music-player.cjs');
 const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs');
 const { changeMusicPlaylist } = require('./music-playlists.cjs');
 const SCHEME = 'chartshub-companion';
-const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu' });
+const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu', player: 'ChartsHub — Lecteur Songs' });
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
@@ -112,8 +112,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   const registry = createDefaultRegistry();
   const renderer = new WidgetRenderer(registry, () => logger.warn('Widget unavailable'));
   const ses = session.fromPartition('companion-local');
-  ses.setPermissionRequestHandler((_web, _permission, callback) => callback(false));
-  ses.setPermissionCheckHandler(() => false);
+  const playerFullscreenTargets = () => ({ active: hostActive && !disposing && !stopTask,
+    panelContents, playerContents: playerWindow && !playerWindow.isDestroyed() ? playerWindow.webContents : null });
+  ses.setPermissionRequestHandler((web, permission, callback, details) => callback(trustedPlayerFullscreen(web, permission, details, playerFullscreenTargets())));
+  ses.setPermissionCheckHandler((web, permission, origin, details) => trustedPlayerFullscreen(web, permission, details, playerFullscreenTargets(), origin));
   ses.on('will-download', event => event.preventDefault());
   await ses.protocol.handle(SCHEME, async request => {
     // Artwork is fetched by ID from the known public catalogue. The renderer
@@ -146,7 +148,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   const catalogueShortcut = () => ({ accelerator: catalogueAccelerator, registered: shortcutRegistered, error: shortcutError });
   const captureWindows = () => ({
     catalogue: { canOpen: !disposing && !stopTask && catalogueAllowed(), title: CAPTURE_WINDOW_TITLES.catalogue },
-    filters: { canOpen: !disposing && !stopTask && (filters?.status()?.supported === true || reshade?.status()?.supported === true), title: CAPTURE_WINDOW_TITLES.filters }
+    filters: { canOpen: !disposing && !stopTask && (filters?.status()?.supported === true || reshade?.status()?.supported === true), title: CAPTURE_WINDOW_TITLES.filters },
+    player: { canOpen: hostActive && !disposing && !stopTask && panelAlive(), title: CAPTURE_WINDOW_TITLES.player }
   });
   const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), sharing: { ...songRequestShare }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
   const snapshot = () => ({ language, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
@@ -154,6 +157,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const value = floatingPanels.status();
     return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
   };
+  const playerWidgetSnapshot = () => ({ language, player: musicPlayer.snapshot({ engine: true }), floatingPanels: floatingPanelSnapshot('player') });
   const catalogueWidgetSnapshot = () => {
     const value = downloads?.status();
     return { language, catalogue: catalogue?.status(), catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanelSnapshot('catalogue'),
@@ -186,7 +190,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function catalogueAllowed() { try { return hostActive && catalogueAccess && !disposing && !stopTask && panelAlive() && isCatalogueAvailable() === true; } catch { return false; } }
   function publishPanel(value) {
     if (panelAlive() && !panelContents.isLoading()) panelContents.send('companion:changed', value ?? snapshot());
-    if (playerWindow && !playerWindow.isDestroyed() && !playerWindow.webContents.isLoading()) playerWindow.webContents.send('companion:changed', { language, player: musicPlayer.snapshot({ engine: true }) });
+    if (playerWindow && !playerWindow.isDestroyed() && !playerWindow.webContents.isLoading()) playerWindow.webContents.send('companion:changed', playerWidgetSnapshot());
     if (catalogueAllowed() && catalogueWidget && !catalogueWidget.isDestroyed() && !catalogueWidget.webContents.isLoading()) catalogueWidget.webContents.send('companion:changed', catalogueWidgetSnapshot());
   }
   function setLanguage(value) { if (!['fr','en'].includes(value) || language === value) return language; language=value; publish(); return language; }
@@ -605,8 +609,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (disposing || stopTask || !hostActive || !panelAlive()) throw Error('Player unavailable');
     const lifecycle = lifecycleRevision;
     if (!playerWindow || playerWindow.isDestroyed()) {
-      const window = new BrowserWindow({ width: 380, height: 510, minWidth: 280, minHeight: 200, show: false, alwaysOnTop: true, skipTaskbar: true,
-        resizable: true, title: 'ChartsHub — Lecteur Songs', icon: path.join(__dirname, '..', 'icon.ico'), backgroundColor: '#0b1322',
+      const window = new BrowserWindow({ width: 380, height: 510, minWidth: 280, minHeight: 200, show: false, frame: false, transparent: true, alwaysOnTop: true, focusable: true, skipTaskbar: true,
+        resizable: true, movable: true, title: CAPTURE_WINDOW_TITLES.player, icon: path.join(__dirname, '..', 'icon.ico'), backgroundColor: '#00000000',
         webPreferences: { ...preferences, autoplayPolicy: 'no-user-gesture-required', additionalArguments: [`--chartshub-companion-language=${language}`] } });
       playerWindow = window;
       harden(window, 'music-player.html');
@@ -647,10 +651,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   }
   function trustedPlayer(event) { return trustedSender(event, playerWindow, 'music-player.html'); }
   function canRead(event) { return trustedPanel(event) || trustedSender(event, overlay, 'overlay.html'); }
-  ipcMain.handle('companion:snapshot', event => trustedPanel(event) ? snapshot() : trustedPlayer(event) ? { language, player: musicPlayer.snapshot({ engine: true }) } : canRead(event) ? { ...snapshot(), songRequests: undefined, player: undefined } : trustedSender(event, filtersWidget, 'filters-widget.html') ? filtersWidgetSnapshot() : catalogueAllowed() && trustedSender(event, catalogueWidget, 'catalogue-widget.html') ? catalogueWidgetSnapshot() : null);
+  ipcMain.handle('companion:snapshot', event => trustedPanel(event) ? snapshot() : trustedPlayer(event) ? playerWidgetSnapshot() : canRead(event) ? { ...snapshot(), songRequests: undefined, player: undefined } : trustedSender(event, filtersWidget, 'filters-widget.html') ? filtersWidgetSnapshot() : catalogueAllowed() && trustedSender(event, catalogueWidget, 'catalogue-widget.html') ? catalogueWidgetSnapshot() : null);
   ipcMain.handle('companion:command', async (event, command, payload) => {
     const mini = catalogueAllowed() && trustedCatalogueWidgetCommand(event, catalogueWidget, command, payload);
-    const playerSender = trustedPlayer(event) && typeof command === 'string' && command.startsWith('player.');
+    const playerSender = trustedPlayer(event) && typeof command === 'string' && (command.startsWith('player.') || (command === 'panels.appearance' && payload?.panel === 'player'));
     if (disposing || stopTask || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini || playerSender) || !validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
     if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
@@ -670,6 +674,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'player.select') { await ensurePlayerWindow(); return await musicPlayer.select(payload.id); }
       if (command === 'player.control') return payload.action === 'volume' ? await savePlayerPreferences({ volume: payload.value }) : await musicPlayer.control(payload.action, payload.value);
       if (command === 'player.widget') { await setPlayerWidget(payload.enabled); return { ok: true }; }
+      if (command === 'capture.player') { await setPlayerWidget(true); return { ok: true }; }
       if (command === 'player.video') return await savePlayerPreferences({ videoEnabled: payload.enabled });
       if (command === 'player.appearance') return await savePlayerPreferences({ appearance: payload.appearance });
       if (command === 'player.shuffle') return await savePlayerPreferences({ shuffle: payload.enabled });
@@ -703,7 +708,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'catalogue.widget') { await setCatalogueWidget(payload.enabled); return { ok: true }; }
       if (command === 'panels.appearance') {
         await floatingPanels.update(payload); publish();
-        return { ok: true, result: mini ? floatingPanelSnapshot('catalogue') : trustedPanel(event) ? floatingPanels.status() : floatingPanelSnapshot('filters') };
+        return { ok: true, result: mini ? floatingPanelSnapshot('catalogue') : trustedPanel(event) ? floatingPanels.status() : floatingPanelSnapshot(playerSender ? 'player' : 'filters') };
       }
       if (command.startsWith('mock.') && integration.status().mode !== 'mock') return { ok: false, error: 'Les commandes de démonstration sont disponibles uniquement en mode Démonstration.' };
       if (command === 'profile.save') {

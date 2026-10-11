@@ -20,20 +20,41 @@ async function fixture(t, createDirectory = true) {
 
 test('new floating settings load defaults without writing, and first save creates its dedicated file', async t => {
   const f = await fixture(t, false);
-  assert.deepEqual(await f.service.load(), { revision: 0, appearance: { catalogue: defaults(), filters: defaults() }, error: null, canWrite: true });
+  assert.deepEqual(await f.service.load(), { revision: 0, appearance: { catalogue: defaults(), filters: defaults(), player: defaults() }, error: null, canWrite: true });
   await assert.rejects(fs.stat(f.dataDirectory), { code: 'ENOENT' });
   const updated = await f.update(); assert.equal(updated.revision, 1);
   assert.deepEqual(await fs.readdir(f.dataDirectory), ['floating-panels.json']);
 });
 
-test('catalogue and filters retain separate colors, background alpha, local font and size across a fresh service', async t => {
+test('catalogue, filters and player retain separate colors, background alpha, local font and size across a fresh service', async t => {
   const f = await fixture(t); await f.service.load();
   const catalogue = { backgroundColor: '#12345678', textColor: '#fedcba', fontFamily: 'georgia', fontSize: 19 };
   await f.update(catalogue); assert.deepEqual(f.service.status().appearance.filters, defaults());
   const filters = { backgroundColor: '#00000000', textColor: '#ffffff', fontFamily: 'consolas', fontSize: 24 };
-  await f.update(filters, 'filters'); await f.service.flush();
+  await f.update(filters, 'filters');
+  const player = { backgroundColor: '#12345600', textColor: '#ffccaa', fontFamily: 'verdana', fontSize: 17 };
+  await f.update(player, 'player'); await f.service.flush();
   const stored = await createFloatingPanels({ dataDirectory: f.dataDirectory }).load();
-  assert.deepEqual(stored.appearance, { catalogue, filters }); assert.equal(stored.revision, 2);
+  assert.deepEqual(stored.appearance, { catalogue, filters, player }); assert.equal(stored.revision, 3);
+  assert.equal(JSON.parse(await fs.readFile(f.file, 'utf8')).version, 2);
+});
+
+test('published v1 settings migrate only in memory until an explicit save preserves the prior panels and revision', async t => {
+  const f = await fixture(t), catalogue = { ...defaults(), backgroundColor: '#44556677', fontFamily: 'consolas' }, filters = { ...defaults(), fontSize: 21 };
+  const original = JSON.stringify({ version: 1, revision: 8, appearance: { catalogue, filters } }, null, 2) + '\n';
+  await fs.writeFile(f.file, original);
+  const before = await fs.stat(f.file, { bigint: true });
+  const loaded = await f.service.load();
+  assert.deepEqual(loaded, { revision: 8, appearance: { catalogue, filters, player: defaults() }, error: null, canWrite: true });
+  assert.equal(await fs.readFile(f.file, 'utf8'), original);
+  const after = await fs.stat(f.file, { bigint: true });
+  assert.equal(after.ino, before.ino); assert.equal(after.mtimeNs, before.mtimeNs); assert.equal(after.ctimeNs, before.ctimeNs);
+  loaded.appearance.player.fontSize = 24;
+  assert.equal(f.service.status().appearance.player.fontSize, 14, 'returned migration defaults are independent copies');
+  const player = { ...defaults(), backgroundColor: '#abcdef40', textColor: '#123456', fontFamily: 'georgia', fontSize: 18 };
+  await f.update(player, 'player', 8);
+  assert.deepEqual(JSON.parse(await fs.readFile(f.file, 'utf8')), { version: 2, revision: 9, appearance: { catalogue, filters, player } });
+  assert.deepEqual((await createFloatingPanels({ dataDirectory: f.dataDirectory }).load()).appearance, { catalogue, filters, player });
 });
 
 test('colors share existing safe normalization and text stays opaque', async t => {
@@ -54,6 +75,7 @@ test('malformed payloads, unsafe colors, arbitrary fonts and unbounded sizes can
   ];
   for (const appearance of invalidAppearance) await assert.rejects(f.update(appearance), safe);
   for (const input of [null, {}, { revision: 0, panel: 'overlay', appearance: defaults() }, { revision: -1, panel: 'catalogue', appearance: defaults() }, { revision: 0, panel: 'catalogue', appearance: defaults(), path: '../outside' }]) await assert.rejects(f.service.update(input), safe);
+  await assert.rejects(f.update({ ...defaults(), fontFamily: 'url(x)' }, 'player'), safe);
   await assert.rejects(fs.stat(f.file), { code: 'ENOENT' }); assert.equal(f.service.status().revision, 0);
 });
 
@@ -67,18 +89,22 @@ test('input snapshots, output copies and stale revision checks preserve the auth
   assert.equal(await fs.readFile(f.file, 'utf8'), original);
 });
 
-test('concurrent writes cannot reuse a revision and flush waits for the outstanding atomic save', async t => {
+test('concurrent player and catalogue writes cannot reuse a revision and flush waits for the outstanding atomic save', async t => {
   const f = await fixture(t);
-  const first = f.update({ ...defaults(), fontSize: 20 }), second = f.update({ ...defaults(), fontSize: 22 });
+  const first = f.update({ ...defaults(), fontSize: 20 }, 'player'), second = f.update({ ...defaults(), fontSize: 22 });
   const settled = Promise.allSettled([first, second]); const flushed = await f.service.flush(); const results = await settled;
   assert.equal(results[0].status, 'fulfilled'); assert.equal(results[1].status, 'rejected'); assert.equal(results[1].reason.code, 'STALE_FLOATING_PANELS');
-  assert.equal(flushed.appearance.catalogue.fontSize, 20); assert.equal(flushed.revision, 1);
+  assert.equal(flushed.appearance.player.fontSize, 20); assert.equal(flushed.appearance.catalogue.fontSize, 14); assert.equal(flushed.revision, 1);
   assert.deepEqual(await fs.readdir(f.dataDirectory), ['floating-panels.json']);
 });
 
 test('corrupt, future, oversized and invalid-schema documents are preserved without overwrite', async t => {
   const f = await fixture(t);
-  for (const original of ['{ broken', '{"version":9,"private":"untouched"}', 'x'.repeat(16385), JSON.stringify({ version: 1, revision: 4, appearance: { catalogue: defaults() } })]) {
+  for (const original of ['{ broken', '{"version":9,"private":"untouched"}', 'x'.repeat(16385),
+    JSON.stringify({ version: 1, revision: 4, appearance: { catalogue: defaults() } }),
+    JSON.stringify({ version: 1, revision: 4, appearance: { catalogue: defaults(), filters: defaults(), player: defaults() } }),
+    JSON.stringify({ version: 2, revision: 4, appearance: { catalogue: defaults(), filters: defaults() } }),
+    JSON.stringify({ version: 2, revision: 4, appearance: { catalogue: defaults(), filters: defaults(), player: { ...defaults(), textColor: '#ffffff80' } } })]) {
     await fs.writeFile(f.file, original);
     const service = createFloatingPanels({ dataDirectory: f.dataDirectory }), state = await service.load();
     assert.equal(state.canWrite, false); assert.equal(typeof state.error, 'string');

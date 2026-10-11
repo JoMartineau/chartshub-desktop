@@ -15,6 +15,7 @@ const { createBackgroundLibraryService } = require('../companion/library-backgro
 const chart = '[Song]\n{\n Name = "Installed"\n Resolution = 192\n}\n[ExpertSingle]\n{\n 0 = N 0 0\n}\n';
 const ini = '[Song]\nname=Installed\nartist=Band\ncharter=Mapper\nalbum=Record\nyear=2025\ngenre=Metal\nsong_length=180000\nvideo_start_time=-1250\n';
 const audio = Buffer.alloc(180000); for (let index = 0; index < audio.length; index++) audio[index] = index % 251;
+const STREAM_CHUNK_BYTES = 1024 * 1024;
 const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jLcoAAAAASUVORK5CYII=', 'base64');
 const mp4 = Buffer.concat([Buffer.from([0, 0, 0, 20]), Buffer.from('ftypisom'), Buffer.alloc(8), Buffer.from('temporary video fixture')]);
 const hash = value => createHash('sha256').update(value).digest('hex');
@@ -42,6 +43,12 @@ async function plan(f) {
   f.item.cleanupSnapshot = await captureBundleSnapshot({ rootPath: f.root, relativePath: f.item.relativePath, format: f.item.format });
   return preparePlaybackMedia({ root: f.root, item: f.item });
 }
+async function largeAudioFixture(t) {
+  const f = await fixture(t), bytes = Buffer.alloc(2 * STREAM_CHUNK_BYTES + 17);
+  for (let index = 0; index < bytes.length; index++) bytes[index] = index % 251;
+  await fs.writeFile(f.file('song.wav'), bytes);
+  return { ...f, bytes };
+}
 async function injected(filename, overrides) {
   const absolute = require.resolve(filename), local = new Module(absolute, module), normal = createRequire(absolute);
   local.filename = absolute; local.paths = Module._nodeModulePaths(path.dirname(absolute));
@@ -49,15 +56,18 @@ async function injected(filename, overrides) {
   local._compile(await fs.readFile(absolute, 'utf8'), absolute); return local.exports;
 }
 async function instrumented(options = {}) {
-  const observed = { opens: 0, closes: 0, reads: [], flags: [] };
+  const observed = { opens: 0, closes: 0, reads: [], readFiles: [], flags: [], pathChecks: 0, realPaths: 0, fileChecks: 0 };
   const adapter = await injected('../companion/library-media.cjs', { 'node:fs/promises': { ...fs,
+    lstat: (...args) => { observed.pathChecks++; return fs.lstat(...args); },
+    realpath: (...args) => { observed.realPaths++; return fs.realpath(...args); },
     open: async (...args) => {
       await options.beforeOpen?.(args[0]);
       const handle = await fs.open(...args); observed.opens++; observed.flags.push(args[1]);
       let closed = false;
-      const proxy = { stat: (...values) => handle.stat(...values),
+      const proxy = { stat: (...values) => { observed.fileChecks++; return handle.stat(...values); },
         read: async (...values) => {
-          observed.reads.push(values[2]); const result = await handle.read(...values);
+          observed.reads.push(values[2]); observed.readFiles.push({ filename: args[0], length: values[2] });
+          const result = await handle.read(...values);
           await options.afterRead?.(args[0], result); return result;
         }, close: async () => { assert.equal(closed, false, 'each descriptor closes only once'); closed = true; await handle.close(); observed.closes++; } };
       try { await options.afterOpen?.(args[0]); } catch (error) { await proxy.close(); throw error; }
@@ -169,15 +179,79 @@ test('missing or conflicting optional INI fields never invent genre or video ali
 });
 
 test('GET streams bounded chunks from a checked descriptor and closes exactly once at EOF', async t => {
-  const f = await fixture(t), entry = (await plan(f)).media[0], adapter = await instrumented(); let closed = 0;
+  const f = await largeAudioFixture(t), entry = (await plan(f)).media[0], adapter = await instrumented(); let closed = 0;
   const response = await adapter.mediaResponse(entry, request(), { onClose: () => closed++ });
-  assert.equal(response.status, 200); assert.equal(response.headers.get('Content-Length'), String(audio.length));
+  assert.equal(response.status, 200); assert.equal(response.headers.get('Content-Length'), String(f.bytes.length));
   assert.equal(response.headers.get('Content-Type'), 'audio/wav'); assert.equal(response.headers.get('Cache-Control'), 'no-store');
   assert.equal(adapter.observed.reads.length, 0, 'creating a response does not buffer the song');
-  assert.deepEqual(Buffer.from(await response.arrayBuffer()), audio); await until(() => closed === 1);
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()), f.bytes); await until(() => closed === 1);
   assert.equal(adapter.observed.opens, 1); assert.equal(adapter.observed.closes, 1);
-  assert.ok(adapter.observed.reads.every(length => length <= 64 * 1024));
+  assert.deepEqual(adapter.observed.reads, [STREAM_CHUNK_BYTES, STREAM_CHUNK_BYTES, 17], 'streaming a little over 2 MiB uses three bounded reads rather than 33');
+  assert.ok(adapter.observed.pathChecks <= 24 && adapter.observed.realPaths <= 24 && adapter.observed.fileChecks <= 7,
+    'path and descriptor work remains proportional to the larger bounded chunks');
   assert.ok(adapter.observed.flags.every(flags => (flags & (constants.O_NOFOLLOW ?? 0)) === (constants.O_NOFOLLOW ?? 0)));
+});
+
+test('changing audio contents or adding a hard link between large chunks refuses the next bytes', async t => {
+  for (const change of ['contents', 'hardlink']) {
+    const f = await largeAudioFixture(t), entry = (await plan(f)).media[0], adapter = await instrumented(); let closed = 0;
+    const response = await adapter.mediaResponse(entry, request(), { onClose: () => closed++ });
+    const reader = response.body.getReader();
+    assert.deepEqual(Buffer.from((await reader.read()).value), f.bytes.subarray(0, STREAM_CHUNK_BYTES));
+    if (change === 'contents') {
+      const handle = await fs.open(f.file('song.wav'), 'r+');
+      try { await handle.write(Buffer.from([255]), 0, 1, STREAM_CHUNK_BYTES); } finally { await handle.close(); }
+    } else await fs.link(f.file('song.wav'), path.join(f.outside, 'linked.wav'));
+    await assert.rejects(reader.read(), /changé/); await until(() => closed === 1);
+    assert.deepEqual(adapter.observed.reads, [STREAM_CHUNK_BYTES], 'the modified second chunk is never read');
+    assert.equal(adapter.observed.closes, 1);
+  }
+});
+
+test('replacing a media path with an outside symlink between large chunks exposes no replacement bytes', async t => {
+  const f = await largeAudioFixture(t), entry = (await plan(f)).media[0], adapter = await instrumented(); let closed = 0;
+  const response = await adapter.mediaResponse(entry, request(), { onClose: () => closed++ });
+  const reader = response.body.getReader(); assert.equal((await reader.read()).value.length, STREAM_CHUNK_BYTES);
+  const outside = path.join(f.outside, 'private.wav'); await fs.writeFile(outside, 'outside bytes must remain unread');
+  await fs.rename(f.file('song.wav'), f.file('previous.wav'));
+  try { await fs.symlink(outside, f.file('song.wav'), 'file'); }
+  catch (error) {
+    if (!['EPERM', 'EACCES'].includes(error.code)) throw error;
+    await reader.cancel(); t.skip('File symlink creation requires privileges on this Windows host'); return;
+  }
+  await assert.rejects(reader.read(), /changé/); await until(() => closed === 1);
+  assert.deepEqual(adapter.observed.reads, [STREAM_CHUNK_BYTES]); assert.equal(adapter.observed.closes, 1);
+});
+
+test('video preparation reads only its signature and range streams stay independent from audio with backpressure', async t => {
+  const f = await fixture(t), video = Buffer.alloc(2 * STREAM_CHUNK_BYTES + 17); mp4.copy(video);
+  await fs.writeFile(f.file('video.mp4'), video);
+  f.item.cleanupSnapshot = await captureBundleSnapshot({ rootPath: f.root, relativePath: f.item.relativePath, format: f.item.format });
+  const preparation = await instrumented(), value = await preparation.preparePlaybackMedia({ root: f.root, item: f.item });
+  assert.deepEqual(preparation.observed.readFiles.filter(read => read.filename === f.file('video.mp4')).map(read => read.length), [12]);
+  assert.equal(preparation.observed.readFiles.filter(read => read.filename === f.file('song.wav')).length, 0);
+  const adapter = await instrumented(); let videoClosed = 0, audioClosed = 0;
+  const [videoResponse, audioResponse] = await Promise.all([
+    adapter.mediaResponse(value.video, request('GET', 'bytes=' + STREAM_CHUNK_BYTES + '-'), { onClose: () => videoClosed++ }),
+    adapter.mediaResponse(value.media[0], request('GET', 'bytes=4-11'), { onClose: () => audioClosed++ })
+  ]);
+  let videoReader;
+  try {
+    assert.equal(videoResponse.status, 206); assert.equal(videoResponse.headers.get('Content-Range'), `bytes ${STREAM_CHUNK_BYTES}-${video.length - 1}/${video.length}`);
+    assert.deepEqual(adapter.observed.reads, [12], 'an idle video response reads only its signature, and an idle audio response reads nothing');
+    assert.deepEqual(Buffer.from(await audioResponse.arrayBuffer()), audio.subarray(4, 12));
+    await until(() => audioClosed === 1);
+    assert.equal(videoClosed, 0, 'finishing audio does not close or consume video');
+    videoReader = videoResponse.body.getReader();
+    assert.deepEqual(Buffer.from((await videoReader.read()).value), video.subarray(STREAM_CHUNK_BYTES, 2 * STREAM_CHUNK_BYTES));
+    const reads = adapter.observed.reads.length; await delay(10);
+    assert.equal(adapter.observed.reads.length, reads, 'video does not prefetch another chunk without demand');
+    assert.deepEqual(Buffer.from((await videoReader.read()).value), video.subarray(2 * STREAM_CHUNK_BYTES));
+    assert.equal((await videoReader.read()).done, true); await until(() => videoClosed === 1);
+    assert.equal(adapter.observed.opens, 2); assert.equal(adapter.observed.closes, 2);
+  } finally {
+    await Promise.allSettled([videoReader ? videoReader.cancel() : videoResponse.body?.cancel(), audioResponse.body?.cancel()]);
+  }
 });
 
 test('single HTTP ranges support explicit, open-ended and suffix byte ranges without extra data', async t => {
@@ -239,12 +313,12 @@ test('changes after a response opens and during a read fail before returning cha
 });
 
 test('reader cancellation, request abortion and session abortion release an idle or active descriptor exactly once', async t => {
-  const f = await fixture(t), entry = (await plan(f)).media[0], adapter = await instrumented(); let closed = 0;
+  const f = await largeAudioFixture(t), entry = (await plan(f)).media[0], adapter = await instrumented(); let closed = 0;
   const cancelled = await adapter.mediaResponse(entry, request(), { onClose: () => closed++ });
   await cancelled.body.cancel(); assert.equal(closed, 1); assert.equal(adapter.observed.reads.length, 0);
   const requestAbort = new AbortController(), sessionAbort = new AbortController();
   const active = await adapter.mediaResponse(entry, request('GET', undefined, requestAbort.signal), { signal: sessionAbort.signal, onClose: () => closed++ });
-  const reader = active.body.getReader(); assert.equal((await reader.read()).value.length, 64 * 1024);
+  const reader = active.body.getReader(); assert.equal((await reader.read()).value.length, STREAM_CHUNK_BYTES);
   sessionAbort.abort(); requestAbort.abort(); await assert.rejects(reader.read(), error => error.name === 'AbortError');
   await until(() => closed === 2); assert.equal(adapter.observed.opens, 2); assert.equal(adapter.observed.closes, 2);
   const preAborted = new AbortController(); preAborted.abort();
@@ -253,9 +327,9 @@ test('reader cancellation, request abortion and session abortion release an idle
 });
 
 test('revoking an already opened capability prevents its next chunk and closes the file', async t => {
-  const f = await fixture(t), entry = (await plan(f)).media[0]; let allowed = true, closed = 0;
+  const f = await largeAudioFixture(t), entry = (await plan(f)).media[0]; let allowed = true, closed = 0;
   const response = await mediaResponse(entry, request(), { isAllowed: () => allowed, onClose: () => closed++ });
-  const reader = response.body.getReader(); assert.equal((await reader.read()).value.length, 64 * 1024);
+  const reader = response.body.getReader(); assert.equal((await reader.read()).value.length, STREAM_CHUNK_BYTES);
   allowed = false; await assert.rejects(reader.read(), /changé/); await until(() => closed === 1);
 });
 

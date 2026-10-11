@@ -36,6 +36,18 @@ test('the native local widget uses a restrictive CSP and waits for explicit sear
   await ui.respond(0); assert.equal(ui.calls.length, 1);
 });
 
+test('the mini catalogue reflects centrally saved appearance without a duplicate editor or automatic write', async t => {
+  const ui = await setup(t);
+  const customized = { ...appearance(), backgroundColor: '#12345640', textColor: '#fedcba', fontFamily: 'verdana', fontSize: 20 };
+  ui.controls.update(snapshot({ floatingPanels: { revision: 2, canWrite: true, appearance: { catalogue: customized }, error: null } }));
+  assert.equal(ui.root.style.getPropertyValue('--floating-background'), '#12345640');
+  assert.equal(ui.root.style.getPropertyValue('--floating-text'), '#fedcba');
+  assert.equal(ui.root.style.getPropertyValue('--floating-font-size'), '20px');
+  assert.equal(ui.get('#catalogue-widget-appearance-controls'), null);
+  assert.equal(ui.get('#floating-panels-save'), null);
+  assert.equal(ui.calls.length, 0);
+});
+
 test('search results render hostile metadata as text and enqueue sends only the selected chart identifier', async t => {
   const ui = await setup(t); ui.controls.update(snapshot()); ui.search('unsafe');
   const unsafe = '<img src=x onerror=neverRun()>', result = chart('chart-1', { title: unsafe, artist: unsafe, charter: unsafe, downloadEndpoint: 'https://private.invalid', destination: 'C:/outside' });

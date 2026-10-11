@@ -23,6 +23,16 @@ function trustedContentsSender(event, contents, page) {
 function trustedSender(event, window, page) {
   return !!window && !window.isDestroyed() && trustedContentsSender(event, window.webContents, page);
 }
+function trustedPlayerFullscreen(contents, permission, details, targets, requestingOrigin) {
+  if (permission !== 'fullscreen' || !targets?.active || !contents || contents.isDestroyed?.() || details?.isMainFrame !== true) return false;
+  const page = contents === targets.panelContents ? 'index.html' : contents === targets.playerContents ? 'music-player.html' : null;
+  if (!page) return false;
+  const expected = 'chartshub-companion://app/ui/' + page;
+  if (contents.mainFrame?.url !== expected || details.requestingUrl !== expected) return false;
+  // Automatic fullscreen, subframes and other permissions stay denied. Chromium
+  // still requires user activation for the ordinary Fullscreen API request.
+  return requestingOrigin === undefined || requestingOrigin === 'chartshub-companion://app' || requestingOrigin === 'chartshub-companion://app/';
+}
 function trustedFiltersWidgetCommand(event, window, command, payload) {
   return (['filters.settings', 'filters.openPanel', 'reshade.command'].includes(command)
     || (command === 'panels.appearance' && payload?.panel === 'filters')) && trustedSender(event, window, 'filters-widget.html');
@@ -32,6 +42,7 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (command === 'capture.player') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'player.search') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && Object.keys(payload).every(key => ['query', 'offset', 'limit', 'filters'].includes(key))
     && typeof payload.query === 'string' && payload.query.length <= 200 && !/[\x00-\x1f\x7f]/.test(payload.query)
@@ -100,7 +111,7 @@ function validCommand(command, payload, widgetIds) {
   if (command === 'panels.appearance') {
     const style = payload.appearance;
     return Object.keys(payload).length === 3 && Object.keys(payload).every(key => ['revision', 'panel', 'appearance'].includes(key))
-      && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && ['catalogue', 'filters'].includes(payload.panel)
+      && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && ['catalogue', 'filters', 'player'].includes(payload.panel)
       && !!style && typeof style === 'object' && !Array.isArray(style) && Object.keys(style).length === 4
       && Object.keys(style).every(key => ['backgroundColor', 'textColor', 'fontFamily', 'fontSize'].includes(key))
       && ['backgroundColor', 'textColor'].every(key => typeof style[key] === 'string' && style[key].length > 0 && style[key].length <= 128)
@@ -222,4 +233,4 @@ function validCommand(command, payload, widgetIds) {
   }
   return false;
 }
-module.exports = { assetPath, trustedSender, trustedContentsSender, trustedFiltersWidgetCommand, trustedCatalogueWidgetCommand, validCommand };
+module.exports = { assetPath, trustedSender, trustedContentsSender, trustedPlayerFullscreen, trustedFiltersWidgetCommand, trustedCatalogueWidgetCommand, validCommand };

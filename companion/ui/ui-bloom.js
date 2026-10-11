@@ -22,15 +22,15 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
     return el;
   }
   function button(id, en, french) { const el = node('button', 'ch-bloom-button', en, french); el.id = 'ch-bloom-' + id; el.type = 'button'; return el; }
-  const trigger = button('open', 'Theme', 'Thème');
+  const trigger = button('open', 'Theme and colors', 'Thème et couleurs');
   trigger.setAttribute('aria-haspopup', 'dialog'); trigger.setAttribute('aria-controls', 'ch-bloom-dialog'); trigger.setAttribute('translate', 'no');
   host.append(trigger);
-  const dialog = node('dialog', 'ch-bloom-dialog'); dialog.id = 'ch-bloom-dialog'; dialog.setAttribute('translate', 'no');
+  const dialog = node('dialog', 'ch-bloom-dialog'); dialog.id = 'ch-bloom-dialog';
   dialog.setAttribute('aria-labelledby', 'ch-bloom-title'); dialog.setAttribute('aria-describedby', 'ch-bloom-info');
-  const form = node('form', 'ch-bloom-form');
+  const form = node('form', 'ch-bloom-form'); form.setAttribute('translate', 'no');
   const heading = node('div', 'ch-bloom-heading');
-  const title = node('h2', '', 'Theme', 'Thème'); title.id = 'ch-bloom-title';
-  const close = button('close', 'Close', 'Fermer'); heading.append(title, close); form.append(heading);
+  const title = node('h2', '', 'Theme and colors', 'Thème et couleurs'); title.id = 'ch-bloom-title';
+  const close = button('close', 'Close', 'Fermer'); heading.setAttribute('translate', 'no'); heading.append(title, close);
   const info = node('p', 'ch-bloom-muted', 'Decorative Companion panels only. No changes to notes, mini-widgets or ReShade. Local to this app profile, not synced with the website or your ChartsHub account.', 'Panneaux décoratifs du Companion uniquement. Aucun changement des notes, mini-widgets ou effets ReShade. Réglage local à ce profil de l’application, non synchronisé avec le site ou votre compte ChartsHub.');
   info.id = 'ch-bloom-info'; form.append(info);
   function field(name, type, en, french, parent = form) {
@@ -82,7 +82,14 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   const actions = node('div', 'ch-bloom-actions');
   const reset = button('reset', 'Reset', 'Réinitialiser'), cancel = button('cancel', 'Cancel', 'Annuler'), apply = button('apply', 'Apply', 'Appliquer');
   apply.type = 'submit'; apply.classList.add('ch-bloom-primary'); actions.append(reset, cancel, apply); form.append(actions);
-  dialog.append(form); document.body.append(dialog);
+  const interfaceSection = node('details', 'ch-bloom-interface'); interfaceSection.id = 'theme-interface-appearance'; interfaceSection.open = true;
+  const interfaceSummary = node('summary', '', 'Companion interface', 'Interface Companion'); interfaceSummary.setAttribute('translate', 'no');
+  interfaceSection.append(interfaceSummary, form); dialog.append(heading, interfaceSection);
+  // Keep the real controls inside their existing controller root. Each section
+  // keeps its own draft/save flow; no widget editor is nested in the bloom form.
+  const sections = document.getElementById('theme-settings-sections');
+  if (sections) dialog.append(sections);
+  host.parentElement.append(dialog);
   function translate() {
     for (const item of labels) item.el.textContent = fr() ? item.fr : item.en;
     palette.setAttribute('aria-label', fr() ? 'Couleurs rapides du bloom' : 'Quick bloom colors');
@@ -129,6 +136,9 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   for (const b of [close, cancel]) b.addEventListener('click', () => { if (!busy) dialog.close(); });
   reset.addEventListener('click', () => { preview(model.normalize()); fill(); });
   dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+  // The layout editor underneath may still be active. Modal keys belong only
+  // to these appearance controls; Escape retains the native dialog behavior.
+  dialog.addEventListener('keydown', event => event.stopPropagation());
   dialog.addEventListener('close', () => { draft = paint(saved); fill(); trigger.focus(); });
   form.addEventListener('submit', async event => {
     event.preventDefault(); if (busy || !loaded || !form.reportValidity()) return;

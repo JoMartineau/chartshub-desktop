@@ -22,7 +22,19 @@ test('native Theme panel follows the synchronized document language',()=>{
  const bloom=read('companion/ui/ui-bloom.js');
  assert.match(bloom,/const fr = \(\) => document\.documentElement\.lang/);
  assert.match(bloom,/window\.addEventListener\('chartshub:languagechange', translate\)/);
- assert.ok(bloom.includes("button('open', 'Theme', 'Thème')"));
+ assert.ok(bloom.includes("button('open', 'Theme and colors', 'Thème et couleurs')"));
+});
+
+test('centralized widget appearance names follow live French and English language selection',()=>{
+ const {runInNewContext}=require('node:vm');
+ const window={ChartsHubCompanion:{initialLanguage:'fr'},dispatchEvent(){}},document={readyState:'loading',documentElement:{},addEventListener(){}};
+ runInNewContext(read('companion/ui/localization.js'),{window,document,CustomEvent:class {}});
+ const language=window.ChartshubCompanionLanguage;
+ for(const [fr,en] of [['ReShade / Filtres du jeu','ReShade / Game Filters'],['Lecteur Songs','Songs player'],['Aperçu du lecteur Songs','Songs player preview'],['Widgets du morceau','Song widgets']]){
+  language.apply('fr');assert.equal(language.translate(fr),fr);
+  language.apply('en');assert.equal(language.translate(fr),en);
+  language.apply('fr');assert.equal(language.translate(fr),fr);
+ }
 });
 
 test('OBS opening confirmation follows live French and English language selection',()=>{
@@ -86,6 +98,21 @@ test('duplicate selection and protection summaries translate with actual counts 
  language.apply('fr'); assert.equal(language.translate(summary),summary); assert.equal(document.documentElement.lang,'fr');
 });
 
+test('keeping all duplicate versions and global readiness counts have precise French and English labels',()=>{
+ const {runInNewContext}=require('node:vm');
+ const window={ChartsHubCompanion:{initialLanguage:'en'},dispatchEvent(){}},document={readyState:'loading',documentElement:{},addEventListener(){}};
+ runInNewContext(read('companion/ui/localization.js'),{window,document,CustomEvent:class {}});
+ const language=window.ChartshubCompanionLanguage;
+ const messages=[
+  ['Conserver toutes les versions','Keep all versions'],
+  ['Toutes les versions sont conservées. Aucun fichier déplacé ou supprimé.','All versions are kept. No files moved or deleted.'],
+  ['0 groupe(s) prêt(s) · 2 choix de version requis · 56 bloqué(s) · 0 copie(s) identique(s) prête(s) à sélectionner. Ouvrez « Comparer » pour connaître les raisons précises.','0 ready group(s) · 2 keeper choice(s) required · 56 blocked · 0 identical copy/copies ready to select. Open “Compare” to see the exact reasons.'],
+ ];
+ for(const [fr,en] of messages)assert.equal(language.translate(fr),en);
+ language.apply('fr');for(const [fr] of messages)assert.equal(language.translate(fr),fr);
+ assert.match(read('companion/ui/index.html'),/id="library-comparison-clear"[^>]*>Conserver toutes les versions</);
+});
+
 test('cleanup history, file differences and interrupted verification follow French and English',()=>{
  const {runInNewContext}=require('node:vm');
  const window={ChartsHubCompanion:{initialLanguage:'en'},dispatchEvent(){}},document={readyState:'loading',documentElement:{},addEventListener(){}};
@@ -97,7 +124,7 @@ test('cleanup history, file differences and interrupted verification follow Fren
   ['Comparer les fichiers · 2 différence(s)','Compare files · 2 difference(s)'],
   ['2 identique(s) · 1 modifié(s) · 0 uniquement dans la version conservée · 1 uniquement dans cette copie · 0 non vérifié(s)','2 identical · 1 changed · 0 only in the kept version · 1 only in this copy · 0 unverified'],
   ['Arrêt de la vérification en cours : 1 / 5 groupes. Les résultats terminés seront conservés.','Stopping verification: 1 / 5 groups. Completed results will be kept.'],
-  ['Vérification interrompue : 1 / 5 groupe(s) vérifié(s). 1 groupe(s) prêt(s) · 0 choix de version requis · 0 bloqué(s) · 2 copie(s) vérifiée(s). Aucun fichier n’a été supprimé.','Verification interrupted: 1 / 5 group(s) checked. 1 ready group(s) · 0 keeper choice(s) required · 0 blocked · 2 verified copy/copies. No files were deleted.'],
+  ['Vérification interrompue : 1 / 5 groupe(s) vérifié(s). 1 groupe(s) prêt(s) · 0 choix de version requis · 0 bloqué(s) · 2 copie(s) identique(s) prête(s) à sélectionner. Ouvrez « Comparer » pour connaître les raisons précises. Aucun fichier n’a été supprimé.','Verification interrupted: 1 / 5 group(s) checked. 1 ready group(s) · 0 keeper choice(s) required · 0 blocked · 2 identical copy/copies ready to select. Open “Compare” to see the exact reasons. No files were deleted.'],
   ['Le nettoyage est terminé, mais son historique n’a pas pu être enregistré.','Cleanup has finished, but its history could not be saved.']
  ];
  for(const [fr,en] of messages)assert.equal(language.translate(fr),en);

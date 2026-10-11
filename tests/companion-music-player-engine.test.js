@@ -29,6 +29,34 @@ test('engine waits for every local stem and an explicit play action, then mixes 
   f.engine.update({ ...selection(), playing: true }); assert.equal(f.audio.length, 2, 'progress snapshots never create another engine');
 });
 
+test('initial decoded data starts every ready stem without waiting for a later canplay event', async t => {
+  const f = await fixture(t); f.engine.update(selection());
+  for (const track of f.audio) { track.duration = 30; track.readyState = 1; track.dispatchEvent(new Event('loadedmetadata')); }
+  f.engine.action({ revision: 1, epoch: 1, action: 'play' });
+  f.audio[0].readyState = 2; f.audio[0].dispatchEvent(new Event('loadeddata')); await tick();
+  assert.equal(f.audio.every(track => track.plays === 0), true, 'every stem must have initial data before any starts');
+  f.audio[1].readyState = 2; f.audio[1].dispatchEvent(new Event('loadeddata')); await tick();
+  assert.equal(f.audio.every(track => track.plays === 1), true, 'initial decodable data is enough for the existing readiness gate');
+  assert.equal(f.reports.at(-1).playing, true); assert.equal(f.reports.at(-1).epoch, 1);
+  for (const track of f.audio) { track.readyState = 3; track.dispatchEvent(new Event('canplay')); }
+  await tick(); assert.equal(f.audio.every(track => track.plays === 1), true, 'later canplay must not restart the mix');
+});
+
+test('loadeddata never autoplays or revives a paused/stopped epoch while loading', async t => {
+  for (const action of ['none', 'pause', 'stop']) await t.test(action, async t => {
+    const f = await fixture(t); f.engine.update(selection());
+    if (action !== 'none') {
+      f.engine.action({ revision: 1, epoch: 1, action: 'play' }); f.engine.action({ revision: 1, epoch: 2, action });
+      f.engine.action({ revision: 1, epoch: 1, action: 'seek', value: 8 }); f.engine.action({ revision: 1, epoch: 1, action: 'play' });
+    }
+    for (const track of f.audio) { track.duration = 30; track.readyState = 2; track.dispatchEvent(new Event('loadeddata')); }
+    await tick();
+    assert.equal(f.audio.every(track => track.plays === 0 && track.paused && track.currentTime === 0), true);
+    assert.equal(f.reports.at(-1).playing, false); assert.equal(f.reports.at(-1).epoch, action === 'none' ? 0 : 2);
+    f.engine.action({ revision: 1, epoch: 3, action: 'play' }); await tick(); assert.equal(f.audio.every(track => track.plays === 1), true, 'a new explicit play uses the decoded data');
+  });
+});
+
 test('engine accepts the final selection after loading=true at the same revision', async t => {
   const f = await fixture(t); f.engine.update({ ...selection(), selection: null, loading: true }); f.engine.action({ revision: 1, action: 'play' }); f.engine.update(selection());
   assert.equal(f.audio.length, 2); f.audio.forEach(track => track.ready()); await tick(); assert.equal(f.audio.every(track => track.plays === 1), true);

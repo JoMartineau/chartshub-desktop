@@ -1,6 +1,21 @@
-ChartsHub Desktop 0.14.11 — Catalogue et Companion
+ChartsHub Desktop 0.14.12 — Catalogue et Companion
 
-NOUVEAUTES 0.14.11
+NOUVEAUTES 0.14.12
+
+Le lecteur reutilise le tri de la bibliotheque pour changer rapidement de chanson.
+La lecture audio et video reduit les petites operations disque repetitives.
+La video suit une horloge continue, conserve sa resolution et ses proportions
+originales et propose un bouton plein ecran. La liste charge la suite au defilement.
+Les textes et controles du lecteur ont les memes marges que les autres sections.
+Le lecteur est un widget transparent, deplacable et redimensionnable au-dessus
+des fenetres. Il est aussi propose dans OBS comme Capture de fenetre.
+Theme et couleurs regroupe les apparences des widgets du morceau, Catalogue,
+ReShade / Filtres du jeu et Lecteur : couleurs, opacite, police et taille.
+Les trois bulles de previsualisation et destinations suivent le bloom choisi.
+Doublons : le choix garde est reverifie a la reouverture de Comparer. Conserver
+toutes les versions ne deplace rien ; seules les copies cochees vont a la Corbeille.
+
+FONCTIONNALITES 0.14.11 CONSERVEES
 Catalogue flottant redimensionnable jusqu’à 280 x 220 pixels. Les onglets et la fermeture restent visibles ; faites défiler le contenu pour retrouver les cartes et réglages.
 Le logo et le nom ChartsHub.ca apparaissent en haut de l’application. Le Companion reprend les fonds bleu nuit et les accents cyan et violet ChartsHub. Les préférences de bloom et des panneaux flottants sont conservées.
 Le pack optionnel ReShade comprend Curves, MagicHDR et Technicolor2. Les effets restent désactivés par défaut.
