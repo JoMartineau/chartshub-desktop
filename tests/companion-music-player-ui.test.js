@@ -183,6 +183,64 @@ const videoState = () => {
   return state;
 };
 
+test('video transfers between main and widget with only the visible surface decoding at the current audio position', async t => {
+  const main = await fixture(t), widget = await fixture(t, { compact: true }), state = videoState();
+  state.player.selection.videoStartTimeMs = 2000;
+  main.ui.update(state); widget.ui.update(state); await tick(); const video = main.get('video');
+  assert.equal(video.currentTime, 12); assert.equal(video.paused, false);
+  assert.equal(widget.get('video').src || '', ''); assert.equal(widget.get('video').plays || 0, 0, 'the hidden audio owner never opens a video decoder');
+  const loads = video.loads;
+  state.player.widgetEnabled = true; main.ui.update(state); widget.ui.update(state); await tick();
+  assert.equal(video.src, ''); assert.equal(video.paused, true); assert.equal(video.loads, loads + 1, 'removing src and loading releases the main decoder');
+  assert.equal(main.get('video-frame').hidden, true); assert.equal(main.get('cover').hidden, false);
+  assert.equal(main.get('video-enabled').checked, true, 'the saved show-video preference stays enabled');
+  assert.equal(widget.get('video').src, state.player.selection.videoUrl); assert.equal(widget.get('video').paused, false); assert.equal(widget.get('video').muted, true);
+  state.player.currentTime = 26; main.ui.update(state); widget.ui.update(state); await tick();
+  assert.equal(video.src, ''); assert.equal(video.loads, loads + 1, 'progress snapshots do not reopen the hidden main decoder');
+  const widgetLoads = widget.get('video').loads;
+  state.player.widgetEnabled = false; main.ui.update(state); widget.ui.update(state); await tick();
+  assert.equal(video.src, state.player.selection.videoUrl); assert.equal(video.currentTime, 28); assert.equal(video.paused, false);
+  assert.equal(widget.get('video').src, ''); assert.equal(widget.get('video').paused, true); assert.equal(widget.get('video').loads, widgetLoads + 1, 'hiding the widget releases its video decoder while audio remains independent');
+  assert.equal(widget.get('video-frame').hidden, true); assert.equal(widget.get('video-enabled').checked, true);
+  assert.equal(main.get('cover').hidden, true); assert.equal(main.get('video-error').hidden, true);
+  assert.ok([...main.calls, ...widget.calls].every(call => call.name === 'player.search'), 'video handoff never commands audio or rewrites preferences');
+});
+
+test('main video handoff restores the latest song paused and respects disabling video while the widget is open', async t => {
+  for (const videoEnabled of [true, false]) await t.test(videoEnabled ? 'paused replacement' : 'video disabled', async t => {
+    const f = await fixture(t), state = videoState(); state.player.widgetEnabled = true;
+    f.ui.update(state); await tick(); const video = f.get('video'); assert.equal(video.src || '', ''); assert.equal(video.plays || 0, 0);
+    state.player = { ...state.player, revision: 2, playbackEpoch: 3, selection: { ...song('c'), videoUrl: 'chartshub-companion://app/music-video/' + id('d'), videoStartTimeMs: -3000 }, currentTime: 18, playing: false, videoEnabled };
+    f.ui.update(state); await tick(); assert.equal(video.src || '', '');
+    state.player.widgetEnabled = false; f.ui.update(state); await tick();
+    assert.equal(video.src || '', videoEnabled ? state.player.selection.videoUrl : ''); assert.equal(video.paused, true); assert.equal(video.plays || 0, 0);
+    assert.equal(f.get('video-enabled').checked, videoEnabled); assert.equal(f.get('cover').hidden, videoEnabled);
+    if (videoEnabled) assert.equal(video.currentTime, 15, 'restore uses the replacement song and its own offset');
+    assert.ok(f.calls.every(call => call.name === 'player.search'));
+  });
+});
+
+test('hidden main video clears delayed playback and errors without interfering with widget playback', async t => {
+  const f = await fixture(t), state = videoState(), video = f.get('video'), pending = [];
+  video.play = () => { video.plays = (video.plays || 0) + 1; return new Promise((resolve, reject) => pending.push({ resolve, reject })); };
+  f.ui.update(state); await tick(); assert.equal(pending.length, 1);
+  state.player.widgetEnabled = true; f.ui.update(state); video.dispatchEvent(new Event('canplay')); video.dispatchEvent(new Event('error')); await tick();
+  assert.equal(video.src, ''); assert.equal(video.paused, true); assert.equal(video.plays, 1); assert.equal(f.get('video-error').hidden, true);
+  const stalePlay = pending.shift(); state.player.currentTime = 33; state.player.widgetEnabled = false; f.ui.update(state); await tick();
+  stalePlay.reject(Error('superseded main decoder')); await tick();
+  assert.equal(video.src, state.player.selection.videoUrl); assert.equal(video.currentTime, 33); assert.equal(video.hidden, false); assert.equal(f.get('video-error').hidden, true);
+  pending.shift().resolve(); await tick(); assert.ok(f.calls.every(call => call.name === 'player.search'));
+});
+
+test('video-unavailable feedback stays on the active surface and returns after the widget closes', async t => {
+  const main = await fixture(t), widget = await fixture(t, { compact: true }), state = videoState();
+  state.player.selection.videoUrl = null; state.player.selection.videoUnavailable = 'unsupported'; state.player.widgetEnabled = true;
+  main.ui.update(state); widget.ui.update(state); await tick();
+  assert.equal(main.get('video-error').hidden, true); assert.equal(widget.get('video-error').hidden, false);
+  state.player.widgetEnabled = false; main.ui.update(state); assert.equal(main.get('video-error').hidden, false);
+  assert.equal(main.get('cover').hidden, false); assert.ok(main.calls.every(call => call.name === 'player.search'));
+});
+
 test('repeated audio snapshots do not rewind native video between real position samples', async t => {
   const f = await fixture(t), state = videoState(); f.ui.update(state); await tick(); const video = f.get('video');
   assert.equal(video.currentTime, 10); assert.equal(video.plays, 1);

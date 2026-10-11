@@ -6,7 +6,7 @@ const FAILED = 'Le service de bibliothèque est indisponible. Rouvrez le Compani
 const STOPPED = 'Le service de bibliothèque est arrêté.';
 const initialStatus = () => ({ settings: { rootPath: null, watch: false, refreshOnStart: true }, status: 'idle', mode: null,
   progress: { visited: 0, processed: 0, discovered: 0 }, count: 0, lastScanAt: null, changes: { added: 0, removed: 0, modified: 0 },
-  warningCount: 0, skippedCount: 0, error: null, watcher: 'off', revision: 0 });
+  warningCount: 0, skippedCount: 0, error: null, watcher: 'off', revision: 0, cleanupRefreshPending: false });
 const copyStatus = value => ({ ...value, settings: { ...value.settings }, progress: { ...value.progress }, changes: { ...value.changes } });
 function freezeMatching(value) {
   for (const item of value.items) Object.freeze(item);
@@ -138,6 +138,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     cancelDuplicateVerification: () => call('cancelDuplicateVerification', []),
     cleanupHistory: options => call('cleanupHistory', [options]),
     compareDuplicates: options => call('compareDuplicates', [options]), chooseDuplicate: options => call('chooseDuplicate', [options]),
+    keepDuplicateVersions: options => call('keepDuplicateVersions', [options]),
     prepareCleanup: options => call('prepareCleanup', [options]), cleanupReview: options => call('cleanupReview', [options]), cleanupForceReview: options => call('cleanupForceReview', [options]),
     recycleDuplicates: options => call('recycleDuplicates', [options]), forceRecycleDuplicate: options => call('forceRecycleDuplicate', [options]),
     query: options => call('query', [options]), resolveSongFolder: id => call('resolveSongFolder', [id]),

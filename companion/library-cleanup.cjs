@@ -219,10 +219,13 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
           if (recorded?.recorded === false) result.historyError = historyWarning;
         } catch (_) { result.historyError = historyWarning; /* Native results remain authoritative. */ }
       }
-      if (executing === operation) executing = null;
       if (attempted) {
-        try { await onCleaned(); result.refreshRequested = true; } catch (_) { /* A refresh failure cannot undo a successful native recycle. */ }
+        try { await onCleaned({ rootPath: current.rootPath, revision: current.revision, items: current.items,
+          keepId: current.keepId, recycledIds: [...result.recycledIds] }); } catch (_) { /* Index persistence cannot undo a successful native recycle. */ }
       }
+      // Keep the mutation gate closed until the confirmed native results have
+      // been reflected in the index. Cleanup never schedules a library scan.
+      if (executing === operation) executing = null;
     }
     return result;
   }

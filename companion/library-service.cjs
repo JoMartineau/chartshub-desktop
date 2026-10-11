@@ -53,6 +53,7 @@ function validateDocument(value) {
   const cleanSettings = settings(value.settings);
   if (!cleanSettings.rootPath && items.length) throw Error('Library index has no root');
   return { version: VERSION, settings: cleanSettings, items, lastScanAt: value.lastScanAt, revision: value.revision,
+    cleanupRefreshPending: value.cleanupRefreshPending === true,
     changes: object(value.changes) && ['added', 'removed', 'modified'].every(key => count(value.changes[key])) ? { added: value.changes.added, removed: value.changes.removed, modified: value.changes.modified } : { added: 0, removed: 0, modified: 0 },
     warningCount: count(value.warningCount) ? value.warningCount : 0, skippedCount: count(value.skippedCount) ? value.skippedCount : 0 };
 }
@@ -68,21 +69,22 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   let watcher = null, watcherState = 'off', debounce = null;
   let duplicateVerification = null, verifiedDuplicateGroups = null;
   let matchingCache = null, matchingRoot = null;
-  const queryIndex = createLibraryQuery({ textFields: TEXT_FIELDS, publicFields: PUBLIC_FIELDS });
   const duplicates = createLibraryDuplicates({ dataDirectory, getDocument: () => document });
+  const queryIndex = createLibraryQuery({ textFields: TEXT_FIELDS, publicFields: PUBLIC_FIELDS,
+    isGroupKept: duplicates.isKeptGroup, preferenceToken: duplicates.preferenceToken });
   const history = createLibraryCleanupHistory({ directory: dataDirectory });
   let deferredCleanupScan = false;
   const cleanup = createLibraryCleanup({ getDocument: () => document,
     getContext: options => duplicates.cleanupContext(options), recycle: recycle ?? (async () => { throw Error('Corbeille indisponible.'); }),
     onCompleted: event => history.append(event),
-    onCleaned: () => { if (stopTask) throw Error('Bibliothèque arrêtée.'); deferredCleanupScan = false; requestScan('quick'); } });
+    onCleaned: commitCleanup });
   function requireCleanupIdle() {
     if (cleanup.busy() || duplicateVerification) throw Object.assign(Error('Attendez la fin de la vérification ou du nettoyage des copies.'), { code: 'LIBRARY_CLEANUP_SAFE' });
   }
   function status() {
     return { settings: { ...document.settings }, status: phase, mode, progress: { ...progress }, count: document.items.length,
       lastScanAt: document.lastScanAt, changes: { ...document.changes }, warningCount: document.warningCount, skippedCount: document.skippedCount,
-      error, watcher: watcherState, revision: document.revision,
+      error, watcher: watcherState, revision: document.revision, cleanupRefreshPending: document.cleanupRefreshPending === true,
       duplicateVerification: duplicateVerification ? { running: true, stopping: duplicateVerification.controller.signal.aborted, processed: duplicateVerification.processed, total: duplicateVerification.total } : null };
   }
   function notify() { try { onChange?.(status()); } catch { console.warn('La notification de bibliothèque a échoué.'); } }
@@ -91,6 +93,24 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     if (!loaded) throw safeError('La bibliothèque n’est pas encore chargée.');
     if (blocked === 'future') throw safeError('Cet index provient d’une version plus récente et reste protégé.');
     if (blocked) throw safeError('L’index est illisible. Sélectionnez à nouveau le dossier pour le reconstruire.');
+  }
+  async function commitCleanup(event) {
+    return enqueue(async () => {
+      if (document.settings.rootPath !== event.rootPath || document.revision !== event.revision || document.items !== event.items) throw safeError('La bibliothèque a changé pendant le nettoyage.');
+      const removed = new Set(event.recycledIds);
+      if (removed.has(event.keepId) || [...removed].some(id => !document.items.some(item => item.id === id))) throw safeError('Résultat du nettoyage invalide.');
+      const items = removed.size ? document.items.filter(item => !removed.has(item.id)) : document.items;
+      const next = { ...document, items, revision: document.revision + (removed.size ? 1 : 0), cleanupRefreshPending: true,
+        ...(removed.size ? { changes: { added: 0, removed: removed.size, modified: 0 } } : {}) };
+      // The OS result is authoritative even when saving the index fails. Only
+      // confirmed recycled IDs disappear; unchecked/failed copies stay visible.
+      document = next; duplicates.invalidate(); verifiedDuplicateGroups = null;
+      deferredCleanupScan = false;
+      if (debounce) clearTimeout(debounce); debounce = null;
+      try { await write(next); }
+      catch { error = 'Les copies supprimées ont été retirées de la liste, mais l’index n’a pas pu être enregistré. Actualisez la bibliothèque à la fin du nettoyage.'; }
+      notify();
+    });
   }
   async function write(next) {
     await fs.mkdir(dataDirectory, { recursive: true });
@@ -123,7 +143,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
       } catch (failure) {
         if (failure?.code !== 'ENOENT') { blocked ||= 'corrupt'; phase = 'error'; error = blocked === 'future' ? 'Cet index provient d’une version plus récente et reste protégé.' : 'L’index de bibliothèque est illisible. Le fichier original est conservé.'; }
       }
-      loaded = true; notify(); return status();
+      await duplicates.load(); loaded = true; notify(); return status();
     })();
     return loadTask;
   }
@@ -144,11 +164,12 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
           if (within(root, dataDirectory) && !samePath(root, dataDirectory) && within(dataDirectory, changed)) return;
           if (samePath(path.dirname(changed), dataDirectory) && /^library\.json(?:$|\.bak$|\.[a-f0-9-]+\.tmp$|\.corrupt-[a-f0-9-]+\.bak$)/i.test(path.basename(changed))) return;
         }
+        if (document.cleanupRefreshPending) { deferredCleanupScan = true; return; }
         if (debounce) clearTimeout(debounce);
         debounce = setTimeout(() => {
           debounce = null;
           if (!active || blocked) return;
-          if (cleanup.busy()) { deferredCleanupScan = true; return; }
+          if (cleanup.busy() || document.cleanupRefreshPending) { deferredCleanupScan = true; return; }
           try { requestScan('quick'); } catch { watcherState = 'unavailable'; notify(); }
         }, 750);
         debounce.unref?.();
@@ -177,8 +198,8 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
           current.committing = true;
           const items = result.items.map(validateItem);
           if (new Set(items.map(item => item.id)).size !== items.length) throw Error('Invalid scan output');
-          const next = { ...document, items, revision: document.revision + 1, lastScanAt: new Date().toISOString(), changes: changes(items), warningCount: result.warningCount, skippedCount: result.skippedCount };
-          await write(next); document = next; duplicates.invalidate(); phase = 'ready'; error = null;
+          const next = { ...document, items, revision: document.revision + 1, lastScanAt: new Date().toISOString(), cleanupRefreshPending: false, changes: changes(items), warningCount: result.warningCount, skippedCount: result.skippedCount };
+          await write(next); document = next; deferredCleanupScan = false; duplicates.invalidate(); phase = 'ready'; error = null;
         });
       } catch (failure) {
         if (current.controller.signal.aborted || failure?.name === 'AbortError') { phase = 'cancelled'; error = null; }
@@ -295,11 +316,15 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   }
   async function compareDuplicates(options) { requireComparisonReady(); cleanup.invalidate(); return duplicates.compare(options); }
   async function chooseDuplicate(options) { requireComparisonReady(); cleanup.invalidate(); verifiedDuplicateGroups = null; return duplicates.choose(options); }
+  async function keepDuplicateVersions(options) {
+    requireComparisonReady(); cleanup.invalidate(); verifiedDuplicateGroups = null;
+    const result = await duplicates.keepAll(options); notify(); return result;
+  }
   async function cleanupOperation(method, options) {
     requireComparisonReady();
     try { return await cleanup[method](options); }
     finally {
-      if (deferredCleanupScan && !cleanup.busy() && !stopTask) {
+      if (deferredCleanupScan && !document.cleanupRefreshPending && !cleanup.busy() && !stopTask) {
         deferredCleanupScan = false; requestScan('quick');
       }
     }
@@ -314,7 +339,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
       const key = duplicateIdentity(item); if (!key) continue;
       const group = groupsByKey.get(key); if (group) group.push(item); else groupsByKey.set(key, [item]);
     }
-    const groups = [...groupsByKey.entries()].filter(([, members]) => new Set(members.map(item => item.relativePath)).size > 1);
+    const groups = [...groupsByKey.entries()].filter(([, members]) => new Set(members.map(item => item.relativePath)).size > 1 && !duplicates.isKeptGroup(rootPath, members));
     const current = { controller: new AbortController(), cancelled: false, root: rootPath, revision, items, processed: 0, total: groups.length, promise: null };
     duplicateVerification = current; verifiedDuplicateGroups = null;
     const sameIndex = () => duplicateVerification === current && document.revision === revision && document.items === items && document.settings.rootPath === rootPath;
@@ -457,7 +482,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     const { queryMusicLibrary } = require('./music-library-query.cjs');
     return queryMusicLibrary(document, options);
   }
-  return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, verifyAllDuplicates, cancelDuplicateVerification, resolveSongFolder, matchingSnapshot,
+  return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, keepDuplicateVersions, verifyAllDuplicates, cancelDuplicateVerification, resolveSongFolder, matchingSnapshot,
     resolveRequestSong,
     resolvePlaybackSong,
     queryPlayback,

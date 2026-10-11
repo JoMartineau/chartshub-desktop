@@ -97,9 +97,11 @@ async function intact(f, names = ['A-unchecked', 'B-kept', 'C-selected']) {
   for (const name of names) for (const [file, content] of Object.entries(files)) assert.equal(await fs.readFile(path.join(f.root, name, file), 'utf8'), content);
 }
 async function recycleAndSettle() {
+  const beforeConfirmations = confirmations.length;
   await click('#library-cleanup-recycle');
-  await waitFor(() => evaluate("document.querySelector('#library-comparison').getAttribute('aria-busy')==='false'&&document.querySelector('#library-cleanup-plan').hidden"), 'recycle operation finished');
-  await waitFor(() => host.snapshot().library.status !== 'scanning', 'post-recycle scan');
+  await waitFor(() => confirmations.length === beforeConfirmations + 1, 'recycle confirmation opened');
+  await waitFor(() => evaluate("document.querySelector('#library-comparison').getAttribute('aria-busy')==='false'&&!document.querySelector('#library-comparison-close').disabled&&!document.querySelector('#library-cleanup-result').hidden&&document.querySelector('#library-results').getAttribute('aria-busy')==='false'"), 'recycle operation and refreshed comparison finished');
+  await waitFor(() => host.snapshot().library.status !== 'scanning', 'post-recycle index update');
 }
 async function forgedPlan(f) {
   const comparison = await command('library.compareDuplicates', { id: f.keepId, revision: host.snapshot().library.revision });
@@ -207,6 +209,17 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate("document.querySelector('#library-cleanup-recycle').disabled"), true);
   assert.match(await evaluate("document.querySelector('#library-comparison-feedback').textContent"), /Toutes les versions sont conservées/);
   assert.deepEqual(JSON.parse(await fs.readFile(preferenceFile, 'utf8')).choices, {}, 'keep-all removes the persisted keeper preference');
+  assert.equal(Object.keys(JSON.parse(await fs.readFile(preferenceFile, 'utf8')).keptGroups).length, 1, 'keep-all persists the exact retained group');
+  const possibleKept = await command('library.query', { query: '', sort: 'title', audio: 'all', duplicates: 'possible', offset: 0, limit: 50 });
+  assert.equal(possibleKept.ok, true); assert.equal(possibleKept.result.total, 0, 'the retained group is no longer a possible duplicate to clean');
+  const ordinaryKept = await command('library.query', { query: '', sort: 'title', audio: 'all', duplicates: 'all', offset: 0, limit: 50 });
+  assert.equal(ordinaryKept.ok, true); assert.equal(ordinaryKept.result.total, 3, 'every retained version remains in the ordinary library');
+  const verifyKept = await command('library.verifyAllDuplicates', {});
+  assert.equal(verifyKept.ok, true); assert.equal(verifyKept.result.totalGroups, 0, 'global verification skips the retained group');
+  await host.dispose(); host = null; panel = null; await openHost();
+  await waitFor(() => host.snapshot().library.status === 'ready' && host.snapshot().library.count === 3, 'retained group on new host');
+  const restoredKept = await command('library.query', { query: '', sort: 'title', audio: 'all', duplicates: 'possible', offset: 0, limit: 50 });
+  assert.equal(restoredKept.ok, true); assert.equal(restoredKept.result.total, 0, 'the retained group stays out of duplicates after host and worker restart');
   await openComparison(3);
   assert.equal(await evaluate("document.querySelectorAll('.library-variant.is-preferred').length"), 0, 'a fresh comparison does not restore the cleared keeper');
   assert.equal(await evaluate("document.querySelector('#library-cleanup-plan').hidden"), true);
@@ -219,7 +232,7 @@ app.whenReady().then(async () => {
   await assertUnselectedPlan(f.keepId);
   assert.deepEqual(Object.values(JSON.parse(await fs.readFile(preferenceFile, 'utf8')).choices).map(choice => choice.id), [f.keepId]);
   assert.equal(confirmations.length, beforeKeepAllDialogs); assert.equal(recycled.length, beforeKeepAllRecycled); await intact(f);
-  passed.push('keep-all clears the checked copies, cleanup plan and saved keeper; reopening keeps every version, and a new explicit keeper stays protected without selecting or recycling anything');
+  passed.push('keep-all preserves every version and persists across host and worker restart; possible duplicates and global verification skip the group, while a new explicit keeper can reactivate cleanup safely');
 
   await click('#library-comparison-close');
   const beforeBulkDialogs = confirmations.length;
@@ -334,6 +347,8 @@ app.whenReady().then(async () => {
   passed.push('history records the failed selected copy and protected keeper without claiming a successful recycle');
 
   f = await fixture('partial-success'); await prepare(f);
+  const beforeCleanupScan = host.snapshot().library.lastScanAt;
+  assert.equal(typeof beforeCleanupScan, 'string');
   assert.equal((await cleanupHistory()).total, 0, 'another Songs root does not expose previous cleanup history');
   dialogAction = async () => 1;
   await recycleAndSettle();
@@ -341,6 +356,10 @@ app.whenReady().then(async () => {
   await intact(f, ['A-unchecked', 'B-kept']);
   await assert.rejects(fs.stat(path.join(f.root, 'C-selected')), { code: 'ENOENT' });
   assert.equal(host.snapshot().library.count, 2);
+  assert.equal(host.snapshot().library.cleanupRefreshPending, true);
+  assert.equal(host.snapshot().library.lastScanAt, beforeCleanupScan, 'recycling updates the index without starting a scan');
+  assert.equal(await evaluate("document.querySelector('#library-refresh').textContent"), 'Actualiser à la fin');
+  assert.equal(await evaluate("document.querySelector('#library-cleanup-refresh-note').hidden"), false);
   assert.match(await evaluate("document.querySelector('#library-cleanup-result').textContent"), /1 copie\(s\).*Corbeille Windows.*B-kept/);
   await waitFor(() => evaluate("(()=>{const n=document.querySelector('#library-cleanup-result'),r=n.getBoundingClientRect();return !n.hidden&&r.height>0&&r.top>=0&&r.bottom<=window.innerHeight})()"), 'cleanup outcome stays visible after comparison collapses');
   await capture('partial-success');
@@ -348,12 +367,13 @@ app.whenReady().then(async () => {
   assert.equal(successHistory.total, 1); assert.equal(successHistory.entries[0].keep.id, f.keepId);
   assert.deepEqual(successHistory.entries[0].candidates.map(candidate => ({ id: candidate.id, status: candidate.status })), [{ id: f.selectedId, status: 'recycled' }]);
   await showHistory('recycled');
-  passed.push('successful native-bin dispatch moves exactly the checked copy and refreshes index; keeper and unchecked copy remain byte-identical');
+  passed.push('successful native-bin dispatch removes exactly the checked copy from the index without a scan; keeper and unchecked copy remain byte-identical');
   passed.push('history lists only the selected recycled copy with its protected keeper and isolates entries by Songs root');
 
   await host.dispose(); host = null; panel = null;
   await openHost();
   await waitFor(() => host.snapshot().library.status === 'ready' && host.snapshot().library.count === 2, 'persisted library on new host');
+  assert.equal(host.snapshot().library.cleanupRefreshPending, true, 'the deferred final refresh survives host and worker restart');
   await openComparison(2);
   assert.equal(await evaluate("document.querySelector('.library-variant.is-preferred').dataset.variantId"), f.keepId);
   await prepare(f, false);
@@ -363,6 +383,11 @@ app.whenReady().then(async () => {
   passed.push('cleanup history persists through host/worker restart and remains visible in the history panel');
 
   await click('#library-comparison-close');
+  await click('#library-refresh');
+  await waitFor(() => host.snapshot().library.status === 'ready' && !host.snapshot().library.cleanupRefreshPending, 'one explicit final refresh completes');
+  assert.equal(host.snapshot().library.count, 2);
+  assert.equal(await evaluate("document.querySelector('#library-cleanup-refresh-note').hidden"), true);
+  passed.push('one final refresh clears the deferred cleanup status and retains the remaining songs');
   activeRoot = path.join(directory, 'interrupt-global-verification', 'Songs');
   const groupCount = 80, syntheticAudio = Buffer.alloc(128 * 1024, 42);
   for (let index = 0; index < groupCount; index++) for (const copy of ['A', 'B']) {

@@ -91,7 +91,7 @@ test('preferences rehash before save, survive restart, retain backups, and can b
   assert.deepEqual(await f.choose(comparison, chosen), { contextId: comparison.contextId, revision: 1, preferredId: chosen });
   assert.equal(calls, 3, 'choosing reads notes again');
   const stored = await fs.readFile(f.file, 'utf8'), parsed = JSON.parse(stored);
-  assert.equal(parsed.version, 1); assert.equal(Object.keys(parsed.choices).length, 1);
+  assert.equal(parsed.version, 2); assert.equal(Object.keys(parsed.choices).length, 1);
   assert.match(Object.keys(parsed.choices)[0], /^[a-f0-9]{64}:[a-f0-9]{64}$/);
   assert.deepEqual(Object.values(parsed.choices), [{ id: chosen, hash: hash('same'), format: 'chart' }]);
   assert.ok(!stored.includes(f.root)); assert.ok(!stored.includes(f.document.items[1].relativePath));

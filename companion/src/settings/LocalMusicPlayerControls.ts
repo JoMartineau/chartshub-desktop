@@ -291,12 +291,16 @@ export class LocalMusicPlayerControls {
     } catch { if (!this.disposed && generation === this.videoGeneration) this.videoFullscreenError = true; }
     if (!this.disposed) { this.renderVideoFullscreen(); this.renderVideoError(); }
   }
+  private get videoEnabledHere(): boolean {
+    // Only the visible player surface decodes video; the hidden widget still owns shared audio.
+    return this.state?.videoEnabled !== false && (this.options.compact ? this.state?.widgetEnabled === true : !this.state?.widgetEnabled);
+  }
   private syncVideo(): void {
     if (this.disposed) return;
     this.clearVideoWake();
     const state = this.state, video = this.get<HTMLVideoElement>('video');
     const url = state?.selection?.videoUrl;
-    const source = state?.videoEnabled !== false && typeof url === 'string' && /^chartshub-companion:\/\/app\/music-video\/[a-f0-9]{64}$/.test(url) ? url : '';
+    const source = this.videoEnabledHere && typeof url === 'string' && /^chartshub-companion:\/\/app\/music-video\/[a-f0-9]{64}$/.test(url) ? url : '';
     if (source !== this.videoSource) {
       this.releaseVideo(); this.videoFailed = false; this.videoSource = source;
       if (source) { video.muted = true; video.defaultMuted = true; video.src = source; video.load?.(); }
@@ -344,7 +348,7 @@ export class LocalMusicPlayerControls {
     this.renderVideoError();
   }
   private renderVideoError(): void {
-    const node = this.get('video-error'); node.hidden = !this.videoFullscreenError && !(this.state?.videoEnabled !== false && (this.videoFailed || this.state?.selection?.videoUnavailable));
+    const node = this.get('video-error'); node.hidden = !this.videoFullscreenError && !(this.videoEnabledHere && (this.videoFailed || this.state?.selection?.videoUnavailable));
     node.textContent = this.videoFullscreenError ? this.tr('Le plein écran est indisponible. Vous pouvez agrandir la fenêtre du lecteur.', 'Fullscreen is unavailable. You can enlarge the player window.') : this.tr('Vidéo indisponible. La pochette et la lecture audio restent disponibles.', 'Video unavailable. Album artwork and audio playback remain available.');
   }
   private async send(name: string, payload: unknown): Promise<void> {

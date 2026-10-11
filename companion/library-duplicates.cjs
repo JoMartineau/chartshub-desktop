@@ -7,7 +7,7 @@ const { createHash, randomBytes, randomUUID } = require('node:crypto');
 const { fingerprintChart } = require('./chart-fingerprint.cjs');
 const { inspectChartBundle } = require('./chart-bundle.cjs');
 
-const VERSION = 1;
+const VERSION = 2;
 const HEX = /^[a-f0-9]{64}$/;
 const CONTEXT = /^[a-f0-9]{32}$/;
 const STORE_KEY = /^[a-f0-9]{64}:[a-f0-9]{64}$/;
@@ -18,6 +18,9 @@ const identity = item => {
   const fields = ['title', 'artist', 'charter'].map(field => item[field].normalize('NFC').toLowerCase().trim().replace(/\s+/gu, ' '));
   return fields.every(Boolean) ? JSON.stringify(fields) : null;
 };
+const rootGroupKey = (root, group) => digest(process.platform === 'win32' ? root.toLowerCase() : root) + ':' + digest(group);
+const membership = members => digest(JSON.stringify(members.map(item => [item.id, item.relativePath, item.format, item.cleanupSnapshot ?? null, item.signature ?? null])
+  .sort((left, right) => left[0] < right[0] ? -1 : left[0] > right[0] ? 1 : 0)));
 const safeError = message => Object.assign(new Error(message), { code: 'LIBRARY_COMPARISON_SAFE' });
 const staleError = () => safeError('Cette comparaison n’est plus à jour. Recomparez les versions avant de choisir.');
 const blockedError = kind => kind === 'changed'
@@ -27,13 +30,18 @@ const blockedError = kind => kind === 'changed'
   : 'Les choix enregistrés sont illisibles. Le fichier original est conservé.';
 
 function validateStore(value) {
-  if (!object(value) || value.version !== VERSION || Object.keys(value).some(key => !['version', 'choices'].includes(key)) || !object(value.choices)) throw Error('Invalid duplicate choices');
+  if (!object(value) || ![1, VERSION].includes(value.version) || Object.keys(value).some(key => !(value.version === 1 ? ['version', 'choices'] : ['version', 'choices', 'keptGroups']).includes(key)) || !object(value.choices) || (value.version === VERSION && !object(value.keptGroups))) throw Error('Invalid duplicate choices');
   const choices = Object.create(null);
   for (const [key, choice] of Object.entries(value.choices)) {
     if (!STORE_KEY.test(key) || !object(choice) || Object.keys(choice).length !== 3 || typeof choice.id !== 'string' || !HEX.test(choice.id) || typeof choice.hash !== 'string' || !HEX.test(choice.hash) || !['chart', 'midi'].includes(choice.format)) throw Error('Invalid duplicate choice');
     choices[key] = { id: choice.id, hash: choice.hash, format: choice.format };
   }
-  return { version: VERSION, choices };
+  const keptGroups = Object.create(null);
+  for (const [key, stamp] of Object.entries(value.keptGroups ?? {})) {
+    if (!STORE_KEY.test(key) || typeof stamp !== 'string' || !HEX.test(stamp) || Object.hasOwn(choices, key)) throw Error('Invalid kept duplicate group');
+    keptGroups[key] = stamp;
+  }
+  return { version: VERSION, choices, keptGroups };
 }
 
 function publicNotes(result) {
@@ -49,7 +57,7 @@ function publicNotes(result) {
 function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
   if (typeof dataDirectory !== 'string' || !path.isAbsolute(dataDirectory) || dataDirectory.includes('\0') || typeof getDocument !== 'function') throw safeError('Configuration de comparaison invalide.');
   const filename = path.join(dataDirectory, 'library-duplicate-choices.json');
-  let store = { version: VERSION, choices: Object.create(null) }, loaded = false, loading = null, blocked = null, diskFingerprint = null;
+  let store = { version: VERSION, choices: Object.create(null), keptGroups: Object.create(null) }, loaded = false, loading = null, blocked = null, diskFingerprint = null;
   let context = null, serial = Promise.resolve(), stopping = null;
   const pending = new Set();
 
@@ -98,6 +106,11 @@ function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
       finally { loaded = true; }
     })();
     await loading;
+  }
+  function isKeptGroup(root, members) {
+    if (!loaded || blocked || typeof root !== 'string' || !Array.isArray(members) || members.length < 2) return false;
+    const group = identity(members[0]);
+    return Boolean(group && members.every(item => identity(item) === group) && store.keptGroups[rootGroupKey(root, group)] === membership(members));
   }
   async function fingerprint(current, item) {
     try {
@@ -169,7 +182,7 @@ function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
     const current = {
       contextId: randomBytes(16).toString('hex'), revision: document.revision, root: document.settings.rootPath,
       items: document.items, controller: new AbortController(), group,
-      key: digest(process.platform === 'win32' ? document.settings.rootPath.toLowerCase() : document.settings.rootPath) + ':' + digest(group),
+      key: rootGroupKey(document.settings.rootPath, group), membership: membership(members),
       members: new Map(members.map(item => [item.id, { id: item.id, relativePath: item.relativePath, format: item.format, audio: item.audio }])),
       scanSnapshots: new Map(members.map(item => [item.id, item.cleanupSnapshot ?? null])),
       fingerprints: new Map(), bundles: new Map(), complete: false
@@ -215,7 +228,7 @@ function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
       assertCurrent(current); current.complete = true;
       return {
         contextId: current.contextId, revision: current.revision, title: selected.title, artist: selected.artist, charter: selected.charter,
-        preferredId, selectionError, canChoose: !blocked,
+        preferredId, selectionError, canChoose: !blocked, keptAll: isKeptGroup(current.root, members),
         summary: { total: variants.length, readable, noteGroups: groups.size, identicalGroups, unverified: variants.length - readable }, variants
       };
     } catch (failure) {
@@ -247,15 +260,40 @@ function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
         }
         choice = { id, hash: checked.sha256, format: checked.format };
       }
-      const choices = { ...store.choices };
+      const choices = { ...store.choices }, keptGroups = { ...store.keptGroups };
       if (choice) choices[current.key] = choice; else delete choices[current.key];
-      try { await write({ version: VERSION, choices }, current); }
+      delete keptGroups[current.key];
+      try { await write({ version: VERSION, choices, keptGroups }, current); }
       catch (failure) {
         if (failure?.code === 'LIBRARY_COMPARISON_SAFE') throw failure;
         throw safeError('Impossible d’enregistrer la version à conserver. Le choix précédent est conservé.');
       }
       assertCurrent(current);
       return { contextId: current.contextId, revision: current.revision, preferredId: choice?.id ?? null };
+    });
+    serial = task.catch(() => {});
+    return task;
+  }
+  async function runKeepAll(options) {
+    ensureReady();
+    if (!object(options) || Object.keys(options).some(key => !['contextId', 'revision'].includes(key)) || typeof options.contextId !== 'string' || !CONTEXT.test(options.contextId) || !Number.isSafeInteger(options.revision) || options.revision < 0) throw safeError('Choix de versions invalide.');
+    const { contextId, revision } = options, current = context;
+    if (!current?.complete || current.contextId !== contextId || current.revision !== revision) throw staleError();
+    assertCurrent(current);
+    const task = serial.then(async () => {
+      assertCurrent(current);
+      if (blocked) throw safeError(blockedError(blocked));
+      const live = getDocument().items.filter(item => identity(item) === current.group);
+      if (live.length !== current.members.size || membership(live) !== current.membership) throw staleError();
+      const choices = { ...store.choices }, keptGroups = { ...store.keptGroups, [current.key]: current.membership };
+      delete choices[current.key];
+      try { await write({ version: VERSION, choices, keptGroups }, current); }
+      catch (failure) {
+        if (failure?.code === 'LIBRARY_COMPARISON_SAFE') throw failure;
+        throw safeError('Impossible d’enregistrer les versions à conserver. Le choix précédent est conservé.');
+      }
+      assertCurrent(current);
+      return { contextId, revision, preferredId: null, keptAll: true };
     });
     serial = task.catch(() => {});
     return task;
@@ -292,7 +330,9 @@ function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
         cleanupSnapshot: current.scanSnapshots.get(id), bundle: current.bundles.get(id) ?? null }))
     };
   }
-  return { compare: options => track(runComparison(options)), choose: options => track(runChoice(options)), cleanupContext: options => track(cleanupContext(options)), invalidate, stop };
+  return { load, isKeptGroup, preferenceToken: () => blocked ?? store,
+    compare: options => track(runComparison(options)), choose: options => track(runChoice(options)), keepAll: options => track(runKeepAll(options)),
+    cleanupContext: options => track(cleanupContext(options)), invalidate, stop };
 }
 
 module.exports = { createLibraryDuplicates };
