@@ -161,7 +161,7 @@ test('real worker prepares, reviews and executes only selected bundles through t
   assert.equal((await f.service.cleanupHistory({ offset: 0, limit: 10 })).total, 0, 'review creates no cleanup record');
   assert.deepEqual(f.calls, []);
   const result = await f.service.recycleDuplicates(selection);
-  assert.deepEqual(result, { recycledIds: [candidate.id], failed: [], cancelled: false, refreshRequested: true });
+  assert.deepEqual(result, { recycledIds: [candidate.id], failed: [], cancelled: false, refreshRequested: false });
   assert.deepEqual(f.calls, [path.join(f.root, 'B')]);
   const history = await f.service.cleanupHistory({ offset: 0, limit: 10 });
   assert.equal(history.total, 1); assert.equal(history.entries[0].keep.id, f.plan.keepId);
@@ -218,7 +218,7 @@ test('real worker returns native failures safely and stops before the next selec
   const result = await f.service.recycleDuplicates(f.selection());
   assert.deepEqual(result.recycledIds, []); assert.equal(result.failed.length, 1);
   assert.equal(result.failed[0].id, f.plan.candidates[0].id); assert.ok(!JSON.stringify(result).includes('Private'));
-  assert.equal(f.calls.length, 1); assert.equal(result.refreshRequested, true);
+  assert.equal(f.calls.length, 1); assert.equal(result.refreshRequested, false);
   assert.ok(f.sent.some(message => message.type === 'recycle-result' && message.ok === false));
 });
 

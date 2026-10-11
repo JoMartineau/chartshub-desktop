@@ -323,16 +323,17 @@ test('choosing a version to keep automatically verifies the other copies before 
   assert.equal(cleanupCheck(ui, 'a').checked, false, 'choosing the keeper does not select a copy for deletion');
   assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
   ui.get('#library-comparison-clear').click(); const clear = await ui.request(4);
-  assert.deepEqual(clear.payload, { contextId: 'e'.repeat(32), revision: 1, id: null });
-  clear.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: null } }); await tick();
+  assert.equal(clear.name, 'library.keepDuplicateVersions');
+  assert.deepEqual(clear.payload, { contextId: 'e'.repeat(32), revision: 1 });
+  clear.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: null, keptAll: true } }); await tick();
   assert.equal(card(ui, 'b').querySelector('.library-preferred-badge').hidden, true);
   assert.equal(ui.get('#library-comparison-clear').hidden, true);
+  await ui.respond(5, { items: [song(variantId('a'), { duplicateCount: 4, keptAll: true })] });
   card(ui, 'a').querySelector('.library-variant-open').click();
-  const open = await ui.request(5); assert.equal(open.name, 'library.openFolder'); assert.deepEqual(open.payload, { id: variantId('a') });
+  const open = await ui.request(6); assert.equal(open.name, 'library.openFolder'); assert.deepEqual(open.payload, { id: variantId('a') });
   open.resolve({ ok: true }); await tick();
   ui.get('#library-comparison-close').click();
   assert.equal(ui.get('#library-comparison').hidden, true);
-  assert.equal(ui.document.activeElement, ui.get('#library-rows').children[0].querySelector('.library-compare'));
 });
 
 test('comparison failures and preference-store failures offer a reload and never claim an unconfirmed choice', async t => {
@@ -535,21 +536,284 @@ test('a scan invalidates pending restored-keeper comparisons and plans even if c
   }
 });
 
-test('keeping all versions clears the persisted keeper and every selection without moving files', async t => {
+test('keeping all versions records exclusion, clears every selection and retains all ordinary library rows', async t => {
   const ui = await preparedCleanup(t); checkCleanup(ui, 'b'); checkCleanup(ui, 'd');
   assert.match(ui.html, /id="library-comparison-clear"[^>]*>Conserver toutes les versions</);
   ui.get('#library-comparison-clear').click(); const clear = await ui.request(3);
-  assert.equal(clear.name, 'library.chooseDuplicate'); assert.equal(clear.payload.id, null);
+  assert.equal(clear.name, 'library.keepDuplicateVersions');
+  assert.deepEqual(clear.payload, { contextId: 'e'.repeat(32), revision: 1 });
   assert.equal(ui.get('#library-cleanup-plan').hidden, true);
-  clear.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: null } }); await tick();
+  clear.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: null, keptAll: true } }); await tick();
   assert.equal(card(ui, 'a').querySelector('.library-preferred-badge').hidden, true);
   assert.equal(ui.get('#library-cleanup-prepare').hidden, true);
-  assert.equal(ui.get('#library-comparison-feedback').textContent, 'Toutes les versions sont conservées. Aucun fichier déplacé ou supprimé.');
-  ui.get('#library-cleanup-recycle').click(); await tick(); assert.equal(ui.calls.length, 4);
+  assert.match(ui.get('#library-comparison-feedback').textContent, /Aucun fichier déplacé ou supprimé.*retiré des doublons/);
+  assert.equal(ui.get('#library-comparison-clear').hidden, true);
+  await ui.respond(4, { items: ['a', 'b', 'c', 'd'].map(letter => song(variantId(letter), { duplicateCount: 4, keptAll: true })) });
+  assert.equal(ui.get('#library-rows').children.length, 4);
+  assert.equal(ui.get('#library-rows').children[0].querySelector('.library-duplicate-badge').textContent, 'Versions conservées');
+  ui.get('#library-cleanup-recycle').click(); await tick(); assert.equal(ui.calls.length, 5);
   ui.get('#library-comparison-close').click(); ui.get('#library-rows').children[0].querySelector('.library-compare').click();
-  const reopened = await ui.request(4); reopened.resolve({ ok: true, result: comparison({ preferredId: null }) }); await tick();
-  assert.equal(ui.get('#library-cleanup-plan').hidden, true); assert.equal(ui.calls.length, 5);
+  const reopened = await ui.request(5); reopened.resolve({ ok: true, result: comparison({ preferredId: null, keptAll: true }) }); await tick();
+  assert.equal(ui.get('#library-cleanup-plan').hidden, true); assert.equal(ui.calls.length, 6);
+  assert.equal(ui.get('#library-comparison-clear').hidden, true);
   assert.equal(ui.calls.some(call => call.name === 'library.recycleDuplicates' || call.name === 'library.forceRecycleDuplicate'), false);
+});
+
+test('keep-all works before any keeper is chosen and removes the group only from the duplicates filter', async t => {
+  const ui = await openComparison(t);
+  assert.equal(ui.get('#library-comparison-clear').hidden, false);
+  assert.equal(ui.get('#library-comparison-clear').disabled, false);
+  ui.change('#library-duplicates', 'possible'); await ui.respond(2, { items: [song(variantId('a'), { duplicateCount: 4 })] });
+  ui.get('#library-comparison-clear').click(); const keep = await ui.request(3);
+  assert.equal(keep.name, 'library.keepDuplicateVersions');
+  keep.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: null, keptAll: true } });
+  await ui.respond(4, { items: [], total: 0 });
+  assert.equal(ui.calls[4].payload.duplicates, 'possible');
+  assert.equal(ui.get('#library-rows').children.length, 0);
+  assert.equal(ui.get('#library-comparison').hidden, false, 'retention is recorded without moving or losing access to the versions');
+  assert.equal(ui.calls.some(call => call.name === 'library.chooseDuplicate' || call.name === 'library.prepareCleanup' || call.name === 'library.scan' || /Recycle|recycle/.test(call.name)), false);
+  card(ui, 'a').querySelector('.library-variant-choose').click(); const choose = await ui.request(5);
+  choose.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: variantId('a') } });
+  const prepare = await ui.request(6); assert.equal(prepare.name, 'library.prepareCleanup');
+  prepare.resolve({ ok: true, result: cleanupPlan() });
+  await ui.respond(7, { items: [song(variantId('a'), { duplicateCount: 4 })] });
+  assert.equal(ui.get('#library-comparison-clear').hidden, false, 'an explicit keeper choice cancels the keep-all disposition');
+  assert.equal(ui.get('#library-rows').children.length, 1);
+  assert.equal(cleanupCheck(ui, 'b').checked, false); assert.equal(cleanupCheck(ui, 'd').checked, false);
+});
+
+test('failed, mismatched and stale keep-all replies cannot remove a group or revive controls', async t => {
+  for (const outcome of ['error', 'mismatch', 'close', 'root', 'dispose']) {
+    const ui = await openComparison(t); ui.get('#library-comparison-clear').click(); const keep = await ui.request(2);
+    if (outcome === 'close') ui.get('#library-comparison-close').click();
+    if (outcome === 'root') ui.controls.update(snapshot({ settings: { rootPath: 'D:\\Other Songs', watch: false, refreshOnStart: true } }));
+    if (outcome === 'dispose') ui.controls.dispose();
+    const writes = ui.document.writes;
+    keep.resolve(outcome === 'error' ? { ok: false, error: 'Préférence indisponible.' } : {
+      ok: true, result: { contextId: outcome === 'mismatch' ? 'f'.repeat(32) : 'e'.repeat(32), revision: 1, preferredId: null, keptAll: true },
+    }); await tick();
+    assert.equal(ui.calls.filter(call => call.name === 'library.query').length, outcome === 'root' ? 2 : 1);
+    if (outcome === 'error' || outcome === 'mismatch') {
+      assert.equal(ui.get('#library-comparison-retry').hidden, false);
+      assert.doesNotMatch(ui.get('#library-feedback').textContent, /retiré des doublons/);
+    } else if (outcome !== 'dispose') assert.equal(ui.get('#library-comparison').hidden, true);
+    if (outcome === 'dispose') assert.equal(ui.document.writes, writes);
+    assert.equal(ui.calls.some(call => call.name === 'library.scan' || /Recycle|recycle/.test(call.name)), false);
+  }
+});
+
+async function namedCall(ui, name, after) {
+  await waitFor(() => ui.calls.slice(after).some(call => call.name === name));
+  const index = ui.calls.findIndex((call, index) => index >= after && call.name === name);
+  return { index, call: ui.calls[index] };
+}
+const remainingComparison = (revision, letters, contextId = 'f'.repeat(32)) => comparison({
+  revision, contextId, preferredId: variantId('a'),
+  variants: comparison().variants.filter(variant => letters.includes(variant.id[0])),
+  summary: { total: letters.length, readable: letters.length, noteGroups: 1, identicalGroups: 1, unverified: 0 },
+});
+
+test('force then partial-selection cleanup refreshes only the index and supports one final explicit scan', async t => {
+  for (const order of ['reply-first', 'snapshot-first']) {
+    const ui = await preparedCleanup(t, cleanupPlan({ candidates: [cleanupTarget('b', { forceable: true }), cleanupTarget('c', { eligible: true }), cleanupTarget('d', { eligible: true })] }));
+    ui.get('#library-cleanup-candidates').children[0].querySelector('.library-cleanup-force').click();
+    const first = await ui.request(3); assert.equal(first.name, 'library.forceRecycleDuplicate');
+    const nativeResult = { ok: true, result: { recycledIds: [variantId('b')], failed: [], cancelled: false, refreshRequested: false } };
+    if (order === 'reply-first') { first.resolve(nativeResult); await ui.request(4); }
+    const mark = ui.calls.length;
+    ui.controls.update(snapshot({ revision: 2, cleanupRefreshPending: true, count: 3 }));
+    if (order === 'snapshot-first') { first.resolve(nativeResult); await tick(); }
+    const fresh = await namedCall(ui, 'library.compareDuplicates', mark);
+    assert.deepEqual(fresh.call.payload, { id: variantId('a'), revision: 2 });
+    const query = await namedCall(ui, 'library.query', mark);
+    await ui.respond(query.index, { revision: 2, items: ['a', 'c', 'd'].map(letter => song(variantId(letter), { duplicateCount: 3 })) });
+    if (order === 'reply-first') await ui.respond(4, { revision: 1, items: [song('stale-removed-b')] });
+    assert.equal(ui.get('#library-rows').children.length, 3, 'an older result cannot restore a recycled copy');
+    fresh.call.resolve({ ok: true, result: remainingComparison(2, ['a', 'c', 'd']) });
+    const prepare = await namedCall(ui, 'library.prepareCleanup', fresh.index + 1);
+    assert.equal(prepare.call.payload.revision, 2); assert.equal(prepare.call.payload.keepId, variantId('a'));
+    prepare.call.resolve({ ok: true, result: cleanupPlan({ revision: 2, contextId: 'f'.repeat(32), planId: 'b'.repeat(32), candidates: [cleanupTarget('c', { eligible: true }), cleanupTarget('d', { eligible: true })] }) }); await tick();
+    assert.equal(cleanupCheck(ui, 'b'), undefined); assert.equal(cleanupCheck(ui, 'a'), undefined);
+    assert.equal(cleanupCheck(ui, 'c').checked, false); assert.equal(cleanupCheck(ui, 'd').checked, false);
+    assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+    assert.equal(ui.get('#library-refresh').textContent, 'Actualiser à la fin');
+    assert.equal(ui.get('#library-cleanup-refresh-note').hidden, false);
+    assert.match(ui.get('#library-cleanup-result').textContent, /poursuivre le nettoyage.*une seule analyse/s);
+    checkCleanup(ui, 'c'); checkCleanup(ui, 'd'); ui.get('#library-cleanup-recycle').click();
+    const second = await namedCall(ui, 'library.recycleDuplicates', prepare.index + 1);
+    assert.deepEqual(second.call.payload.ids, [variantId('c'), variantId('d')]);
+    const nextMark = ui.calls.length;
+    ui.controls.update(snapshot({ revision: 3, cleanupRefreshPending: true, count: 1 }));
+    second.call.resolve({ ok: true, result: { recycledIds: [variantId('c'), variantId('d')], failed: [], cancelled: false, refreshRequested: false } });
+    const finalQuery = await namedCall(ui, 'library.query', nextMark);
+    await ui.respond(finalQuery.index, { revision: 3, items: [song(variantId('a'))] });
+    assert.equal(ui.get('#library-comparison').hidden, true, 'the keeper alone needs no duplicate comparison');
+    assert.equal(ui.calls.some(call => call.name === 'library.scan'), false, 'neither cleanup starts a scan');
+    const beforeScan = ui.calls.length; ui.get('#library-refresh').click();
+    const scan = await ui.request(beforeScan);
+    assert.deepEqual({ name: scan.name, payload: scan.payload }, { name: 'library.scan', payload: { mode: 'quick' } });
+    scan.resolve({ ok: true }); await tick();
+    ui.controls.update(snapshot({ revision: 4, cleanupRefreshPending: false, count: 1 }));
+    const afterScan = await namedCall(ui, 'library.query', beforeScan + 1);
+    await ui.respond(afterScan.index, { revision: 4, items: [song(variantId('a'))] });
+    assert.equal(ui.get('#library-refresh').textContent, 'Actualiser');
+    assert.equal(ui.get('#library-cleanup-refresh-note').hidden, true);
+    assert.equal(ui.calls.filter(call => call.name === 'library.scan').length, 1);
+  }
+});
+
+test('partial failure preserves its outcome and retries only remaining copies after fresh comparison', async t => {
+  const ui = await preparedCleanup(t); checkCleanup(ui, 'b'); checkCleanup(ui, 'd');
+  ui.get('#library-cleanup-recycle').click(); const request = await ui.request(3), mark = ui.calls.length;
+  request.resolve({ ok: true, result: { recycledIds: [variantId('b')], failed: [{ id: variantId('d'), reason: 'Fichier verrouillé.' }], cancelled: true, refreshRequested: false } });
+  ui.controls.update(snapshot({ revision: 2, cleanupRefreshPending: true }));
+  const fresh = await namedCall(ui, 'library.compareDuplicates', mark), query = await namedCall(ui, 'library.query', mark);
+  await ui.respond(query.index, { revision: 2, items: ['a', 'c', 'd'].map(letter => song(variantId(letter), { duplicateCount: 3 })) });
+  fresh.call.resolve({ ok: true, result: remainingComparison(2, ['a', 'c', 'd']) });
+  const prepare = await namedCall(ui, 'library.prepareCleanup', fresh.index + 1);
+  prepare.call.resolve({ ok: true, result: cleanupPlan({ revision: 2, contextId: 'f'.repeat(32), candidates: [cleanupTarget('d', { eligible: true })] }) }); await tick();
+  assert.match(ui.get('#library-cleanup-result').textContent, /1 copie\(s\) envoyée.*1 copie\(s\) non envoyée.*Opération interrompue.*Fichier verrouillé/s);
+  assert.equal(ui.get('#library-cleanup-result').attributes['is-error'], true);
+  assert.equal(cleanupCheck(ui, 'd').checked, false); assert.equal(cleanupCheck(ui, 'b'), undefined);
+  assert.equal(ui.calls.some(call => call.name === 'library.scan'), false);
+});
+
+test('cancelled and interrupted cleanup never schedules a resumed comparison or a scan', async t => {
+  for (const outcome of ['cancel', 'scan', 'root', 'dispose', 'close-after-reply']) {
+    const ui = await preparedCleanup(t); checkCleanup(ui, 'b'); ui.get('#library-cleanup-recycle').click();
+    const request = await ui.request(3);
+    if (outcome === 'scan') { ui.controls.update(snapshot({ status: 'scanning' })); ui.controls.update(snapshot({ status: 'cancelled' })); }
+    if (outcome === 'root') ui.controls.update(snapshot({ settings: { rootPath: 'D:\\Other Songs', watch: false, refreshOnStart: true } }));
+    if (outcome === 'dispose') ui.controls.dispose();
+    const writes = ui.document.writes;
+    request.resolve(outcome === 'cancel' ? { ok: true, cancelled: true } : { ok: true, result: { recycledIds: [variantId('b')], failed: [], cancelled: false, refreshRequested: false } }); await tick();
+    if (outcome === 'close-after-reply') {
+      ui.get('#library-comparison-close').click();
+      ui.controls.update(snapshot({ revision: 2, cleanupRefreshPending: true })); await tick();
+    }
+    assert.equal(ui.calls.filter(call => call.name === 'library.compareDuplicates').length, 1);
+    assert.equal(ui.calls.some(call => call.name === 'library.scan'), false);
+    if (outcome === 'dispose') assert.equal(ui.document.writes, writes);
+    if (outcome === 'cancel') assert.equal(ui.calls.length, 4, 'a native cancellation changes neither index nor scan state');
+  }
+});
+
+test('closing a resumed comparison discards its pending verification without restoring a consumed selection', async t => {
+  const ui = await preparedCleanup(t); checkCleanup(ui, 'b'); ui.get('#library-cleanup-recycle').click();
+  const request = await ui.request(3), mark = ui.calls.length;
+  ui.controls.update(snapshot({ revision: 2, cleanupRefreshPending: true }));
+  request.resolve({ ok: true, result: { recycledIds: [variantId('b')], failed: [], cancelled: false, refreshRequested: false } });
+  const fresh = await namedCall(ui, 'library.compareDuplicates', mark);
+  ui.get('#library-comparison-close').click();
+  fresh.call.resolve({ ok: true, result: remainingComparison(2, ['a', 'c', 'd']) }); await tick();
+  assert.equal(ui.get('#library-comparison').hidden, true);
+  assert.equal(ui.calls.filter(call => call.name === 'library.prepareCleanup').length, 1);
+  assert.equal(ui.get('#library-cleanup-plan').hidden, true);
+  assert.equal(ui.calls.filter(call => call.name === 'library.recycleDuplicates').length, 1);
+});
+
+test('cleanup outcome is revealed after both the replacement rows and resumed plan settle, in either order', async t => {
+  for (const order of ['query-first', 'plan-first', 'verification-error']) {
+    const ui = await preparedCleanup(t); checkCleanup(ui, 'b'); ui.get('#library-cleanup-recycle').click();
+    const request = await ui.request(3), mark = ui.calls.length;
+    ui.controls.update(snapshot({ revision: 2, cleanupRefreshPending: true }));
+    request.resolve({ ok: true, result: { recycledIds: [variantId('b')], failed: [], cancelled: false, refreshRequested: false } });
+    const fresh = await namedCall(ui, 'library.compareDuplicates', mark), query = await namedCall(ui, 'library.query', mark);
+    const outcome = ui.get('#library-cleanup-result'), before = outcome.scrollCount;
+    const rows = () => ui.respond(query.index, { revision: 2, items: ['a', 'c', 'd'].map(letter => song(variantId(letter), { duplicateCount: 3 })) });
+    if (order === 'query-first') { await rows(); assert.equal(outcome.scrollCount, before, 'comparison still changes layout above the result'); }
+    fresh.call.resolve({ ok: true, result: remainingComparison(2, ['a', 'c', 'd']) });
+    const prepare = await namedCall(ui, 'library.prepareCleanup', fresh.index + 1);
+    prepare.call.resolve(order === 'verification-error' ? { ok: false, error: 'Fichiers changés depuis le scan.' } : {
+      ok: true, result: cleanupPlan({ revision: 2, contextId: 'f'.repeat(32), candidates: [cleanupTarget('c', { eligible: true }), cleanupTarget('d', { eligible: true })] }),
+    }); await tick();
+    if (order !== 'query-first') {
+      assert.equal(outcome.scrollCount, before, 'a pending index query can still grow the page'); await rows();
+    }
+    assert.equal(outcome.scrollCount, before + 1, 'the completed result is revealed again after the layout settles');
+    assert.equal(ui.document.activeElement, outcome);
+    assert.match(outcome.textContent, /1 copie\(s\) envoyée.*Version conservée : Charts\/a/s);
+    assert.equal(ui.get('#library-cleanup-plan').hidden, order === 'verification-error');
+    assert.equal(ui.get('#library-cleanup-recycle').disabled, true, 'reveal never selects or retries cleanup');
+    ui.controls.update(snapshot({ revision: 2, cleanupRefreshPending: true, progress: { visited: 120, processed: 110, discovered: 101 } }));
+    await tick(); assert.equal(outcome.scrollCount, before + 1, 'later snapshots do not steal the viewport again');
+  }
+});
+
+test('late resumed verification does not reclaim focus or scroll after user input, a new scan, closure or disposal', async t => {
+  for (const action of ['focus', 'wheel', 'scan', 'close', 'dispose']) {
+    const ui = await preparedCleanup(t); checkCleanup(ui, 'b'); ui.get('#library-cleanup-recycle').click();
+    const request = await ui.request(3), mark = ui.calls.length;
+    ui.controls.update(snapshot({ revision: 2, cleanupRefreshPending: true }));
+    request.resolve({ ok: true, result: { recycledIds: [variantId('b')], failed: [], cancelled: false, refreshRequested: false } });
+    const fresh = await namedCall(ui, 'library.compareDuplicates', mark), query = await namedCall(ui, 'library.query', mark);
+    fresh.call.resolve({ ok: true, result: remainingComparison(2, ['a', 'c', 'd']) });
+    const prepare = await namedCall(ui, 'library.prepareCleanup', fresh.index + 1);
+    const outcome = ui.get('#library-cleanup-result'), before = outcome.scrollCount;
+    if (action === 'focus') ui.get('#library-search').focus();
+    if (action === 'wheel') ui.root.dispatchEvent(new Event('wheel'));
+    if (action === 'close') ui.get('#library-comparison-close').click();
+    if (action === 'dispose') ui.controls.dispose();
+    const writes = ui.document.writes;
+    prepare.call.resolve({ ok: true, result: cleanupPlan({ revision: 2, contextId: 'f'.repeat(32), candidates: [cleanupTarget('d', { eligible: true })] }) });
+    if (action === 'scan') {
+      await tick(); // Verification settled, but the rows still hold the pending reveal.
+      ui.controls.update(snapshot({ revision: 2, status: 'scanning', cleanupRefreshPending: true }));
+      ui.controls.update(snapshot({ revision: 2, status: 'cancelled', cleanupRefreshPending: true }));
+    }
+    await ui.respond(query.index, { revision: 2, items: [song(variantId('a'), { duplicateCount: 3 })] });
+    assert.equal(outcome.scrollCount, before, 'the user controls the viewport once they move on');
+    if (action === 'focus') assert.equal(ui.document.activeElement, ui.get('#library-search'));
+    if (action === 'close') assert.equal(ui.get('#library-comparison').hidden, true);
+    if (action === 'dispose') assert.equal(ui.document.writes, writes);
+  }
+});
+
+test('a failed or cancelled final scan keeps the pending notice and explicit refresh action', async t => {
+  const ui = await setup(t);
+  ui.controls.update(snapshot({ cleanupRefreshPending: true })); await ui.respond(0);
+  assert.equal(ui.get('#library-refresh').textContent, 'Actualiser à la fin');
+  ui.get('#library-refresh').click(); const scan = await ui.request(1);
+  ui.controls.update(snapshot({ cleanupRefreshPending: true, status: 'scanning', mode: 'quick' }));
+  scan.resolve({ ok: false }); await tick();
+  for (const status of ['cancelled', 'error']) {
+    ui.controls.update(snapshot({ cleanupRefreshPending: true, status }));
+    assert.equal(ui.get('#library-cleanup-refresh-note').hidden, false);
+    assert.equal(ui.get('#library-refresh').textContent, 'Actualiser à la fin');
+    assert.equal(ui.get('#library-refresh').disabled, false);
+    assert.match(ui.get('#library-watcher').textContent, /suspendue/);
+  }
+  assert.equal(ui.calls.length, 2, 'failed final refresh is never restarted automatically');
+});
+
+test('deferred-cleanup status, guidance and persistent keep-all feedback translate both ways', async t => {
+  const ui = await preparedCleanup(t); checkCleanup(ui, 'b'); ui.get('#library-cleanup-recycle').click();
+  const request = await ui.request(3);
+  request.resolve({ ok: true, result: { recycledIds: [variantId('b')], failed: [], cancelled: false, refreshRequested: false } }); await tick();
+  ui.controls.update(snapshot({ cleanupRefreshPending: true }));
+  const kept = await openComparison(t, comparison({ keptAll: true }));
+  const elements = [ui.get('#library-refresh'), ui.get('#library-status'), ui.get('#library-watcher'),
+    ...ui.get('#library-cleanup-result').children, kept.get('#library-comparison-feedback')];
+  const french = elements.map(element => element.textContent);
+  const nodes = elements.map(element => ({ parentElement: element,
+    get nodeValue() { return element.textContent; }, set nodeValue(value) { element.textContent = value; } }));
+  const document = { body: ui.root, readyState: 'loading', documentElement: { lang: 'fr' }, addEventListener() {},
+    createTreeWalker() { let index = 0; return { nextNode: () => nodes[index++] ?? null }; } };
+  const window = { ChartsHubCompanion: { initialLanguage: 'fr' }, dispatchEvent() {} };
+  require('node:vm').runInNewContext(readFileSync(require.resolve('../companion/ui/localization.js'), 'utf8'), {
+    window, document, Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 }, NodeFilter: { SHOW_TEXT: 4 }, CustomEvent: class {},
+  });
+  window.ChartshubCompanionLanguage.apply('en');
+  assert.equal(elements[0].textContent, 'Refresh when finished');
+  assert.equal(elements[1].textContent, 'Final refresh pending');
+  assert.match(elements[2].textContent, /paused until the final refresh/);
+  assert.match(ui.get('#library-cleanup-result').textContent, /continue cleanup.*run a single scan/s);
+  assert.match(kept.get('#library-comparison-feedback').textContent, /No file was moved or deleted.*removed from duplicates/);
+  const notice = ui.html.match(/id="library-cleanup-refresh-note"[^>]*>([^<]+)<\/p>/)[1];
+  assert.match(window.ChartshubCompanionLanguage.translate(notice), /Change detection stays paused until a successful scan/);
+  assert.equal(window.ChartshubCompanionLanguage.translate('Versions conservées'), 'Versions kept');
+  window.ChartshubCompanionLanguage.apply('fr');
+  assert.deepEqual(elements.map(element => element.textContent), french);
 });
 
 test('loading another batch preserves the chosen keeper and every explicit deletion selection', async t => {
@@ -739,7 +1003,8 @@ test('changing or clearing the preferred version discards the old plan and autom
   assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
   ui.get('#library-comparison-clear').click(); const clear = await ui.request(5);
   assert.equal(ui.get('#library-cleanup-plan').hidden, true);
-  clear.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: null } }); await tick();
+  assert.equal(clear.name, 'library.keepDuplicateVersions');
+  clear.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: null, keptAll: true } }); await tick();
   assert.equal(ui.get('#library-cleanup-prepare').hidden, true);
 });
 

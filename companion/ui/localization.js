@@ -4,6 +4,13 @@
   let language = initial;
   let writing = false;
   const exact = new Map([
+    ['Actualiser à la fin','Refresh when finished'],['Actualisation finale en attente','Final refresh pending'],
+    ['Versions conservées','Versions kept'],
+    ['Détection suspendue jusqu’à l’actualisation finale','Change detection paused until the final refresh'],
+    ['Les copies envoyées à la Corbeille sont retirées de la liste. Continuez le nettoyage, puis cliquez sur « Actualiser à la fin ». La détection des changements reste suspendue jusqu’à une analyse réussie.','Copies sent to the Recycle Bin are removed from the list. Continue cleanup, then click “Refresh when finished”. Change detection stays paused until a successful scan.'],
+    ['« Conserver toutes les versions » conserve vos fichiers et retire ce groupe des doublons à traiter.','“Keep all versions” preserves your files and removes this group from duplicates awaiting cleanup.'],
+    ['Toutes les versions sont conservées. Aucun fichier déplacé ou supprimé. Ce groupe est retiré des doublons à traiter.','All versions are kept. No file was moved or deleted. This group is removed from duplicates awaiting cleanup.'],
+    ['Vous pouvez poursuivre le nettoyage, puis cliquer sur « Actualiser à la fin » pour lancer une seule analyse.','You can continue cleanup, then click “Refresh when finished” to run a single scan.'],
     ['Widgets du morceau','Song widgets'],['Couleurs et transparence de l’overlay Jeu et Stream','Colors and transparency of the Game and Stream overlay'],
     ['ReShade / Filtres du jeu','ReShade / Game Filters'],['Lecteur Songs','Songs player'],['Aperçu du lecteur Songs','Songs player preview'],['Titre du morceau · Artiste · Lecture et volume.','Song title · Artist · Playback and volume.'],
     ['Couleurs et transparence : Thème et couleurs dans le Companion.','Colors and transparency: Theme and colors in Companion.'],['Ouvrir le Lecteur Songs','Open Songs player'],

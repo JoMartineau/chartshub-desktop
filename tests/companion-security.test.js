@@ -1505,6 +1505,14 @@ test('duplicate comparisons cross the worker and keep a durable preference witho
   assert.equal((await command('library.chooseDuplicate', { contextId: compared.result.contextId, revision, id: null })).ok, false, 'old worker contexts cannot change the preference');
   const cleared = await command('library.chooseDuplicate', { contextId: reopened.result.contextId, revision, id: null });
   assert.equal(cleared.ok, true, cleared.error); assert.equal(cleared.result.preferredId, null);
+  assert.equal((await host.library.query({ duplicates: 'possible' })).total, 4, 'clearing a keeper does not suppress duplicate candidates');
+  const kept = await command('library.keepDuplicateVersions', { contextId: reopened.result.contextId, revision });
+  assert.equal(kept.ok, true, kept.error); assert.equal(kept.result.keptAll, true);
+  assert.equal((await host.library.query({ duplicates: 'possible' })).total, 0);
+  assert.equal((await host.library.query()).total, 4);
+  assert.equal((await command('library.verifyAllDuplicates', {})).result.totalGroups, 0);
+  panel.destroy(); await host.stop(); panel = await host.open();
+  assert.equal((await host.library.query({ duplicates: 'possible' })).total, 0, 'kept groups survive a real worker reload');
   for (const [filename, bytes] of original) assert.equal(await fs.readFile(filename, 'utf8'), bytes);
   assert.deepEqual((await fs.readdir(songs)).sort(), ['A', 'B', 'C', 'D']);
   assert.equal(host.snapshot().state.nowPlaying, null);
@@ -1568,7 +1576,7 @@ test('native cleanup defaults to cancel and recycles only the explicitly selecte
   assert.equal(confirmations, 1);
   f.dialog.showMessageBox = async () => ({ response: 1 });
   const result = await f.command('library.recycleDuplicates', selection);
-  assert.equal(result.ok, true, result.error); assert.deepEqual(result.result.recycledIds, selection.ids); assert.deepEqual(result.result.failed, []); assert.equal(result.result.refreshRequested, true);
+  assert.equal(result.ok, true, result.error); assert.deepEqual(result.result.recycledIds, selection.ids); assert.deepEqual(result.result.failed, []); assert.equal(result.result.refreshRequested, false);
   assert.equal(recycled.length, 1);
   const remaining = await f.fs.readdir(f.songs); assert.equal(remaining.length, 2); assert.ok(remaining.includes('A'));
   const until = Date.now() + 5000;

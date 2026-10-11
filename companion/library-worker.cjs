@@ -7,6 +7,7 @@ const METHODS = new Set(['load', 'start', 'stop', 'selectRoot', 'configure', 're
 let lastRoot, lastRevision, stopping = false;
 METHODS.add('cancelDuplicateVerification');
 METHODS.add('cleanupHistory');
+METHODS.add('keepDuplicateVersions');
 METHODS.add('resolveRequestSong');
 METHODS.add('resolvePlaybackSong');
 METHODS.add('queryPlayback');

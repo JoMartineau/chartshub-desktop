@@ -35,6 +35,8 @@ async function fixture(t, hooks = {}) {
   const scans = [], recycled = [];
   const { createInstalledLibraryService } = await injected('../companion/library-service.cjs', {
     './library-cleanup.cjs': cleanupModule,
+    'node:fs': { ...require('node:fs'), ...(hooks.watch ? { watch: hooks.watch } : {}) },
+    'node:fs/promises': { ...fs, ...hooks.fsOverrides },
     './library-scanner.cjs': { scanLibrary: async options => { scans.push(options.mode); return scanLibrary(options); } }
   });
   const service = createInstalledLibraryService({ dataDirectory, recycle: async target => { recycled.push(target); await hooks.recycle?.(target, base); } });
@@ -43,6 +45,7 @@ async function fixture(t, hooks = {}) {
     if (path.dirname(path.resolve(base)) !== path.resolve(os.tmpdir()) || !path.basename(base).startsWith('chartshub-cleanup-integration-')) throw Error('Unexpected cleanup fixture');
     await fs.rm(base, { recursive: true, force: true });
   });
+  await hooks.beforeScan?.({ root, base });
   await service.selectRoot(root); await settled(service);
   assert.equal(service.status().status, 'ready'); assert.equal(service.status().count, 3);
   await hooks.afterScan?.({ root, base, service });
@@ -72,7 +75,7 @@ test('service protects the root, index and preferred choice throughout preparati
   assert.equal((await f.service.cleanupReview(f.selection(plan))).keep.id, f.preparation.keepId);
 });
 
-test('native recycle of selected fixture copies starts exactly one quick refresh and keeps preferred notes', async t => {
+test('native recycle removes only selected copies from the index without scanning and keeps preferred notes', async t => {
   const f = await fixture(t, { recycle: async (target, base) => {
     const fixtureRoot = path.join(base, 'songs'), folder = path.basename(target);
     assert.equal(path.dirname(target), fixtureRoot); assert.notEqual(folder, 'A');
@@ -81,8 +84,9 @@ test('native recycle of selected fixture copies starts exactly one quick refresh
   } });
   const plan = await f.prepare(), candidate = plan.candidates[1], before = f.service.status().revision;
   const result = await f.service.recycleDuplicates({ planId: plan.planId, revision: plan.revision, ids: [candidate.id] });
-  assert.deepEqual(result, { recycledIds: [candidate.id], failed: [], cancelled: false, refreshRequested: true });
-  await settled(f.service); assert.deepEqual(f.scans, ['full', 'quick']); assert.equal(f.service.status().revision, before + 1);
+  assert.deepEqual(result, { recycledIds: [candidate.id], failed: [], cancelled: false, refreshRequested: false });
+  await settled(f.service); assert.deepEqual(f.scans, ['full']); assert.equal(f.service.status().revision, before + 1);
+  assert.equal(f.service.status().cleanupRefreshPending, true);
   assert.equal(f.service.status().count, 2); assert.deepEqual(f.service.status().changes, { added: 0, removed: 1, modified: 0 });
   assert.ok(f.service.query().items.some(item => item.id === f.preparation.keepId)); assert.equal(f.recycled.length, 1);
   assert.match(await fs.readFile(path.join(f.root, 'A', 'notes.chart'), 'utf8'), /Song/);
@@ -99,7 +103,7 @@ test('service blocks concurrent mutations while native recycling runs and stop d
   assert.equal(result.recycledIds.length, 1); assert.equal(result.cancelled, true); assert.equal(result.refreshRequested, false);
   assert.equal(f.recycled.length, 1); assert.deepEqual(f.scans, ['full']);
   await f.service.configure({ refreshOnStart: false }); await f.service.start();
-  assert.equal(f.service.status().count, 3, 'fake recycling leaves these fixture files intact');
+  assert.equal(f.service.status().count, 2, 'native success retires the confirmed ID even while stopping');
 });
 
 test('stop aborts a pending preparation, prevents recycling, and service can compare again after restart', async t => {
@@ -172,4 +176,93 @@ test('legacy index remains browsable and preference persists, but cleanup requir
   assert.equal(comparison.preferredId, f.preparation.keepId);
   plan = await service.prepareCleanup({ contextId: comparison.contextId, revision: comparison.revision, keepId: comparison.preferredId });
   assert.ok(plan.candidates.every(candidate => candidate.eligible));
+});
+
+test('successive delete-anyway actions update the index immediately and perform one explicit scan at the end', async t => {
+  const f = await fixture(t, { beforeScan: async ({ root }) => {
+    await fs.writeFile(path.join(root, 'B', 'cover.png'), 'B extra');
+    await fs.writeFile(path.join(root, 'C', 'cover.png'), 'C extra');
+  }, recycle: async (target, base) => {
+    const bin = path.join(base, 'fake-bin'); await fs.mkdir(bin, { recursive: true });
+    await fs.rename(target, path.join(bin, path.basename(target)));
+  } });
+  let preparation = f.preparation;
+  const originalScan = f.service.status().lastScanAt;
+  for (const folder of ['B', 'C']) {
+    const plan = await f.service.prepareCleanup(preparation), selected = plan.candidates.find(item => item.targetRelativePath === folder);
+    assert.equal(selected.forceable, true);
+    const revision = f.service.status().revision;
+    const result = await f.service.forceRecycleDuplicate({ planId: plan.planId, revision: plan.revision, id: selected.id });
+    assert.deepEqual(result.recycledIds, [selected.id]); assert.equal(result.refreshRequested, false);
+    assert.equal(f.service.status().revision, revision + 1); assert.equal(f.service.status().status, 'ready');
+    assert.equal(f.service.status().lastScanAt, originalScan); assert.equal(f.service.status().cleanupRefreshPending, true);
+    assert.ok(!f.service.query().items.some(item => item.id === selected.id));
+    assert.ok(!f.service.matchingSnapshot().items.some(item => item.id === selected.id));
+    await assert.rejects(f.service.cleanupForceReview({ planId: plan.planId, revision: plan.revision, id: selected.id }), { code: 'LIBRARY_CLEANUP_SAFE' });
+    assert.deepEqual(f.scans, ['full']);
+    if (folder === 'B') {
+      const comparison = await f.service.compareDuplicates({ id: f.preparation.keepId, revision: f.service.status().revision });
+      assert.equal(comparison.preferredId, f.preparation.keepId);
+      preparation = { contextId: comparison.contextId, revision: comparison.revision, keepId: comparison.preferredId };
+    }
+  }
+  assert.equal(f.service.query({ duplicates: 'possible' }).total, 0);
+  const persisted = JSON.parse(await fs.readFile(path.join(f.base, 'profile', 'library.json'), 'utf8'));
+  assert.equal(persisted.items.length, 1); assert.equal(persisted.items[0].id, f.preparation.keepId);
+  f.service.requestScan('quick'); await settled(f.service);
+  assert.deepEqual(f.scans, ['full', 'quick']); assert.equal(f.service.status().cleanupRefreshPending, false);
+});
+
+test('startup refresh waits for the explicit final scan when cleanup is pending', async t => {
+  const f = await fixture(t, { recycle: async (target, base) => {
+    await fs.rename(target, path.join(base, 'recycled-copy'));
+  } });
+  await f.service.configure({ refreshOnStart: true });
+  const plan = await f.prepare();
+  await f.service.recycleDuplicates({ planId: plan.planId, revision: plan.revision, ids: [plan.candidates[0].id] });
+  await f.service.stop(); await f.service.start();
+  assert.equal(f.service.status().status, 'ready');
+  assert.equal(f.service.status().cleanupRefreshPending, true);
+  assert.equal(f.service.status().count, 2);
+  assert.deepEqual(f.scans, ['full'], 'restart does not interrupt the pending cleanup session with an automatic refresh');
+  f.service.requestScan('quick'); await settled(f.service);
+  assert.deepEqual(f.scans, ['full', 'quick']);
+  assert.equal(f.service.status().cleanupRefreshPending, false);
+  await f.service.stop(); await f.service.start(); await settled(f.service);
+  assert.deepEqual(f.scans, ['full', 'quick', 'quick'], 'ordinary startup refresh resumes after the final scan');
+});
+
+test('watcher events are deferred throughout cleanup until the explicit final scan succeeds', async t => {
+  let changed;
+  const f = await fixture(t, { watch: (_root, _options, callback) => { changed = callback; return { on() {}, close() {} }; },
+    recycle: async (target, base) => {
+      const bin = path.join(base, 'fake-bin'); await fs.mkdir(bin, { recursive: true });
+      await fs.rename(target, path.join(bin, path.basename(target))); changed('rename', path.basename(target));
+    } });
+  await f.service.configure({ watch: true, refreshOnStart: false }); await f.service.start();
+  const plan = await f.prepare();
+  await f.service.recycleDuplicates({ planId: plan.planId, revision: plan.revision, ids: [plan.candidates[0].id] });
+  changed('change', 'C/song.ogg'); await delay(850);
+  assert.deepEqual(f.scans, ['full']); assert.equal(f.service.status().status, 'ready');
+  f.service.requestScan('quick'); await settled(f.service); assert.equal(f.service.status().cleanupRefreshPending, false);
+  assert.deepEqual(f.scans, ['full', 'quick']);
+  changed('change', 'A/song.ogg'); await delay(850); await settled(f.service);
+  assert.deepEqual(f.scans, ['full', 'quick', 'quick'], 'watching resumes after the explicit final scan');
+});
+
+test('partial native failure retires only successful copies and a failed index save keeps the live list accurate', async t => {
+  let recycleCalls = 0, failWrite = false;
+  const f = await fixture(t, { fsOverrides: { open: async (...args) => {
+    if (failWrite && args[1] === 'wx') throw Object.assign(Error('Fixture disk failure'), { code: 'EACCES' });
+    return fs.open(...args);
+  } }, recycle: async (target, base) => {
+    if (++recycleCalls === 2) throw Error('Fixture native recycle failure');
+    await fs.rename(target, path.join(base, 'recycled-B')); failWrite = true;
+  } });
+  const plan = await f.prepare(), result = await f.service.recycleDuplicates(f.selection(plan));
+  assert.deepEqual(result.recycledIds, [plan.candidates[0].id]); assert.equal(result.failed.length, 1);
+  assert.deepEqual(f.service.query().items.map(item => item.relativePath), ['A/notes.chart', 'C/notes.chart']);
+  assert.equal(f.service.status().cleanupRefreshPending, true); assert.match(f.service.status().error, /index n’a pas pu être enregistré/);
+  assert.deepEqual(f.scans, ['full']); failWrite = false;
+  f.service.requestScan('quick'); await settled(f.service); assert.equal(f.service.status().error, null);
 });

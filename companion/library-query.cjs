@@ -8,14 +8,15 @@ const normalize = value => value.normalize('NFC').toLowerCase();
 const completeField = value => value.trim().replace(/\s+/gu, ' ');
 
 /** Caches belong to one committed index; returned pages never share cached objects. */
-function createLibraryQuery({ textFields, publicFields }) {
+function createLibraryQuery({ textFields, publicFields, isGroupKept = () => false, preferenceToken = () => null }) {
   const searchFields = [...textFields, 'relativePath'];
   const duplicateFields = ['title', 'artist', 'charter'].map(field => searchFields.indexOf(field));
   const collator = new Intl.Collator(undefined, { sensitivity: 'base', numeric: true });
   let cache;
 
   function index(document) {
-    if (cache?.items === document.items && cache.revision === document.revision && cache.root === document.settings.rootPath) return cache;
+    const preferences = preferenceToken();
+    if (cache?.items === document.items && cache.revision === document.revision && cache.root === document.settings.rootPath && cache.preferences === preferences) return cache;
     const items = document.items, groups = new Map();
     const search = items.map((item, itemIndex) => {
       const fields = searchFields.map(field => normalize(item[field]));
@@ -29,13 +30,16 @@ function createLibraryQuery({ textFields, publicFields }) {
       }
       return fields;
     });
-    const duplicates = new Map();
+    const duplicates = new Map(), kept = new Set();
     for (const group of groups.values()) {
       if (typeof group === 'number') continue;
       const count = new Set(group.map(itemIndex => items[itemIndex].relativePath)).size;
-      if (count > 1) for (const itemIndex of group) duplicates.set(itemIndex, count);
+      if (count > 1) {
+        const keepAll = isGroupKept(document.settings.rootPath, group.map(itemIndex => items[itemIndex]));
+        for (const itemIndex of group) { duplicates.set(itemIndex, count); if (keepAll) kept.add(itemIndex); }
+      }
     }
-    cache = { items, revision: document.revision, root: document.settings.rootPath, search, duplicates, orders: new Map(), results: new Map() };
+    cache = { items, revision: document.revision, root: document.settings.rootPath, preferences, search, duplicates, kept, orders: new Map(), results: new Map() };
     return cache;
   }
 
@@ -61,7 +65,7 @@ function createLibraryQuery({ textFields, publicFields }) {
       const order = ordered(state, sort);
       matches = !needle && audio === 'all' && duplicates === 'all' ? order : order.filter(itemIndex =>
         (audio === 'all' || state.items[itemIndex].audio === audio) &&
-        (duplicates === 'all' || state.duplicates.has(itemIndex)) &&
+        (duplicates === 'all' || (state.duplicates.has(itemIndex) && !state.kept.has(itemIndex))) &&
         (!needle || state.search[itemIndex].some(field => field.includes(needle))));
     }
     // Offset/limit are deliberately excluded: every page reuses the same result.
@@ -73,6 +77,7 @@ function createLibraryQuery({ textFields, publicFields }) {
         const result = Object.fromEntries(publicFields.map(field => [field, item[field]]));
         const duplicateCount = state.duplicates.get(itemIndex);
         if (duplicateCount) result.duplicateCount = duplicateCount;
+        if (state.kept.has(itemIndex)) result.keptAll = true;
         return result;
       }),
       total: matches.length, offset, limit, revision: document.revision

@@ -13,6 +13,7 @@ interface LibrarySummary {
   error: string | null;
   watcher: 'off' | 'watching' | 'unavailable';
   revision: number;
+  cleanupRefreshPending?: boolean;
   duplicateVerification?: { running: boolean; stopping?: boolean; processed: number; total: number } | null;
 }
 interface LibraryItem {
@@ -20,6 +21,7 @@ interface LibraryItem {
   album?: string; year?: string | number;
   format: 'chart' | 'midi' | 'sng'; audio: 'present' | 'missing' | 'unknown';
   duplicateCount?: number;
+  keptAll?: boolean;
   duplicateVerification?: 'ready' | 'needs_keeper' | 'blocked';
   verifiedEligibleCopies?: number;
 }
@@ -76,7 +78,7 @@ export class LibraryControls {
   private disposed = false;
 
   constructor(private readonly options: LibraryOptions) {
-    this.comparison = new DuplicateComparisonControls({ ...options, feedback: message => this.feedback(message) });
+    this.comparison = new DuplicateComparisonControls({ ...options, feedback: message => this.feedback(message), refreshIndex: () => this.scheduleQuery(0) });
     const signal = this.abort.signal;
     this.element('#library-choose-root').addEventListener('click', () => { void this.action('library.chooseRoot', {}); }, { signal });
     this.element('#library-scan-full').addEventListener('click', () => { void this.action('library.scan', { mode: 'full' }); }, { signal });
@@ -349,7 +351,7 @@ export class LibraryControls {
     const scanning = summary.status === 'scanning';
     const statuses = { idle: summary.settings.rootPath ? 'À analyser' : 'Choisir un dossier', scanning: summary.mode === 'quick' ? 'Actualisation en cours' : 'Scan complet en cours', ready: 'Bibliothèque à jour', cancelled: 'Analyse annulée', error: 'Analyse indisponible' };
     this.element('#library-count').textContent = `${count(summary.count)} morceau${summary.count > 1 ? 'x' : ''}`;
-    this.element('#library-status').textContent = statuses[summary.status];
+    this.element('#library-status').textContent = summary.status === 'ready' && summary.cleanupRefreshPending ? 'Actualisation finale en attente' : statuses[summary.status];
     this.element('#library-status').classList.toggle('is-visible', summary.status === 'ready');
     const root = this.element('#library-root'); root.textContent = summary.settings.rootPath ?? 'Aucun dossier sélectionné'; root.title = summary.settings.rootPath ?? '';
     this.element('#library-progress').hidden = !scanning && summary.status !== 'cancelled';
@@ -359,7 +361,9 @@ export class LibraryControls {
     const date = summary.lastScanAt === null ? null : new Date(summary.lastScanAt);
     this.element('#library-last-scan').textContent = date && !Number.isNaN(date.getTime()) ? `Dernière analyse : ${date.toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })}` : 'Aucune analyse effectuée';
     this.element('#library-changes').textContent = `+${count(summary.changes.added)} ajouté${summary.changes.added > 1 ? 's' : ''} · −${count(summary.changes.removed)} supprimé${summary.changes.removed > 1 ? 's' : ''} · ${count(summary.changes.modified)} modifié${summary.changes.modified > 1 ? 's' : ''}`;
-    this.element('#library-watcher').textContent = summary.watcher === 'watching' ? 'Changements du dossier surveillés' : summary.watcher === 'unavailable' ? 'Détection indisponible · utilisez Actualiser' : 'Détection désactivée';
+    this.element('#library-watcher').textContent = summary.cleanupRefreshPending ? 'Détection suspendue jusqu’à l’actualisation finale' : summary.watcher === 'watching' ? 'Changements du dossier surveillés' : summary.watcher === 'unavailable' ? 'Détection indisponible · utilisez Actualiser' : 'Détection désactivée';
+    this.element('#library-refresh').textContent = summary.cleanupRefreshPending ? 'Actualiser à la fin' : 'Actualiser';
+    this.element('#library-cleanup-refresh-note').hidden = !summary.cleanupRefreshPending;
     const warnings = this.element('#library-warnings'); warnings.hidden = !summary.warningCount && !summary.skippedCount;
     warnings.textContent = `${count(summary.warningCount)} avertissement${summary.warningCount > 1 ? 's' : ''} · ${count(summary.skippedCount)} élément${summary.skippedCount > 1 ? 's' : ''} ignoré${summary.skippedCount > 1 ? 's' : ''} lors de la dernière analyse.`;
     const error = this.element('#library-error'); error.hidden = !summary.error; error.textContent = summary.error ?? '';
@@ -399,8 +403,8 @@ export class LibraryControls {
       if (entry.duplicate.hidden) {
         entry.duplicate.textContent = ''; delete entry.duplicate.dataset.verification;
       } else {
-        entry.duplicate.dataset.verification = item.duplicateVerification ?? 'pending';
-        entry.duplicate.textContent = item.duplicateVerification === 'ready'
+        entry.duplicate.dataset.verification = item.keptAll ? 'kept' : item.duplicateVerification ?? 'pending';
+        entry.duplicate.textContent = item.keptAll ? 'Versions conservées' : item.duplicateVerification === 'ready'
           ? `Prêt à nettoyer · ${count(item.verifiedEligibleCopies ?? 0)} copie(s) vérifiée(s)`
           : item.duplicateVerification === 'needs_keeper' ? 'Choisir une version à garder'
           : item.duplicateVerification === 'blocked' ? 'Vérification bloquée'
@@ -467,7 +471,7 @@ export class LibraryControls {
       entry.open.disabled = unavailable || busy || firstPageLoading; entry.catalogue.disabled = unavailable || busy || firstPageLoading || scanning;
       entry.compare.disabled = unavailable || busy || firstPageLoading || scanning || entry.compare.hidden;
     }
-    this.comparison.update({ rootPath: this.summary?.settings.rootPath ?? null, revision: this.summary?.revision ?? 0, scanning, busy });
+    this.comparison.update({ rootPath: this.summary?.settings.rootPath ?? null, revision: this.summary?.revision ?? 0, scanning, busy, indexLoading: this.querying, cleanupRefreshPending: this.summary?.cleanupRefreshPending });
     this.renderBulkVerification();
   }
 }

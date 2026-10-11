@@ -42,6 +42,12 @@
 #local-player-more { display:block; margin:10px auto 0; }
 .local-player-document { background:transparent; }
 .local-player-window { margin:0; background:transparent; height:100vh; overflow:auto; }
+@media (forced-colors:none) {
+  .local-player-document,.local-player-window,.local-player-window :is(.local-player-results,.local-player-playlist-items) {
+    scrollbar-color:color-mix(in srgb,var(--floating-text,var(--muted)) 45%,transparent) transparent;
+  }
+  .local-player-document::-webkit-scrollbar-corner,.local-player-window::-webkit-scrollbar-corner,.local-player-window :is(.local-player-results,.local-player-playlist-items)::-webkit-scrollbar-corner { background:transparent; }
+}
 .local-player-window .local-music-player { padding:12px; min-height:100vh; background:var(--floating-background,#151719e6); color:var(--floating-text,#eef1f2); font-family:var(--floating-font,"Segoe UI",Arial,sans-serif); font-size:var(--floating-font-size,14px); }
 .local-player-window .local-player-heading { -webkit-app-region:drag; user-select:none; flex-wrap:wrap; }
 .local-player-window .local-player-brand { font-size:inherit; font-weight:700; color:inherit; flex:1; }

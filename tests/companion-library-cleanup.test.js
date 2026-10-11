@@ -57,7 +57,7 @@ async function fixture(t, hooks = {}) {
 }
 const safe = failure => failure.code === 'LIBRARY_CLEANUP_SAFE' && !failure.message.includes('Private');
 
-test('completed cleanup reports only the selection and true partial outcome before refreshing', async t => {
+test('completed cleanup reports only the selection and true partial outcome without requesting a scan', async t => {
   const events = []; let calls = 0;
   const f = await fixture(t, { recycle: async () => { if (++calls === 2) throw Error('Native recycle failed'); },
     onCompleted: async event => { events.push(event); assert.equal(f.service.busy(), true); assert.equal(f.refreshes, 0); } });
@@ -66,7 +66,7 @@ test('completed cleanup reports only the selection and true partial outcome befo
   assert.deepEqual(events[0].candidates.map(item => item.id), plan.candidates.map(item => item.id));
   assert.deepEqual(events[0].result.recycledIds, [plan.candidates[0].id]);
   assert.deepEqual(events[0].result.failed.map(item => item.id), [plan.candidates[1].id]);
-  assert.equal(events[0].mode, 'normal'); assert.equal(result.refreshRequested, true);
+  assert.equal(events[0].mode, 'normal'); assert.equal(result.refreshRequested, false);
 });
 
 test('history exceptions never hide a successful native recycle and invalid keeper requests create no record', async t => {
@@ -75,7 +75,7 @@ test('history exceptions never hide a successful native recycle and invalid keep
   let plan = await f.prepare();
   await assert.rejects(f.service.execute(f.select(plan, [plan.keepId])), safe); assert.equal(events, 0);
   plan = await f.prepare(); const result = await f.service.execute(f.select(plan, [plan.candidates[1].id]));
-  assert.deepEqual(result.recycledIds, [plan.candidates[1].id]); assert.equal(result.refreshRequested, true); assert.equal(events, 1);
+  assert.deepEqual(result.recycledIds, [plan.candidates[1].id]); assert.equal(result.refreshRequested, false); assert.equal(events, 1);
   assert.equal(result.historyError, 'Le nettoyage est terminé, mais son historique n’a pas pu être enregistré.');
 });
 
@@ -178,7 +178,7 @@ test('review rejects malformed, duplicate, unknown, keeper, stale and path-beari
 
 test('only the explicitly selected target is revalidated and passed to native recycling; plan becomes unusable', async t => {
   const f = await fixture(t), prepared = await f.prepare(), chosen = prepared.candidates[1];
-  assert.deepEqual(await f.service.execute(f.select(prepared, [chosen.id])), { recycledIds: [chosen.id], failed: [], cancelled: false, refreshRequested: true });
+  assert.deepEqual(await f.service.execute(f.select(prepared, [chosen.id])), { recycledIds: [chosen.id], failed: [], cancelled: false, refreshRequested: false });
   assert.deepEqual(f.recycled, [path.join(f.rootPath, 'C')]); assert.equal(f.refreshes, 1); assert.equal(f.service.busy(), false);
   assert.ok(f.checked.some(value => value.relativePath === 'A/notes.chart')); assert.ok(f.checked.some(value => value.relativePath === 'C/notes.chart'));
   assert.ok(!f.checked.some(value => value.relativePath === 'B/notes.chart'));
@@ -217,15 +217,27 @@ test('the first native failure stops remaining targets, preserves partial succes
   const prepared = await f.prepare(), result = await f.service.execute(f.select(prepared));
   assert.deepEqual(result.recycledIds, [prepared.candidates[0].id]);
   assert.deepEqual(result.failed.map(value => value.id), [prepared.candidates[1].id]); assert.ok(!result.failed[0].reason.includes('Private'));
-  assert.equal(f.recycled.length, 2); assert.equal(result.refreshRequested, true); assert.equal(f.refreshes, 1);
+  assert.equal(f.recycled.length, 2); assert.equal(result.refreshRequested, false); assert.equal(f.refreshes, 1);
 });
 
-test('changed keeper, changed candidate and an escaped checked target cause no recycle and one refresh', async t => {
+test('changed keeper, changed candidate and an escaped checked target cause no recycle and one completion callback', async t => {
   for (const bad of ['A/notes.chart', 'B/notes.chart', 'escape']) {
     const f = await fixture(t, { revalidate: async options => bad === options.relativePath ? null : bad === 'escape' && options.relativePath.startsWith('B/') ? path.join(options.rootPath, '..', 'private') : path.join(options.rootPath, options.expected.targetRelativePath) });
     const prepared = await f.prepare(), result = await f.service.execute(f.select(prepared));
     assert.equal(result.recycledIds.length, 0); assert.equal(result.failed.length, 1); assert.equal(f.recycled.length, 0); assert.equal(f.refreshes, 1);
   }
+});
+
+test('execution remains locked until confirmed IDs finish updating the index, and stop drains that update', async t => {
+  const entered = deferred(), gate = deferred();
+  const f = await fixture(t, { onCleaned: async () => { entered.resolve(); await gate.promise; } });
+  const plan = await f.prepare(), running = f.service.execute(f.select(plan, [plan.candidates[0].id]));
+  await entered.promise; assert.equal(f.service.busy(), true);
+  await assert.rejects(f.prepare(), safe);
+  let stopped = false; const stopping = f.service.stop().then(() => { stopped = true; });
+  await Promise.resolve(); assert.equal(stopped, false); gate.resolve();
+  const result = await running; await stopping;
+  assert.deepEqual(result.recycledIds, [plan.candidates[0].id]); assert.equal(result.refreshRequested, false);
 });
 
 test('root, revision, snapshot, context, preference and membership changes invalidate existing plans', async t => {

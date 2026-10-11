@@ -188,6 +188,8 @@ function validCommand(command, payload, widgetIds) {
   if (command === 'library.chooseDuplicate') return typeof payload.contextId === 'string' && /^[a-f0-9]{32}$/.test(payload.contextId)
     && (payload.id === null || (typeof payload.id === 'string' && /^[a-f0-9]{64}$/.test(payload.id)))
     && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && Object.keys(payload).every(key => ['id', 'revision', 'contextId'].includes(key));
+  if (command === 'library.keepDuplicateVersions') return typeof payload.contextId === 'string' && /^[a-f0-9]{32}$/.test(payload.contextId)
+    && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && Object.keys(payload).every(key => ['revision', 'contextId'].includes(key));
   if (command === 'library.settings') return typeof payload.watch === 'boolean' && typeof payload.refreshOnStart === 'boolean' && Object.keys(payload).every(key => ['watch','refreshOnStart'].includes(key));
   if (command === 'library.query') return typeof payload.query === 'string' && payload.query.length <= 200 && ['title','artist','charter'].includes(payload.sort)
     && Number.isSafeInteger(payload.offset) && payload.offset >= 0

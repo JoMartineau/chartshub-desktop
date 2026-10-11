@@ -829,7 +829,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         return { ok: true, result: await library.cancelDuplicateVerification() };
       } else if (command === 'library.cleanupHistory') {
         return { ok: true, result: await library.cleanupHistory(payload) };
-      } else if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate' || command === 'library.prepareCleanup') {
+      } else if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate' || command === 'library.keepDuplicateVersions' || command === 'library.prepareCleanup') {
         return { ok: true, result: await library[command.slice('library.'.length)](payload) };
       } else if (command === 'library.forceRecycleDuplicate') {
         const owner = panel, lifecycle = lifecycleRevision;
@@ -935,7 +935,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (['library.prepareCleanup', 'library.recycleDuplicates', 'library.forceRecycleDuplicate', 'library.verifyAllDuplicates'].includes(command) || error?.code === 'LIBRARY_CLEANUP_SAFE') {
         return { ok: false, error: ['LIBRARY_CLEANUP_SAFE', 'LIBRARY_COMPARISON_SAFE'].includes(error?.code) ? error.message : 'Le nettoyage n’a pas pu être terminé. Vérifiez les copies puis relancez la vérification.' };
       }
-      if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate') {
+      if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate' || command === 'library.keepDuplicateVersions') {
         return { ok: false, error: error?.code === 'LIBRARY_COMPARISON_SAFE' ? error.message : 'La comparaison n’a pas pu être terminée. Vérifiez les fichiers puis recomparez les versions.' };
       }
       if (command.startsWith('profile.')) {
