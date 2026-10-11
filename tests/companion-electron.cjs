@@ -11,6 +11,8 @@ const catalogueFixture = createCatalogueFixture();
 const { createDownloadFixture, verifyDownloads } = require('./companion-downloads-electron.cjs');
 const { verifyCloneHero } = require('./companion-clonehero-electron.cjs');
 const { verifyProfiles } = require('./companion-profiles-electron.cjs');
+const { createSongRequestSharingFixture, verifySongRequests } = require('./companion-song-requests-electron.cjs');
+const songRequestSharingFixture = createSongRequestSharingFixture();
 const downloadFixture = createDownloadFixture();
 const data = path.resolve(process.argv[2] || path.join(__dirname, '../../companion-smoke'));
 app.setPath('userData', path.join(data, 'profile'));
@@ -155,6 +157,7 @@ async function verifyBuilder(panel, host) {
   await key('Z', [process.platform === 'darwin' ? 'meta' : 'control']);
   await waitFor(() => JSON.stringify(widget('song-title')) === JSON.stringify(movedTitle), 'keyboard undo resize');
   assert.equal(host.snapshot().editor.canRedo, true);
+  await waitFor(() => evaluate("!document.querySelector('#builder-redo').disabled"), 'renderer ready for keyboard redo');
   await key('Z', [process.platform === 'darwin' ? 'meta' : 'control', 'shift']);
   await waitFor(() => JSON.stringify(widget('song-title')) === JSON.stringify(resizedTitle), 'keyboard redo resize');
   await screenshot('companion-builder-undo-redo.png');
@@ -543,7 +546,7 @@ async function verifyThemes(panel, host) {
 app.whenReady().then(async () => {
   try {
     await fs.mkdir(data, { recursive: true });
-    host = await createCompanionHost({ dataDirectory: path.join(data, 'settings'), catalogueClient: catalogueFixture.client, downloadWorker: downloadFixture.worker, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }) });
+    host = await createCompanionHost({ dataDirectory: path.join(data, 'settings'), catalogueClient: catalogueFixture.client, downloadWorker: downloadFixture.worker, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }), sharingClient: songRequestSharingFixture.client });
     const panel = await host.open();
     const evaluate = code => panel.webContents.executeJavaScript(code);
     const count = () => evaluate("document.querySelectorAll('#game-preview .companion-widget').length");
@@ -616,6 +619,7 @@ app.whenReady().then(async () => {
     await verifyDownloads(panel, host, data, passed, downloadFixture);
     await verifyCloneHero({ host, panel, data, passed, waitFor });
     await verifyProfiles({ host, panel, data, passed, waitFor });
+    await verifySongRequests(panel, host, data, passed, songRequestSharingFixture);
     await host.dispose(); host = null;
     await fs.writeFile(path.join(data, 'electron-check.txt'), 'PASS\n' + passed.join('\n') + '\n');
     console.log('PASS companion Electron: ' + passed.length + ' integration checks');

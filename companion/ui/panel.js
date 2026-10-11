@@ -15,6 +15,7 @@ import { FiltersControls } from './filters-controls.js';
 import { ReShadeControls } from './reshade-controls.js';
 import { ReShadeSetupControls } from './reshade-setup-controls.js';
 import { ProfileControls } from '../dist/settings/ProfileControls.js';
+import { SongRequestControls } from '../dist/settings/SongRequestControls.js';
 
 const api = window.ChartsHubCompanion;
 const query = selector => document.querySelector(selector);
@@ -54,6 +55,7 @@ const builder = new WidgetBuilder({
 const themes = new ThemeControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const stream = new StreamControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
+const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
 const cleanupHistory = new CleanupHistoryControls({ root: query('#library-history-container'), command: (name, payload) => command(name, payload) });
 const floatingPanels = new FloatingPanelsControls({ root: query('#floating-panels-settings'), command: (name, payload) => command(name, payload) });
 const catalogue = new CatalogueControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
@@ -172,6 +174,7 @@ function applySnapshot(snapshot) {
   reshade.update(snapshot);
   reshadeSetup.update(snapshot);
   profiles.update(snapshot);
+  songRequests.update(snapshot);
   themePreview.render({
     ...state,
     gameplay: { state: 'playing', isChartActive: true },
@@ -260,12 +263,13 @@ async function command(name, payload, control) {
   const downloadsCommand = name.startsWith('downloads.');
   const sourceCommand = name.startsWith('clonehero.');
   const profileCommand = name.startsWith('profile.');
+  const songRequestCommand = name.startsWith('songRequests.');
   const filtersCommand = name.startsWith('filters.') || name.startsWith('reshade.');
   if (!libraryQuery && !catalogueCommand && !downloadsCommand && !sourceCommand && !filtersCommand && !profileCommand) controls.feedback.hidden = true;
   if (control) control.disabled = true;
   try {
     const result = await api.command(name, payload);
-    if (catalogueCommand || downloadsCommand || sourceCommand || filtersCommand || profileCommand) {
+    if (catalogueCommand || downloadsCommand || sourceCommand || filtersCommand || profileCommand || songRequestCommand) {
       applySnapshot(result?.snapshot ?? await api.getSnapshot());
       return result;
     }
@@ -278,7 +282,7 @@ async function command(name, payload, control) {
     applySnapshot(result?.snapshot ?? await api.getSnapshot());
     return result;
   } catch {
-    if (libraryQuery || catalogueCommand || downloadsCommand || sourceCommand || filtersCommand || profileCommand) return { ok: false };
+    if (libraryQuery || catalogueCommand || downloadsCommand || sourceCommand || filtersCommand || profileCommand || songRequestCommand) return { ok: false };
     showError('Le Companion ne répond pas à cette action. Réessayez dans un instant.');
     if (currentSnapshot) applySnapshot(currentSnapshot);
   } finally {
@@ -342,6 +346,7 @@ window.addEventListener('beforeunload', () => {
   reshade.dispose();
   reshadeSetup.dispose();
   profiles.dispose();
+  songRequests.dispose();
 }, { once: true });
 
 void connect();

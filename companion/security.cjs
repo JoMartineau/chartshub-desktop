@@ -32,6 +32,21 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (['songRequests.copyBridgeConfiguration', 'songRequests.copyOverlayUrl', 'songRequests.resetOrder', 'songRequests.publishLibrary', 'songRequests.removeLibrary', 'songRequests.copyLibraryUrl'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (command === 'songRequests.configure') {
+    const { INSTRUMENTS, DIFFICULTIES } = require('./song-requests.cjs');
+    const rules = payload?.rules;
+    return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 3 && Object.keys(payload).every(key => ['enabled', 'port', 'rules'].includes(key))
+      && typeof payload.enabled === 'boolean' && Number.isInteger(payload.port) && payload.port >= 1024 && payload.port <= 65535
+      && !!rules && typeof rules === 'object' && !Array.isArray(rules) && Object.keys(rules).length === 3 && Object.keys(rules).every(key => ['maxDurationMinutes', 'instrument', 'difficulty'].includes(key))
+      && (rules.maxDurationMinutes === null || (Number.isInteger(rules.maxDurationMinutes) && rules.maxDurationMinutes >= 1 && rules.maxDurationMinutes <= 60))
+      && INSTRUMENTS.includes(rules.instrument) && DIFFICULTIES.includes(rules.difficulty);
+  }
+  if (['songRequests.accept', 'songRequests.reject', 'songRequests.played', 'songRequests.move'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(payload.id)
+    && Object.keys(payload).length === (command === 'songRequests.move' ? 2 : 1)
+    && Object.keys(payload).every(key => ['id', ...(command === 'songRequests.move' ? ['direction'] : [])].includes(key))
+    && (command !== 'songRequests.move' || ['up', 'down'].includes(payload.direction));
   if (['mock.next', 'mock.reset', 'editor.undo', 'editor.redo'].includes(command)) return payload === undefined || payload === null;
   if (['stream.copyUrl', 'library.chooseRoot', 'library.cancel', 'library.verifyAllDuplicates', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'library.cancelDuplicateVerification') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);

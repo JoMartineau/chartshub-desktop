@@ -11,6 +11,7 @@ if(profileIndex>=0&&process.argv[profileIndex+1])app.setPath('userData',path.res
 let desktop,web,companionHostPromise,closing=false,allowClose=false,companionAvailable=false,companionLanguage='en';
 let loadCatalogue=()=>{},canOpenCompanion=async()=>false;
 let notificationBroker=null;
+let songRequestSharing=null;
 let requestedTab=process.argv.includes('--companion')?'companion':'catalogue';
 const focusWindow=()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
 const openCompanion=async()=>{
@@ -19,7 +20,7 @@ const openCompanion=async()=>{
  if(closing)return;
  if(!await canOpenCompanion()){if(!closing&&requestedTab==='companion')await selectTab('catalogue');return;}
  if(closing||requestedTab!=='companion')return;
- if(!companionHostPromise)companionHostPromise=createCompanionHost({isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
+ if(!companionHostPromise)companionHostPromise=createCompanionHost({sharingClient:songRequestSharing,isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
  const host=await companionHostPromise;
  host.setLanguage?.(companionLanguage);
  if(closing||!companionAvailable||requestedTab!=='companion')return;
@@ -82,6 +83,7 @@ else{
   const catalogueAlive=()=>win&&!win.isDestroyed()&&web&&!web.isDestroyed();
   const downloads=createAccountBoundDownloads({readAccount,cancel:()=>job?.abort(),publish:snapshot=>{if(catalogueAlive()&&trusted(web.getURL()))web.send('chartshub:download-state',snapshot);}});
   let accountRevision=0;
+  songRequestSharing=require('./desktop/song-request-sharing.cjs').createSongRequestSharing({fetcher:(url,options)=>ses.fetch(url,options),readAccount,generation:()=>accountRevision});
   const syncCatalogueAccess=()=>{if(companionHostPromise)void companionHostPromise.then(host=>host.setCatalogueAvailable(companionAvailable&&!closing)).catch(()=>{});};
   const refreshAccount=async()=>{
    const revision=accountRevision,result=await downloads.refresh();

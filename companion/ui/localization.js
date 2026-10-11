@@ -272,7 +272,7 @@
     [/^Audio vérifié · (.+) fichier\(s\) · (.+) octets$/, m => `Audio verified · ${m[1]} file(s) · ${m[2]} bytes`]
   ];
 
-  const blocked = 'code,pre,.companion-widget,.library-relative-path,.library-variant-path,.library-variant h4,.library-variant-metadata,.catalogue-item h3,.catalogue-item-artist,.catalogue-item-details,.download-item h3,.download-destination,.profile-item-name,#clonehero-file-path,#library-root,#downloads-root,#reshade-root,#filters-root,#reshade-preset';
+  const blocked = '#song-requests-panel,code,pre,.companion-widget,.library-relative-path,.library-variant-path,.library-variant h4,.library-variant-metadata,.catalogue-item h3,.catalogue-item-artist,.catalogue-item-details,.download-item h3,.download-destination,.profile-item-name,#clonehero-file-path,#library-root,#downloads-root,#reshade-root,#filters-root,#reshade-preset';
   const records = new WeakMap();
   const attrRecords = new WeakMap();
   const attrs = ['placeholder','title','aria-label'];

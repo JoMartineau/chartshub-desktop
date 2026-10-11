@@ -8,6 +8,8 @@ const { createLibraryQuery } = require('./library-query.cjs');
 const { createLibraryDuplicates } = require('./library-duplicates.cjs');
 const { createLibraryCleanup } = require('./library-cleanup.cjs');
 const { createLibraryCleanupHistory } = require('./library-cleanup-history.cjs');
+const { resolveInstalledSong } = require('./song-request-library.cjs');
+const { captureBundleSnapshot } = require('./chart-bundle.cjs');
 
 const VERSION = 1;
 const TEXT_FIELDS = ['title', 'artist', 'charter', 'album', 'year'];
@@ -396,7 +398,33 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     });
     return matchingCache;
   }
+  async function resolveRequestSong(id, context) {
+    const index = matchingSnapshot();
+    if (!context || context.rootKey !== index.rootKey || context.revision !== index.revision) throw safeError('La bibliothèque a changé. Réessayez votre demande.');
+    const item = document.items.find(value => value.id === id), root = document.settings.rootPath;
+    if (!item || !root || phase === 'scanning' || phase === 'error') throw safeError('Cette chanson n’est pas disponible dans la bibliothèque actuelle.');
+    const options = { rootPath: root, relativePath: item.relativePath, format: item.format };
+    if (!item.cleanupSnapshot || await captureBundleSnapshot(options) !== item.cleanupSnapshot) throw safeError('Cette chanson a changé depuis le scan. Actualisez la bibliothèque.');
+    const result = await resolveInstalledSong(root, item);
+    const current = matchingSnapshot();
+    if (current.rootKey !== index.rootKey || current.revision !== index.revision || await captureBundleSnapshot(options) !== item.cleanupSnapshot) throw safeError('La bibliothèque a changé. Réessayez votre demande.');
+    return result;
+  }
+  async function requestLibraryForSharing() {
+    const index = matchingSnapshot(), requestedEpoch = epoch;
+    if (!index.rootKey || !index.items.length || index.items.length > 10000 || run || stopTask || phase !== 'ready') throw safeError('Scannez une bibliothèque de 1 à 10 000 chansons avant de la partager.');
+    const songs = []; let unavailableCount = 0;
+    for (const item of index.items) {
+      if (requestedEpoch !== epoch || run || stopTask || phase !== 'ready' || matchingSnapshot().rootKey !== index.rootKey || matchingSnapshot().revision !== index.revision) throw safeError('La bibliothèque a changé. Relancez le partage après le scan.');
+      try { songs.push(await resolveRequestSong(item.id, index)); } catch { unavailableCount++; }
+      if (requestedEpoch !== epoch) throw safeError('Le partage de la bibliothèque a été arrêté.');
+    }
+    if (requestedEpoch !== epoch || run || stopTask || phase !== 'ready' || matchingSnapshot().rootKey !== index.rootKey || matchingSnapshot().revision !== index.revision || !songs.length) throw safeError('La bibliothèque n’est plus disponible.');
+    return { songs, unavailableCount, revision: index.revision, rootKey: index.rootKey };
+  }
   return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, verifyAllDuplicates, cancelDuplicateVerification, resolveSongFolder, matchingSnapshot,
+    resolveRequestSong,
+    requestLibraryForSharing,
     cleanupHistory: (options = {}) => history.list({ ...options, rootPath: document.settings.rootPath }),
     prepareCleanup: options => cleanupOperation('prepare', options), cleanupReview: options => cleanupOperation('review', options),
     cleanupForceReview: options => cleanupOperation('forceReview', options), recycleDuplicates: options => cleanupOperation('execute', options),

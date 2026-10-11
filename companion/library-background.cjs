@@ -140,7 +140,9 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     compareDuplicates: options => call('compareDuplicates', [options]), chooseDuplicate: options => call('chooseDuplicate', [options]),
     prepareCleanup: options => call('prepareCleanup', [options]), cleanupReview: options => call('cleanupReview', [options]), cleanupForceReview: options => call('cleanupForceReview', [options]),
     recycleDuplicates: options => call('recycleDuplicates', [options]), forceRecycleDuplicate: options => call('forceRecycleDuplicate', [options]),
-    query: options => call('query', [options]), resolveSongFolder: id => call('resolveSongFolder', [id])
+    query: options => call('query', [options]), resolveSongFolder: id => call('resolveSongFolder', [id]),
+    resolveRequestSong: (id, context) => call('resolveRequestSong', [id, context]),
+    requestLibraryForSharing: () => call('requestLibraryForSharing', [])
   };
 }
 

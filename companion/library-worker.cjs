@@ -7,6 +7,8 @@ const METHODS = new Set(['load', 'start', 'stop', 'selectRoot', 'configure', 're
 let lastRoot, lastRevision, stopping = false;
 METHODS.add('cancelDuplicateVerification');
 METHODS.add('cleanupHistory');
+METHODS.add('resolveRequestSong');
+METHODS.add('requestLibraryForSharing');
 const pending = new Set();
 const requests = new AsyncLocalStorage(), recycleRequests = new Map();
 let nextRecycleId = 0;
