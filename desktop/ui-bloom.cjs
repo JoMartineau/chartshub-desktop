@@ -55,7 +55,7 @@ async function createUIBloomStore(directory) {
   };
 }
 
-function createUIBloomIpc({ ipcMain, getContents, isAvailable, getDirectory, createStore = createUIBloomStore }) {
+function createUIBloomIpc({ ipcMain, getContents, isAvailable, getDirectory, createStore = createUIBloomStore, onSettings = () => {} }) {
   let disposed = false, busy = false, pending = Promise.resolve(), storePromise;
   function trusted(event) {
     try {
@@ -82,7 +82,10 @@ function createUIBloomIpc({ ipcMain, getContents, isAvailable, getDirectory, cre
         const nativeStore = await store();
         if (!trusted(event)) return { ok: false, error: 'unavailable' };
         const result = action === 'save' ? { settings: await nativeStore.save(settings) } : await nativeStore.read();
-        return trusted(event) ? { ok: true, ...result } : { ok: false, error: 'unavailable' };
+        if (!trusted(event)) return { ok: false, error: 'unavailable' };
+        // Only successfully read/saved settings are relayed; renderer previews stay local.
+        try { onSettings(model.normalize(result.settings)); } catch { /* A closed view cannot undo successful persistence. */ }
+        return { ok: true, ...result };
       } catch { return { ok: false, error: 'storage' }; }
       finally { busy = false; }
     })();

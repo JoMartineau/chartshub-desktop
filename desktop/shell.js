@@ -28,6 +28,9 @@
       document.documentElement.style.setProperty('--accent', state.theme.accent);
     }
     document.body.classList.toggle('mac', state.platform === 'darwin');
+    document.documentElement.dataset.chEconomy = state.buttonMotion?.economy === true ? 'on' : 'off';
+    if ([1, 3, 5].includes(state.buttonMotion?.hoverLift)) document.documentElement.style.setProperty('--ch-motion-hover-lift', `${state.buttonMotion.hoverLift}px`);
+    else document.documentElement.style.removeProperty('--ch-motion-hover-lift');
     document.querySelector('.shortcut').hidden = !state.companionAvailable;
   }
   function failed() {

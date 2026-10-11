@@ -1,4 +1,5 @@
 import { applyFloatingAppearance } from './floating-panels-controls.js';
+import { applyButtonMotion } from './button-motion.js';
 import { createCatalogueCard } from './catalogue-card.js';
 
 const tabs = ['search', 'downloads', 'recent'];
@@ -272,6 +273,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined' && document
   } });
   function update(snapshot) {
     if (!snapshot || disposed) return;
+    applyButtonMotion(document.documentElement, snapshot.buttonMotion);
     if (snapshot.language && window.ChartshubCompanionLanguage?.get() !== snapshot.language) window.ChartshubCompanionLanguage?.apply(snapshot.language);
     controls.update(snapshot);
   }

@@ -270,7 +270,10 @@ test('OBS opens three isolated native targets and player appearance is restricte
   assert.equal(player.options.movable, true); assert.equal(player.options.resizable, true);
   assert.deepEqual(player.alwaysOnTop, { value: true, level: 'screen-saver' });
   const playerSnapshot = f.handlers.get('companion:snapshot')(f.eventFor(player));
-  assert.deepEqual(Object.keys(playerSnapshot).sort(), ['floatingPanels', 'language', 'player']);
+  assert.deepEqual(Object.keys(playerSnapshot).sort(), ['buttonMotion', 'floatingPanels', 'language', 'player']);
+  assert.deepEqual(playerSnapshot.buttonMotion, { economy: false });
+  f.host.setButtonMotion({ economy: false, hoverLift: 3 });
+  assert.deepEqual(f.handlers.get('companion:snapshot')(f.eventFor(player)).buttonMotion, { economy: false, hoverLift: 3 });
   assert.deepEqual(Object.keys(playerSnapshot.floatingPanels.appearance), ['player']);
   assert.equal(JSON.stringify(playerSnapshot).includes(f.directory), false);
   assert.equal(playerSnapshot.player.selection, null); assert.equal(playerSnapshot.player.playing, false);
@@ -565,7 +568,8 @@ test('filter widget has isolated reads and cannot install modules or control the
   assert.equal(widget.options.alwaysOnTop, true);
   assert.equal(host.getOverlay().options.focusable, false);
   const snapshot = handlers.get('companion:snapshot')(eventFor(widget));
-  assert.deepEqual(Object.keys(snapshot).sort(), ['filters', 'filtersWidgetEnabled', 'floatingPanels', 'language', 'reshade']);
+  assert.deepEqual(Object.keys(snapshot).sort(), ['buttonMotion', 'filters', 'filtersWidgetEnabled', 'floatingPanels', 'language', 'reshade']);
+  assert.deepEqual(snapshot.buttonMotion, { economy: false });
   assert.equal(snapshot.filters.rootPath, undefined);
   assert.equal(snapshot.filters.message, undefined);
   for (const name of ['filters.install', 'filters.restore', 'filters.chooseRoot', 'filters.refresh', 'downloads.chooseRoot']) assert.equal((await invoke(widget, name)).ok, false);

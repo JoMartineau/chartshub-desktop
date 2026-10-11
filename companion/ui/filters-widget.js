@@ -1,6 +1,7 @@
 import { FiltersControls } from './filters-controls.js';
 import { ReShadeControls } from './reshade-controls.js';
 import { applyFloatingAppearance } from './floating-panels-controls.js';
+import { applyButtonMotion } from './button-motion.js';
 const api = window.ChartsHubCompanion;
 let disposed = false, received = false, unsubscribe = () => {};
 const command = async (name, payload) => {
@@ -13,6 +14,7 @@ const reshade = new ReShadeControls({ root: document.querySelector('#reshade-wid
 function update(snapshot) {
   if (snapshot.language) window.ChartshubCompanionLanguage?.apply(snapshot.language);
   applyFloatingAppearance(document.body, snapshot.floatingPanels?.appearance?.filters);
+  applyButtonMotion(document.documentElement, snapshot.buttonMotion);
   controls.update(snapshot); reshade.update(snapshot);
 }
 document.querySelector('#filters-widget-close').addEventListener('click', () => window.close());

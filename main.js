@@ -12,6 +12,7 @@ let desktop,web,companionHostPromise,closing=false,allowClose=false,companionAva
 let loadCatalogue=()=>{},canOpenCompanion=async()=>false;
 let notificationBroker=null;
 let songRequestSharing=null;
+let buttonMotion={economy:false};
 let requestedTab=process.argv.includes('--companion')?'companion':'catalogue';
 const focusWindow=()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
 const openCompanion=async()=>{
@@ -23,6 +24,7 @@ const openCompanion=async()=>{
  if(!companionHostPromise)companionHostPromise=createCompanionHost({sharingClient:songRequestSharing,isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
  const host=await companionHostPromise;
  host.setLanguage?.(companionLanguage);
+ host.setButtonMotion?.(buttonMotion);
  if(closing||!companionAvailable||requestedTab!=='companion')return;
  return host.open();
 };
@@ -58,7 +60,7 @@ else{
   ses.setPermissionRequestHandler((_web,permission,callback)=>callback(false));
   ses.setPermissionCheckHandler(()=>false);
   ses.on('will-download',(event)=>event.preventDefault());
-  desktop=createDesktopShell({cataloguePreferences:{session:ses,preload:path.join(__dirname,'preload.js'),additionalArguments:['--chartshub-tabbed'],contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,backgroundThrottling:false},onSelectTab:selectTab});
+  desktop=createDesktopShell({cataloguePreferences:{session:ses,preload:path.join(__dirname,'preload.js'),additionalArguments:['--chartshub-tabbed'],contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,backgroundThrottling:false},onSelectTab:selectTab,onButtonMotion:value=>{buttonMotion={...value};if(companionHostPromise&&!closing)void companionHostPromise.then(host=>host.setButtonMotion?.(buttonMotion)).catch(()=>{});}});
   win=desktop.window;web=desktop.catalogueView.webContents;
   if(process.platform==='win32')app.setAppUserModelId?.('ca.chartshub.desktop');
   notificationBroker=createDownloadNotifications({fetcher:(url,options)=>ses.fetch(url,options),probeGame:createCloneHeroProcessProbe(),language:()=>companionLanguage,

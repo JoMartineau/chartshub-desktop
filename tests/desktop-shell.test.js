@@ -3,6 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const { pathToFileURL } = require('node:url');
 const { Module, createRequire } = require('node:module');
 const { EventEmitter } = require('node:events');
@@ -12,6 +13,7 @@ const deferred = () => { let resolve, reject; const promise = new Promise((yes, 
 
 function fixture(t, onSelectTab = async () => {}) {
   const handlers = new Map(), views = [];
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ch-shell-'));
   class FakeWeb extends EventEmitter {
     constructor() {
       super(); this.url = ''; this.mainFrame = { url: '' }; this.sent = []; this.destroyed = false; this.loading = false; this.reloads = 0; this.closes = 0; this.focuses = 0;
@@ -51,13 +53,13 @@ function fixture(t, onSelectTab = async () => {}) {
     isFullScreen() { return this.fullscreen; }
     setFullScreen(value) { this.fullscreen = value; this.emit(value ? 'enter-full-screen' : 'leave-full-screen'); }
   }
-  const electron = { BrowserWindow: FakeWindow, WebContentsView: FakeView, ipcMain: { handle: (name, handler) => { assert.ok(!handlers.has(name)); handlers.set(name, handler); }, removeHandler: name => handlers.delete(name) } };
+  const electron = { app: { getPath: () => directory }, BrowserWindow: FakeWindow, WebContentsView: FakeView, ipcMain: { handle: (name, handler) => { assert.ok(!handlers.has(name)); handlers.set(name, handler); }, removeHandler: name => handlers.delete(name) } };
   const filename = require.resolve('../desktop/controller.cjs'), loaded = new Module(filename, module), normal = createRequire(filename);
   loaded.filename = filename; loaded.paths = Module._nodeModulePaths(path.dirname(filename)); loaded.require = name => name === 'electron' ? electron : normal(name);
   loaded._compile(fs.readFileSync(filename, 'utf8'), filename);
   const preferences = { session: { partition: 'persist:chartshub' }, preload: '/catalogue/preload.js', sandbox: true, contextIsolation: true };
   const shell = loaded.exports.createDesktopShell({ cataloguePreferences: preferences, onSelectTab });
-  t.after(() => shell.dispose());
+  t.after(async () => { await shell.ready; await shell.dispose(); fs.rmSync(directory, { recursive: true, force: true }); });
   const event = () => ({ sender: shell.window.webContents, senderFrame: shell.window.webContents.mainFrame });
   const state = () => handlers.get('chartshub-shell:state')(event());
   const select = name => handlers.get('chartshub-shell:select-tab')(event(), name);

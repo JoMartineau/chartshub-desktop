@@ -16,13 +16,15 @@ export function normalize(value) {
   const p = value && typeof value === 'object' && !Array.isArray(value) && (value.version === undefined || value.version === 1) ? value : {};
   const out = { ...DEFAULTS, color: color(p.color) || DEFAULTS.color, enabled: p.enabled === true, economy: p.economy === true };
   for (const [key, [min, max]] of Object.entries(RANGES)) out[key] = typeof p[key] === 'number' && Number.isFinite(p[key]) ? Math.round(Math.max(min, Math.min(max, p[key]))) : DEFAULTS[key];
+  if (Object.hasOwn(p, 'hoverLift') && [1, 3, 5].includes(p.hoverLift)) out.hoverLift = p.hoverLift;
   return out;
 }
 // IPC and disk reads are strict, unlike the defensive renderer normalizer.
 export function validate(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const keys = Object.keys(DEFAULTS);
-  if (Object.keys(value).length !== keys.length || !keys.every(k => Object.hasOwn(value, k))) return null;
+  if (!keys.every(k => Object.hasOwn(value, k)) || Object.keys(value).some(k => !keys.includes(k) && k !== 'hoverLift')) return null;
+  if (Object.hasOwn(value, 'hoverLift') && ![1, 3, 5].includes(value.hoverLift)) return null;
   if (value.version !== 1 || typeof value.enabled !== 'boolean' || typeof value.economy !== 'boolean') return null;
   if (typeof value.color !== 'string' || !/^#[a-f\d]{6}$/i.test(value.color)) return null;
   if (!Object.entries(RANGES).every(([key, [min, max]]) => Number.isInteger(value[key]) && value[key] >= min && value[key] <= max)) return null;

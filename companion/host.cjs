@@ -70,6 +70,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let reshadeSetup = null, reshadeSetupStarting = false;
   let lifecycleRevision = 0;
   let language = 'fr';
+  let buttonMotion = { economy: false };
   const tr = (fr, en) => language === 'fr' ? fr : en;
   let preferredProfileId = null;
   const profileWrites = new Set();
@@ -152,15 +153,15 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     player: { canOpen: hostActive && !disposing && !stopTask && panelAlive(), title: CAPTURE_WINDOW_TITLES.player }
   });
   const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), sharing: { ...songRequestShare }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
-  const snapshot = () => ({ language, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const snapshot = () => ({ language, buttonMotion: { ...buttonMotion }, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
     return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
   };
-  const playerWidgetSnapshot = () => ({ language, player: musicPlayer.snapshot({ engine: true }), floatingPanels: floatingPanelSnapshot('player') });
+  const playerWidgetSnapshot = () => ({ language, buttonMotion: { ...buttonMotion }, player: musicPlayer.snapshot({ engine: true }), floatingPanels: floatingPanelSnapshot('player') });
   const catalogueWidgetSnapshot = () => {
     const value = downloads?.status();
-    return { language, catalogue: catalogue?.status(), catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanelSnapshot('catalogue'),
+    return { language, buttonMotion: { ...buttonMotion }, catalogue: catalogue?.status(), catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanelSnapshot('catalogue'),
       downloads: value ? { revision: value.revision, hasRoot: !!value.rootPath, error: value.error,
         items: value.items.map(item => Object.fromEntries(['id', 'chartId', 'title', 'artist', 'state', 'receivedBytes', 'totalBytes', 'completedFiles', 'totalFiles', 'error', 'updatedAt'].map(key => [key, item[key]]))) } : null };
   };
@@ -169,9 +170,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const status = filters?.status();
     const source = reshade?.status();
     const reshadeStatus = source ? { supported: source.supported, installed: source.installed, running: source.running, connected: source.connected, busy: source.busy, state: source.state, catalog: source.catalog ? { ...source.catalog, preset: source.catalog.preset ? path.basename(source.catalog.preset) : '' } : null } : null;
-    if (!status) return { filters: null, reshade: reshadeStatus, language, floatingPanels: floatingPanelSnapshot('filters') };
+    if (!status) return { filters: null, reshade: reshadeStatus, language, buttonMotion: { ...buttonMotion }, floatingPanels: floatingPanelSnapshot('filters') };
     const { settings, supported, installed, state, running, busy, native } = status;
-    return { filters: { settings, supported, installed, state, running, busy, native }, reshade: reshadeStatus, filtersWidgetEnabled, language, floatingPanels: floatingPanelSnapshot('filters') };
+    return { filters: { settings, supported, installed, state, running, busy, native }, reshade: reshadeStatus, filtersWidgetEnabled, language, buttonMotion: { ...buttonMotion }, floatingPanels: floatingPanelSnapshot('filters') };
   };
   function syncOverlay() {
     if (!overlay || overlay.isDestroyed()) return;
@@ -194,6 +195,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (catalogueAllowed() && catalogueWidget && !catalogueWidget.isDestroyed() && !catalogueWidget.webContents.isLoading()) catalogueWidget.webContents.send('companion:changed', catalogueWidgetSnapshot());
   }
   function setLanguage(value) { if (!['fr','en'].includes(value) || language === value) return language; language=value; publish(); return language; }
+  function setButtonMotion(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.economy !== 'boolean' || Object.keys(value).some(key => !['economy', 'hoverLift'].includes(key)) || (Object.hasOwn(value, 'hoverLift') && ![1, 3, 5].includes(value.hoverLift))) return false;
+    const next = { economy: value.economy, ...(Object.hasOwn(value, 'hoverLift') ? { hoverLift: value.hoverLift } : {}) };
+    if (JSON.stringify(buttonMotion) !== JSON.stringify(next)) { buttonMotion = next; if (!disposing) publish(); }
+    return true;
+  }
   const unsubscribe = services.store.subscribe(publish);
   // The index and expensive work stay in a worker. Progress only updates the panel,
   // without waking either overlay or exposing library paths to the OBS server.
@@ -1062,7 +1069,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     })();
     return disposeTask;
   }
-  return { open, stop, snapshot, services, integration, registry, setLanguage, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
+  return { open, stop, snapshot, services, integration, registry, setLanguage, setButtonMotion, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
     getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, getPlayerWidget: () => playerWindow, dispose
   };
 }
