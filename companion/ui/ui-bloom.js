@@ -139,7 +139,7 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   // The layout editor underneath may still be active. Modal keys belong only
   // to these appearance controls; Escape retains the native dialog behavior.
   dialog.addEventListener('keydown', event => event.stopPropagation());
-  dialog.addEventListener('close', () => { draft = paint(saved); fill(); trigger.focus(); });
+  dialog.addEventListener('close', () => { if (dialog.open) return; draft = paint(saved); fill(); trigger.focus(); });
   form.addEventListener('submit', async event => {
     event.preventDefault(); if (busy || !loaded || !form.reportValidity()) return;
     const candidate = model.validate(draft); if (!candidate) return;

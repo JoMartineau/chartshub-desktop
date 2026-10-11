@@ -106,6 +106,20 @@ app.whenReady().then(async()=>{
  await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open'),'bloom cancellation');
  assert.ok(fs.readFileSync(stored).equals(bytes),'Cancel does not persist the preview');
  assert.equal(await local.executeJavaScript('window.ChartshubBloom.read().color'),'#ff8000');
+ // A close notification from the preceding modal may arrive after it reopened.
+ // Deliver that notification against the real controls and native saved state.
+ await local.executeJavaScript('window.ChartshubBloom.open(); true');
+ await waitFor(()=>local.executeJavaScript('document.querySelector("#ch-bloom-dialog").open && !document.querySelector("#ch-bloom-apply").disabled'),'reopened theme ready');
+ assert.deepEqual(await local.executeJavaScript(`(()=>{
+  const dialog=document.querySelector('#ch-bloom-dialog'),hex=document.querySelector('#ch-bloom-hex');
+  hex.value='#00ffff';hex.dispatchEvent(new Event('input'));hex.focus();
+  const before=document.documentElement.style.getPropertyValue('--ch-bloom-shadow');
+  dialog.dispatchEvent(new Event('close'));
+  return {open:dialog.open,value:hex.value,previewRetained:document.documentElement.style.getPropertyValue('--ch-bloom-shadow')===before,focusRetained:document.activeElement===hex,saved:window.ChartshubBloom.read().color};
+ })()`),{open:true,value:'#00ffff',previewRetained:true,focusRetained:true,saved:'#ff8000'});
+ assert.ok(fs.readFileSync(stored).equals(bytes),'a stale close does not persist a new preview');
+ await local.executeJavaScript('document.querySelector("#ch-bloom-cancel").click(); true');
+ await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open && document.documentElement.style.getPropertyValue("--ch-bloom-shadow").includes("255, 128, 0")'),'normal close restores the saved theme');
  local.reload();
  await waitFor(()=>!local.isLoading(),'Companion reload');
  await waitFor(()=>local.executeJavaScript('Boolean(window.ChartshubBloom && window.ChartshubBloom.read().enabled && window.ChartshubBloom.read().color==="#ff8000")'),'reload restores native bloom');
