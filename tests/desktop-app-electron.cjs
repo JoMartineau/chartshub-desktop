@@ -111,12 +111,14 @@ app.whenReady().then(async()=>{
  await local.executeJavaScript('window.ChartshubBloom.open(); true');
  await waitFor(()=>local.executeJavaScript('document.querySelector("#ch-bloom-dialog").open && !document.querySelector("#ch-bloom-apply").disabled'),'reopened theme ready');
  assert.deepEqual(await local.executeJavaScript(`(()=>{
+  document.querySelector('#theme-interface-appearance').open=true;
   const dialog=document.querySelector('#ch-bloom-dialog'),hex=document.querySelector('#ch-bloom-hex');
   hex.value='#00ffff';hex.dispatchEvent(new Event('input'));hex.focus();
+  const focusBefore=document.activeElement===hex;
   const before=document.documentElement.style.getPropertyValue('--ch-bloom-shadow');
   dialog.dispatchEvent(new Event('close'));
-  return {open:dialog.open,value:hex.value,previewRetained:document.documentElement.style.getPropertyValue('--ch-bloom-shadow')===before,focusRetained:document.activeElement===hex,saved:window.ChartshubBloom.read().color};
- })()`),{open:true,value:'#00ffff',previewRetained:true,focusRetained:true,saved:'#ff8000'});
+  return {open:dialog.open,value:hex.value,previewRetained:document.documentElement.style.getPropertyValue('--ch-bloom-shadow')===before,focusBefore,focusRetained:document.activeElement===hex,saved:window.ChartshubBloom.read().color};
+ })()`),{open:true,value:'#00ffff',previewRetained:true,focusBefore:true,focusRetained:true,saved:'#ff8000'});
  assert.ok(fs.readFileSync(stored).equals(bytes),'a stale close does not persist a new preview');
  await local.executeJavaScript('document.querySelector("#ch-bloom-cancel").click(); true');
  await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open && document.documentElement.style.getPropertyValue("--ch-bloom-shadow").includes("255, 128, 0")'),'normal close restores the saved theme');
