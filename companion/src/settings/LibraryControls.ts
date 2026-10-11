@@ -471,7 +471,7 @@ export class LibraryControls {
       entry.open.disabled = unavailable || busy || firstPageLoading; entry.catalogue.disabled = unavailable || busy || firstPageLoading || scanning;
       entry.compare.disabled = unavailable || busy || firstPageLoading || scanning || entry.compare.hidden;
     }
-    this.comparison.update({ rootPath: this.summary?.settings.rootPath ?? null, revision: this.summary?.revision ?? 0, scanning, busy, cleanupRefreshPending: this.summary?.cleanupRefreshPending });
+    this.comparison.update({ rootPath: this.summary?.settings.rootPath ?? null, revision: this.summary?.revision ?? 0, scanning, busy, indexLoading: this.querying, cleanupRefreshPending: this.summary?.cleanupRefreshPending });
     this.renderBulkVerification();
   }
 }

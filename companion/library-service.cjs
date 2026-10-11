@@ -238,7 +238,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
       const requestedEpoch = epoch; await load();
       if (requestedEpoch !== epoch) return status();
       active = true; updateWatcher(); notify();
-      if (!blocked && document.settings.rootPath && document.settings.refreshOnStart) requestScan('quick');
+      if (!blocked && document.settings.rootPath && document.settings.refreshOnStart && !document.cleanupRefreshPending) requestScan('quick');
       return status();
     })();
     try { return await startTask; } finally { startTask = null; }

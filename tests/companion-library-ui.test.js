@@ -712,6 +712,63 @@ test('closing a resumed comparison discards its pending verification without res
   assert.equal(ui.calls.filter(call => call.name === 'library.recycleDuplicates').length, 1);
 });
 
+test('cleanup outcome is revealed after both the replacement rows and resumed plan settle, in either order', async t => {
+  for (const order of ['query-first', 'plan-first', 'verification-error']) {
+    const ui = await preparedCleanup(t); checkCleanup(ui, 'b'); ui.get('#library-cleanup-recycle').click();
+    const request = await ui.request(3), mark = ui.calls.length;
+    ui.controls.update(snapshot({ revision: 2, cleanupRefreshPending: true }));
+    request.resolve({ ok: true, result: { recycledIds: [variantId('b')], failed: [], cancelled: false, refreshRequested: false } });
+    const fresh = await namedCall(ui, 'library.compareDuplicates', mark), query = await namedCall(ui, 'library.query', mark);
+    const outcome = ui.get('#library-cleanup-result'), before = outcome.scrollCount;
+    const rows = () => ui.respond(query.index, { revision: 2, items: ['a', 'c', 'd'].map(letter => song(variantId(letter), { duplicateCount: 3 })) });
+    if (order === 'query-first') { await rows(); assert.equal(outcome.scrollCount, before, 'comparison still changes layout above the result'); }
+    fresh.call.resolve({ ok: true, result: remainingComparison(2, ['a', 'c', 'd']) });
+    const prepare = await namedCall(ui, 'library.prepareCleanup', fresh.index + 1);
+    prepare.call.resolve(order === 'verification-error' ? { ok: false, error: 'Fichiers changés depuis le scan.' } : {
+      ok: true, result: cleanupPlan({ revision: 2, contextId: 'f'.repeat(32), candidates: [cleanupTarget('c', { eligible: true }), cleanupTarget('d', { eligible: true })] }),
+    }); await tick();
+    if (order !== 'query-first') {
+      assert.equal(outcome.scrollCount, before, 'a pending index query can still grow the page'); await rows();
+    }
+    assert.equal(outcome.scrollCount, before + 1, 'the completed result is revealed again after the layout settles');
+    assert.equal(ui.document.activeElement, outcome);
+    assert.match(outcome.textContent, /1 copie\(s\) envoyée.*Version conservée : Charts\/a/s);
+    assert.equal(ui.get('#library-cleanup-plan').hidden, order === 'verification-error');
+    assert.equal(ui.get('#library-cleanup-recycle').disabled, true, 'reveal never selects or retries cleanup');
+    ui.controls.update(snapshot({ revision: 2, cleanupRefreshPending: true, progress: { visited: 120, processed: 110, discovered: 101 } }));
+    await tick(); assert.equal(outcome.scrollCount, before + 1, 'later snapshots do not steal the viewport again');
+  }
+});
+
+test('late resumed verification does not reclaim focus or scroll after user input, a new scan, closure or disposal', async t => {
+  for (const action of ['focus', 'wheel', 'scan', 'close', 'dispose']) {
+    const ui = await preparedCleanup(t); checkCleanup(ui, 'b'); ui.get('#library-cleanup-recycle').click();
+    const request = await ui.request(3), mark = ui.calls.length;
+    ui.controls.update(snapshot({ revision: 2, cleanupRefreshPending: true }));
+    request.resolve({ ok: true, result: { recycledIds: [variantId('b')], failed: [], cancelled: false, refreshRequested: false } });
+    const fresh = await namedCall(ui, 'library.compareDuplicates', mark), query = await namedCall(ui, 'library.query', mark);
+    fresh.call.resolve({ ok: true, result: remainingComparison(2, ['a', 'c', 'd']) });
+    const prepare = await namedCall(ui, 'library.prepareCleanup', fresh.index + 1);
+    const outcome = ui.get('#library-cleanup-result'), before = outcome.scrollCount;
+    if (action === 'focus') ui.get('#library-search').focus();
+    if (action === 'wheel') ui.root.dispatchEvent(new Event('wheel'));
+    if (action === 'close') ui.get('#library-comparison-close').click();
+    if (action === 'dispose') ui.controls.dispose();
+    const writes = ui.document.writes;
+    prepare.call.resolve({ ok: true, result: cleanupPlan({ revision: 2, contextId: 'f'.repeat(32), candidates: [cleanupTarget('d', { eligible: true })] }) });
+    if (action === 'scan') {
+      await tick(); // Verification settled, but the rows still hold the pending reveal.
+      ui.controls.update(snapshot({ revision: 2, status: 'scanning', cleanupRefreshPending: true }));
+      ui.controls.update(snapshot({ revision: 2, status: 'cancelled', cleanupRefreshPending: true }));
+    }
+    await ui.respond(query.index, { revision: 2, items: [song(variantId('a'), { duplicateCount: 3 })] });
+    assert.equal(outcome.scrollCount, before, 'the user controls the viewport once they move on');
+    if (action === 'focus') assert.equal(ui.document.activeElement, ui.get('#library-search'));
+    if (action === 'close') assert.equal(ui.get('#library-comparison').hidden, true);
+    if (action === 'dispose') assert.equal(ui.document.writes, writes);
+  }
+});
+
 test('a failed or cancelled final scan keeps the pending notice and explicit refresh action', async t => {
   const ui = await setup(t);
   ui.controls.update(snapshot({ cleanupRefreshPending: true })); await ui.respond(0);

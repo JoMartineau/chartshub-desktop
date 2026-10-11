@@ -11,7 +11,7 @@ interface ComparisonResult {
   summary: { total: number; readable: number; noteGroups: number; identicalGroups: number; unverified: number };
   variants: ComparisonVariant[];
 }
-interface ComparisonState { rootPath: string | null; revision: number; scanning: boolean; busy: boolean; cleanupRefreshPending?: boolean; }
+interface ComparisonState { rootPath: string | null; revision: number; scanning: boolean; busy: boolean; indexLoading?: boolean; cleanupRefreshPending?: boolean; }
 interface CleanupTarget {
   id: string; relativePath: string; targetRelativePath: string | null; kind: 'folder' | 'sng' | null; bytes: number | null;
   audio: { status: 'verified' | 'missing' | 'unavailable'; count: number; bytes: number };
@@ -62,10 +62,13 @@ export class DuplicateComparisonControls {
   private cleanupFocusAfterRefresh: { rootPath: string; revision: number } | null = null;
   private cleanupExecution: { rootPath: string; revision: number; keepId: string; variants: number } | null = null;
   private cleanupResume: { rootPath: string; revision: number; keepId: string } | null = null;
+  private cleanupReveal: { rootPath: string; revision: number; serial: number; interaction: number } | null = null;
+  private interactionSerial = 0;
   private needsReload = false;
   private disposed = false;
 
   constructor(private readonly options: ComparisonOptions) {
+    for (const type of ['pointerdown', 'keydown', 'wheel']) options.root.addEventListener(type, () => { this.interactionSerial++; }, { signal: this.abort.signal, passive: true });
     this.element('#library-comparison-close').addEventListener('click', () => { if (!this.executing) this.close(true); }, { signal: this.abort.signal });
     this.element('#library-comparison-retry').addEventListener('click', () => { void this.load(); }, { signal: this.abort.signal });
     this.element('#library-comparison-clear').addEventListener('click', () => { void this.keepAll(); }, { signal: this.abort.signal });
@@ -97,11 +100,12 @@ export class DuplicateComparisonControls {
       this.clearCleanup(); this.needsReload = true;
       this.feedback('La bibliothèque a changé. Relancez « Comparer » pour vérifier les versions actuelles.', true);
     }
-    if (interrupted || (changed && !cleanupChanged)) { this.cleanupResume = null; this.cleanupExecution = null; }
+    if (interrupted || (changed && !cleanupChanged)) { this.cleanupResume = null; this.cleanupExecution = null; this.cleanupReveal = null; }
     this.refreshAvailability();
     if (changed) this.cleanupFocusAfterRefresh = null;
     if (revealCleanupResult) this.revealCleanupResult();
     this.resumeCleanup();
+    this.finishCleanupReveal();
   }
 
   open(id: string, title: string, trigger: HTMLButtonElement): void {
@@ -128,6 +132,7 @@ export class DuplicateComparisonControls {
     this.preparing = false; this.clearCleanup();
     this.cleanupFocusAfterRefresh = null;
     this.cleanupResume = null;
+    this.cleanupReveal = null;
     this.clearCards(); this.element('#library-comparison').hidden = true;
     if (restoreFocus && this.trigger?.isConnected !== false) this.trigger?.focus({ preventScroll: true });
     this.trigger = null;
@@ -147,7 +152,7 @@ export class DuplicateComparisonControls {
     feedback.classList.toggle('is-error', error);
   }
 
-  private async load(): Promise<void> {
+  private async load(cleanupInteraction?: number): Promise<void> {
     if (this.disposed || !this.targetId || !this.state?.rootPath || this.state.scanning || this.state.busy || this.loading || this.saving || this.preparing || this.executing) return;
     const serial = ++this.serial, root = this.state.rootPath, revision = this.state.revision;
     let prepareAfterLoad = false;
@@ -176,7 +181,15 @@ export class DuplicateComparisonControls {
     } finally {
       if (this.current(serial, root, revision)) { this.loading = false; this.refreshAvailability(); }
     }
-    if (prepareAfterLoad && this.current(serial, root, revision) && this.cleanupAvailable()) await this.prepareCleanup();
+    let completedSerial = serial;
+    if (prepareAfterLoad && this.current(serial, root, revision) && this.cleanupAvailable()) {
+      completedSerial = this.serial + 1;
+      await this.prepareCleanup();
+    }
+    if (cleanupInteraction !== undefined && this.current(completedSerial, root, revision)) {
+      this.cleanupReveal = { rootPath: root, revision, serial: completedSerial, interaction: cleanupInteraction };
+      this.finishCleanupReveal();
+    }
   }
 
   private async choose(id: string | null): Promise<void> {
@@ -242,7 +255,18 @@ export class DuplicateComparisonControls {
       || this.state.revision !== resume.revision + 1 || !this.state.cleanupRefreshPending || this.state.scanning || this.state.busy) return;
     this.cleanupResume = null; this.targetId = resume.keepId;
     this.element('#library-comparison').hidden = false;
-    void this.load();
+    void this.load(this.interactionSerial);
+  }
+
+  private finishCleanupReveal(): void {
+    const pending = this.cleanupReveal;
+    if (!pending) return;
+    if (!this.current(pending.serial, pending.rootPath, pending.revision) || pending.interaction !== this.interactionSerial) { this.cleanupReveal = null; return; }
+    if (this.state?.indexLoading || this.loading || this.preparing || this.executing) return;
+    this.cleanupReveal = null;
+    // Both the rows and the automatically verified plan can grow above this
+    // outcome. Reveal it once after both settle, unless the user moved on.
+    if (this.options.root.ownerDocument.activeElement === this.element('#library-cleanup-result')) this.revealCleanupResult();
   }
 
   private async openFolder(id: string): Promise<void> {

@@ -213,6 +213,25 @@ test('successive delete-anyway actions update the index immediately and perform 
   assert.deepEqual(f.scans, ['full', 'quick']); assert.equal(f.service.status().cleanupRefreshPending, false);
 });
 
+test('startup refresh waits for the explicit final scan when cleanup is pending', async t => {
+  const f = await fixture(t, { recycle: async (target, base) => {
+    await fs.rename(target, path.join(base, 'recycled-copy'));
+  } });
+  await f.service.configure({ refreshOnStart: true });
+  const plan = await f.prepare();
+  await f.service.recycleDuplicates({ planId: plan.planId, revision: plan.revision, ids: [plan.candidates[0].id] });
+  await f.service.stop(); await f.service.start();
+  assert.equal(f.service.status().status, 'ready');
+  assert.equal(f.service.status().cleanupRefreshPending, true);
+  assert.equal(f.service.status().count, 2);
+  assert.deepEqual(f.scans, ['full'], 'restart does not interrupt the pending cleanup session with an automatic refresh');
+  f.service.requestScan('quick'); await settled(f.service);
+  assert.deepEqual(f.scans, ['full', 'quick']);
+  assert.equal(f.service.status().cleanupRefreshPending, false);
+  await f.service.stop(); await f.service.start(); await settled(f.service);
+  assert.deepEqual(f.scans, ['full', 'quick', 'quick'], 'ordinary startup refresh resumes after the final scan');
+});
+
 test('watcher events are deferred throughout cleanup until the explicit final scan succeeds', async t => {
   let changed;
   const f = await fixture(t, { watch: (_root, _options, callback) => { changed = callback; return { on() {}, close() {} }; },
