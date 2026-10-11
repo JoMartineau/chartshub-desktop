@@ -123,6 +123,16 @@ test('a native callback rejection sends a failure reply without leaking native e
   await assert.rejects(running, failure => failure.code === 'LIBRARY_CLEANUP_SAFE' && !failure.message.includes('Private'));
 });
 
+test('bulk progress snapshots are isolated and a crashed worker cannot leave cleanup controls busy', async t => {
+  const f = fakeFixture(t, { hold: ['prepareBulkCleanup'] }); await f.service.load();
+  const preparing = f.service.prepareBulkCleanup({}), rejected = assert.rejects(preparing, /indisponible/);
+  f.worker.emit('message', { type: 'change', state: { status: { ...f.service.status(), bulkCleanup: { phase: 'preparing', processed: 1, total: 3 } } } });
+  const status = f.service.status(); status.bulkCleanup.processed = 99;
+  assert.equal(f.service.status().bulkCleanup.processed, 1);
+  f.worker.emit('error', Error('private worker path')); await rejected;
+  assert.equal(f.service.status().status, 'error'); assert.equal(f.service.status().bulkCleanup, null);
+});
+
 async function realFixture(t, recycle = async () => {}) {
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'chartshub-cleanup-worker-'));
   const root = path.join(base, 'songs'), dataDirectory = path.join(base, 'profile');
@@ -179,6 +189,73 @@ test('real worker prepares, reviews and executes only selected bundles through t
   await until(() => f.service.status().status === 'ready');
   await assert.rejects(f.service.recycleDuplicates(selection), failure => failure.code === 'LIBRARY_CLEANUP_SAFE');
   assert.equal(f.calls.length, 1);
+});
+
+test('real worker carries different-note proof only through an explicit one-copy force RPC', async t => {
+  const { verifyNativeCleanup } = require('../companion/native-cleanup.cjs');
+  const f = await realFixture(t, async (target, proof) => {
+    assert.notEqual(proof.target.expected.notes.sha256, proof.keeper.expected.notes.sha256);
+    await verifyNativeCleanup({ root: f.root, keep: path.join(f.root, 'A'), target, proof });
+  });
+  await fs.appendFile(path.join(f.root, 'B', 'notes.chart'), '[ExpertDoubleBass]\n{\n 0 = N 2 192\n}\n');
+  await f.service.requestScan('full'); await until(() => f.service.status().status === 'ready');
+  const revision = f.service.status().revision;
+  const comparison = await f.service.compareDuplicates({ id: f.plan.keepId, revision });
+  assert.equal(comparison.preferredId, f.plan.keepId);
+  const plan = await f.service.prepareCleanup({ contextId: comparison.contextId, revision, keepId: f.plan.keepId });
+  const candidate = plan.candidates.find(value => value.targetRelativePath === 'B');
+  assert.equal(candidate.eligible, false); assert.equal(candidate.forceable, true);
+  assert.ok(candidate.differences.files.some(file => file.category === 'notes' && file.status === 'changed'));
+  const selection = { planId: plan.planId, revision, id: candidate.id };
+  await assert.rejects(f.service.cleanupReview({ planId: plan.planId, revision, ids: [candidate.id] }), { code: 'LIBRARY_CLEANUP_SAFE' });
+  const review = await f.service.cleanupForceReview(selection);
+  assert.deepEqual(review.candidates.map(value => value.id), [candidate.id]); assert.deepEqual(f.calls, []);
+  const result = await f.service.forceRecycleDuplicate(selection);
+  assert.deepEqual(result.recycledIds, [candidate.id]); assert.deepEqual(result.failed, []);
+  assert.equal(result.refreshRequested, false); assert.deepEqual(f.calls, [path.join(f.root, 'B')]);
+  const relay = f.received.filter(message => message.type === 'recycle'); assert.equal(relay.length, 1);
+  assert.equal(f.sent.find(message => message.id === relay[0].requestId && message.method)?.method, 'forceRecycleDuplicate');
+  assert.equal(relay[0].proof.target.relativePath, 'B/notes.chart'); assert.equal(relay[0].proof.keeper.relativePath, 'A/notes.chart');
+  assert.ok(!JSON.stringify(review).includes('identity'), 'proof stays private to worker and native host');
+  assert.equal(f.service.status().count, 2);
+  assert.ok((await f.service.query()).items.every(value => value.id !== candidate.id));
+  await assert.rejects(f.service.forceRecycleDuplicate(selection), { code: 'LIBRARY_CLEANUP_SAFE' });
+  for (const folder of ['A', 'B', 'C']) assert.equal((await fs.stat(path.join(f.root, folder))).isDirectory(), true, 'injected relay never calls the OS bin');
+});
+
+test('real worker bulk preparation and selected multi-keeper recycling use only the authorized bulk RPC', async t => {
+  const { verifyNativeCleanup } = require('../companion/native-cleanup.cjs');
+  const f = await realFixture(t, async (target, proof) => {
+    const keeper = path.basename(target) === 'B' ? 'A' : 'D';
+    assert.equal(proof.keeper.relativePath, keeper + '/notes.chart');
+    await verifyNativeCleanup({ root: f.root, keep: path.join(f.root, keeper), target, proof });
+  });
+  await fs.appendFile(path.join(f.root, 'B', 'notes.chart'), '[ExpertDoubleBass]\n{\n 0 = N 2 192\n}\n');
+  for (const folder of ['D', 'E', 'F']) {
+    const directory = path.join(f.root, folder); await fs.mkdir(directory);
+    await fs.writeFile(path.join(directory, 'song.ini'), '[song]\nname=Second Song\nartist=Fixture Artist\ncharter=Fixture Charter\n');
+    await fs.writeFile(path.join(directory, 'notes.chart'), '[Song]\n{\n Resolution = 192\n}\n' + (folder === 'D' ? '' : '[ExpertSingle]\n{\n 0 = N 1 192\n}\n'));
+    await fs.writeFile(path.join(directory, 'song.ogg'), 'fixture audio bytes');
+  }
+  await f.service.requestScan('full'); await until(() => f.service.status().status === 'ready');
+  const revision = f.service.status().revision, query = await f.service.query(), secondKeeper = query.items.find(item => item.relativePath === 'D/notes.chart');
+  const comparison = await f.service.compareDuplicates({ id: secondKeeper.id, revision });
+  await f.service.chooseDuplicate({ contextId: comparison.contextId, revision, id: secondKeeper.id });
+  const plan = await f.service.prepareBulkCleanup({});
+  assert.equal(plan.keepers.length, 2); assert.equal(plan.candidates.length, 3);
+  assert.ok(plan.candidates.every(candidate => !candidate.eligible && candidate.forceable));
+  const selection = { planId: plan.planId, revision, ids: plan.candidates.filter(candidate => ['B', 'E'].includes(candidate.targetRelativePath)).map(candidate => candidate.id) };
+  const reviewed = await f.service.bulkCleanupReview(selection); assert.equal(reviewed.keepers.length, 2); assert.deepEqual(f.calls, []);
+  const result = await f.service.recycleBulkDifferences(selection);
+  assert.deepEqual(result.recycledIds, selection.ids); assert.deepEqual(result.failed, []); assert.equal(result.refreshRequested, false);
+  assert.deepEqual(f.calls.map(target => path.basename(target)), ['B', 'E']);
+  assert.equal(f.service.status().revision, revision + 1); assert.equal(f.service.status().count, 4);
+  assert.equal(f.service.status().cleanupRefreshPending, true); assert.equal(f.service.status().bulkCleanup, null);
+  const relays = f.received.filter(message => message.type === 'recycle'); assert.equal(relays.length, 2);
+  for (const relay of relays) assert.equal(f.sent.find(message => message.id === relay.requestId && message.method)?.method, 'recycleBulkDifferences');
+  assert.ok(!JSON.stringify(reviewed).includes('identity')); assert.ok(!JSON.stringify(reviewed).includes(f.root));
+  await assert.rejects(f.service.recycleBulkDifferences(selection), { code: 'LIBRARY_CLEANUP_SAFE' });
+  for (const folder of ['A', 'B', 'C', 'D', 'E', 'F']) assert.equal((await fs.stat(path.join(f.root, folder))).isDirectory(), true);
 });
 
 test('real worker records failed and unattempted copies, survives reload, and scopes history to current Songs', async t => {

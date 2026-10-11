@@ -113,6 +113,7 @@ test('eligibility requires verified notes, audio, kind and the entire bundle inc
 
 test('fully verified differences require the explicit force path and never enter normal cleanup', async t => {
   for (const changes of [
+    { notes: { format: 'chart', sha256: hash('different readable notes'), bytes: 24 }, bundleHash: hash('bundle-with-different-notes') },
     { audio: { status: 'verified', count: 1, bytes: 9, digest: hash('different audio') }, bundleHash: hash('bundle-with-different-audio') },
     { nonAudioHash: hash('different non-audio'), bundleHash: hash('different bundle'), totalBytes: 13 },
     { audio: { status: 'verified', count: 1, bytes: 9, digest: hash('different audio') }, nonAudioHash: hash('different non-audio'), bundleHash: hash('different bundle'), totalBytes: 17 }
@@ -130,11 +131,13 @@ test('fully verified differences require the explicit force path and never enter
   }
 });
 
-test('force override stays unavailable for missing or unverified audio, changed notes, unsafe targets and non-folder copies', async t => {
+test('force override stays unavailable for missing or unverified audio or notes, unsafe targets and non-folder copies', async t => {
   for (const changes of [
     { audio: { status: 'missing', count: 0, bytes: 0, digest: null } },
     { audio: { status: 'unavailable', count: 1, bytes: 5, digest: null } },
-    { notes: { format: 'chart', sha256: hash('changed notes'), bytes: 5 } },
+    { notes: { format: 'chart', sha256: null, bytes: 5 } },
+    { notes: { format: 'chart', sha256: hash('unverified notes'), bytes: null } },
+    { notes: { format: 'unsupported', sha256: hash('unverified notes'), bytes: 5 } },
     { targetRelativePath: '../outside' },
     { kind: 'sng', targetRelativePath: 'B/chart.sng' }
   ]) {
@@ -145,6 +148,38 @@ test('force override stays unavailable for missing or unverified audio, changed 
     await assert.rejects(f.service.forceReview({ planId: prepared.planId, revision: prepared.revision, id: candidate.id }), safe);
     assert.equal(f.recycled.length, 0);
   }
+});
+
+test('different-note overrides still protect overlapping targets and require one current non-keeper ID', async t => {
+  const altered = relativePath => bundle(relativePath, relativePath.startsWith('B/') ? {
+    notes: { format: 'chart', sha256: hash('different notes'), bytes: 15 }, bundleHash: hash('different bundle')
+  } : {});
+  const f = await fixture(t, { baseline: value => altered(value.relativePath), inspect: value => altered(value.relativePath) });
+  f.document.items.push(item('B/Nested/notes.chart'));
+  let plan = await f.prepare(), copy = plan.candidates[0];
+  assert.equal(copy.forceable, false, 'different notes never bypass the indexed descendant guard');
+  await assert.rejects(f.service.forceReview({ planId: plan.planId, revision: plan.revision, id: copy.id }), safe);
+  f.document.items.pop(); plan = await f.prepare(); copy = plan.candidates[0];
+  const request = { planId: plan.planId, revision: plan.revision, id: copy.id };
+  assert.equal(copy.forceable, true);
+  for (const bad of [
+    { ...request, id: plan.keepId }, { ...request, id: hash('unknown') }, { ...request, revision: plan.revision + 1 },
+    { ...request, ids: [copy.id, plan.keepId] }, { ...request, target: 'B' }
+  ]) await assert.rejects(f.service.forceReview(bad), safe);
+  const reviewed = await f.service.forceReview(request);
+  assert.equal(reviewed.keep.id, plan.keepId); assert.deepEqual(reviewed.candidates.map(value => value.id), [copy.id]);
+  assert.deepEqual(f.recycled, [], 'review and cancellation never recycle anything');
+  const replacement = await f.prepare();
+  await assert.rejects(f.service.forceReview(request), safe);
+  await assert.rejects(f.service.forceExecute(request), safe);
+  assert.deepEqual(f.recycled, [], 'a replaced review cannot authorize a different-note recycle');
+  // A rejected stale execution consumes the active plan too; a fresh review is required.
+  const fresh = await f.prepare(), selected = { planId: fresh.planId, revision: fresh.revision, id: copy.id };
+  assert.notEqual(replacement.planId, fresh.planId);
+  await f.service.forceReview(selected);
+  assert.deepEqual((await f.service.forceExecute(selected)).recycledIds, [copy.id]);
+  await assert.rejects(f.service.forceExecute(selected), safe);
+  assert.deepEqual(f.recycled, [path.join(f.rootPath, 'B')]);
 });
 
 test('missing keeper audio, changed keeper notes and unsafe keeper target block every candidate', async t => {

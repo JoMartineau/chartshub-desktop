@@ -96,9 +96,9 @@ async function assertUnselectedPlan(keepId) {
 async function intact(f, names = ['A-unchecked', 'B-kept', 'C-selected']) {
   for (const name of names) for (const [file, content] of Object.entries(files)) assert.equal(await fs.readFile(path.join(f.root, name, file), 'utf8'), content);
 }
-async function recycleAndSettle() {
+async function recycleAndSettle(selector = '#library-cleanup-recycle') {
   const beforeConfirmations = confirmations.length;
-  await click('#library-cleanup-recycle');
+  await click(selector);
   await waitFor(() => confirmations.length === beforeConfirmations + 1, 'recycle confirmation opened');
   await waitFor(() => evaluate("document.querySelector('#library-comparison').getAttribute('aria-busy')==='false'&&!document.querySelector('#library-comparison-close').disabled&&!document.querySelector('#library-cleanup-result').hidden&&document.querySelector('#library-results').getAttribute('aria-busy')==='false'"), 'recycle operation and refreshed comparison finished');
   await waitFor(() => host.snapshot().library.status !== 'scanning', 'post-recycle index update');
@@ -155,7 +155,7 @@ app.whenReady().then(async () => {
   await fs.mkdir(directory, { recursive: true });
   dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [activeRoot] });
   dialog.showMessageBox = async (_owner, options) => {
-    assert.match(options.title, /Corbeille|Recycle Bin/);
+    assert.match(options.title, /^(?:Envoyer les copies à la Corbeille Windows|Send copies to Windows Recycle Bin|Supprimer quand même cette copie \?|Delete this copy anyway\?)$/);
     assert.equal(options.defaultId, 0); assert.equal(options.cancelId, 0);
     confirmations.push(structuredClone(options)); return { response: await dialogAction(options) };
   };
@@ -269,6 +269,7 @@ app.whenReady().then(async () => {
   await fs.appendFile(path.join(f.root, 'C-selected', 'notes.chart'), '\n// changed since scan\n');
   await prepare(f, false);
   assert.equal(await evaluate(`document.querySelector('.library-cleanup-check[data-cleanup-id="${f.selectedId}"]').disabled`), true);
+  assert.equal(await evaluate(`!!document.querySelector('.library-cleanup-candidate[data-cleanup-id="${f.selectedId}"] .library-cleanup-force')`), false, 'notes changed after the scan cannot be deleted anyway');
   assert.equal(recycled.length, 0); await intact(f, ['A-unchecked', 'B-kept']);
   passed.push('notes changed since scan are excluded from cleanup');
 
@@ -431,6 +432,64 @@ app.whenReady().then(async () => {
   const restored = await command('library.compareDuplicates', { id: bulkKeep, revision: bulkRevision });
   assert.equal(restored.result.preferredId, bulkKeep);
   passed.push('global verification stops during work with partial counts, then restarts; every synthetic song, saved index and keeper preference stays unchanged');
+
+  // Different note content that was already indexed is an explicit manual
+  // decision. Unlike the changed-after-scan case above, this complete bundle
+  // must remain available for inspection and a separate native confirmation.
+  const differentNotes = files['notes.chart'].replace('0 = N 0 0', '0 = N 4 192');
+  f = await fixture('different-indexed-notes', null, async root => {
+    await fs.writeFile(path.join(root, 'C-selected', 'notes.chart'), differentNotes);
+  });
+  await prepare(f, false);
+  const notesCard = `.library-cleanup-candidate[data-cleanup-id="${f.selectedId}"]`;
+  const forceSelector = notesCard + ' .library-cleanup-force';
+  const noteDifference = await evaluate(`(()=>{
+    const card=document.querySelector(${JSON.stringify(notesCard)}),details=card.querySelector('.library-file-differences');
+    return {expanded:details.open,disabled:card.querySelector('.library-cleanup-check').disabled,checked:card.querySelector('.library-cleanup-check').checked,
+      forceEnabled:!!card.querySelector('.library-cleanup-force')&&!card.querySelector('.library-cleanup-force').disabled,
+      rows:[...details.querySelectorAll('tbody tr')].map(row=>({status:row.dataset.fileStatus,values:[...row.cells].map(cell=>cell.textContent)}))};
+  })()`);
+  assert.equal(noteDifference.expanded, true, 'different notes are visible before the manual decision');
+  assert.equal(noteDifference.disabled, true, 'different notes cannot enter identical-copy cleanup');
+  assert.equal(noteDifference.checked, false); assert.equal(noteDifference.forceEnabled, true);
+  assert.ok(noteDifference.rows.some(row => row.status === 'changed' && row.values[0] === 'notes.chart' && row.values[1] === 'Notes' && row.values[2] === 'Modifié'));
+  assert.ok(noteDifference.rows.some(row => row.status === 'identical' && row.values[0] === 'song.ogg' && row.values[1] === 'Audio'));
+  assert.equal(await evaluate(`!!document.querySelector('.library-cleanup-candidate[data-cleanup-id="${f.keepId}"] .library-cleanup-force')`), false, 'the keeper has no delete-anyway action');
+  assert.equal(await evaluate(`document.querySelector('.library-variant.is-preferred').dataset.variantId`), f.keepId);
+  await capture('notes-differences');
+  const beforeForceScan = host.snapshot().library.lastScanAt, beforeForceRevision = host.snapshot().library.revision, beforeForceRecycled = recycled.length;
+  const confirmDifferentNotes = options => {
+    assert.equal(options.title, 'Supprimer quand même cette copie ?');
+    assert.deepEqual(options.buttons, ['Annuler', 'Supprimer quand même']);
+    assert.match(options.detail, /Version conservée : B-kept/); assert.match(options.detail, /Copie à supprimer : C-selected/);
+    assert.match(options.detail, /notes/i); assert.match(options.detail, /Corbeille Windows/);
+    assert.doesNotMatch(options.detail, /A-unchecked/);
+  };
+  dialogAction = async options => { confirmDifferentNotes(options); return 0; };
+  await recycleAndSettle(forceSelector);
+  assert.equal(recycled.length, beforeForceRecycled); await intact(f, ['A-unchecked', 'B-kept']);
+  assert.equal(await fs.readFile(path.join(f.root, 'C-selected', 'notes.chart'), 'utf8'), differentNotes);
+  assert.equal(host.snapshot().library.count, 3); assert.equal(host.snapshot().library.revision, beforeForceRevision);
+  assert.equal(host.snapshot().library.lastScanAt, beforeForceScan); assert.equal((await cleanupHistory()).total, 0);
+  assert.match(await evaluate("document.querySelector('#library-cleanup-result').textContent"), /annul|cancel/i);
+  passed.push('different indexed notes require a separate cancel-safe native confirmation; no file, index revision or scan changes on cancellation');
+  await openComparison(3); await prepare(f, false);
+  dialogAction = async options => { confirmDifferentNotes(options); return 1; };
+  await recycleAndSettle(forceSelector);
+  assert.deepEqual(recycled.slice(beforeForceRecycled), [path.join(f.root, 'C-selected')]);
+  await intact(f, ['A-unchecked', 'B-kept']); await assert.rejects(fs.stat(path.join(f.root, 'C-selected')), { code: 'ENOENT' });
+  assert.equal(host.snapshot().library.count, 2); assert.equal(host.snapshot().library.revision, beforeForceRevision + 1);
+  assert.equal(host.snapshot().library.cleanupRefreshPending, true); assert.equal(host.snapshot().library.lastScanAt, beforeForceScan, 'delete-anyway updates the index without a scan');
+  await waitFor(() => evaluate(`!document.querySelector('#library-comparison').hidden&&document.querySelector('#library-comparison').getAttribute('aria-busy')==='false'&&document.querySelectorAll('.library-variant').length===2&&document.querySelector('.library-variant.is-preferred')?.dataset.variantId===${JSON.stringify(f.keepId)}`), 'remaining versions retain the protected keeper');
+  await assertUnselectedPlan(f.keepId);
+  assert.equal(await evaluate(`!!document.querySelector('.library-cleanup-check[data-cleanup-id="${f.selectedId}"]')`), false);
+  const forceHistory = await cleanupHistory();
+  assert.equal(forceHistory.total, 1); assert.equal(forceHistory.entries[0].mode, 'force'); assert.equal(forceHistory.entries[0].keep.id, f.keepId);
+  assert.deepEqual(forceHistory.entries[0].candidates.map(candidate => ({ id: candidate.id, status: candidate.status })), [{ id: f.selectedId, status: 'recycled' }]);
+  assert.match(await evaluate("document.querySelector('#library-cleanup-result').textContent"), /Corbeille Windows.*B-kept/s);
+  assert.equal(await evaluate("document.querySelector('#library-refresh').textContent"), 'Actualiser à la fin');
+  await capture('notes-differences-recycled');
+  passed.push('manual deletion of different indexed notes recycles only the explicitly confirmed copy; keeper and unchecked copy stay intact, remaining plan stays unselected and no scan starts');
   await host.dispose(); host = null;
   dialog.showMessageBox = originalDialog; dialog.showOpenDialog = originalPicker; shell.trashItem = originalTrash;
   await fs.writeFile(path.join(directory, 'verification.json'), JSON.stringify({ result: 'COMPANION_DUPLICATES_VERIFIED', passed, nativeBin: 'intercepted only for synthetic fixture', confirmations: confirmations.length, recycled }, null, 2));

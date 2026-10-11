@@ -12,13 +12,14 @@ METHODS.add('resolveRequestSong');
 METHODS.add('resolvePlaybackSong');
 METHODS.add('queryPlayback');
 METHODS.add('requestLibraryForSharing');
+for (const method of ['prepareBulkCleanup', 'bulkCleanupReview', 'recycleBulkDifferences', 'cancelBulkCleanup']) METHODS.add(method);
 const pending = new Set();
 const requests = new AsyncLocalStorage(), recycleRequests = new Map();
 let nextRecycleId = 0;
 const service = createInstalledLibraryService({ dataDirectory: workerData.dataDirectory,
   recycle: (target, proof) => new Promise((resolve, reject) => {
     const request = requests.getStore();
-    if (stopping || !['recycleDuplicates', 'forceRecycleDuplicate'].includes(request?.method)) return reject(Error('Nettoyage arrêté.'));
+    if (stopping || !['recycleDuplicates', 'forceRecycleDuplicate', 'recycleBulkDifferences'].includes(request?.method)) return reject(Error('Nettoyage arrêté.'));
     const id = ++nextRecycleId;
     recycleRequests.set(id, { resolve, reject });
     parentPort.postMessage({ type: 'recycle', id, requestId: request.id, target, proof });

@@ -1,4 +1,5 @@
 import { DuplicateComparisonControls } from './DuplicateComparisonControls.js';
+import { BulkDifferentCleanupControls } from './BulkDifferentCleanupControls.js';
 
 interface LibrarySummary {
   settings: { rootPath: string | null; watch: boolean; refreshOnStart: boolean };
@@ -15,6 +16,7 @@ interface LibrarySummary {
   revision: number;
   cleanupRefreshPending?: boolean;
   duplicateVerification?: { running: boolean; stopping?: boolean; processed: number; total: number } | null;
+  bulkCleanup?: { phase: 'preparing' | 'executing'; processed: number; total: number } | null;
 }
 interface LibraryItem {
   id: string; relativePath: string; title: string; artist: string; charter: string;
@@ -46,6 +48,7 @@ const text = (value: unknown, fallback = '—'): string => typeof value === 'str
 /** Reads paginated index results; gameplay-only snapshots never requery the library. */
 export class LibraryControls {
   private readonly comparison: DuplicateComparisonControls;
+  private readonly differentCleanup: BulkDifferentCleanupControls;
   private readonly abort = new AbortController();
   private readonly pendingActions = new Map<number, string>();
   private readonly rows = new Map<string, LibraryRow>();
@@ -67,6 +70,7 @@ export class LibraryControls {
   private sentinelVisible = false;
   private queryError = false;
   private hasResult = false;
+  private refreshScrollTop: number | null = null;
   private staleRetries = 0;
   private actionSerial = 0;
   private bulkSerial = 0;
@@ -78,7 +82,8 @@ export class LibraryControls {
   private disposed = false;
 
   constructor(private readonly options: LibraryOptions) {
-    this.comparison = new DuplicateComparisonControls({ ...options, feedback: message => this.feedback(message), refreshIndex: () => this.scheduleQuery(0) });
+    this.comparison = new DuplicateComparisonControls({ ...options, feedback: message => this.feedback(message), refreshIndex: () => this.refreshLocalIndex() });
+    this.differentCleanup = new BulkDifferentCleanupControls({ ...options, refreshIndex: () => this.refreshLocalIndex(), availabilityChanged: () => this.refreshAvailability() });
     const signal = this.abort.signal;
     this.element('#library-choose-root').addEventListener('click', () => { void this.action('library.chooseRoot', {}); }, { signal });
     this.element('#library-scan-full').addEventListener('click', () => { void this.action('library.scan', { mode: 'full' }); }, { signal });
@@ -150,7 +155,7 @@ export class LibraryControls {
     const index = `${this.summary.settings.rootPath ?? ''}\u0000${this.summary.revision}`;
     if (index !== this.observedIndex) {
       this.observedIndex = index; this.staleRetries = 0; this.bulkResult = null; this.bulkMessage = ''; this.bulkError = false;
-      this.scheduleQuery(0);
+      if (this.summary.cleanupRefreshPending) this.refreshLocalIndex(); else this.scheduleQuery(0);
     }
     this.refreshAvailability();
     this.renderResultsStatus();
@@ -161,6 +166,7 @@ export class LibraryControls {
     this.disposed = true; this.abort.abort(); this.querySerial++; this.bulkSerial++;
     this.observer?.disconnect(); this.observer = null;
     this.comparison.dispose();
+    this.differentCleanup.dispose();
     if (this.queryTimer) clearTimeout(this.queryTimer);
     this.queryTimer = null; this.rows.clear();
   }
@@ -192,9 +198,16 @@ export class LibraryControls {
     if (scroller.clientHeight > 0 && scroller.scrollHeight > 0 && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 160) this.loadMore(true);
   }
 
+  private refreshLocalIndex(): void {
+    const scrollTop = this.refreshScrollTop ?? this.element('#library-table-container').scrollTop;
+    this.scheduleQuery(0);
+    this.refreshScrollTop = scrollTop;
+  }
+
   private scheduleQuery(delay: number, append = false): void {
     if (this.queryTimer) clearTimeout(this.queryTimer);
     this.queryTimer = null;
+    if (!append) this.refreshScrollTop = null;
     const serial = ++this.querySerial;
     this.queryError = false;
     if (!append) {
@@ -237,6 +250,9 @@ export class LibraryControls {
     } finally {
       if (!this.disposed && serial === this.querySerial) {
         this.querying = false; this.renderResultsStatus(); this.refreshAvailability();
+        if (this.refreshScrollTop !== null && this.hasResult) {
+          this.element('#library-table-container').scrollTop = this.refreshScrollTop; this.refreshScrollTop = null;
+        }
         if (this.sentinelVisible) this.loadOnScroll();
       }
     }
@@ -246,7 +262,7 @@ export class LibraryControls {
     if (!this.summary || this.disposed) return;
     if (name === 'library.cancel') {
       if (this.summary.status !== 'scanning' || [...this.pendingActions.values()].includes(name)) return;
-    } else if (this.pendingActions.size || (this.summary.status === 'scanning' && name !== 'library.openFolder')) return;
+    } else if (this.pendingActions.size || this.differentCleanup.busy || this.summary.bulkCleanup || (this.summary.status === 'scanning' && name !== 'library.openFolder')) return;
     const serial = ++this.actionSerial;
     const previousRoot = this.summary.settings.rootPath;
     this.pendingActions.set(serial, name); this.feedback(''); this.refreshAvailability();
@@ -266,7 +282,7 @@ export class LibraryControls {
 
   private async verifyAllDuplicates(): Promise<void> {
     const summary = this.summary;
-    if (!summary?.settings.rootPath || this.disposed || summary.status === 'scanning' || this.bulkPending || this.pendingActions.size) return;
+    if (!summary?.settings.rootPath || this.disposed || summary.status === 'scanning' || this.bulkPending || this.pendingActions.size || this.differentCleanup.busy || summary.bulkCleanup) return;
     const serial = ++this.bulkSerial, root = summary.settings.rootPath, revision = summary.revision;
     this.bulkPending = true; this.bulkCancelling = false; this.bulkResult = null; this.bulkMessage = ''; this.bulkError = false;
     this.renderBulkVerification(); this.refreshAvailability();
@@ -450,7 +466,8 @@ export class LibraryControls {
     const unavailable = !this.summary;
     const scanning = this.summary?.status === 'scanning';
     const verificationBusy = this.bulkPending || (this.summary?.duplicateVerification?.running === true && !this.bulkResult && !this.bulkMessage);
-    const busy = this.pendingActions.size > 0 || verificationBusy;
+    const externalBusy = this.pendingActions.size > 0 || verificationBusy;
+    const busy = externalBusy || this.differentCleanup.busy || !!this.summary?.bulkCleanup;
     const noRoot = !this.summary?.settings.rootPath;
     this.element<HTMLButtonElement>('#library-choose-root').disabled = unavailable || busy || scanning;
     for (const id of ['#library-scan-full', '#library-refresh']) this.element<HTMLButtonElement>(id).disabled = unavailable || noRoot || busy || scanning;
@@ -472,6 +489,7 @@ export class LibraryControls {
       entry.compare.disabled = unavailable || busy || firstPageLoading || scanning || entry.compare.hidden;
     }
     this.comparison.update({ rootPath: this.summary?.settings.rootPath ?? null, revision: this.summary?.revision ?? 0, scanning, busy, indexLoading: this.querying, cleanupRefreshPending: this.summary?.cleanupRefreshPending });
+    this.differentCleanup.update({ rootPath: this.summary?.settings.rootPath ?? null, revision: this.summary?.revision ?? 0, scanning, busy: externalBusy, progress: this.summary?.bulkCleanup });
     this.renderBulkVerification();
   }
 }
