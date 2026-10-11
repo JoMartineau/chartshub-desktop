@@ -62,8 +62,23 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
   const initialSize = panel.getSize(), fixtureRoot = path.join(data, 'song-requests-Songs-' + randomUUID());
   const click = async selector => {
     await waitFor(() => evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return n&&!n.disabled&&!n.hidden})()`), 'enabled ' + selector);
-    const point = await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect();const p={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};const h=document.elementFromPoint(p.x,p.y);if(!h||!(h===n||n.contains(h)))throw Error('Covered Song Request control');return p})()`);
-    panel.focus(); panel.webContents.focus(); panel.webContents.sendInputEvent({ type: 'mouseMove', ...point });
+    panel.focus(); panel.webContents.focus();
+    const point = await evaluate(`(async()=>{
+      const selector=${JSON.stringify(selector)};
+      const initial=document.querySelector(selector);
+      if(!initial)throw Error('Missing Song Request control: '+selector);
+      initial.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
+      await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+      const n=document.querySelector(selector);
+      if(!n||n.disabled||n.hidden)throw Error('Unavailable Song Request control: '+selector);
+      const r=n.getBoundingClientRect();
+      if(r.width<=0||r.height<=0)throw Error('Hidden Song Request control: '+selector);
+      const p={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)};
+      const h=document.elementFromPoint(p.x,p.y);
+      if(!h||!(h===n||n.contains(h)))throw Error('Covered Song Request control: '+selector);
+      return p;
+    })()`);
+    panel.webContents.sendInputEvent({ type: 'mouseMove', ...point });
     panel.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 });
     panel.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 }); await delay(50);
   };

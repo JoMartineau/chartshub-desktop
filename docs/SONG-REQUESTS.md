@@ -6,6 +6,8 @@ Le port, les règles et les deux clés locales sont conservés dans le profil du
 
 L’organisation pratique du tableau de bord et de la file s’inspire de [ClonePod](https://github.com/itsCuttle/ClonePod). Cette intégration utilise le thème ChartsHub et sa bibliothèque locale ; elle ne reprend pas de binaire ClonePod, de téléchargement automatique ou de connexion Kick.
 
+[Ouvert](https://ouvert.dev/About/Features) sert également de référence pour la bibliothèque destinée aux spectateurs et la gestion des demandes, sans connexion à son service ni reprise de son code.
+
 ## Dans ChartsHub
 
 1. Choisir le dossier Songs dans la bibliothèque locale, puis le scanner.

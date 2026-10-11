@@ -183,7 +183,7 @@ async function verifyLibrary(panel, host, data, passed) {
     assert.equal(await evaluate("document.querySelector('.library-variant.is-preferred .library-variant-path').textContent"), preferredPath);
     await click('.library-variant.is-preferred .library-variant-open');
     await waitFor(() => opened !== null, 'open the compared duplicate folder');
-    assert.equal(opened, path.join(root, preferredPath)); opened = null;
+    assert.equal(opened, path.dirname(path.join(root, preferredPath))); opened = null;
     await fs.writeFile(path.join(data, 'companion-library-comparison.png'), (await panel.webContents.capturePage()).toPNG());
     await click('#library-comparison-clear');
     await waitFor(() => evaluate("document.querySelectorAll('.library-preferred-badge:not([hidden])').length===0&&document.querySelector('#library-comparison-clear').hidden"), 'duplicate preference cleared');
