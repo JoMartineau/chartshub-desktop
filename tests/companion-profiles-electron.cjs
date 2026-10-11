@@ -50,6 +50,26 @@ async function verifyProfiles({ host, panel, data, passed, waitFor }) {
     panel.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
     await delay(50);
   };
+  const arrow = async direction => {
+    assert.ok(['Left', 'Right'].includes(direction), 'Electron input uses accelerator key names');
+    await waitFor(() => evaluate("document.querySelector('#builder-canvas').getAttribute('aria-busy')==='false'"), 'builder ready for native arrow');
+    panel.focus(); panel.webContents.focus();
+    await evaluate("document.querySelector('#builder-canvas').focus({preventScroll:true})"); await paint();
+    assert.equal(await evaluate("document.activeElement?.id"), 'builder-canvas', 'arrow focus stays outside inspector inputs');
+    await evaluate(`(()=>{
+      window.__nativeProfileArrow=null;
+      window.__nativeProfileArrowListener=event=>{window.__nativeProfileArrow={key:event.key,target:event.target?.id,trusted:event.isTrusted};};
+      document.addEventListener('keydown',window.__nativeProfileArrowListener,{capture:true,once:true});
+    })()`);
+    try {
+      // sendInputEvent takes Left/Right; Chromium emits DOM ArrowLeft/ArrowRight.
+      await key(direction);
+      await waitFor(() => evaluate('!!window.__nativeProfileArrow'), 'native arrow reaches the renderer');
+      assert.deepEqual(await evaluate('window.__nativeProfileArrow'), { key: 'Arrow' + direction, target: 'builder-canvas', trusted: true });
+    } finally {
+      await evaluate("(()=>{document.removeEventListener('keydown',window.__nativeProfileArrowListener,true);delete window.__nativeProfileArrowListener;delete window.__nativeProfileArrow;})()");
+    }
+  };
   const setEditing = async enabled => {
     if (await evaluate("document.querySelector('#builder-toggle').getAttribute('aria-pressed')==='true'") !== enabled) await click('#builder-toggle');
     await waitFor(() => evaluate(`document.querySelector('#builder-toggle').getAttribute('aria-pressed')===${JSON.stringify(String(enabled))}`), 'builder edit mode');
@@ -100,13 +120,12 @@ async function verifyProfiles({ host, panel, data, passed, waitFor }) {
       await delay(30);
     }
     mouse('mouseUp', { x: Math.round(start.x + 32 * scale), y: Math.round(start.y + 16 * scale) });
-    await key('ArrowRight'); await paint(); await delay(150);
+    await arrow('Right'); await paint(); await delay(150);
     assert.equal(revision(), lockedRevision, 'locked pointer drag and arrow key must not commit layout changes');
     assert.deepEqual(editorDocument(host.snapshot()), lockedDocument);
     await click('#preview-stream-tab');
     await waitFor(() => evaluate(`document.querySelector('#builder-canvas').dataset.destination==='stream'&&document.querySelector(${JSON.stringify(boxSelector)}).classList.contains('is-locked')&&document.querySelector('#builder-x').disabled&&document.querySelector('#builder-locked').checked`), 'the same widget stays locked in stream layout');
-    await evaluate("document.querySelector('#builder-canvas').focus({preventScroll:true})");
-    await key('ArrowRight'); await paint();
+    await arrow('Right'); await paint();
     assert.equal(revision(), lockedRevision, 'the shared lock also blocks stream arrow movement');
     assert.deepEqual(editorDocument(host.snapshot()), lockedDocument);
     await point('#builder-locked');
@@ -117,11 +136,10 @@ async function verifyProfiles({ host, panel, data, passed, waitFor }) {
     await click('#builder-locked');
     await waitFor(() => widget().locked !== true && !panel.isDestroyed(), 'widget unlocked from the inspector');
     await waitFor(() => evaluate(`document.querySelector(${JSON.stringify(boxSelector)}).querySelectorAll('[data-resize-handle]').length===8&&['x','y','width','height'].every(key=>!document.querySelector('#builder-'+key).disabled)`), 'unlock restores eight handles and numeric geometry inputs');
-    const x = widget().position.x;
-    // Focusing the canvas avoids arrow-key changes to an inspector input.
-    await evaluate("document.querySelector('#builder-canvas').focus({preventScroll:true})");
-    await key(x > 0 ? 'ArrowLeft' : 'ArrowRight');
-    await waitFor(() => widget().position.x !== x, 'unlocked arrow movement commits normally');
+    const x = widget().position.x, beforeArrowRevision = revision(), nextX = x + (x > 0 ? -1 : 1);
+    await arrow(x > 0 ? 'Left' : 'Right');
+    await waitFor(() => widget().position.x === nextX, 'unlocked arrow movement commits normally');
+    assert.equal(revision(), beforeArrowRevision + 1, 'one native arrow commits exactly one one-pixel movement');
     await ready(applySelector); await click(applySelector);
     await waitFor(originalRestored, 'profile reapplied after the lock test');
     await click(`[data-profile-select="${profileId}"]`);

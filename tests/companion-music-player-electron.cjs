@@ -5,12 +5,16 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { deflateSync } = require('node:zlib');
 const { registerCompanionScheme, createCompanionHost } = require('../companion/host.cjs');
+const { createPlayerFixtureRequestGuard, playerFixtureConsoleError } = require('./music-player-network-fixture.cjs');
 const data = path.resolve(process.argv[2] || path.join(__dirname, '../../companion-music-player-smoke'));
 app.setPath('userData', path.join(data, 'profile')); app.disableHardwareAcceleration(); registerCompanionScheme();
 app.on('window-all-closed', () => {}); // The synthetic video window closes before the fixture host opens.
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const passed = [], errors = [], blocked = []; let host;
-app.on('web-contents-created', (_event, contents) => { contents.setAudioMuted(true); contents.on('console-message', (_event, detail) => { if (detail.level === 'error') errors.push(String(detail.message).slice(0, 300)); }); });
+app.on('web-contents-created', (_event, contents) => {
+  contents.setAudioMuted(true);
+  contents.on('console-message', (event, ...legacy) => { const message = playerFixtureConsoleError(event, ...legacy); if (message !== null) errors.push(message); });
+});
 async function waitFor(check, label) { const start = Date.now(); while (Date.now() - start < 15000) { if (await check()) return; await delay(50); } throw Error('Timed out: music player ' + label); }
 function wav(frequency, seconds = 60) {
   const rate = 22050, frames = rate * seconds, buffer = Buffer.alloc(44 + frames * 2);
@@ -75,9 +79,11 @@ app.whenReady().then(async () => {
   const deadline = setTimeout(() => { process.stderr.write('Music player fixture deadline\n'); app.exit(1); }, 150000);
   try {
     await fs.mkdir(data, { recursive: true });
-    session.defaultSession.webRequest.onBeforeRequest((details, callback) => {
-      const allowed = /^(chartshub-companion:|data:|blob:|about:|devtools:)/.test(details.url);
-      if (!allowed) blocked.push(new URL(details.url).origin); callback({ cancel: !allowed });
+    const allowRequest = createPlayerFixtureRequestGuard(path.resolve(__dirname, '../companion'));
+    for (const fixtureSession of [session.defaultSession, session.fromPartition('companion-local')]) fixtureSession.webRequest.onBeforeRequest((details, callback) => {
+      const allowed = allowRequest(details.url);
+      if (!allowed) { const url = new URL(details.url); blocked.push(url.origin === 'null' ? url.protocol : url.origin); }
+      callback({ cancel: !allowed });
     });
     const root = path.join(data, 'Songs'), webm = await videoFixture();
     for (const [index, title] of ['Alpha Fixture', 'Beta Fixture', 'Gamma Fixture'].entries()) {
