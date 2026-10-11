@@ -10,7 +10,7 @@ app.setPath('userData',path.join(directory,'profile'));
 app.disableHardwareAcceleration();
 if(process.env.CHARTSHUB_TEST_NO_SANDBOX==='1')app.commandLine.appendSwitch('no-sandbox');
 let desktop,host,user=null,finished=false;
-const passed=[],errors=[],delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const passed=[],errors=[],buttonMotionRelays=[],delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const fail=error=>{console.error(error.stack||error);fs.writeFileSync(path.join(directory,'failure.txt'),String(error.stack||error));app.exit(1);};
 process.on('unhandledRejection',fail);
 process.on('uncaughtException',fail);
@@ -31,7 +31,10 @@ Module._load=function(name,parent,isMain){
  if(name==='electron')return {...result,BrowserWindow:HiddenWindow};
  if(name==='./desktop/controller.cjs')return {...result,createDesktopShell(options){desktop=result.createDesktopShell(options);return desktop;}};
  if(name==='./companion/host.cjs')return {...result,async createCompanionHost(options){
-  host=await result.createCompanionHost({...options,cloneHeroCandidates:[],cloneHeroProcessProbe:async()=>({running:false,startedAt:null}),catalogueClient:{load:async()=>({items:[],demo:false,warning:null,revision:'test'}),artwork:async()=>null}});return host;
+  host=await result.createCompanionHost({...options,cloneHeroCandidates:[],cloneHeroProcessProbe:async()=>({running:false,startedAt:null}),catalogueClient:{load:async()=>({items:[],demo:false,warning:null,revision:'test'}),artwork:async()=>null}});
+  const setButtonMotion=host.setButtonMotion;
+  host.setButtonMotion=value=>{buttonMotionRelays.push({...value});return setButtonMotion.call(host,value);};
+  return host;
  }};
  return result;
 };
@@ -124,11 +127,16 @@ app.whenReady().then(async()=>{
  assert.equal(await local.executeJavaScript(`['.preview-card','.settings-card','.destinations-card'].every(selector=>getComputedStyle(document.querySelector(selector)).boxShadow!=='none')&&getComputedStyle(document.querySelector('#game-preview')).boxShadow==='none'`),true,'interface bloom includes the three nested cards without affecting the overlay surface');
  await local.executeJavaScript(`document.querySelector('#theme-interface-appearance').open=false;document.querySelector('#theme-panel').open=false;document.querySelector('#theme-catalogue-appearance').open=false;document.querySelector('#theme-player-appearance').open=true;document.querySelector('#local-player-appearance').open=true;document.querySelector('#ch-bloom-dialog').scrollTop=0;void 0`);
  await delay(100);fs.writeFileSync(path.join(directory,'theme-colors-player.png'),(await desktop.window.capturePage()).toPNG());
- const bytes=fs.readFileSync(stored);
+ const bytes=fs.readFileSync(stored),relaysBeforeCancel=buttonMotionRelays.length;
  await local.executeJavaScript('document.querySelector("#ch-bloom-hex").value="#00ffff";document.querySelector("#ch-bloom-hex").dispatchEvent(new Event("input"));document.querySelector("#ch-bloom-hover").value="1";document.querySelector("#ch-bloom-hover").dispatchEvent(new Event("change"));document.querySelector("#ch-bloom-cancel").click();true');
- await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open'),'bloom cancellation');
+ // Native dialog.close() clears open before its queued close handler repaints
+ // the saved appearance. Verify that real restoration, not merely the flag.
+ await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open && document.documentElement.style.getPropertyValue("--ch-motion-hover-lift")==="5px"'),'bloom cancellation restores saved hover');
  assert.equal(await local.executeJavaScript("document.documentElement.style.getPropertyValue('--ch-motion-hover-lift')"),'5px','Cancel restores saved hover');
  assert.ok(fs.readFileSync(stored).equals(bytes),'Cancel does not persist the preview');
+ assert.equal(buttonMotionRelays.length,relaysBeforeCancel,'preview and Cancel never relay a draft to the native host');
+ assert.equal(host.snapshot().buttonMotion.hoverLift,5,'the host retains the saved hover');
+ assert.equal(await frame.executeJavaScript("document.documentElement.style.getPropertyValue('--ch-motion-hover-lift')"),'5px','the shell retains the saved hover');
  assert.equal(await local.executeJavaScript('window.ChartshubBloom.read().color'),'#ff8000');
  // A close notification from the preceding modal may arrive after it reopened.
  // Deliver that notification against the real controls and native saved state.
