@@ -71,6 +71,10 @@ app.whenReady().then(async()=>{
  await waitFor(()=>host?.getPanelContents()&&!host.getPanelContents().isLoading(),'Companion renderer');
  await waitFor(async()=>(await state()).activeTab==='companion','Companion selected');
  const local=host.getPanelContents(),id=local.id;
+ // Chromium queues native dialog close events with animation frames. Keep the
+ // hidden shell and Companion view rendering so those events reach real handlers.
+ desktop.window.webContents.setBackgroundThrottling(false);
+ local.setBackgroundThrottling(false);
  assert.equal(host.getPanel(),desktop.window);
  assert.equal(electron.BrowserWindow.getAllWindows().length,1,'one main window');
  assert.equal(await local.executeJavaScript('typeof window.ChartsHubDesktop'),'undefined');
@@ -121,7 +125,10 @@ app.whenReady().then(async()=>{
  })()`),{open:true,value:'#00ffff',previewRetained:true,focusBefore:true,focusRetained:true,saved:'#ff8000'});
  assert.ok(fs.readFileSync(stored).equals(bytes),'a stale close does not persist a new preview');
  await local.executeJavaScript('document.querySelector("#ch-bloom-cancel").click(); true');
- await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open && document.documentElement.style.getPropertyValue("--ch-bloom-shadow").includes("255, 128, 0")'),'normal close restores the saved theme');
+ await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open && document.documentElement.style.getPropertyValue("--ch-bloom-shadow").includes("255, 128, 0")'),'normal close restores the saved theme').catch(async error=>{
+  const diagnostic=await local.executeJavaScript(`({open:document.querySelector('#ch-bloom-dialog').open,shadow:document.documentElement.style.getPropertyValue('--ch-bloom-shadow'),activeElement:document.activeElement?.id||document.activeElement?.tagName||null})`);
+  throw new Error(error.message+'; dialog state: '+JSON.stringify(diagnostic),{cause:error});
+ });
  local.reload();
  await waitFor(()=>!local.isLoading(),'Companion reload');
  await waitFor(()=>local.executeJavaScript('Boolean(window.ChartshubBloom && window.ChartshubBloom.read().enabled && window.ChartshubBloom.read().color==="#ff8000")'),'reload restores native bloom');
