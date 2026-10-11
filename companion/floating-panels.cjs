@@ -6,7 +6,8 @@ const path = require('node:path');
 const { createHash, randomBytes } = require('node:crypto');
 
 const MAX_BYTES = 16 * 1024;
-const PANELS = ['catalogue', 'filters'];
+const LEGACY_PANELS = ['catalogue', 'filters'];
+const PANELS = [...LEGACY_PANELS, 'player'];
 const FONTS = ['system', 'arial', 'verdana', 'georgia', 'consolas'];
 const DEFAULT_APPEARANCE = Object.freeze({ backgroundColor: '#151719e6', textColor: '#eef1f2', fontFamily: 'system', fontSize: 14 });
 const INVALID = 'Les réglages de la fenêtre flottante sont invalides.';
@@ -28,7 +29,7 @@ const fingerprint = bytes => createHash('sha256').update(bytes).digest('hex');
 function createFloatingPanels({ dataDirectory } = {}) {
   if (typeof dataDirectory !== 'string' || !path.isAbsolute(dataDirectory) || dataDirectory.includes('\0')) throw safe(INVALID);
   const directory = path.resolve(dataDirectory), filename = path.join(directory, 'floating-panels.json'), lockPath = path.join(directory, '.floating-panels.lock');
-  let document = { version: 1, revision: 0, appearance: { catalogue: { ...DEFAULT_APPEARANCE }, filters: { ...DEFAULT_APPEARANCE } } };
+  let document = { version: 2, revision: 0, appearance: Object.fromEntries(PANELS.map(name => [name, { ...DEFAULT_APPEARANCE }])) };
   let loaded = false, loadTask = null, protectedFile = false, diskFingerprint = null, error = null, serial = Promise.resolve(), normalizeColor;
 
   function status() { return { revision: document.revision, appearance: structuredClone(document.appearance), error, canWrite: !protectedFile }; }
@@ -40,8 +41,12 @@ function createFloatingPanels({ dataDirectory } = {}) {
     return { backgroundColor, textColor, fontFamily: value.fontFamily, fontSize: value.fontSize };
   }
   function validateDocument(value) {
-    if (!keys(value, ['version', 'revision', 'appearance']) || value.version !== 1 || !Number.isSafeInteger(value.revision) || value.revision < 0 || !keys(value.appearance, PANELS)) throw safe(INVALID);
-    return { version: 1, revision: value.revision, appearance: { catalogue: appearance(value.appearance.catalogue), filters: appearance(value.appearance.filters) } };
+    if (!keys(value, ['version', 'revision', 'appearance']) || ![1, 2].includes(value.version) || !Number.isSafeInteger(value.revision) || value.revision < 0
+      || !keys(value.appearance, value.version === 1 ? LEGACY_PANELS : PANELS)) throw safe(INVALID);
+    // Migration is in memory only. Preserve the original v1 bytes until the
+    // user explicitly saves an appearance, with the same identity checks.
+    return { version: 2, revision: value.revision, appearance: Object.fromEntries(PANELS.map(name => [name,
+      value.version === 1 && name === 'player' ? { ...DEFAULT_APPEARANCE } : appearance(value.appearance[name])])) };
   }
   async function checkedDirectory(create = false) {
     const root = path.parse(directory).root; let current = root;
@@ -93,7 +98,7 @@ function createFloatingPanels({ dataDirectory } = {}) {
         const source = await read();
         if (source) {
           const value = JSON.parse(source.text);
-          if (object(value) && Number.isFinite(value.version) && value.version > 1) { protectedFile = true; error = FUTURE; }
+          if (object(value) && Number.isFinite(value.version) && value.version > 2) { protectedFile = true; error = FUTURE; }
           else { document = validateDocument(value); diskFingerprint = source.fingerprint; }
         }
       } catch (_) { protectedFile = true; error = UNREADABLE; }
@@ -144,7 +149,7 @@ function createFloatingPanels({ dataDirectory } = {}) {
       if (snapshot.revision !== document.revision) throw stale();
       const value = appearance(snapshot.appearance);
       if (document.revision === Number.MAX_SAFE_INTEGER) throw safe(INVALID);
-      await persist({ version: 1, revision: document.revision + 1, appearance: { ...document.appearance, [snapshot.panel]: value } });
+      await persist({ version: 2, revision: document.revision + 1, appearance: { ...document.appearance, [snapshot.panel]: value } });
       return status();
     });
     serial = task.catch(() => {}); return task;

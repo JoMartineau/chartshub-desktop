@@ -18,6 +18,9 @@ function createMusicPlayer({ library, onChange, onAction, preferences, randomInd
   let queue = [], queueRoot = null, activePlaylistId = null, queueSource = '';
   let playIntent = false, playbackEpoch = 0, queueReshuffle = false;
   let songLookup = new Map(), lookupRoot = null, lookupRevision = -1;
+  let orderedCache = null, orderedRoot = null, orderedRevision = -1;
+  const titleOrder = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
+  const artistOrder = new Intl.Collator('en');
   if (preferences) { appearance = validateAppearance(preferences.appearance); videoEnabled = preferences.videoEnabled; volume = preferences.volume; appearanceCanWrite = preferences.canWrite; preferencesError = preferences.error; }
   const readers = new Set();
   const index = () => library.matchingSnapshot();
@@ -28,7 +31,16 @@ function createMusicPlayer({ library, onChange, onAction, preferences, randomInd
     if (document.rootKey !== lookupRoot || document.revision !== lookupRevision) { songLookup = new Map(document.items.map(item => [item.id, item])); lookupRoot = document.rootKey; lookupRevision = document.revision; }
     return songLookup;
   }
-  const orderedSongs = () => [...index().items].sort((a, b) => a.title.localeCompare(b.title, 'en', { numeric: true, sensitivity: 'base' }) || a.artist.localeCompare(b.artist, 'en') || a.id.localeCompare(b.id));
+  function orderedSongs() {
+    const document = index();
+    // Navigation reuses the order of this immutable library revision. Creating a
+    // locale comparator for every comparison stalls large libraries on Next.
+    if (orderedCache === null || document.rootKey !== orderedRoot || document.revision !== orderedRevision) {
+      orderedCache = [...document.items].sort((a, b) => titleOrder.compare(a.title, b.title) || artistOrder.compare(a.artist, b.artist) || a.id.localeCompare(b.id));
+      orderedRoot = document.rootKey; orderedRevision = document.revision;
+    }
+    return orderedCache;
+  }
   const playlistSongs = id => id === null ? orderedSongs().map(item => item.id) : playlists.find(list => list.id === id && list.rootKey === index().rootKey)?.songIds ?? [];
   const shuffleIds = ids => {
     const result = [...ids];

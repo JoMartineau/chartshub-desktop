@@ -1,4 +1,4 @@
-import { FloatingPanelsControls, applyFloatingAppearance } from './floating-panels-controls.js';
+import { applyFloatingAppearance } from './floating-panels-controls.js';
 import { createCatalogueCard } from './catalogue-card.js';
 
 const tabs = ['search', 'downloads', 'recent'];
@@ -16,7 +16,6 @@ export class CatalogueWidgetControls {
     this.searchSerial = 0; this.loading = false; this.refreshing = false; this.choosing = false; this.closing = false; this.stale = false; this.disposed = false; this.tab = 'search';
     this.pendingCharts = new Set(); this.pendingDownloads = new Set(); this.expandedCharts = new Set(); this.selectedCharts = new Set(); this.pendingFavorites = new Set();
     this.batchRunning = false; this.batchCancelled = false; this.batchReport = null; this.operationEpoch = 0;
-    this.appearance = new FloatingPanelsControls({ root: this.element('#catalogue-widget-appearance-controls'), command, panels: ['catalogue'] });
     const signal = this.abort.signal;
     this.element('#catalogue-widget-search-form').addEventListener('submit', event => { event.preventDefault(); if (this.batchRunning || this.pendingFavorites.size) return; this.filters = this.readFilters(); void this.search(1); }, { signal });
     this.element('#catalogue-widget-refresh').addEventListener('click', () => { void this.refresh(); }, { signal });
@@ -59,7 +58,7 @@ export class CatalogueWidgetControls {
   }
   update(snapshot) {
     if (this.disposed || !snapshot) return;
-    this.appearance.update(snapshot); applyFloatingAppearance(this.root, snapshot.floatingPanels?.appearance?.catalogue);
+    applyFloatingAppearance(this.root, snapshot.floatingPanels?.appearance?.catalogue);
     const signature = JSON.stringify([snapshot.catalogue, snapshot.downloads, snapshot.catalogueShortcut]); if (signature === this.snapshotSignature) return;
     this.snapshotSignature = signature;
     const previousConditions = this.resultConditions();
@@ -263,7 +262,7 @@ export class CatalogueWidgetControls {
     catch (_) { if (!this.disposed) this.feedback('La fenêtre n’a pas pu être masquée.', true); }
     finally { if (!this.disposed) { this.closing = false; this.availability(); } }
   }
-  dispose() { this.disposed = true; this.searchSerial++; this.operationEpoch++; this.batchCancelled = true; this.abort.abort(); this.resultAbort.abort(); this.downloadAbort.abort(); this.appearance.dispose(); }
+  dispose() { this.disposed = true; this.searchSerial++; this.operationEpoch++; this.batchCancelled = true; this.abort.abort(); this.resultAbort.abort(); this.downloadAbort.abort(); }
 }
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined' && document.querySelector('#catalogue-widget-app')) {

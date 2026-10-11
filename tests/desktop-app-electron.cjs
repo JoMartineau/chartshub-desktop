@@ -71,6 +71,10 @@ app.whenReady().then(async()=>{
  await waitFor(()=>host?.getPanelContents()&&!host.getPanelContents().isLoading(),'Companion renderer');
  await waitFor(async()=>(await state()).activeTab==='companion','Companion selected');
  const local=host.getPanelContents(),id=local.id;
+ // Chromium queues native dialog close events with animation frames. Keep the
+ // hidden shell and Companion view rendering so those events reach real handlers.
+ desktop.window.webContents.setBackgroundThrottling(false);
+ local.setBackgroundThrottling(false);
  assert.equal(host.getPanel(),desktop.window);
  assert.equal(electron.BrowserWindow.getAllWindows().length,1,'one main window');
  assert.equal(await local.executeJavaScript('typeof window.ChartsHubDesktop'),'undefined');
@@ -89,18 +93,46 @@ app.whenReady().then(async()=>{
  }
  await local.executeJavaScript('window.ChartshubBloom.open(); true');
  await waitFor(()=>local.executeJavaScript('document.querySelector("#ch-bloom-dialog").open && !document.querySelector("#ch-bloom-apply").disabled'),'bloom dialogue ready');
+ assert.equal(await local.executeJavaScript(`(()=>{
+  const app=document.querySelector('#companion-app'),dialog=document.querySelector('#ch-bloom-dialog'),form=document.querySelector('.ch-bloom-form');
+  return app.contains(dialog)&&['theme-panel','theme-catalogue-appearance','theme-filters-appearance','theme-player-appearance','local-player-appearance'].every(id=>dialog.contains(document.getElementById(id))&&!form.contains(document.getElementById(id)))&&document.querySelectorAll('form form').length===0&&!document.querySelector('.app-header .brand');
+ })()`),true,'all appearance sections retain their controller root and separate save forms');
+ await local.executeJavaScript(`document.querySelector('#theme-catalogue-appearance').open=true;document.querySelector('#floating-panels-opacity').value='57';document.querySelector('#floating-panels-opacity').dispatchEvent(new Event('input'));void 0`);
+ assert.equal(await local.executeJavaScript(`document.querySelector('#floating-panels-preview').style.getPropertyValue('--floating-background')`),'#15171991','centralized catalogue preview remains local');
  await local.executeJavaScript('document.querySelector("#ch-bloom-enabled").checked=true;document.querySelector("#ch-bloom-enabled").dispatchEvent(new Event("change"));document.querySelector("#ch-bloom-hex").value="#ff8000";document.querySelector("#ch-bloom-hex").dispatchEvent(new Event("input"));document.querySelector(".ch-bloom-form").requestSubmit();true');
  await waitFor(()=>local.executeJavaScript('window.ChartshubBloom.read().enabled && window.ChartshubBloom.read().color==="#ff8000" && !document.querySelector("#ch-bloom-apply").disabled'),'native bloom saved');
  assert.equal(JSON.parse(fs.readFileSync(stored,'utf8')).color,'#ff8000');
+ assert.equal(await local.executeJavaScript(`['.preview-card','.settings-card','.destinations-card'].every(selector=>getComputedStyle(document.querySelector(selector)).boxShadow!=='none')&&getComputedStyle(document.querySelector('#game-preview')).boxShadow==='none'`),true,'interface bloom includes the three nested cards without affecting the overlay surface');
+ await local.executeJavaScript(`document.querySelector('#theme-interface-appearance').open=false;document.querySelector('#theme-panel').open=false;document.querySelector('#theme-catalogue-appearance').open=false;document.querySelector('#theme-player-appearance').open=true;document.querySelector('#local-player-appearance').open=true;document.querySelector('#ch-bloom-dialog').scrollTop=0;void 0`);
+ await delay(100);fs.writeFileSync(path.join(directory,'theme-colors-player.png'),(await desktop.window.capturePage()).toPNG());
  const bytes=fs.readFileSync(stored);
  await local.executeJavaScript('document.querySelector("#ch-bloom-hex").value="#00ffff";document.querySelector("#ch-bloom-hex").dispatchEvent(new Event("input"));document.querySelector("#ch-bloom-cancel").click();true');
  await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open'),'bloom cancellation');
  assert.ok(fs.readFileSync(stored).equals(bytes),'Cancel does not persist the preview');
  assert.equal(await local.executeJavaScript('window.ChartshubBloom.read().color'),'#ff8000');
+ // A close notification from the preceding modal may arrive after it reopened.
+ // Deliver that notification against the real controls and native saved state.
+ await local.executeJavaScript('window.ChartshubBloom.open(); true');
+ await waitFor(()=>local.executeJavaScript('document.querySelector("#ch-bloom-dialog").open && !document.querySelector("#ch-bloom-apply").disabled'),'reopened theme ready');
+ assert.deepEqual(await local.executeJavaScript(`(()=>{
+  document.querySelector('#theme-interface-appearance').open=true;
+  const dialog=document.querySelector('#ch-bloom-dialog'),hex=document.querySelector('#ch-bloom-hex');
+  hex.value='#00ffff';hex.dispatchEvent(new Event('input'));hex.focus();
+  const focusBefore=document.activeElement===hex;
+  const before=document.documentElement.style.getPropertyValue('--ch-bloom-shadow');
+  dialog.dispatchEvent(new Event('close'));
+  return {open:dialog.open,value:hex.value,previewRetained:document.documentElement.style.getPropertyValue('--ch-bloom-shadow')===before,focusBefore,focusRetained:document.activeElement===hex,saved:window.ChartshubBloom.read().color};
+ })()`),{open:true,value:'#00ffff',previewRetained:true,focusBefore:true,focusRetained:true,saved:'#ff8000'});
+ assert.ok(fs.readFileSync(stored).equals(bytes),'a stale close does not persist a new preview');
+ await local.executeJavaScript('document.querySelector("#ch-bloom-cancel").click(); true');
+ await waitFor(()=>local.executeJavaScript('!document.querySelector("#ch-bloom-dialog").open && document.documentElement.style.getPropertyValue("--ch-bloom-shadow").includes("255, 128, 0")'),'normal close restores the saved theme').catch(async error=>{
+  const diagnostic=await local.executeJavaScript(`({open:document.querySelector('#ch-bloom-dialog').open,shadow:document.documentElement.style.getPropertyValue('--ch-bloom-shadow'),activeElement:document.activeElement?.id||document.activeElement?.tagName||null})`);
+  throw new Error(error.message+'; dialog state: '+JSON.stringify(diagnostic),{cause:error});
+ });
  local.reload();
  await waitFor(()=>!local.isLoading(),'Companion reload');
  await waitFor(()=>local.executeJavaScript('Boolean(window.ChartshubBloom && window.ChartshubBloom.read().enabled && window.ChartshubBloom.read().color==="#ff8000")'),'reload restores native bloom');
- passed.push('native bloom saves and cancels with real disk IO and survives renderer reload');
+ passed.push('centralized appearance sections remain independent; native bloom covers nested cards, saves and cancels with real disk IO and survives renderer reload');
 
  await local.executeJavaScript('document.querySelector("#library-search").value="Recherche conservée";window.scrollTo({top:180,behavior:"instant"});true');
  const localScroll=await local.executeJavaScript('scrollY');

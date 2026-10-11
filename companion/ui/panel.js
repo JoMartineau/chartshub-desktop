@@ -57,10 +57,14 @@ const themes = new ThemeControls({ root: query('#companion-app'), command: (name
 const stream = new StreamControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
-const musicPlayer = new LocalMusicPlayerControls({ root: query('#local-music-player-panel'), command: (name, payload) => command(name, payload) });
+const musicPlayer = new LocalMusicPlayerControls({ root: query('#local-music-player-panel'), appearanceRoot: query('#theme-player-colors'), command: (name, payload) => command(name, payload) });
 const unsubscribeSpectrum = api?.player?.subscribeSpectrum?.(state => musicPlayer.spectrum(state)) ?? (() => {});
 const cleanupHistory = new CleanupHistoryControls({ root: query('#library-history-container'), command: (name, payload) => command(name, payload) });
-const floatingPanels = new FloatingPanelsControls({ root: query('#floating-panels-settings'), command: (name, payload) => command(name, payload) });
+const floatingPanels = [
+  ['catalogue', '#floating-panels-settings', 'floating-panels'],
+  ['filters', '#floating-filters-settings', 'floating-filters'],
+  ['player', '#floating-player-settings', 'floating-player'],
+].map(([panel, selector, idPrefix]) => new FloatingPanelsControls({ root: query(selector), panels: [panel], idPrefix, command: (name, payload) => command(name, payload) }));
 const catalogue = new CatalogueControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const downloads = new DownloadsControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const filters = new FiltersControls({ root: query('#filters-classic-controls'), focusRoot: query('#game-filters'), command: (name, payload) => command(name, payload) });
@@ -165,7 +169,7 @@ function applySnapshot(snapshot) {
   stream.update(snapshot);
   library.update(snapshot);
   cleanupHistory.update({ rootPath: snapshot.library?.settings?.rootPath ?? null, revision: snapshot.library?.revision ?? 0 });
-  floatingPanels.update(snapshot);
+  for (const panel of floatingPanels) panel.update(snapshot);
   query('#catalogue-widget-toggle').checked = Boolean(snapshot.catalogueWidgetEnabled);
   query('#catalogue-widget-toggle').disabled = !api;
   query('#catalogue-widget-shortcut').textContent = snapshot.catalogueShortcut?.registered
@@ -344,7 +348,7 @@ window.addEventListener('beforeunload', () => {
   streamPreview.dispose();
   library.dispose();
   cleanupHistory.dispose();
-  floatingPanels.dispose();
+  for (const panel of floatingPanels) panel.dispose();
   catalogue.dispose();
   downloads.dispose();
   filters.dispose();

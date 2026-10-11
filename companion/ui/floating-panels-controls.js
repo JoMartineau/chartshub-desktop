@@ -2,7 +2,7 @@ import { normalizeColor } from '../dist/themes/normalizeColor.js';
 
 const defaults = () => ({ backgroundColor: '#151719e6', textColor: '#eef1f2', fontFamily: 'system', fontSize: 14 });
 const fonts = Object.freeze({ system: '"Segoe UI", Arial, sans-serif', arial: 'Arial, sans-serif', verdana: 'Verdana, sans-serif', georgia: 'Georgia, serif', consolas: 'Consolas, monospace' });
-const panels = ['catalogue', 'filters'];
+const panels = ['catalogue', 'filters', 'player'];
 const clone = value => ({ ...value });
 function normalized(value) {
   if (!value || typeof value !== 'object' || !Object.hasOwn(fonts, value.fontFamily) || !Number.isInteger(value.fontSize) || value.fontSize < 10 || value.fontSize > 24) return null;
@@ -21,8 +21,10 @@ export function applyFloatingAppearance(element, appearance) {
 }
 
 export class FloatingPanelsControls {
-  constructor({ root, command, panels: allowedPanels = ['catalogue', 'filters'] }) {
+  constructor({ root, command, panels: allowedPanels = ['catalogue', 'filters'], idPrefix = 'floating-panels' }) {
     if (!Array.isArray(allowedPanels) || !allowedPanels.length || allowedPanels.some(panel => !panels.includes(panel)) || new Set(allowedPanels).size !== allowedPanels.length) throw Error('Invalid floating panel controls');
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(idPrefix)) throw Error('Invalid floating panel control prefix');
+    this.idPrefix = idPrefix;
     this.panels = [...allowedPanels];
     this.root = root; this.command = command; this.abort = new AbortController(); this.state = null; this.signature = '';
     this.selected = this.panels[0]; this.drafts = new Map(this.panels.map(panel => [panel, defaults()])); this.dirty = new Set(); this.busy = false; this.disposed = false; this.invalid = false;
@@ -30,7 +32,7 @@ export class FloatingPanelsControls {
     const title = this.make('h3', '', 'Apparence des fenêtres flottantes');
     const hint = this.make('p', '', 'Personnalisez chaque fenêtre. L’aperçu reste local jusqu’à l’enregistrement.'); hint.className = 'floating-panels-hint';
     this.panel = this.make('select', 'floating-panels-panel');
-    for (const [value, label] of [['catalogue', 'Catalogue'], ['filters', 'Filtres du jeu']]) if (this.panels.includes(value)) this.option(this.panel, value, label);
+    for (const [value, label] of [['catalogue', 'Catalogue'], ['filters', 'ReShade / Filtres du jeu'], ['player', 'Lecteur Songs']]) if (this.panels.includes(value)) this.option(this.panel, value, label);
     this.background = this.make('input', 'floating-panels-background'); this.background.type = 'color';
     this.text = this.make('input', 'floating-panels-text'); this.text.type = 'color';
     this.opacity = this.make('input', 'floating-panels-opacity'); this.opacity.type = 'range'; this.opacity.min = '0'; this.opacity.max = '100'; this.opacity.step = '1';
@@ -39,7 +41,8 @@ export class FloatingPanelsControls {
     for (const [value, label] of [['system', 'Système'], ['arial', 'Arial'], ['verdana', 'Verdana'], ['georgia', 'Georgia'], ['consolas', 'Consolas']]) this.option(this.font, value, label);
     this.size = this.make('input', 'floating-panels-font-size'); this.size.type = 'number'; this.size.min = '10'; this.size.max = '24'; this.size.step = '1';
     const grid = this.make('div'); grid.className = 'floating-panels-grid';
-    grid.append(this.label('Fenêtre à personnaliser', this.panel), this.label('Couleur du fond', this.background), this.label('Couleur du texte', this.text));
+    const panelChoice = this.label('Fenêtre à personnaliser', this.panel); panelChoice.hidden = this.panels.length === 1;
+    grid.append(panelChoice, this.label('Couleur du fond', this.background), this.label('Couleur du texte', this.text));
     const opacity = this.label('Opacité du fond', this.opacity); opacity.append(this.opacityValue);
     grid.append(opacity, this.label('Police', this.font), this.label('Taille du texte', this.size));
     const previewWrap = this.make('div'); previewWrap.className = 'floating-panels-preview-wrap';
@@ -64,7 +67,7 @@ export class FloatingPanelsControls {
     }, { signal });
     this.render();
   }
-  make(tag, id = '', text = '') { const element = this.root.ownerDocument.createElement(tag); if (id) element.id = id; if (text) element.textContent = text; return element; }
+  make(tag, id = '', text = '') { const element = this.root.ownerDocument.createElement(tag); if (id) element.id = id.replace(/^floating-panels/, this.idPrefix); if (text) element.textContent = text; return element; }
   label(text, input) { const label = this.make('label'); label.htmlFor = input.id; label.append(this.make('span', '', text), input); return label; }
   option(select, value, label) { const option = this.make('option', '', label); option.value = value; select.append(option); }
   message(text, error = false) { this.feedback.textContent = text; this.feedback.hidden = !text; this.feedback.classList.toggle('is-error', error); }
@@ -98,8 +101,8 @@ export class FloatingPanelsControls {
     this.panel.value = this.selected; this.background.value = value.backgroundColor.slice(0, 7); this.text.value = value.textColor;
     this.opacity.value = String(Math.round(alpha * 100 / 255)); this.opacityValue.textContent = `${this.opacity.value} %`; this.opacity.setAttribute('aria-valuetext', `${this.opacity.value} %`);
     this.font.value = value.fontFamily; this.size.value = String(value.fontSize); this.size.setAttribute('aria-invalid', 'false'); this.opacity.setAttribute('aria-invalid', 'false');
-    this.previewTitle.textContent = this.selected === 'catalogue' ? 'Aperçu du Catalogue' : 'Aperçu des filtres';
-    this.previewText.textContent = this.selected === 'catalogue' ? 'Recherche, téléchargements et morceaux récents.' : 'Filtres du jeu et réglages rapides.';
+    this.previewTitle.textContent = { catalogue: 'Aperçu du Catalogue', filters: 'Aperçu des filtres', player: 'Aperçu du lecteur Songs' }[this.selected];
+    this.previewText.textContent = { catalogue: 'Recherche, téléchargements et morceaux récents.', filters: 'Filtres du jeu et réglages rapides.', player: 'Titre du morceau · Artiste · Lecture et volume.' }[this.selected];
     applyFloatingAppearance(this.preview, value); this.availability();
   }
   availability() {

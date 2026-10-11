@@ -160,18 +160,18 @@ async function controlsFixture(t) {
   const calls = [], controls = new StreamControls({ root, command: (name, payload) => new Promise(resolve => calls.push({ name, payload, resolve })) });
   t.after(() => controls.dispose());
   const snapshot = { state: state(api), editor: { revision: 9, canUndo: false, canRedo: false }, stream: { enabled: false, url: null, clients: 0, error: null },
-    captureWindows: { catalogue: { canOpen: true, title: 'ChartsHub — Mini Catalogue' }, filters: { canOpen: true, title: 'ChartsHub — Filtres du jeu' } } };
+    captureWindows: { catalogue: { canOpen: true, title: 'ChartsHub — Mini Catalogue' }, filters: { canOpen: true, title: 'ChartsHub — Filtres du jeu' }, player: { canOpen: true, title: 'ChartsHub — Lecteur Songs' } } };
   return { document, root, controls, calls, snapshot, html, get: selector => root.querySelector(selector) };
 }
 
 test('OBS native window controls remain unavailable until each host permission is explicitly ready', async t => {
   const ui = await controlsFixture(t);
   const forceClick = name => ui.get('#stream-open-' + name).dispatchEvent(new Event('click'));
-  for (const name of ['catalogue', 'filters']) { assert.equal(ui.get('#stream-open-' + name).disabled, true); forceClick(name); }
+  for (const name of ['catalogue', 'filters', 'player']) { assert.equal(ui.get('#stream-open-' + name).disabled, true); forceClick(name); }
   assert.equal(ui.calls.length, 0);
   for (const captureWindows of [undefined, {}, { catalogue: { canOpen: false, title: 'Catalogue' }, filters: { canOpen: false, title: 'Filters' } }]) {
     ui.controls.update({ ...ui.snapshot, captureWindows });
-    for (const name of ['catalogue', 'filters']) { assert.equal(ui.get('#stream-open-' + name).disabled, true); forceClick(name); }
+    for (const name of ['catalogue', 'filters', 'player']) { assert.equal(ui.get('#stream-open-' + name).disabled, true); forceClick(name); }
   }
   ui.controls.update({ ...ui.snapshot, captureWindows: { catalogue: { canOpen: true, title: 'Catalogue' } } });
   assert.equal(ui.get('#stream-open-catalogue').disabled, false); assert.equal(ui.get('#stream-open-filters').disabled, true);
@@ -179,6 +179,9 @@ test('OBS native window controls remain unavailable until each host permission i
   ui.controls.update({ ...ui.snapshot, captureWindows: { filters: { canOpen: true, title: 'Filters' } } });
   assert.equal(ui.get('#stream-open-catalogue').disabled, true); assert.equal(ui.get('#stream-open-filters').disabled, false);
   forceClick('catalogue'); assert.equal(ui.calls.length, 0, 'rendering availability never opens a window or starts a stream');
+  ui.controls.update({ ...ui.snapshot, captureWindows: { player: { canOpen: true, title: 'Player' } } });
+  assert.equal(ui.get('#stream-open-player').disabled, false); assert.equal(ui.get('#stream-open-catalogue').disabled, true);
+  forceClick('filters'); assert.equal(ui.calls.length, 0);
 });
 
 test('OBS opens only the selected existing native window and preserves stream/game settings', async t => {
@@ -197,6 +200,11 @@ test('OBS opens only the selected existing native window and preserves stream/ga
   assert.deepEqual(ui.calls[1].payload, { enabled: true }); assert.equal(ui.calls[1].name, 'filters.widget');
   ui.calls[1].resolve({ ok: true }); await tick();
   assert.match(ui.get('#stream-feedback').textContent, /Fenêtre ouverte/);
+  ui.get('#stream-open-player').click(); assert.equal(ui.calls[2].name, 'capture.player'); assert.deepEqual(ui.calls[2].payload, {});
+  assert.equal(ui.get('#stream-open-player').disabled, true);
+  ui.get('#stream-open-player').dispatchEvent(new Event('click')); assert.equal(ui.calls.length, 3);
+  ui.calls[2].resolve({ ok: true }); await tick();
+  assert.match(ui.get('#stream-feedback').textContent, /Fenêtre ouverte/);
   assert.deepEqual(ui.snapshot, before, 'opening windows cannot change song visibility, effects or stream activation');
   assert.equal(ui.get('#stream-enabled').checked, false);
 });
@@ -209,10 +217,12 @@ test('OBS capture guidance changes language but retains exact native titles and 
   ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
   assert.equal(ui.get('#stream-open-catalogue').textContent, 'Open Catalogue');
   assert.equal(ui.get('#stream-open-filters').textContent, 'Open Filters');
+  assert.equal(ui.get('#stream-open-player').textContent, 'Open Player');
   assert.match(ui.get('#stream-browser-heading').textContent, /Browser Source/);
   assert.match(ui.get('#stream-window-instructions').textContent, /Window Capture/);
   assert.equal(ui.get('#stream-catalogue-window-title').textContent, 'ChartsHub — Mini Catalogue');
   assert.equal(ui.get('#stream-filters-window-title').textContent, 'ChartsHub — Filtres du jeu');
+  assert.equal(ui.get('#stream-player-window-title').textContent, 'ChartsHub — Lecteur Songs');
   ui.controls.update({ ...ui.snapshot, captureWindows: { catalogue: { canOpen: false, title: '<img src=x onerror=unsafe()>' } } });
   assert.equal(ui.get('#stream-catalogue-window-title').textContent, '<img src=x onerror=unsafe()>');
   assert.match(ui.get('#stream-window-status').textContent, /Catalogue is currently unavailable/);
@@ -222,6 +232,7 @@ test('OBS capture guidance changes language but retains exact native titles and 
   assert.equal(ui.calls.length, 0);
   assert.match(ui.html, /id="stream-open-catalogue"[^>]*aria-describedby="stream-catalogue-window-title"/);
   assert.match(ui.html, /id="stream-open-filters"[^>]*aria-describedby="stream-filters-window-title"/);
+  assert.match(ui.html, /id="stream-open-player"[^>]*aria-describedby="stream-player-window-title"/);
 });
 
 test('OBS window readiness revocation and disposal cannot re-enable or silently reopen native windows', async t => {

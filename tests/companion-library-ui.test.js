@@ -384,9 +384,10 @@ test('closing or superseding a pending comparison prevents late responses and er
   assert.equal(card(ui, 'a').querySelector('h4').textContent, 'Newest comparison');
   assert.doesNotMatch(ui.get('#library-comparison-feedback').textContent, /Obsolete/);
   rows[0].querySelector('.library-compare').click(); const closed = await ui.request(4);
-  ui.get('#library-comparison-close').click(); closed.resolve({ ok: true, result: comparison() }); await tick();
+  ui.get('#library-comparison-close').click(); closed.resolve({ ok: true, result: comparison({ preferredId: variantId('a') }) }); await tick();
   assert.equal(ui.get('#library-comparison').hidden, true);
   assert.equal(ui.get('#library-comparison-cards').children.length, 0);
+  assert.equal(ui.calls.some(call => call.name === 'library.prepareCleanup'), false, 'a restored choice from a closed comparison cannot start verification');
 });
 
 test('new revisions and roots invalidate pending comparisons and preference acknowledgements', async t => {
@@ -399,8 +400,9 @@ test('new revisions and roots invalidate pending comparisons and preference ackn
   ui.get('#library-rows').children[0].querySelector('.library-compare').click(); const pending = await ui.request(4);
   assert.equal(pending.payload.revision, 2);
   ui.controls.update(snapshot({ revision: 2, settings: { rootPath: 'D:\\Other Songs', watch: false, refreshOnStart: true } })); await ui.respond(5, { revision: 2 });
-  pending.resolve({ ok: true, result: comparison({ revision: 2 }) }); await tick();
+  pending.resolve({ ok: true, result: comparison({ revision: 2, preferredId: variantId('a') }) }); await tick();
   assert.equal(ui.get('#library-comparison').hidden, true); assert.equal(ui.get('#library-comparison-cards').children.length, 0);
+  assert.equal(ui.calls.some(call => call.name === 'library.prepareCleanup'), false);
 });
 
 test('a mismatched comparison or choice acknowledgement is rejected, and disposal cancels all comparison listeners', async t => {
@@ -414,7 +416,7 @@ test('a mismatched comparison or choice acknowledgement is rejected, and disposa
   assert.equal(card(ui, 'a').querySelector('.library-preferred-badge').hidden, true);
   ui.get('#library-comparison-retry').click(); const pending = await ui.request(4);
   ui.controls.dispose(); const writes = ui.document.writes;
-  pending.resolve({ ok: true, result: comparison() }); await tick();
+  pending.resolve({ ok: true, result: comparison({ preferredId: variantId('a') }) }); await tick();
   ui.get('#library-comparison-close').click(); ui.get('#library-comparison-retry').click();
   ui.get('#library-rows').children[0].querySelector('.library-compare').click(); await tick();
   assert.equal(ui.document.writes, writes); assert.equal(ui.calls.length, 5);
@@ -436,9 +438,119 @@ const cleanupCheck = (ui, letter) => ui.get('#library-cleanup-candidates').child
 const checkCleanup = (ui, letter, checked = true) => { const check = cleanupCheck(ui, letter); check.checked = checked; check.dispatchEvent(new Event('change')); };
 async function preparedCleanup(t, plan = cleanupPlan(), total) {
   const ui = await openComparison(t, comparison({ preferredId: variantId('a') }), total);
-  ui.get('#library-cleanup-prepare').click(); const prepare = await ui.request(2);
+  const prepare = await ui.request(2);
+  assert.equal(prepare.name, 'library.prepareCleanup', 'a restored keeper is reverified without a manual prepare action');
   prepare.resolve({ ok: true, result: plan }); await tick(); return ui;
 }
+
+test('a restored keeper automatically verifies content without saving a choice or selecting any deletion', async t => {
+  const ui = await openComparison(t, comparison({ preferredId: variantId('a') }));
+  const prepare = await ui.request(2);
+  assert.deepEqual({ name: prepare.name, payload: prepare.payload }, { name: 'library.prepareCleanup', payload: { contextId: 'e'.repeat(32), revision: 1, keepId: variantId('a') } });
+  assert.equal(card(ui, 'a').querySelector('.library-preferred-badge').hidden, false);
+  assert.equal(ui.get('#library-comparison').attributes['aria-busy'], 'true');
+  prepare.resolve({ ok: true, result: cleanupPlan() }); await tick();
+  assert.equal(ui.get('#library-cleanup-plan').hidden, false);
+  assert.equal(cleanupCheck(ui, 'a'), undefined, 'the keeper never becomes a deletion candidate');
+  assert.equal(cleanupCheck(ui, 'b').checked, false);
+  assert.equal(cleanupCheck(ui, 'd').checked, false);
+  assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+  assert.equal(ui.calls.some(call => call.name === 'library.chooseDuplicate' || call.name.includes('Recycle') || call.name === 'library.recycleDuplicates'), false);
+});
+
+test('a missing keeper or an unavailable or errored preference never starts automatic cleanup preparation', async t => {
+  for (const extra of [{ preferredId: null }, { preferredId: variantId('a'), canChoose: false }, { preferredId: variantId('a'), selectionError: 'Le choix enregistré ne correspond plus aux notes.' }]) {
+    const ui = await openComparison(t, comparison(extra));
+    await tick(); assert.equal(ui.calls.length, 2);
+    assert.equal(ui.get('#library-cleanup-plan').hidden, true);
+    assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+    if (extra.selectionError) {
+      assert.equal(ui.get('#library-cleanup-prepare').disabled, true);
+      ui.get('#library-cleanup-prepare').click(); await tick(); assert.equal(ui.calls.length, 2);
+      assert.equal(ui.get('#library-comparison-feedback').textContent, extra.selectionError);
+    }
+  }
+});
+
+test('a restored keeper still refuses files changed since the scan and offers a fresh comparison', async t => {
+  const ui = await openComparison(t, comparison({ preferredId: variantId('a') }));
+  const prepare = await ui.request(2);
+  prepare.resolve({ ok: false, error: 'Cette version a changé depuis le scan ou la comparaison. Relancez le scan de la bibliothèque puis comparez les versions.' }); await tick();
+  assert.equal(ui.get('#library-cleanup-plan').hidden, true);
+  assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+  assert.equal(ui.get('#library-comparison-retry').hidden, false);
+  assert.match(ui.get('#library-comparison-feedback').textContent, /changé depuis le scan/);
+  ui.get('#library-cleanup-prepare').click(); ui.get('#library-cleanup-recycle').click(); await tick();
+  assert.equal(ui.calls.length, 3, 'failed verification never enables an unchecked or stale cleanup');
+});
+
+test('an explicitly corrected keeper can recover from a restored-choice error without selecting any copy', async t => {
+  const ui = await openComparison(t, comparison({ preferredId: variantId('a'), selectionError: 'Le choix enregistré ne correspond plus aux notes.' }));
+  assert.equal(ui.calls.length, 2); card(ui, 'b').querySelector('.library-variant-choose').click();
+  const choose = await ui.request(2);
+  choose.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: variantId('b') } }); await tick();
+  const prepare = await ui.request(3); assert.equal(prepare.name, 'library.prepareCleanup'); assert.equal(prepare.payload.keepId, variantId('b'));
+  prepare.resolve({ ok: true, result: cleanupPlan({ keepId: variantId('b'), keep: cleanupTarget('b'), candidates: [cleanupTarget('a', { eligible: true })] }) }); await tick();
+  assert.equal(ui.get('#library-cleanup-plan').hidden, false); assert.equal(cleanupCheck(ui, 'a').checked, false);
+  assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
+});
+
+test('closing, disposing or changing the library ignores every in-flight restored-keeper cleanup response', async t => {
+  for (const change of ['close', 'dispose', 'root', 'revision']) {
+    const ui = await openComparison(t, comparison({ preferredId: variantId('a') }));
+    const prepare = await ui.request(2);
+    if (change === 'close') ui.get('#library-comparison-close').click();
+    else if (change === 'dispose') ui.controls.dispose();
+    else ui.controls.update(snapshot(change === 'root' ? { settings: { rootPath: 'D:\\New Songs', watch: false, refreshOnStart: true } } : { revision: 2 }));
+    const writes = ui.document.writes;
+    prepare.resolve({ ok: true, result: cleanupPlan() }); await tick();
+    assert.equal(ui.get('#library-cleanup-plan').hidden, true); assert.equal(cleanupCheck(ui, 'b'), undefined);
+    if (change === 'dispose') assert.equal(ui.document.writes, writes, 'disposed comparison receives no late DOM writes');
+    assert.equal(ui.calls.filter(call => call.name === 'library.prepareCleanup').length, 1);
+    assert.equal(ui.calls.some(call => call.name === 'library.chooseDuplicate' || call.name === 'library.recycleDuplicates' || call.name === 'library.forceRecycleDuplicate'), false);
+  }
+});
+
+test('a scan invalidates pending restored-keeper comparisons and plans even if cancellation preserves the revision', async t => {
+  for (const stage of ['comparison', 'preparation']) {
+    const ui = stage === 'preparation' ? await openComparison(t, comparison({ preferredId: variantId('a') })) : await setup(t);
+    if (stage === 'comparison') {
+      ui.controls.update(snapshot()); await ui.respond(0, { items: [song(variantId('a'), { duplicateCount: 4 })] });
+      ui.get('#library-rows').children[0].querySelector('.library-compare').click();
+    }
+    const pending = await ui.request(stage === 'comparison' ? 1 : 2);
+    ui.controls.update(snapshot({ status: 'scanning' }));
+    ui.controls.update(snapshot({ status: 'cancelled' }));
+    pending.resolve({ ok: true, result: stage === 'comparison' ? comparison({ preferredId: variantId('a') }) : cleanupPlan() }); await tick();
+    assert.equal(ui.get('#library-cleanup-plan').hidden, true);
+    assert.equal(ui.get('#library-comparison').attributes['aria-busy'], 'false');
+    assert.equal(ui.get('#library-comparison-retry').hidden, false);
+    assert.equal(ui.calls.length, stage === 'comparison' ? 2 : 3, 'an obsolete response cannot trigger preparation or deletion');
+    ui.get('#library-comparison-retry').click(); const retry = await ui.request(ui.calls.length - 1);
+    assert.equal(retry.name, 'library.compareDuplicates');
+    retry.resolve({ ok: true, result: comparison({ preferredId: variantId('a'), contextId: 'f'.repeat(32) }) }); await tick();
+    const fresh = ui.calls.at(-1); assert.equal(fresh.name, 'library.prepareCleanup'); assert.equal(fresh.payload.contextId, 'f'.repeat(32));
+    fresh.resolve({ ok: true, result: cleanupPlan({ contextId: 'f'.repeat(32) }) }); await tick();
+    assert.equal(ui.get('#library-cleanup-plan').hidden, false); assert.equal(cleanupCheck(ui, 'b').checked, false);
+  }
+});
+
+test('keeping all versions clears the persisted keeper and every selection without moving files', async t => {
+  const ui = await preparedCleanup(t); checkCleanup(ui, 'b'); checkCleanup(ui, 'd');
+  assert.match(ui.html, /id="library-comparison-clear"[^>]*>Conserver toutes les versions</);
+  ui.get('#library-comparison-clear').click(); const clear = await ui.request(3);
+  assert.equal(clear.name, 'library.chooseDuplicate'); assert.equal(clear.payload.id, null);
+  assert.equal(ui.get('#library-cleanup-plan').hidden, true);
+  clear.resolve({ ok: true, result: { contextId: 'e'.repeat(32), revision: 1, preferredId: null } }); await tick();
+  assert.equal(card(ui, 'a').querySelector('.library-preferred-badge').hidden, true);
+  assert.equal(ui.get('#library-cleanup-prepare').hidden, true);
+  assert.equal(ui.get('#library-comparison-feedback').textContent, 'Toutes les versions sont conservées. Aucun fichier déplacé ou supprimé.');
+  ui.get('#library-cleanup-recycle').click(); await tick(); assert.equal(ui.calls.length, 4);
+  ui.get('#library-comparison-close').click(); ui.get('#library-rows').children[0].querySelector('.library-compare').click();
+  const reopened = await ui.request(4); reopened.resolve({ ok: true, result: comparison({ preferredId: null }) }); await tick();
+  assert.equal(ui.get('#library-cleanup-plan').hidden, true); assert.equal(ui.calls.length, 5);
+  assert.equal(ui.calls.some(call => call.name === 'library.recycleDuplicates' || call.name === 'library.forceRecycleDuplicate'), false);
+});
 
 test('loading another batch preserves the chosen keeper and every explicit deletion selection', async t => {
   const ui = await preparedCleanup(t, cleanupPlan(), 101); checkCleanup(ui, 'b');
@@ -642,7 +754,7 @@ test('a saved keeper survives closing and reopening while deletion selections ne
   reopened.resolve({ ok: true, result: comparison({ preferredId: variantId('a') }) }); await tick();
   assert.equal(card(ui, 'a').querySelector('.library-preferred-badge').hidden, false);
   assert.equal(ui.get('#library-cleanup-plan').hidden, true);
-  ui.get('#library-cleanup-prepare').click(); const prepare = await ui.request(4);
+  const prepare = await ui.request(4);
   assert.equal(prepare.payload.keepId, variantId('a'));
   prepare.resolve({ ok: true, result: cleanupPlan({ planId: 'b'.repeat(32) }) }); await tick();
   assert.equal(cleanupCheck(ui, 'b').checked, false);
@@ -742,7 +854,10 @@ test('a stale, mismatched, or keeper-including cleanup response is rejected and 
     ui.get('#library-comparison-retry').click(); const reload = await ui.request(3);
     reload.resolve({ ok: true, result: comparison({ preferredId: variantId('a') }) }); await tick();
     assert.equal(ui.get('#library-cleanup-plan').hidden, true);
-    assert.equal(ui.get('#library-cleanup-prepare').disabled, false);
+    assert.equal(ui.get('#library-cleanup-prepare').disabled, true, 'reload is automatically verifying the restored keeper');
+    const prepare = await ui.request(4); assert.equal(prepare.name, 'library.prepareCleanup');
+    prepare.resolve({ ok: true, result: cleanupPlan() }); await tick();
+    assert.equal(ui.get('#library-cleanup-plan').hidden, false); assert.equal(cleanupCheck(ui, 'b').checked, false);
   }
 });
 
@@ -807,7 +922,8 @@ test('global duplicate verification shows progress, refreshes all duplicate rows
   refresh.resolve({ ok: true, result: { items: [song('bulk-a', { duplicateCount: 2, duplicateVerification: 'ready', verifiedEligibleCopies: 2 })], total: 1, revision: 1, offset: 0, limit: 50 } });
   await tick();
   assert.equal(ui.get('#library-duplicates').value, 'possible');
-  assert.match(ui.get('#library-verify-all-status').textContent, /1 groupe\(s\) prêt\(s\).*1 choix de version requis.*1 bloqué\(s\).*2 copie\(s\) vérifiée\(s\)/);
+  assert.match(ui.get('#library-verify-all-status').textContent, /1 groupe\(s\) prêt\(s\).*1 choix de version requis.*1 bloqué\(s\).*2 copie\(s\) identique\(s\) prête\(s\) à sélectionner/);
+  assert.match(ui.get('#library-verify-all-status').textContent, /Ouvrez « Comparer » pour connaître les raisons précises/);
   const badge = ui.get('#library-rows').children[0].querySelector('.library-duplicate-badge');
   assert.match(badge.textContent, /Prêt à nettoyer.*2 copie\(s\) vérifiée\(s\)/);
   assert.equal(badge.dataset.verification, 'ready');

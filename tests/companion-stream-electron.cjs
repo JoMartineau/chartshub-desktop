@@ -100,41 +100,61 @@ async function verifyStream(panel, host, data, passed) {
     assert.equal(initial.stream.enabled, false, 'the server starts only after an explicit action');
     assert.equal(initial.stream.clients, 0);
     assert.equal(initial.stream.url, null);
+    assert.equal(initial.player.selection, null, 'the OBS fixture starts without a selected local song');
+    assert.equal(initial.player.playing, false);
     panel.setSize(1250, 900);
     const captureWindows = [];
+    const captureNames = ['catalogue', 'filters', 'player'];
     const windowsCaptureCI = process.platform === 'win32' && process.env.CI === 'true';
     if (windowsCaptureCI) {
-      for (const name of ['catalogue', 'filters']) assert.equal(initial.captureWindows?.[name]?.canOpen, true, 'Windows CI must exercise the actual ' + name + ' window');
+      for (const name of captureNames) assert.equal(initial.captureWindows?.[name]?.canOpen, true, 'Windows CI must exercise the actual ' + name + ' window');
     }
-    for (const name of ['catalogue', 'filters']) {
+    for (const name of captureNames) {
       const info = initial.captureWindows?.[name];
       assert.equal(await evaluate(`document.querySelector('#stream-open-${name}').disabled`), info?.canOpen !== true, 'OBS button follows host readiness: ' + name);
       if (!info?.canOpen) continue;
       await click('#stream-open-' + name);
-      const native = () => name === 'catalogue' ? host.getCatalogueWidget() : host.getFiltersWidget();
+      const native = () => name === 'catalogue' ? host.getCatalogueWidget() : name === 'filters' ? host.getFiltersWidget() : host.getPlayerWidget();
       await waitFor(() => native()?.isVisible(), 'OBS action opens native ' + name);
       const window = native(); assert.equal(window.getTitle(), info.title);
       assert.equal(await evaluate(`document.querySelector('#stream-${name}-window-title').textContent`), info.title);
+      if (name === 'player') {
+        // Electron's getter intentionally returns RGB without alpha; the host
+        // unit fixture separately verifies transparent:true and #00000000.
+        assert.equal(window.isAlwaysOnTop(), true); assert.equal(window.getBackgroundColor(), '#000000');
+        const playerSnapshot = await window.webContents.executeJavaScript('window.ChartsHubCompanion.getSnapshot()');
+        assert.deepEqual(Object.keys(playerSnapshot).sort(), ['floatingPanels', 'language', 'player']);
+        assert.deepEqual(Object.keys(playerSnapshot.floatingPanels.appearance), ['player']);
+        assert.equal(playerSnapshot.player.selection, initial.player.selection); assert.equal(playerSnapshot.player.playing, initial.player.playing);
+        assert.equal((await window.webContents.executeJavaScript("window.ChartsHubCompanion.command('capture.player',{})")).ok, false, 'OBS opening action remains main-only in real IPC');
+        await click('#stream-open-player');
+        assert.equal(host.getPlayerWidget(), window, 'opening the OBS target twice keeps the same audio owner');
+        assert.equal(BrowserWindow.getAllWindows().filter(candidate => candidate.webContents.getURL() === 'chartshub-companion://app/ui/music-player.html').length, 1);
+      }
       captureWindows.push({ name, window, title: info.title });
       await fs.writeFile(path.join(data, 'obs-window-' + name + '.png'), (await window.webContents.capturePage()).toPNG());
     }
     if (windowsCaptureCI) {
-      assert.deepEqual(captureWindows.map(item => item.name).sort(), ['catalogue', 'filters'], 'both native fixture windows were opened and captured');
-      assert.equal(new Set(captureWindows.map(item => item.window.getMediaSourceId())).size, 2, 'the captures belong to two distinct native windows');
+      assert.deepEqual(captureWindows.map(item => item.name).sort(), captureNames, 'all three native fixture windows were opened and captured');
+      assert.equal(new Set(captureWindows.map(item => item.window.getMediaSourceId())).size, 3, 'the captures belong to three distinct native windows');
       // Enumerate eligible windows with zero-size thumbnails. Only our fixture
       // window IDs/titles are inspected; no other titles or pixels are recorded.
       await waitFor(async () => {
         const sources = await desktopCapturer.getSources({ types: ['window'], thumbnailSize: { width: 0, height: 0 }, fetchWindowIcons: false });
         return captureWindows.every(({ window, title }) => sources.some(source => source.id === window.getMediaSourceId() && source.name === title));
-      }, 'Windows capture enumeration contains only the expected matches for fixture catalogue/filters', 15000);
-      passed.push('Windows native capture enumeration recognizes the exact fixture Catalogue/Filters titles; actual OBS capture remains a manual integration check');
+      }, 'Windows capture enumeration contains the expected fixture Catalogue/Filters/Player matches', 15000);
+      passed.push('Windows native capture enumeration recognizes the exact fixture Catalogue/Filters/Player titles; actual OBS capture remains a manual integration check');
     }
     await host.setCatalogueWidget(Boolean(initial.catalogueWidgetEnabled));
     await host.setFiltersWidget(Boolean(initial.filtersWidgetEnabled));
+    await command('player.widget', { enabled: Boolean(initial.player.widgetEnabled) });
     for (const language of ['fr', 'en']) {
       host.setLanguage(language);
       const expected = language === 'fr' ? 'Ouvrir le Catalogue' : 'Open Catalogue';
       await waitFor(() => evaluate(`document.querySelector('#stream-open-catalogue').textContent===${JSON.stringify(expected)}`), 'OBS capture instructions ' + language);
+      const expectedPlayer = language === 'fr' ? 'Ouvrir le Lecteur' : 'Open Player';
+      await waitFor(() => evaluate(`document.querySelector('#stream-open-player').textContent===${JSON.stringify(expectedPlayer)}`), 'OBS player button ' + language);
+      for (const target of captureWindows) assert.equal(target.window.getTitle(), target.title, 'language changes never rename an OBS capture target');
       if (captureWindows.length) {
         const feedback = language === 'fr' ? 'Fenêtre ouverte. Sélectionnez son titre dans OBS.' : 'Window opened. Select its title in OBS.';
         await waitFor(() => evaluate(`document.querySelector('#stream-feedback').textContent===${JSON.stringify(feedback)}`), 'existing OBS opening confirmation follows language ' + language);
@@ -145,7 +165,8 @@ async function verifyStream(panel, host, data, passed) {
     host.setLanguage(initial.language);
     assert.equal(host.snapshot().stream.enabled, false); assert.equal(host.snapshot().stream.url, null);
     for (const key of ['widgets', 'theme', 'stream']) assert.deepEqual(host.snapshot().state[key], initial.state[key], 'opening capture windows does not change ' + key);
-    passed.push('OBS buttons open only existing permitted native windows with exact titles and bilingual guidance, without starting the browser server');
+    assert.equal(host.snapshot().player.selection, initial.player.selection); assert.equal(host.snapshot().player.playing, initial.player.playing);
+    passed.push('OBS buttons open three permitted native targets with stable bilingual guidance and one player audio owner, without autoplay or starting the browser server');
     await command('mock.state', { state: 'menu' });
     if (await evaluate("document.querySelector('#builder-toggle').getAttribute('aria-pressed')==='true'")) await click('#builder-toggle');
     await click('#preview-stream-tab');
@@ -273,6 +294,7 @@ async function verifyStream(panel, host, data, passed) {
     try {
       await host.setCatalogueWidget(Boolean(initial.catalogueWidgetEnabled));
       await host.setFiltersWidget(Boolean(initial.filtersWidgetEnabled));
+      if (!panel.isDestroyed()) await command('player.widget', { enabled: Boolean(initial.player.widgetEnabled) });
       host.setLanguage(initial.language);
     } catch { failures.push('restore native capture windows'); }
     if (browser && !browser.isDestroyed()) browser.destroy();

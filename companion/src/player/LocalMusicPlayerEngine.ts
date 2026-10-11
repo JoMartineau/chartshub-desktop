@@ -55,6 +55,7 @@ export class LocalMusicPlayerEngine {
         track.preload = 'auto'; track.volume = this.volume;
         track.addEventListener('error', () => this.fail(track.error?.code === 4 ? 'unsupported' : 'playback'), { signal });
         track.addEventListener('loadedmetadata', () => this.loaded(), { signal });
+        track.addEventListener('loadeddata', () => this.loaded(), { signal });
         track.addEventListener('canplay', () => this.loaded(), { signal });
         track.addEventListener('ended', () => {
           if (this.ready && this.wanted && track === this.master() && track.ended && !track.seeking && track.currentTime >= this.duration - .25) {

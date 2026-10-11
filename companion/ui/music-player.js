@@ -1,5 +1,6 @@
 import { LocalMusicPlayerControls } from '../dist/settings/LocalMusicPlayerControls.js';
 import { LocalMusicPlayerEngine } from '../dist/player/LocalMusicPlayerEngine.js';
+import { applyFloatingAppearance } from './floating-panels-controls.js';
 
 const api = window.ChartsHubCompanion;
 let disposed = false, received = false, unsubscribe = () => {}, unsubscribeActions = () => {}, lastSnapshot = null;
@@ -8,6 +9,9 @@ const controls = new LocalMusicPlayerControls({ root: document.querySelector('#l
   if (!disposed && name !== 'player.search') update(await api.getSnapshot());
   return result;
 } });
+const titlebar = document.querySelector('#local-player-heading');
+const branding = document.createElement('span'); branding.className = 'local-player-brand'; branding.textContent = 'ChartsHub.ca';
+titlebar.prepend(branding);
 const engine = new LocalMusicPlayerEngine({
   report: state => {
     if (lastSnapshot?.player && state.revision === lastSnapshot.player.revision && state.epoch === lastSnapshot.player.playbackEpoch) {
@@ -21,7 +25,9 @@ const engine = new LocalMusicPlayerEngine({
 function update(snapshot) {
   if (disposed || !snapshot?.player) return;
   document.documentElement.lang = snapshot.language === 'fr' ? 'fr' : 'en';
-  lastSnapshot = snapshot; controls.update(snapshot); engine.update(snapshot.player);
+  lastSnapshot = snapshot; controls.update(snapshot);
+  applyFloatingAppearance(document.body, snapshot.floatingPanels?.appearance?.player);
+  engine.update(snapshot.player);
 }
 async function connect() {
   try {

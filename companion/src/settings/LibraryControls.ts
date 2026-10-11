@@ -291,7 +291,7 @@ export class LibraryControls {
       || result.readyGroups + result.needsKeeperGroups + result.blockedGroups !== result.processedGroups
       || (!result.cancelled && result.processedGroups !== result.totalGroups)) throw new Error('La vérification globale n’a pas pu être confirmée.');
     this.bulkResult = result; this.bulkError = false;
-    const counts = `${count(result.readyGroups)} groupe(s) prêt(s) · ${count(result.needsKeeperGroups)} choix de version requis · ${count(result.blockedGroups)} bloqué(s) · ${count(result.eligibleCopies)} copie(s) vérifiée(s).`;
+    const counts = `${count(result.readyGroups)} groupe(s) prêt(s) · ${count(result.needsKeeperGroups)} choix de version requis · ${count(result.blockedGroups)} bloqué(s) · ${count(result.eligibleCopies)} copie(s) identique(s) prête(s) à sélectionner. Ouvrez « Comparer » pour connaître les raisons précises.`;
     this.bulkMessage = result.cancelled
       ? `Vérification interrompue : ${count(result.processedGroups)} / ${count(result.totalGroups)} groupe(s) vérifié(s). ${counts} Aucun fichier n’a été supprimé.`
       : result.totalGroups === 0 ? 'Aucun groupe de doublons n’a été détecté.' : counts;

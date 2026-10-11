@@ -35,7 +35,7 @@ async function fixture(t, { loading } = {}) {
     }
     async loadURL(url) { if (loading) await loading(); this.webContents.mainFrame.url = url; }
     isDestroyed() { return this.destroyed; }
-    setAlwaysOnTop() {}
+    setAlwaysOnTop(value, level) { this.alwaysOnTop = { value, level }; }
     showInactive() { assert.equal(this.destroyed, false); this.visible = true; }
     hide() { this.visible = false; }
     destroy() { if (!this.destroyed) { this.destroyed = true; this.visible = false; this.emit('closed'); } }
@@ -44,6 +44,7 @@ async function fixture(t, { loading } = {}) {
   // surrounding host lifecycle are controlled. No browser or Songs are used.
   const create = new vm.Script(`(function(BrowserWindow,musicPlayer,playerPreferences){
     const SCHEME='chartshub-companion',language='fr',preferences={},harden=()=>{},publishPanel=()=>{};
+    const CAPTURE_WINDOW_TITLES={player:'ChartsHub — Lecteur Songs'};
     let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0,playerWindow=null,playerWindowLoad=null,playerPreferencesTask=Promise.resolve();
     const panelAlive=()=>hostActive, panelContents=null;
     ${source.slice(start, end)}
@@ -64,7 +65,15 @@ test('concurrent requests share one audio owner; hiding and showing the widget n
   const gate = deferred(), entered = deferred(), f = await fixture(t, { loading: () => { entered.resolve(); return gate.promise; } });
   const first = f.host.ensure(), second = f.host.ensure(); await entered.promise;
   assert.equal(f.windows.length, 1); gate.resolve(); assert.equal(await first, await second);
+  assert.equal(f.windows[0].options.frame, false); assert.equal(f.windows[0].options.transparent, true);
+  assert.equal(f.windows[0].options.backgroundColor, '#00000000'); assert.equal(f.windows[0].options.focusable, true);
+  assert.equal(f.windows[0].options.movable, true); assert.equal(f.windows[0].options.resizable, true);
+  assert.equal(f.windows[0].options.title, 'ChartsHub — Lecteur Songs');
+  assert.deepEqual(f.windows[0].alwaysOnTop, { value: true, level: 'screen-saver' });
+  const titleUpdate = { prevented: false, preventDefault() { this.prevented = true; } };
+  f.windows[0].emit('page-title-updated', titleUpdate); assert.equal(titleUpdate.prevented, true, 'HTML cannot rename the OBS capture target');
   await f.host.widget(true); assert.equal(f.windows[0].visible, true);
+  assert.equal(f.state().playing, false); assert.equal(f.state().selection, null, 'showing the widget does not select or start a song');
   const close = { prevented: false, preventDefault() { this.prevented = true; } }; f.windows[0].emit('close', close);
   assert.equal(close.prevented, true); assert.equal(f.windows[0].visible, false); assert.equal(f.stopped(), 0);
   await f.host.widget(true); assert.equal(f.windows.length, 1); assert.equal(f.windows[0].visible, true);

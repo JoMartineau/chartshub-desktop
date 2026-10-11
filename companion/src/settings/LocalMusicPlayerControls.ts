@@ -20,7 +20,7 @@ const defaultAppearance: PlayerAppearance = { backgroundColor: '#0b1322', textCo
 const instruments = ['all', 'guitar', 'bass', 'drums', 'pro-drums', 'keys', 'vocals', 'rhythm', 'guitar-coop', 'guitar-6fret', 'bass-6fret', 'rhythm-6fret', 'guitar-coop-6fret'];
 const difficulties = ['all', 'easy', 'medium', 'hard', 'expert'];
 interface Snapshot { language?: string; player?: LocalPlayerState; library?: { revision?: number; status: string; count: number } }
-interface Options { root: HTMLElement; command: (name: string, payload: unknown) => Promise<unknown>; compact?: boolean }
+interface Options { root: HTMLElement; command: (name: string, payload: unknown) => Promise<unknown>; compact?: boolean; now?: () => number; appearanceRoot?: HTMLElement }
 interface Response { ok?: boolean; playlistId?: string; result?: { items: LocalPlayerSelection[]; total: number; offset: number; limit: number } }
 const songId = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const playlistId = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(value);
@@ -42,6 +42,8 @@ export class LocalMusicPlayerControls {
   private filters = { artist: '', charter: '', album: '', year: '', audio: 'all', format: 'all', genre: '', instrument: 'all', difficulty: 'all' };
   private searchSerial = 0;
   private loading = false;
+  private queryError = false;
+  private listObserver: IntersectionObserver | null = null;
   private busy = false;
   private activeRange: 'seek' | 'volume' | null = null;
   private pendingRange: number | null = null;
@@ -54,8 +56,15 @@ export class LocalMusicPlayerControls {
   private videoSource = '';
   private videoFailed = false;
   private videoGeneration = 0;
+  private videoPlaySerial = 0;
+  private videoPlayPending = false;
+  private videoFullscreenError = false;
+  private videoWakeTimer: ReturnType<typeof setTimeout> | null = null;
+  private videoClock: { revision: number; epoch: number; id: string; time: number; playing: boolean; at: number } | null = null;
+  private videoNeedsSync = false;
   private spectrumContext: CanvasRenderingContext2D | null = null;
   private appearanceDirty = false;
+  private appearanceStatus: 'idle' | 'saving' | 'saved' | 'error' = 'idle';
   private playlistAbort = new AbortController();
   private selectedPlaylistId: string | null = null;
   private playlistKey = '';
@@ -75,9 +84,15 @@ export class LocalMusicPlayerControls {
     const info = this.make('div', 'info', 'local-player-info');
     info.append(this.make('h3', 'title'), this.make('p', 'artist'), this.make('p', 'details'));
     now.append(cover, info);
+    const videoFrame = this.make('div', 'video-frame', 'local-player-video-frame'); videoFrame.hidden = true;
     const video = this.make('video', 'video', 'local-player-video'); video.muted = true; video.defaultMuted = true; video.playsInline = true; video.preload = 'auto'; video.hidden = true;
-    video.addEventListener('error', () => { this.videoFailed = true; video.hidden = true; video.pause(); this.get('cover').hidden = false; this.renderVideoError(); }, { signal });
-    video.addEventListener('loadedmetadata', () => this.syncVideo(), { signal });
+    const videoFullscreen = this.button('video-fullscreen');
+    videoFullscreen.addEventListener('click', () => { if (!videoFullscreen.disabled) void this.toggleVideoFullscreen(); }, { signal });
+    videoFrame.append(video, videoFullscreen);
+    video.addEventListener('error', () => { if (this.videoSource) { this.videoFailed = true; this.syncVideo(); } }, { signal });
+    video.addEventListener('loadedmetadata', () => { this.videoNeedsSync = true; this.syncVideo(); }, { signal });
+    for (const event of ['canplay', 'seeked']) video.addEventListener(event, () => this.syncVideo(), { signal });
+    root.ownerDocument.addEventListener?.('fullscreenchange', () => this.renderVideoFullscreen(), { signal });
     const videoOption = this.make('label', 'video-option', 'local-player-video-option');
     const videoEnabled = this.make('input', 'video-enabled'); videoEnabled.type = 'checkbox';
     videoEnabled.addEventListener('change', () => { if (!videoEnabled.disabled) void this.send('player.video', { enabled: videoEnabled.checked }); }, { signal });
@@ -91,14 +106,15 @@ export class LocalMusicPlayerControls {
     for (const name of ['backgroundColor', 'textColor', 'accentColor', 'secondaryColor']) {
       const label = this.make('label', 'color-' + name + '-field');
       const input = this.make('input', 'color-' + name); input.type = 'color';
-      input.addEventListener('input', () => { this.appearanceDirty = true; }, { signal });
+      input.addEventListener('input', () => { this.appearanceDirty = true; this.appearanceStatus = 'idle'; this.renderAppearanceFeedback(); }, { signal });
       label.append(this.make('span', 'color-' + name + '-label'), input); appearanceForm.append(label);
     }
     const modelLabel = this.make('label', 'spectrum-model-field'), model = this.make('select', 'spectrum-model');
     for (const name of ['bars', 'curve', 'circle', 'mirror']) { const option = this.make('option', 'spectrum-model-' + name); option.value = name; model.append(option); }
-    model.addEventListener('change', () => { this.appearanceDirty = true; }, { signal });
+    model.addEventListener('change', () => { this.appearanceDirty = true; this.appearanceStatus = 'idle'; this.renderAppearanceFeedback(); }, { signal });
     modelLabel.append(this.make('span', 'spectrum-model-label'), model); appearanceForm.append(modelLabel);
     const saveAppearance = this.button('appearance-save'); saveAppearance.type = 'submit'; appearanceForm.append(saveAppearance); appearance.append(appearanceForm);
+    const appearanceFeedback = this.make('p', 'appearance-feedback'); appearanceFeedback.setAttribute('role', 'status'); appearanceFeedback.setAttribute('aria-live', 'polite'); appearance.append(appearanceFeedback);
     appearanceForm.addEventListener('submit', event => {
       event.preventDefault();
       if (this.busy || this.disposed || !this.state || this.state.appearanceCanWrite === false) return;
@@ -152,7 +168,15 @@ export class LocalMusicPlayerControls {
     }, { signal });
     const count = this.make('p', 'count', 'local-player-count'); count.setAttribute('role', 'status');
     const results = this.make('div', 'results', 'local-player-results'); results.setAttribute('role', 'list');
-    const more = this.button('more'); more.addEventListener('click', () => { if (!more.disabled) void this.search(true); }, { signal });
+    results.tabIndex = 0;
+    const sentinel = this.make('div', 'sentinel'); sentinel.setAttribute('role', 'presentation'); sentinel.style.setProperty('height', '1px');
+    results.addEventListener('scroll', () => this.loadOnScroll(), { signal });
+    const Observer = root.ownerDocument.defaultView?.IntersectionObserver;
+    if (typeof Observer === 'function') {
+      this.listObserver = new Observer(entries => { if (entries.some(entry => entry.isIntersecting)) this.loadOnScroll(); }, { root: results, rootMargin: '160px' });
+      this.listObserver.observe(sentinel);
+    }
+    const more = this.button('more'); more.addEventListener('click', () => { if (!more.disabled) void this.search(this.items.length > 0); }, { signal });
     const playlist = this.make('details', 'playlists', 'local-player-playlists'); playlist.append(this.make('summary', 'playlists-label'));
     const playlistTools = this.make('div', 'playlist-tools', 'local-player-playlist-tools');
     const choose = this.make('label', 'playlist-select-field'), select = this.make('select', 'playlist-select');
@@ -181,7 +205,8 @@ export class LocalMusicPlayerControls {
     playlistTools.append(choose, startPlaylist, shuffle, nameLabel, actions, playlistItems); playlist.append(playlistTools);
     const queue = this.make('p', 'queue-status', 'local-player-status');
     this.get('widget').addEventListener('click', () => { if (!this.get<HTMLButtonElement>('widget').disabled) void this.send('player.widget', { enabled: options.compact ? false : !this.state?.widgetEnabled }); }, { signal });
-    root.append(heading, now, video, videoOption, videoError, spectrum, transport, timeline, volume, status, queue, error, playlist, appearance, form, count, results, more);
+    root.append(heading, now, videoFrame, videoOption, videoError, spectrum, transport, timeline, volume, status, queue, error, playlist, form, count, results, more);
+    if (!options.compact) (options.appearanceRoot ?? root).append(appearance);
     root.ownerDocument.defaultView?.addEventListener('chartshub:languagechange', () => { this.render(); this.renderResults(); }, { signal });
     this.render();
   }
@@ -207,13 +232,14 @@ export class LocalMusicPlayerControls {
     this.state = snapshot.player ?? null;
     const readiness = JSON.stringify([!!this.state?.available, snapshot.library?.revision, snapshot.library?.status]);
     if (readiness !== this.readiness) {
-      this.readiness = readiness; this.searchSerial++; this.loading = false; this.items = []; this.total = 0;
+      this.readiness = readiness; this.searchSerial++; this.loading = false; this.queryError = false; this.items = []; this.total = 0;
+      this.get('results').scrollTop = 0;
       this.renderResults();
       if (this.state?.available) void this.search(false);
     }
     this.render();
   }
-  dispose(): void { this.disposed = true; this.searchSerial++; this.abort.abort(); this.listAbort.abort(); this.playlistAbort.abort(); this.releaseVideo(); }
+  dispose(): void { this.disposed = true; this.searchSerial++; this.listObserver?.disconnect(); this.abort.abort(); this.listAbort.abort(); this.playlistAbort.abort(); this.releaseVideo(); }
   private get selectedPlaylist(): PlayerPlaylist | undefined { return this.state?.playlists?.find(item => item.id === this.selectedPlaylistId); }
   spectrum(frame: { revision: number; bands: number[] }): void {
     if (this.disposed || frame.revision !== this.state?.revision || !Array.isArray(frame.bands) || frame.bands.length !== 32 || frame.bands.some(value => !Number.isFinite(value) || value < 0 || value > 1)) return;
@@ -237,10 +263,37 @@ export class LocalMusicPlayerControls {
     }
   }
   private releaseVideo(): void {
-    this.videoGeneration++; this.videoSource = ''; const video = this.get<HTMLVideoElement>('video');
-    video.pause?.(); video.removeAttribute('src'); video.load?.(); video.hidden = true;
+    this.videoGeneration++; this.videoSource = ''; this.videoClock = null; this.videoNeedsSync = true; this.videoFullscreenError = false;
+    this.clearVideoWake(); this.pauseVideo();
+    const video = this.get<HTMLVideoElement>('video'); video.removeAttribute('src'); video.load?.(); video.hidden = true;
+    this.get('video-frame').hidden = true;
+    this.get('video-frame').style.setProperty('aspect-ratio', '16 / 9');
+    if (this.options.root.ownerDocument.fullscreenElement === this.get('video-frame')) void this.options.root.ownerDocument.exitFullscreen?.().catch(() => {});
+  }
+  private clearVideoWake(): void { if (this.videoWakeTimer !== null) clearTimeout(this.videoWakeTimer); this.videoWakeTimer = null; }
+  private pauseVideo(): void {
+    this.videoPlaySerial++; this.videoPlayPending = false;
+    this.get<HTMLVideoElement>('video').pause?.();
+  }
+  private renderVideoFullscreen(): void {
+    const fullscreen = this.options.root.ownerDocument.fullscreenElement === this.get('video-frame');
+    const button = this.get<HTMLButtonElement>('video-fullscreen');
+    button.textContent = fullscreen ? this.tr('Quitter le plein écran', 'Exit fullscreen') : this.tr('Plein écran', 'Fullscreen');
+    button.setAttribute('aria-label', button.textContent); button.setAttribute('aria-pressed', String(fullscreen));
+  }
+  private async toggleVideoFullscreen(): Promise<void> {
+    const document = this.options.root.ownerDocument, frame = this.get('video-frame'), generation = this.videoGeneration;
+    this.videoFullscreenError = false;
+    try {
+      if (document.fullscreenElement === frame) await document.exitFullscreen();
+      else { if (!frame.requestFullscreen) throw Error('Fullscreen unavailable'); await frame.requestFullscreen(); }
+      if ((this.disposed || generation !== this.videoGeneration) && document.fullscreenElement === frame) await document.exitFullscreen();
+    } catch { if (!this.disposed && generation === this.videoGeneration) this.videoFullscreenError = true; }
+    if (!this.disposed) { this.renderVideoFullscreen(); this.renderVideoError(); }
   }
   private syncVideo(): void {
+    if (this.disposed) return;
+    this.clearVideoWake();
     const state = this.state, video = this.get<HTMLVideoElement>('video');
     const url = state?.selection?.videoUrl;
     const source = state?.videoEnabled !== false && typeof url === 'string' && /^chartshub-companion:\/\/app\/music-video\/[a-f0-9]{64}$/.test(url) ? url : '';
@@ -249,36 +302,75 @@ export class LocalMusicPlayerControls {
       if (source) { video.muted = true; video.defaultMuted = true; video.src = source; video.load?.(); }
     }
     video.hidden = !source || this.videoFailed;
+    this.get('video-frame').hidden = video.hidden;
+    this.get<HTMLButtonElement>('video-fullscreen').disabled = video.hidden || video.readyState < 1;
+    this.renderVideoFullscreen();
     this.get('cover').hidden = !!source && !this.videoFailed;
-    if (source && !this.videoFailed && video.readyState >= 1 && state) {
+    if (video.videoWidth > 0 && video.videoHeight > 0) this.get('video-frame').style.setProperty('aspect-ratio', `${video.videoWidth} / ${video.videoHeight}`);
+    if (source && !this.videoFailed && state) {
+      const now = this.options.now?.() ?? performance.now(), epoch = state.playbackEpoch ?? 0, id = state.selection?.id ?? '';
+      const time = Number.isFinite(state.currentTime) ? Math.max(0, state.currentTime) : 0, playing = state.playing && !state.loading && !state.error;
+      const previous = this.videoClock;
+      if (!previous || previous.revision !== state.revision || previous.epoch !== epoch || previous.id !== id || previous.time !== time || previous.playing !== playing) {
+        this.videoClock = { revision: state.revision, epoch, id, time, playing, at: now }; this.videoNeedsSync = true;
+      }
+      const clock = this.videoClock!, age = Math.max(0, now - clock.at), stale = playing && age >= 1500;
       const offset = Number.isFinite(state.selection?.videoStartTimeMs) ? state.selection!.videoStartTimeMs! / 1000 : 0;
-      const rawTime = state.currentTime + offset, desired = Math.max(0, rawTime), target = Number.isFinite(video.duration) ? Math.min(desired, video.duration) : desired;
-      if (Math.abs(video.currentTime - target) > .3) { try { video.currentTime = target; } catch { /* Wait for seekable data. */ } }
-      if (state.playing && rawTime >= 0 && !video.ended) {
-        const generation = this.videoGeneration;
-        if (video.paused) void video.play().catch(() => { if (generation === this.videoGeneration && !this.disposed) { this.videoFailed = true; video.hidden = true; this.get('cover').hidden = false; this.renderVideoError(); } });
-      } else video.pause?.();
-    } else video.pause?.();
+      const rawTime = clock.time + (playing && !stale ? age / 1000 : 0) + offset;
+      const desired = Math.max(0, rawTime), target = Number.isFinite(video.duration) ? Math.min(desired, video.duration) : desired;
+      if (video.readyState >= 1) {
+        // Repeated Companion snapshots carry the same sampled audio time. Let the native video clock advance between real samples.
+        if ((this.videoNeedsSync || stale) && !video.seeking) {
+          try { if (Math.abs(video.currentTime - target) > (playing && !stale ? .3 : .01)) video.currentTime = target; this.videoNeedsSync = false; } catch { /* Wait for seekable data. */ }
+        }
+        if (playing && !stale && rawTime >= 0 && (!Number.isFinite(video.duration) || desired < video.duration)) {
+          if (video.paused && !this.videoPlayPending) {
+            const generation = this.videoGeneration, serial = ++this.videoPlaySerial; this.videoPlayPending = true;
+            void Promise.resolve().then(() => { if (!this.disposed && generation === this.videoGeneration && serial === this.videoPlaySerial) return video.play(); }).then(() => {
+              if (generation === this.videoGeneration && serial === this.videoPlaySerial) this.videoPlayPending = false;
+            }).catch(error => {
+              if (this.disposed || generation !== this.videoGeneration || serial !== this.videoPlaySerial) return;
+              this.videoPlayPending = false;
+              if (error?.name !== 'AbortError') { this.videoFailed = true; this.syncVideo(); }
+            });
+          }
+        } else this.pauseVideo();
+      } else this.pauseVideo();
+      if (playing && !stale) {
+        const wait = Math.max(1, Math.min(1500 - age, rawTime < 0 ? -rawTime * 1000 + 1 : Infinity));
+        this.videoWakeTimer = setTimeout(() => { this.videoWakeTimer = null; this.syncVideo(); }, wait);
+      }
+    } else this.pauseVideo();
     this.renderVideoError();
   }
   private renderVideoError(): void {
-    const node = this.get('video-error'); node.hidden = !(this.state?.videoEnabled !== false && (this.videoFailed || this.state?.selection?.videoUnavailable));
-    node.textContent = this.tr('Vidéo indisponible. La pochette et la lecture audio restent disponibles.', 'Video unavailable. Album artwork and audio playback remain available.');
+    const node = this.get('video-error'); node.hidden = !this.videoFullscreenError && !(this.state?.videoEnabled !== false && (this.videoFailed || this.state?.selection?.videoUnavailable));
+    node.textContent = this.videoFullscreenError ? this.tr('Le plein écran est indisponible. Vous pouvez agrandir la fenêtre du lecteur.', 'Fullscreen is unavailable. You can enlarge the player window.') : this.tr('Vidéo indisponible. La pochette et la lecture audio restent disponibles.', 'Video unavailable. Album artwork and audio playback remain available.');
   }
   private async send(name: string, payload: unknown): Promise<void> {
     if (this.disposed || this.busy || !this.state) return;
+    if (name === 'player.appearance') this.appearanceStatus = 'saving';
     this.busy = true; this.actionError = false; this.render();
     try {
       const response = await this.options.command(name, payload) as Response;
       if (!this.disposed) {
         this.actionError = response?.ok !== true;
-        if (name === 'player.appearance' && response?.ok === true) this.appearanceDirty = false;
+        if (name === 'player.appearance') { this.appearanceStatus = response?.ok === true ? 'saved' : 'error'; if (response?.ok === true) this.appearanceDirty = false; }
         if (name === 'player.playlistCreate' && response?.ok === true && playlistId(response.playlistId)) this.selectedPlaylistId = response.playlistId;
         if (name === 'player.playlistDelete' && response?.ok === true) { this.selectedPlaylistId = null; this.get<HTMLInputElement>('playlist-name').value = ''; }
         if (name.startsWith('player.playlist') && response?.ok === true) { this.playlistKey = ''; this.renderResults(); }
       }
-    } catch { if (!this.disposed) this.actionError = true; }
+    } catch { if (!this.disposed) { this.actionError = true; if (name === 'player.appearance') this.appearanceStatus = 'error'; } }
     finally { this.busy = false; if (!this.disposed) this.render(); }
+  }
+  private renderAppearanceFeedback(): void {
+    const node = this.get('appearance-feedback'), protectedFile = this.state?.appearanceCanWrite === false;
+    node.hidden = this.appearanceStatus === 'idle' && !protectedFile;
+    node.classList.toggle('is-error', this.appearanceStatus === 'error' || protectedFile);
+    node.textContent = protectedFile ? this.tr('Les réglages du lecteur sont protégés et ne peuvent pas être enregistrés.', 'Player settings are protected and cannot be saved.')
+      : this.appearanceStatus === 'saving' ? this.tr('Enregistrement…', 'Saving…')
+      : this.appearanceStatus === 'saved' ? this.tr('Apparence du lecteur enregistrée.', 'Player appearance saved.')
+      : this.appearanceStatus === 'error' ? this.tr('Apparence non enregistrée. Vos modifications sont conservées pour réessayer.', 'Appearance was not saved. Your edits are kept for retry.') : '';
   }
   private async sendRange(action: 'seek' | 'volume', value: number): Promise<void> {
     if (this.disposed || !this.state || (this.busy && this.activeRange !== action)) return;
@@ -299,21 +391,28 @@ export class LocalMusicPlayerControls {
   private async search(append: boolean): Promise<void> {
     if (this.disposed || !this.state?.available || (append && (this.loading || this.items.length >= this.total))) return;
     const serial = ++this.searchSerial, offset = append ? this.items.length : 0;
-    if (!append) { this.items = []; this.total = 0; this.renderResults(); }
-    this.loading = true; this.actionError = false; this.render();
+    if (!append) { this.items = []; this.total = 0; this.get('results').scrollTop = 0; this.renderResults(); }
+    this.loading = true; this.queryError = false; this.render();
     try {
       const response = await this.options.command('player.search', { query: this.query, offset, limit: 50, filters: { ...this.filters } }) as Response;
       if (this.disposed || serial !== this.searchSerial) return;
       const result = response?.result;
       if (!response?.ok || !result || !Array.isArray(result.items) || result.items.length > 50 || result.items.some(item => !songId(item?.id) || typeof item.title !== 'string' || typeof item.artist !== 'string') || result.offset !== offset || !Number.isSafeInteger(result.total) || result.total < offset + result.items.length) throw Error('Invalid player search');
       const seen = new Set(this.items.map(item => item.id));
-      this.items.push(...result.items.filter(item => !seen.has(item.id))); this.total = result.total; this.renderResults();
-    } catch { if (!this.disposed && serial === this.searchSerial) this.actionError = true; }
-    finally { if (!this.disposed && serial === this.searchSerial) { this.loading = false; this.render(); } }
+      for (const item of result.items) { if (seen.has(item.id)) throw Error('Duplicate player result'); seen.add(item.id); }
+      if (!result.items.length && result.total > offset) throw Error('Player search made no progress');
+      this.items.push(...result.items); this.total = result.total; this.renderResults();
+    } catch { if (!this.disposed && serial === this.searchSerial) this.queryError = true; }
+    finally { if (!this.disposed && serial === this.searchSerial) { this.loading = false; this.render(); queueMicrotask(() => this.loadOnScroll()); } }
+  }
+  private loadOnScroll(): void {
+    if (this.disposed || this.loading || this.queryError || !this.state?.available || !this.items.length || this.items.length >= this.total) return;
+    const results = this.get('results');
+    if (results.clientHeight > 0 && results.scrollHeight - results.scrollTop - results.clientHeight <= 160) void this.search(true);
   }
   private renderResults(): void {
     this.listAbort.abort(); this.listAbort = new AbortController();
-    const results = this.get('results'); results.textContent = '';
+    const results = this.get('results'), scrollTop = results.scrollTop || 0; results.textContent = '';
     for (const item of this.items) {
       const document = results.ownerDocument, card = document.createElement('article'); card.className = 'local-player-song'; card.dataset.songId = item.id; card.setAttribute('role', 'listitem');
       const text = document.createElement('div'), title = document.createElement('strong'), artist = document.createElement('span');
@@ -330,6 +429,8 @@ export class LocalMusicPlayerControls {
       }
       card.append(text, actions); results.append(card);
     }
+    if (this.items.length > 0 && this.items.length < this.total) results.append(this.get('sentinel'));
+    results.scrollTop = scrollTop;
   }
   private renderPlaylists(): void {
     const playlists = this.state?.playlists ?? [], language = this.options.root.ownerDocument.documentElement.lang;
@@ -369,7 +470,7 @@ export class LocalMusicPlayerControls {
     if (language !== this.language) { this.language = language; this.renderResults(); }
     const labels: Record<string, string> = {
       'heading-title': this.tr('Lecteur Songs', 'Songs player'), previous: '⏮', play: '▶', pause: 'Ⅱ', stop: '■', next: '⏭',
-      'volume-label': this.tr('Volume', 'Volume'), 'query-label': this.tr('Rechercher dans Songs', 'Search Songs'), search: this.tr('Rechercher', 'Search'), more: this.tr('Afficher plus', 'Show more'),
+      'volume-label': this.tr('Volume', 'Volume'), 'query-label': this.tr('Rechercher dans Songs', 'Search Songs'), search: this.tr('Rechercher', 'Search'), more: this.tr('Réessayer', 'Retry'),
       'video-label': this.tr('Afficher la vidéo du morceau', 'Show song video'),
       'appearance-label': this.tr('Apparence du lecteur', 'Player appearance'), 'appearance-save': this.tr('Enregistrer l’apparence', 'Save appearance'),
       'color-backgroundColor-label': this.tr('Fond', 'Background'), 'color-textColor-label': this.tr('Texte', 'Text'), 'color-accentColor-label': this.tr('Couleur principale', 'Primary color'), 'color-secondaryColor-label': this.tr('Couleur secondaire', 'Secondary color'),
@@ -393,6 +494,7 @@ export class LocalMusicPlayerControls {
     if (!this.appearanceDirty) this.get<HTMLSelectElement>('spectrum-model').value = style.spectrumModel;
     this.get<HTMLSelectElement>('spectrum-model').disabled = unavailable;
     this.get<HTMLButtonElement>('appearance-save').disabled = unavailable || state?.appearanceCanWrite === false;
+    this.renderAppearanceFeedback();
     const accessible: Record<string, string> = { previous: this.tr('Morceau précédent', 'Previous song'), play: this.tr('Lire', 'Play'), pause: this.tr('Pause', 'Pause'), stop: this.tr('Arrêter', 'Stop'), next: this.tr('Morceau suivant', 'Next song'), seek: this.tr('Position de lecture', 'Playback position'), volume: this.tr('Volume', 'Volume'), widget: this.options.compact ? this.tr('Masquer le lecteur flottant', 'Hide floating player') : labels.widget! };
     for (const [name, label] of Object.entries(accessible)) { this.get(name).setAttribute('aria-label', label); this.get(name).title = label; }
     this.get('title').textContent = selection?.title || this.tr('Choisissez un morceau', 'Choose a song');
@@ -419,8 +521,8 @@ export class LocalMusicPlayerControls {
     this.get<HTMLButtonElement>('search').disabled = !state?.available || this.loading;
     this.get<HTMLInputElement>('query').disabled = !state?.available;
     this.get<HTMLButtonElement>('more').disabled = !state?.available || this.loading;
-    this.get('more').hidden = this.items.length >= this.total;
-    this.get('count').textContent = this.loading ? this.tr('Recherche…', 'Searching…') : this.items.length ? this.tr(`${this.items.length} / ${this.total} morceaux`, `${this.items.length} / ${this.total} songs`) : this.tr('Aucun morceau affiché.', 'No songs displayed.');
+    this.get('more').hidden = !this.queryError;
+    this.get('count').textContent = this.queryError ? this.tr('Chargement interrompu. Réessayez pour continuer.', 'Loading interrupted. Retry to continue.') : this.loading ? this.tr('Chargement…', 'Loading…') : this.items.length ? this.tr(`${this.items.length} / ${this.total} morceaux`, `${this.items.length} / ${this.total} songs`) : this.tr('Aucun morceau affiché.', 'No songs displayed.');
     this.get('results').setAttribute('aria-busy', String(this.loading));
     this.get<HTMLInputElement>('video-enabled').checked = state?.videoEnabled !== false;
     this.get<HTMLInputElement>('video-enabled').disabled = unavailable;

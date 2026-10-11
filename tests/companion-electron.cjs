@@ -301,6 +301,7 @@ async function verifyThemes(panel, host) {
   await host.setOverlay(true);
   await waitFor(() => host.getOverlay().isVisible(), 'theme test native overlay visible');
   await waitFor(() => evaluate("document.querySelector('#theme-preset')?.options.length===8"), 'eight theme presets populated');
+  if (await evaluate("!!document.querySelector('#ch-bloom-open')")) await click('#ch-bloom-open');
   if (!(await evaluate("document.querySelector('#theme-panel').open"))) await click('#theme-panel summary');
   const originalGeometry = { position: title().position, size: title().size };
   for (const id of ['neon', 'dark', 'light', 'cyberpunk', 'retro', 'transparent', 'high-contrast', 'chartshub']) {
@@ -530,6 +531,7 @@ async function verifyThemes(panel, host) {
   assert.deepEqual({ widgets: document.widgets, theme: document.theme }, expected);
   await reloadPanel(panel, 'playing');
   await waitFor(() => evaluate("!document.querySelector('#theme-preset').disabled"), 'theme controls restored after reload');
+  if (await evaluate("!!document.querySelector('#ch-bloom-open')")) await click('#ch-bloom-open');
   await sameStyles('reloaded theme renders identically on both surfaces');
   assert.deepEqual(settings(), expected);
   assert.equal(await evaluate("document.querySelector('[data-theme-token=\"text\"]').value"), '#ff8020bf');
@@ -542,6 +544,7 @@ async function verifyThemes(panel, host) {
   await waitFor(() => evaluate("!!document.querySelector('#theme-preview .companion-widget[data-widget-id=\"song-title\"]')"), 'local theme preview remains usable in menu');
   assert.equal(await evaluate("document.querySelectorAll('#game-preview .companion-widget').length"), 0);
   passed.push('v3 settings retain themes and widget styles after save/reload; menu clears the themed overlay and stale metadata');
+  if (await evaluate("!!document.querySelector('#ch-bloom-dialog')?.open")) await click('#ch-bloom-close');
 }
 app.whenReady().then(async () => {
   try {

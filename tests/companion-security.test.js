@@ -50,6 +50,17 @@ test('companion command validation rejects unknown widgets, states and writes', 
   assert.equal(validCommand('mock.next', { unexpected: true }, []), false);
 });
 
+test('player capture accepts only an empty action and floating appearance validates the three named panels', () => {
+  for (const payload of [undefined, null, {}]) assert.equal(validCommand('capture.player', payload, []), true);
+  for (const payload of [[], false, { enabled: true }, { path: 'private.wav' }, { play: true }, { windowId: 1 }]) assert.equal(validCommand('capture.player', payload, []), false);
+  const appearance = { backgroundColor: '#12345680', textColor: '#abcdef', fontFamily: 'consolas', fontSize: 18 };
+  for (const panel of ['catalogue', 'filters', 'player']) assert.equal(validCommand('panels.appearance', { revision: 0, panel, appearance }, []), true);
+  for (const payload of [{ revision: 0, panel: 'overlay', appearance }, { revision: -1, panel: 'player', appearance },
+    { revision: 0, panel: 'player', appearance, path: 'private.json' }, { revision: 0, panel: 'player', appearance: { ...appearance, fontFamily: 'url(x)' } }]) {
+    assert.equal(validCommand('panels.appearance', payload, []), false);
+  }
+});
+
 test('filter IPC accepts bounded full settings and prohibits renderer filesystem targets', () => {
   const settings = { enabled: false, saturation: 1, contrast: 1, gamma: 1, exposure: 0, sharpness: 0, vignette: 0 };
   assert.equal(validCommand('filters.settings', { settings }, []), true);
@@ -165,7 +176,7 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
       super(); this.options = options; this.destroyed = false; this.visible = false;
       this.webContents = new EventEmitter();
       Object.assign(this.webContents, {
-        mainFrame: { url: '' }, isLoading: () => false, send() {}, setWindowOpenHandler() {}
+        mainFrame: { url: '' }, isLoading: () => false, messages: [], send(channel, value) { this.messages.push({ channel, value: structuredClone(value) }); }, setWindowOpenHandler() {}
       });
       windows.push(this);
     }
@@ -180,7 +191,7 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
     focus() {}
     setMenuBarVisibility() {}
     setIgnoreMouseEvents() {}
-    setAlwaysOnTop() {}
+    setAlwaysOnTop(value, level) { this.alwaysOnTop = { value, level }; }
   }
   class ContentsView {
     constructor(options) {
@@ -239,6 +250,56 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
   const eventFor = window => ({ sender: window.webContents, senderFrame: window.webContents.mainFrame });
   return { host, windows, views, owner, attached, activations: () => activations, app, handlers, eventFor, directory, copied, dialog, shell, opened, openedUrls, protocolRequest: (url, method = 'GET') => localProtocol({ url, method }) };
 }
+
+test('OBS opens three isolated native targets and player appearance is restricted to its live frame and the main panel', async t => {
+  const f = await hostFixture(t, { filtersService: fakeFiltersService() }), panel = await f.host.open();
+  const invoke = (window, command, payload) => f.handlers.get('companion:command')(f.eventFor(window), command, payload);
+  const initial = structuredClone(f.host.snapshot()), appearance = { backgroundColor: '#12345640', textColor: '#fedcba', fontFamily: 'georgia', fontSize: 19 };
+  assert.deepEqual(Object.keys(initial.captureWindows).sort(), ['catalogue', 'filters', 'player']);
+  assert.ok(Object.values(initial.captureWindows).every(value => value.canOpen));
+  assert.equal((await invoke(panel, 'catalogue.widget', { enabled: true })).ok, true);
+  assert.equal((await invoke(panel, 'filters.widget', { enabled: true })).ok, true);
+  assert.equal((await invoke(panel, 'capture.player')).ok, true);
+  const player = f.host.getPlayerWidget(), catalogue = f.host.getCatalogueWidget(), filters = f.host.getFiltersWidget();
+  assert.equal(new Set([player, catalogue, filters]).size, 3);
+  for (const [name, window] of [['catalogue', catalogue], ['filters', filters], ['player', player]]) {
+    assert.equal(window.visible, true); assert.equal(window.options.title, initial.captureWindows[name].title);
+  }
+  assert.equal(player.options.frame, false); assert.equal(player.options.transparent, true);
+  assert.equal(player.options.backgroundColor, '#00000000'); assert.equal(player.options.focusable, true);
+  assert.equal(player.options.movable, true); assert.equal(player.options.resizable, true);
+  assert.deepEqual(player.alwaysOnTop, { value: true, level: 'screen-saver' });
+  const playerSnapshot = f.handlers.get('companion:snapshot')(f.eventFor(player));
+  assert.deepEqual(Object.keys(playerSnapshot).sort(), ['floatingPanels', 'language', 'player']);
+  assert.deepEqual(Object.keys(playerSnapshot.floatingPanels.appearance), ['player']);
+  assert.equal(JSON.stringify(playerSnapshot).includes(f.directory), false);
+  assert.equal(playerSnapshot.player.selection, null); assert.equal(playerSnapshot.player.playing, false);
+  assert.equal(player.webContents.messages.some(message => message.channel === 'companion:player-action'), false, 'opening for OBS never emits a play action');
+  for (const window of [player, catalogue, filters]) assert.equal((await invoke(window, 'capture.player')).ok, false, 'capture action remains main-panel only');
+  for (const name of ['catalogue', 'filters']) assert.equal((await invoke(player, 'panels.appearance', { revision: 0, panel: name, appearance })).ok, false);
+  for (const window of [catalogue, filters]) assert.equal((await invoke(window, 'panels.appearance', { revision: 0, panel: 'player', appearance })).ok, false);
+  await f.host.setOverlay(true);
+  assert.equal((await invoke(f.host.getOverlay(), 'capture.player')).ok, false);
+  assert.equal((await invoke(f.host.getOverlay(), 'panels.appearance', { revision: 0, panel: 'player', appearance })).ok, false);
+  const saved = await invoke(player, 'panels.appearance', { revision: 0, panel: 'player', appearance });
+  assert.equal(saved.ok, true, saved.error); assert.deepEqual(Object.keys(saved.result.appearance), ['player']);
+  assert.deepEqual(saved.result.appearance.player, appearance);
+  assert.deepEqual(player.webContents.messages.at(-1).value.floatingPanels, saved.result, 'live player receives only its committed appearance');
+  const mainAppearance = { ...appearance, backgroundColor: '#abcdef00', fontFamily: 'consolas' };
+  const mainSaved = await invoke(panel, 'panels.appearance', { revision: saved.result.revision, panel: 'player', appearance: mainAppearance });
+  assert.equal(mainSaved.ok, true, mainSaved.error); assert.deepEqual(Object.keys(mainSaved.result.appearance).sort(), ['catalogue', 'filters', 'player']);
+  assert.deepEqual(mainSaved.result.appearance.player, mainAppearance);
+  assert.deepEqual(f.host.snapshot().player.appearance, initial.player.appearance, 'floating styling never changes the four player spectrum colors');
+  for (const name of ['widgets', 'theme', 'stream']) assert.deepEqual(f.host.snapshot().state[name], initial.state[name]);
+  assert.equal(f.host.snapshot().stream.enabled, false); assert.equal(f.host.snapshot().stream.url, null);
+  assert.equal((await invoke(player, 'player.widget', { enabled: false })).ok, true); assert.equal(player.visible, false);
+  assert.equal((await invoke(panel, 'capture.player', {})).ok, true); assert.equal(f.host.getPlayerWidget(), player);
+  assert.equal(f.windows.filter(window => window.webContents.mainFrame.url.endsWith('/music-player.html')).length, 1);
+  assert.equal(f.host.snapshot().player.selection, null); assert.equal(f.host.snapshot().player.playing, false);
+  const titleUpdate = { prevented: false, preventDefault() { this.prevented = true; } }; player.emit('page-title-updated', titleUpdate); assert.equal(titleUpdate.prevented, true);
+  player.destroy();
+  assert.equal((await invoke(player, 'panels.appearance', { revision: mainSaved.result.revision, panel: 'player', appearance })).ok, false, 'destroyed player senders cannot persist appearance');
+});
 
 function fakeFiltersService() {
   const value = { rootPath: null, settings: { enabled: false, saturation: 1, contrast: 1, gamma: 1, exposure: 0, sharpness: 0, vignette: 0 }, supported: true, binaryAvailable: true, installed: false, reshadePresent: false, state: 'unconfigured', message: 'Choisissez le dossier du jeu.', error: null, running: false, busy: false, native: null };

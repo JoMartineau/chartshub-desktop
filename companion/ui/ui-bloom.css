@@ -1,5 +1,6 @@
 /* No selectors target game notes, canvases, widget previews or overlay documents. */
 html[data-ch-bloom="on"] #companion-app > :is(.card, .app-header),
+html[data-ch-bloom="on"] #companion-app .workspace :is(.preview-card, .settings-card, .destinations-card),
 html[data-ch-bloom="on"] .ch-bloom-dialog .ch-bloom-sample { box-shadow: var(--ch-bloom-shadow); }
 .ch-bloom-dialog, .ch-bloom-dialog *, .ch-bloom-button { box-sizing: border-box; }
 .ch-bloom-button { font: 600 13px/1.3 system-ui, sans-serif; color: #e8edfa; background: #172335; border: 1px solid #52657e; border-radius: 9px; padding: 10px 14px; cursor: pointer; min-height: 40px; flex-shrink: 0; }
@@ -7,10 +8,18 @@ html[data-ch-bloom="on"] .ch-bloom-dialog .ch-bloom-sample { box-shadow: var(--c
 .ch-bloom-button:disabled { cursor: wait; opacity: .55; }
 .ch-bloom-button:focus-visible, .ch-bloom-dialog input:focus-visible { outline: 3px solid #9adeff; outline-offset: 3px; }
 #ch-bloom-open { margin-left: auto; }
-.ch-bloom-dialog { color-scheme: dark; color: #ecf1fc; background: #101925; font: 14px/1.5 system-ui, sans-serif; width: min(550px, calc(100vw - 28px)); max-width: none; max-height: calc(100dvh - 28px); padding: 0; border: 1px solid #4b5a72; border-radius: 20px; box-shadow: 0 22px 100px #0009; overflow: auto; overscroll-behavior: contain; }
+.ch-bloom-dialog { color-scheme: dark; color: #ecf1fc; background: #101925; font: 14px/1.5 system-ui, sans-serif; width: min(940px, calc(100vw - 28px)); max-width: none; max-height: calc(100dvh - 28px); padding: 0; border: 1px solid #4b5a72; border-radius: 20px; box-shadow: 0 22px 100px #0009; overflow: auto; overscroll-behavior: contain; }
 .ch-bloom-dialog::backdrop { background: #030913b3; }
 .ch-bloom-form { display: flex; flex-direction: column; gap: 17px; padding: 24px; margin: 0; }
 .ch-bloom-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.ch-bloom-dialog > .ch-bloom-heading { position:sticky; top:0; z-index:2; padding:18px 24px; background:#101925; border-bottom:1px solid #4b5a72; }
+.ch-bloom-interface { margin:16px 20px; border:1px solid #4b5a72; border-radius:10px; }
+.ch-bloom-interface > summary { padding:16px; cursor:pointer; font-weight:600; }
+.ch-bloom-interface .ch-bloom-form { max-width:600px; margin:auto; }
+.ch-bloom-dialog .theme-settings-sections { padding:0 20px 20px; }
+.ch-bloom-dialog .theme-panel { margin-top:0; }
+.ch-bloom-dialog .theme-columns { grid-template-columns:minmax(0,1fr); }
+.ch-bloom-dialog .theme-summary-hint { display:none; }
 .ch-bloom-heading h2 { font: 750 24px/1.2 system-ui, sans-serif; margin: 0; color: inherit; }
 .ch-bloom-muted { color: #b7c4d9; font-size: 12px; margin: 0; }
 .ch-bloom-field { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; align-items: center; margin: 0; }
@@ -37,9 +46,9 @@ html[data-ch-bloom="on"] .ch-bloom-dialog .ch-bloom-sample { box-shadow: var(--c
 .ch-bloom-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
 .ch-bloom-primary { color: #fff; background: #633fc3; border-color: #9e83ea; }
 .ch-bloom-primary:hover { background: #704acf; }
-@media (max-width: 420px) { .ch-bloom-form { padding: 16px; gap: 15px; } .ch-bloom-heading h2 { font-size: 21px; } .ch-bloom-color-row { grid-template-columns: 1fr 1fr; } }
+@media (max-width: 420px) { .ch-bloom-form { padding: 16px; gap: 15px; } .ch-bloom-heading h2 { font-size: 21px; } .ch-bloom-color-row { grid-template-columns: 1fr 1fr; } .ch-bloom-dialog > .ch-bloom-heading { padding:12px; } .ch-bloom-interface { margin:12px; } .ch-bloom-dialog .theme-settings-sections { padding:0 12px 12px; } }
 @media (forced-colors: active) {
-  html[data-ch-bloom="on"] #companion-app > :is(.card, .app-header), html[data-ch-bloom="on"] .ch-bloom-dialog .ch-bloom-sample { box-shadow: none; }
+  html[data-ch-bloom="on"] #companion-app > :is(.card, .app-header), html[data-ch-bloom="on"] #companion-app .workspace :is(.preview-card, .settings-card, .destinations-card), html[data-ch-bloom="on"] .ch-bloom-dialog .ch-bloom-sample { box-shadow: none; }
   .ch-bloom-button, .ch-bloom-sample { border: 1px solid ButtonText; }
 }
 @media print { #ch-bloom-open, .ch-bloom-dialog { display: none !important; } }

@@ -74,12 +74,19 @@ export class DuplicateComparisonControls {
   update(state: ComparisonState): void {
     if (this.disposed) return;
     const changed = this.state && (state.rootPath !== this.state.rootPath || state.revision !== this.state.revision);
+    const interrupted = this.state && ((state.scanning && !this.state.scanning) || (state.busy && !this.state.busy));
     const revealCleanupResult = changed && this.cleanupFocusAfterRefresh?.rootPath === state.rootPath
       && this.cleanupFocusAfterRefresh.revision === this.state?.revision;
     this.state = state;
     if (changed && this.targetId) {
       this.close(false);
       this.options.feedback('La bibliothèque a changé. Relancez « Comparer » pour vérifier les versions actuelles.');
+    } else if (interrupted && this.targetId && !this.executing && (this.loading || this.saving || this.preparing)) {
+      // An aborted scan can keep the same committed revision. Its earlier
+      // replies must still be discarded before offering a cleanup selection.
+      this.serial++; this.loading = false; this.saving = false; this.preparing = false;
+      this.clearCleanup(); this.needsReload = true;
+      this.feedback('La bibliothèque a changé. Relancez « Comparer » pour vérifier les versions actuelles.', true);
     }
     this.refreshAvailability();
     if (changed) this.cleanupFocusAfterRefresh = null;
@@ -131,6 +138,7 @@ export class DuplicateComparisonControls {
   private async load(): Promise<void> {
     if (this.disposed || !this.targetId || !this.state?.rootPath || this.state.scanning || this.state.busy || this.loading || this.saving || this.preparing || this.executing) return;
     const serial = ++this.serial, root = this.state.rootPath, revision = this.state.revision;
+    let prepareAfterLoad = false;
     this.result = null; this.clearCards(); this.clearCleanup();
     this.element('#library-comparison-summary').textContent = 'Lecture des fichiers de notes…';
     this.loading = true; this.needsReload = false; this.opening = false; this.feedback(''); this.refreshAvailability();
@@ -146,6 +154,7 @@ export class DuplicateComparisonControls {
       if (result.selectionError) this.feedback(result.selectionError, true);
       else if (!result.canChoose) this.feedback('L’enregistrement du choix est indisponible. Rechargez la comparaison pour réessayer.', true);
       this.needsReload = !result.canChoose;
+      prepareAfterLoad = !!result.preferredId && result.canChoose && !result.selectionError;
     } catch (error) {
       if (!this.current(serial, root, revision)) return;
       this.result = null; this.clearCards();
@@ -154,6 +163,7 @@ export class DuplicateComparisonControls {
     } finally {
       if (this.current(serial, root, revision)) { this.loading = false; this.refreshAvailability(); }
     }
+    if (prepareAfterLoad && this.current(serial, root, revision) && this.cleanupAvailable()) await this.prepareCleanup();
   }
 
   private async choose(id: string | null): Promise<void> {
@@ -169,8 +179,9 @@ export class DuplicateComparisonControls {
       if (!response?.ok) throw new Error(response?.error || 'Le choix n’a pas pu être enregistré. Rechargez la comparaison pour réessayer.');
       if (response.result?.contextId !== result.contextId || response.result.revision !== revision || response.result.preferredId !== id) throw new Error('La comparaison a changé. Rechargez-la avant de choisir une version.');
       result.preferredId = id;
+      result.selectionError = null;
       prepareAfterSave = id !== null;
-      this.feedback(id === null ? 'Choix effacé. Tous les fichiers restent en place.' : 'Version à conserver enregistrée. Vérification automatique des autres versions…');
+      this.feedback(id === null ? 'Toutes les versions sont conservées. Aucun fichier déplacé ou supprimé.' : 'Version à conserver enregistrée. Vérification automatique des autres versions…');
     } catch (error) {
       if (!this.current(serial, root, revision)) return;
       this.feedback(error instanceof Error ? error.message : 'Enregistrement indisponible. Rechargez la comparaison.', true); this.needsReload = true;
@@ -223,6 +234,7 @@ export class DuplicateComparisonControls {
 
   private cleanupAvailable(): boolean {
     return !this.disposed && !!this.result?.preferredId && !!this.result.canChoose && !!this.state?.rootPath
+      && !this.result.selectionError
       && !this.loading && !this.saving && !this.opening && !this.preparing && !this.executing
       && !this.needsReload && !this.state.scanning && !this.state.busy;
   }
