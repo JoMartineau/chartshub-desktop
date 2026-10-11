@@ -7,6 +7,7 @@ const { deflateSync } = require('node:zlib');
 const { registerCompanionScheme, createCompanionHost } = require('../companion/host.cjs');
 const data = path.resolve(process.argv[2] || path.join(__dirname, '../../companion-music-player-smoke'));
 app.setPath('userData', path.join(data, 'profile')); app.disableHardwareAcceleration(); registerCompanionScheme();
+app.on('window-all-closed', () => {}); // The synthetic video window closes before the fixture host opens.
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const passed = [], errors = [], blocked = []; let host;
 app.on('web-contents-created', (_event, contents) => { contents.setAudioMuted(true); contents.on('console-message', (_event, detail) => { if (detail.level === 'error') errors.push(String(detail.message).slice(0, 300)); }); });
@@ -42,6 +43,7 @@ async function videoFixture() {
 }
 const evaluate = (window, code) => window.webContents.executeJavaScript(code);
 async function click(window, selector) {
+  await waitFor(() => evaluate(window, `(()=>{const node=document.querySelector(${JSON.stringify(selector)});return !!node&&!node.disabled&&!node.hidden})()`), 'enabled control ' + selector);
   window.focus(); window.webContents.focus();
   const point = await evaluate(window, `(async()=>{const selector=${JSON.stringify(selector)},node=document.querySelector(selector);if(!node||node.disabled)throw Error('Unavailable control '+selector);node.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));const current=document.querySelector(selector),r=current.getBoundingClientRect(),point={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)},hit=document.elementFromPoint(point.x,point.y);if(!r.width||!r.height||!hit||!(hit===current||current.contains(hit)))throw Error('Covered control '+selector);return point})()`);
   window.webContents.sendInputEvent({ type: 'mouseMove', ...point }); window.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 }); window.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1 }); await delay(70);
@@ -116,6 +118,9 @@ app.whenReady().then(async () => {
     await click(panel, '.local-player-song:nth-of-type(1) .local-player-add-playlist'); await waitFor(() => host.snapshot().player.playlists.find(item => item.id === playlist.id).songIds.length === 1, 'first playlist song');
     await click(panel, '.local-player-song:nth-of-type(2) .local-player-add-playlist'); await waitFor(() => host.snapshot().player.playlists.find(item => item.id === playlist.id).songIds.length === 2, 'second playlist song');
     assert.equal(host.snapshot().player.selection, null, 'creating and filling a playlist never starts playback');
+    await waitFor(() => evaluate(panel, "document.querySelector('#local-player-playlist-items').children.length===2"), 'playlist members displayed');
+    await evaluate(panel, "document.querySelector('#local-player-playlists').scrollIntoView({block:'center',behavior:'instant'})");
+    await shot(panel, 'player-playlists');
     passed.push('Native playlist creation and two individual additions persist opaque local IDs without autoplay');
 
     await evaluate(panel, "window.__musicFrames=[];window.ChartsHubCompanion.player.subscribeSpectrum(frame=>{window.__musicFrames.push(frame);if(window.__musicFrames.length>30)window.__musicFrames.shift()})");

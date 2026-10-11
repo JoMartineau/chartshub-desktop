@@ -43,6 +43,8 @@ export class LocalMusicPlayerControls {
   private searchSerial = 0;
   private loading = false;
   private busy = false;
+  private activeRange: 'seek' | 'volume' | null = null;
+  private pendingRange: number | null = null;
   private disposed = false;
   private readiness = '';
   private language = '';
@@ -113,13 +115,13 @@ export class LocalMusicPlayerControls {
     timeline.append(this.make('span', 'current-time'), this.range('seek', 0, 0, .1), this.make('span', 'duration'));
     const volume = this.make('label', 'volume-field', 'local-player-volume');
     volume.append(this.make('span', 'volume-label'), this.range('volume', 0, 1, .01), this.make('output', 'volume-value'));
-    for (const action of ['seek', 'volume']) {
+    for (const action of ['seek', 'volume'] as const) {
       const range = this.get<HTMLInputElement>(action);
       range.addEventListener('input', () => { this.dragging.add(action); if (action === 'seek') this.get('current-time').textContent = formatPlayerTime(Number(range.value)); else this.get('volume-value').textContent = `${Math.round(Number(range.value) * 100)} %`; }, { signal });
       range.addEventListener('change', () => {
         this.dragging.delete(action);
         const value = Number(range.value), max = action === 'volume' ? 1 : this.state?.duration ?? 0;
-        if (!range.disabled && Number.isFinite(value) && value >= 0 && value <= max) void this.send('player.control', { action, value });
+        if (!range.disabled && Number.isFinite(value) && value >= 0 && value <= max) void this.sendRange(action, value);
       }, { signal });
       range.addEventListener('blur', () => { this.dragging.delete(action); this.render(); }, { signal });
     }
@@ -278,6 +280,22 @@ export class LocalMusicPlayerControls {
     } catch { if (!this.disposed) this.actionError = true; }
     finally { this.busy = false; if (!this.disposed) this.render(); }
   }
+  private async sendRange(action: 'seek' | 'volume', value: number): Promise<void> {
+    if (this.disposed || !this.state || (this.busy && this.activeRange !== action)) return;
+    this.pendingRange = value;
+    if (this.activeRange === action) return;
+    const revision = this.state.revision;
+    this.activeRange = action; this.busy = true; this.actionError = false; this.render();
+    try {
+      // Keep the native range focused, and coalesce rapid key presses while its command is in flight.
+      while (!this.disposed && this.state?.revision === revision && this.pendingRange !== null) {
+        const next = this.pendingRange; this.pendingRange = null;
+        const response = await this.options.command('player.control', { action, value: next }) as Response;
+        if (response?.ok !== true) { this.actionError = true; break; }
+      }
+    } catch { if (!this.disposed) this.actionError = true; }
+    finally { this.pendingRange = null; this.activeRange = null; this.busy = false; if (!this.disposed) this.render(); }
+  }
   private async search(append: boolean): Promise<void> {
     if (this.disposed || !this.state?.available || (append && (this.loading || this.items.length >= this.total))) return;
     const serial = ++this.searchSerial, offset = append ? this.items.length : 0;
@@ -383,19 +401,20 @@ export class LocalMusicPlayerControls {
     const artwork = localArtworkUrl(selection?.artworkUrl) ? selection.artworkUrl : '';
     if (artwork !== this.artwork) { this.artwork = artwork; const image = this.get<HTMLImageElement>('artwork'); image.hidden = !artwork; this.get('placeholder').hidden = !!artwork; if (artwork) image.src = artwork; else image.removeAttribute('src'); }
     const duration = Number.isFinite(state?.duration) ? Math.max(0, state!.duration) : 0, time = Number.isFinite(state?.currentTime) ? Math.min(duration, Math.max(0, state!.currentTime)) : 0;
-    if (!this.dragging.has('seek')) { this.get<HTMLInputElement>('seek').value = String(time); this.get('current-time').textContent = formatPlayerTime(time); }
+    if (!this.dragging.has('seek') && this.activeRange !== 'seek') { this.get<HTMLInputElement>('seek').value = String(time); this.get('current-time').textContent = formatPlayerTime(time); }
     this.get<HTMLInputElement>('seek').max = String(duration); this.get('duration').textContent = formatPlayerTime(duration);
-    if (!this.dragging.has('volume')) { const value = Number.isFinite(state?.volume) ? Math.min(1, Math.max(0, state!.volume)) : 1; this.get<HTMLInputElement>('volume').value = String(value); this.get('volume-value').textContent = `${Math.round(value * 100)} %`; }
+    if (!this.dragging.has('volume') && this.activeRange !== 'volume') { const value = Number.isFinite(state?.volume) ? Math.min(1, Math.max(0, state!.volume)) : 1; this.get<HTMLInputElement>('volume').value = String(value); this.get('volume-value').textContent = `${Math.round(value * 100)} %`; }
     this.get('status').textContent = !state?.available ? this.tr('Choisissez et scannez votre dossier Songs dans la bibliothèque locale.', 'Choose and scan your Songs folder in the local library.') : state.loading ? this.tr('Préparation du morceau…', 'Preparing song…') : state.playing ? this.tr('Lecture en cours', 'Playing') : selection ? this.tr('Lecture en pause', 'Paused') : this.tr('Choisissez un morceau à écouter. Aucun morceau ne démarre automatiquement.', 'Choose a song to listen to. Playback never starts automatically.');
     const active = state?.playlists?.find(item => item.id === state.activePlaylistId)?.name ?? this.tr('Bibliothèque', 'Library');
     this.get('queue-status').textContent = state?.queueLength ? `${active} · ${state.queuePosition ?? 0} / ${state.queueLength}` : '';
     this.get('error').hidden = !this.actionError && !state?.error && !state?.preferencesError;
     this.get('error').textContent = state?.preferencesError ? this.tr('Les réglages du lecteur ne peuvent pas être enregistrés. Le fichier original est conservé.', 'Player settings cannot be saved. The original file is preserved.') : state?.error === 'unsupported' ? this.tr('Ce format audio ne peut pas être lu.', 'This audio format cannot be played.') : this.tr('Lecture indisponible. Vérifiez les fichiers du morceau, puis réessayez.', 'Playback unavailable. Check the song files, then try again.');
-    for (const name of ['play', 'pause', 'stop', 'seek']) this.get<HTMLButtonElement>(name).disabled = unavailable || !selection || !!state?.loading || (name === 'seek' && duration <= 0);
+    for (const name of ['play', 'pause', 'stop']) this.get<HTMLButtonElement>(name).disabled = unavailable || !selection || !!state?.loading;
+    this.get<HTMLInputElement>('seek').disabled = !state || (this.busy && this.activeRange !== 'seek') || !selection || !!state?.loading || duration <= 0;
     this.get('play').hidden = !!state?.playing; this.get('pause').hidden = !state?.playing;
     this.get<HTMLButtonElement>('previous').disabled = unavailable || !state?.canPrevious;
     this.get<HTMLButtonElement>('next').disabled = unavailable || !state?.canNext;
-    this.get<HTMLInputElement>('volume').disabled = unavailable;
+    this.get<HTMLInputElement>('volume').disabled = !state || (this.busy && this.activeRange !== 'volume');
     this.get<HTMLButtonElement>('widget').disabled = unavailable || (!this.options.compact && !state?.available && !state?.widgetEnabled);
     this.get<HTMLButtonElement>('search').disabled = !state?.available || this.loading;
     this.get<HTMLInputElement>('query').disabled = !state?.available;

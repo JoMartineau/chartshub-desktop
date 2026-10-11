@@ -47,7 +47,7 @@ test('explicit playlist playback follows insertion order and advances only on th
   assert.equal(f.player.snapshot().selection,null);assert.equal(f.actions.length,0);
   await f.player.playPlaylist(listId);let state=f.player.snapshot();assert.equal(state.selection.title,'Gamma');assert.equal(state.queuePosition,1);assert.equal(state.queueLength,2);
   assert.equal(state.canPrevious,false);assert.equal(state.canNext,true);
-  f.player.report({revision:state.revision,playing:false,currentTime:60,duration:60,volume:.7});assert.equal(f.player.snapshot().selection.title,'Gamma','pause/report at the end cannot invent an ended event');
+  assert.equal(f.player.report({revision:state.revision,epoch:state.playbackEpoch,playing:false,currentTime:60,duration:60,volume:.7}).ok,true);assert.equal(f.player.snapshot().selection.title,'Gamma','pause/report at the end cannot invent an ended event');
   assert.equal((await f.player.ended({...endEvent(f.player),revision:state.revision-1})).ok,false);
   await f.player.ended(endEvent(f.player));state=f.player.snapshot();assert.equal(state.selection.title,'Alpha');assert.equal(state.queuePosition,2);
   await f.player.ended(endEvent(f.player));assert.equal(f.player.snapshot().selection.title,'Alpha');assert.equal(f.player.snapshot().playing,false);assert.equal(f.player.snapshot().canNext,false);
@@ -96,6 +96,13 @@ test('an explicit pause or stop during asynchronous preparation cannot be undone
     assert.equal(f.actions.some(value=>value.action==='play'),false);assert.equal(f.player.snapshot().playing,false);
     assert.equal(action==='stop'?f.player.snapshot().selection:null,null);
   }
+});
+test('an earlier engine error after resume cannot cancel playlist advancement',async()=>{
+  const f=fixture(prefs({playlists:[playlist()]}));await f.player.playPlaylist(listId);
+  const previous={...endEvent(f.player),playing:false,currentTime:30,duration:60,volume:.7,errorCode:'playback'};
+  await f.player.control('pause');await f.player.control('play');
+  assert.equal(f.player.report(previous).ok,false);assert.equal(f.player.snapshot().error,null);
+  assert.equal((await f.player.ended(endEvent(f.player))).ok,true);assert.equal(f.player.snapshot().selection.title,'Beta');
 });
 test('editing playlist membership or shuffle during preparation reconciles future choices when the current song resolves',async()=>{
   for(const shuffle of [false,true]) {

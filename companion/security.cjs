@@ -68,9 +68,9 @@ function validCommand(command, payload, widgetIds) {
       && (!value || (Number.isFinite(payload.value) && payload.value >= 0 && payload.value <= (payload.action === 'volume' ? 1 : 86400)));
   }
   if (command === 'player.report') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
-    && Object.keys(payload).length === (payload.errorCode === undefined ? 5 : 6)
-    && Object.keys(payload).every(key => ['revision', 'playing', 'currentTime', 'duration', 'volume', 'errorCode'].includes(key))
-    && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && typeof payload.playing === 'boolean'
+    && Object.keys(payload).length === (payload.errorCode === undefined ? 6 : 7)
+    && Object.keys(payload).every(key => ['revision', 'epoch', 'playing', 'currentTime', 'duration', 'volume', 'errorCode'].includes(key))
+    && [payload.revision, payload.epoch].every(n => Number.isSafeInteger(n) && n >= 0) && typeof payload.playing === 'boolean'
     && [payload.currentTime, payload.duration].every(n => Number.isFinite(n) && n >= 0 && n <= 86400)
     && Number.isFinite(payload.volume) && payload.volume >= 0 && payload.volume <= 1
     && (payload.errorCode === undefined || ['unavailable', 'unsupported', 'playback'].includes(payload.errorCode));

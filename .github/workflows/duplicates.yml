@@ -34,7 +34,13 @@ jobs:
       - name: Verify local music player and spectrum models in Electron
         if: ${{ !cancelled() }}
         shell: pwsh
-        run: node node_modules/electron/cli.js tests/companion-music-player-electron.cjs "$env:RUNNER_TEMP/music-player"
+        run: |
+          node node_modules/electron/cli.js tests/companion-music-player-electron.cjs "$env:RUNNER_TEMP/music-player"
+          if ($LASTEXITCODE -ne 0) { throw 'Music player Electron verification failed' }
+          $reportPath = Join-Path $env:RUNNER_TEMP 'music-player/report.json'
+          if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Music player verification report missing' }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.ok -ne $true -or @($report.passed).Count -ne 9) { throw 'Music player verification did not finish every required stage' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:

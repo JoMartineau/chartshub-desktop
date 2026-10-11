@@ -547,7 +547,7 @@ app.whenReady().then(async () => {
   try {
     await fs.mkdir(data, { recursive: true });
     host = await createCompanionHost({ dataDirectory: path.join(data, 'settings'), catalogueClient: catalogueFixture.client, downloadWorker: downloadFixture.worker, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }), sharingClient: songRequestSharingFixture.client });
-    const panel = await host.open();
+    let panel = await host.open();
     const evaluate = code => panel.webContents.executeJavaScript(code);
     const count = () => evaluate("document.querySelectorAll('#game-preview .companion-widget').length");
     const click = selector => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
@@ -617,6 +617,9 @@ app.whenReady().then(async () => {
     await verifyLibrary(panel, host, data, passed);
     await verifyCatalogue(panel, host, data, passed, catalogueFixture);
     await verifyDownloads(panel, host, data, passed, downloadFixture);
+    // The downloads fixture closes and reopens the native panel to test persistence.
+    panel = host.getPanel();
+    assert.ok(panel && !panel.isDestroyed(), 'download reopen leaves a live panel for the remaining checks');
     await verifyCloneHero({ host, panel, data, passed, waitFor });
     await verifyProfiles({ host, panel, data, passed, waitFor });
     await verifySongRequests(panel, host, data, passed, songRequestSharingFixture);

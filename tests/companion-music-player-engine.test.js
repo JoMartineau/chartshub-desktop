@@ -47,6 +47,27 @@ test('pause, seek, volume and stop apply to every stem with bounded reports', as
   f.engine.action({ revision: 1, action: 'stop' }); assert.equal(f.audio.every(track => track.currentTime === 0), true); assert.equal(f.reports.at(-1).playing, false);
 });
 
+test('reports carry the load epoch and newest accepted transport epoch, including metadata and errors', async t => {
+  const f = await fixture(t);
+  f.engine.update({ ...selection(), playbackEpoch: 4 }); f.audio.forEach(track => track.ready());
+  assert.equal(f.reports.at(-1).epoch, 4, 'metadata is stamped with the selection load epoch');
+  f.engine.action({ revision: 1, epoch: 5, action: 'play' }); await tick();
+  assert.equal(f.reports.at(-1).epoch, 5); assert.equal(f.reports.at(-1).playing, true);
+  f.engine.action({ revision: 1, epoch: 6, action: 'pause' });
+  const count = f.reports.length; f.engine.action({ revision: 1, epoch: 5, action: 'play' }); await tick();
+  assert.equal(f.reports.length, count, 'late play cannot emit another old report');
+  assert.equal(f.reports.at(-1).epoch, 6); assert.equal(f.reports.at(-1).playing, false);
+  f.engine.action({ revision: 1, epoch: 100, action: 'volume', value: .2 });
+  assert.equal(f.reports.at(-1).epoch, 6, 'volume does not change the playback epoch');
+  f.engine.action({ revision: 1, epoch: 7, action: 'seek', value: 3 }); assert.equal(f.reports.at(-1).epoch, 7);
+  f.engine.action({ revision: 1, epoch: 8, action: 'stop' }); assert.equal(f.reports.at(-1).epoch, 8);
+  f.engine.update({ ...selection(2, 1), playbackEpoch: 9 });
+  f.engine.action({ revision: 2, epoch: 10, action: 'play' }); f.audio.at(-1).ready(); await tick();
+  assert.ok(f.reports.filter(report => report.revision === 2).every(report => report.epoch === 10), 'play before metadata stamps every load report with its newer epoch');
+  f.audio.at(-1).dispatchEvent(new Event('error'));
+  assert.equal(f.reports.at(-1).epoch, 10); assert.equal(f.reports.at(-1).errorCode, 'playback');
+});
+
 test('source replacement and library loss pause/release old tracks, contexts and stale callbacks', async t => {
   const f = await fixture(t); f.engine.update(selection()); f.audio.forEach(track => track.ready()); f.engine.action({ revision: 1, action: 'play' }); await tick();
   f.engine.update(selection(2, 1)); assert.equal(f.audio[0].paused, true); assert.equal(f.audio[0].src, ''); assert.equal(f.contexts[0].closed, 1);

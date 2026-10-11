@@ -130,7 +130,8 @@ function createMusicPlayer({ library, onChange, onAction, preferences, randomInd
     changed(); return { ok: true };
   }
   function report(value) {
-    if (!current() || value.revision !== revision || loading || typeof value.playing !== 'boolean'
+    if (!current() || !Number.isSafeInteger(value?.epoch) || value.epoch < 0 || value.epoch !== playbackEpoch
+        || value.revision !== revision || loading || typeof value.playing !== 'boolean'
         || ![value.currentTime, value.duration].every(n => Number.isFinite(n) && n >= 0 && n <= 86400)
         || !Number.isFinite(value.volume) || value.volume < 0 || value.volume > 1
         || (value.errorCode !== undefined && !['unavailable', 'unsupported', 'playback'].includes(value.errorCode))) return { ok: false };

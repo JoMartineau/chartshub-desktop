@@ -56,6 +56,40 @@ test('local player navigation, seek and volume target the shared owner; main cre
   assert.equal(f.root.querySelectorAll('audio').length, 0); assert.equal(f.get('current-time').textContent, '0:12');
 });
 
+test('native range focus and the latest keyboard value survive slow acknowledgements and progress snapshots', async t => {
+  for (const action of ['seek', 'volume']) await t.test(action, async t => {
+    const replies = [];
+    const f = await fixture(t, { handler: (name) => name === 'player.control' ? new Promise(resolve => replies.push(resolve)) : { ok: true, result: { items: [], total: 0, offset: 0, limit: 50 } } });
+    const state = initial(); state.player = { ...state.player, selection: song('a'), duration: 180, currentTime: 12 };
+    f.ui.update(state); await tick(); const range = f.get(action); let disabled = range.disabled;
+    Object.defineProperty(range, 'disabled', { get: () => disabled, set: value => { disabled = value; if (value && f.document.activeElement === range) f.document.activeElement = null; } });
+    range.focus();
+    const change = value => { range.value = String(value); range.dispatchEvent(new Event('input')); range.dispatchEvent(new Event('change')); };
+    change(.1); change(.2); change(.3);
+    assert.equal(range.disabled, false); assert.equal(f.document.activeElement, range, 'Chromium must never blur this range during its own command');
+    assert.equal(f.calls.filter(call => call.name === 'player.control').length, 1, 'intermediate changes are coalesced while awaiting the first command');
+    f.ui.update(state); assert.equal(range.value, '0.3', 'a progress snapshot cannot undo a newer keyboard value');
+    assert.equal(f.get('play').disabled, true, 'unrelated transport actions remain guarded');
+    state.player[action === 'seek' ? 'currentTime' : 'volume'] = .1; f.ui.update(state); replies.shift()({ ok: true }); await tick();
+    assert.deepEqual(f.calls.at(-1), { name: 'player.control', payload: { action, value: .3 } });
+    assert.equal(f.document.activeElement, range); assert.equal(range.value, '0.3');
+    state.player[action === 'seek' ? 'currentTime' : 'volume'] = .3; f.ui.update(state); replies.shift()({ ok: true }); await tick();
+    assert.equal(f.document.activeElement, range); assert.equal(range.disabled, false); assert.equal(range.value, '0.3'); assert.equal(f.get('play').disabled, false);
+  });
+});
+
+test('a queued range update is discarded when the song selection changes', async t => {
+  let resolve;
+  const f = await fixture(t, { handler: name => name === 'player.control' ? new Promise(done => { resolve = done; }) : { ok: true, result: { items: [], total: 0, offset: 0, limit: 50 } } });
+  const state = initial(); state.player = { ...state.player, selection: song('a'), duration: 180 };
+  f.ui.update(state); await tick();
+  for (const value of [4, 7]) { f.get('seek').value = String(value); f.get('seek').dispatchEvent(new Event('change')); }
+  f.ui.update({ player: { ...state.player, revision: 2, selection: song('b'), currentTime: 0 } });
+  resolve({ ok: true }); await tick();
+  assert.equal(f.calls.filter(call => call.name === 'player.control').length, 1, 'the old song seek is never sent to its replacement');
+  assert.equal(f.get('seek').value, '0');
+});
+
 test('library loss clears local player results and invalidates an in-flight search', async t => {
   let resolve; const f = await fixture(t, { handler: () => new Promise(done => { resolve = done; }) });
   f.ui.update(initial()); const state = initial(); state.player.available = false; f.ui.update(state);

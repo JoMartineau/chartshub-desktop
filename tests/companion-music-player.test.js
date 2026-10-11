@@ -41,7 +41,7 @@ test('next and previous change the same player, revoke prior capabilities and ke
 });
 test('only a current bounded engine report can alter playback; controls seek, pause, volume and stop together',async()=>{
   const f=fixture();await f.player.select(f.songs[0].id);const revision=f.player.snapshot().revision;
-  const report={revision,playing:true,currentTime:42,duration:180,volume:.6};assert.equal(f.player.report(report).ok,true);
+  const report={revision,epoch:f.player.snapshot().playbackEpoch,playing:true,currentTime:42,duration:180,volume:.6};assert.equal(f.player.report(report).ok,true);
   assert.equal(f.player.report({...report,revision:revision-1}).ok,false);assert.equal(f.player.report({...report,duration:Infinity}).ok,false);
   await f.player.control('seek',200);assert.equal(f.actions.at(-1).value,180);await f.player.control('pause');assert.equal(f.player.snapshot().playing,false);
   await f.player.control('volume',.2);assert.equal(f.player.snapshot().volume,.2);assert.equal((await f.player.control('volume',2)).ok,false);
@@ -49,11 +49,27 @@ test('only a current bounded engine report can alter playback; controls seek, pa
   assert.equal(f.player.acceptSpectrum({revision,bands:Array(32).fill(.4)}),true);assert.equal(f.player.acceptSpectrum({revision,bands:Array(32).fill(NaN)}),false);
   f.player.setWidget(false);assert.equal(f.player.snapshot().selection.title,'Alpha','hiding widget never creates or stops a second engine');
 });
+test('delayed same-song reports cannot undo stop, pause, resume or seeking',async()=>{
+  for(const action of ['stop','pause','resume','seek']) {
+    const f=fixture();await f.player.select(f.songs[0].id);
+    const previous={revision:f.player.snapshot().revision,epoch:f.player.snapshot().playbackEpoch,playing:true,currentTime:42,duration:180,volume:.6};
+    assert.equal(f.player.report(previous).ok,true);
+    await f.player.control(action==='resume'?'pause':action,action==='seek'?12:undefined);
+    if(action==='resume') await f.player.control('play');
+    const before=f.player.snapshot();assert.equal(before.revision,previous.revision);
+    assert.equal(f.player.report(previous).ok,false,action+' must reject a report from the previous action');
+    assert.equal(f.player.report({...previous,errorCode:'playback'}).ok,false,'a delayed error cannot cancel the current play intent');
+    assert.deepEqual(f.player.snapshot(),before);
+    const fresh={...previous,epoch:before.playbackEpoch,playing:action==='resume'||action==='seek',currentTime:action==='stop'?0:before.currentTime};
+    assert.equal(f.player.report(fresh).ok,true,'the current engine report remains accepted');
+    assert.equal(f.player.snapshot().playing,fresh.playing);assert.equal(f.player.snapshot().currentTime,fresh.currentTime);
+  }
+});
 test('library loss clears selection and stale reports cannot restore it',async()=>{
   const f=fixture();await f.player.select(f.songs[0].id);const old=f.player.snapshot({engine:true});
   f.change({revision:2});f.player.libraryChanged();assert.equal(f.player.snapshot().selection,null);assert.equal(f.player.snapshot().error,'unavailable');
   assert.equal((await f.player.serve(new Request(old.selection.mediaUrls[0].url))).status,404);
-  assert.equal(f.player.report({revision:old.revision,playing:true,currentTime:1,duration:180,volume:.7}).ok,false);
+  assert.equal(f.player.report({revision:old.revision,epoch:old.playbackEpoch,playing:true,currentTime:1,duration:180,volume:.7}).ok,false);
 });
 test('pending resolutions cannot overwrite a newer choice or restart after stop',async()=>{
   const pending=new Map(),f=fixture(id=>new Promise(resolve=>pending.set(id,resolve)));
@@ -85,8 +101,16 @@ test('player IPC excludes arbitrary paths, unbounded values and private reports 
   assert.equal(validCommand('player.search',{query:'',filters:{...filters,genre:'Metal\u0000Rock'}},[]),false);
   assert.equal(validCommand('player.search',{query:'',filters:{...filters,instrument:'invalid'}},[]),false);
   assert.equal(validCommand('player.search',{query:'',filters:{...filters,difficulty:'invalid'}},[]),false);
-  assert.equal(validCommand('player.report',{revision:1,playing:false,currentTime:0,duration:180,volume:.5},[]),true);
+  assert.equal(validCommand('player.report',{revision:1,epoch:1,playing:false,currentTime:0,duration:180,volume:.5},[]),true);
   for(const command of ['player.search','player.select','player.report','player.spectrum','player.appearance']){
     assert.equal(trustedCatalogueWidgetCommand({},null,command,{}),false);assert.equal(trustedFiltersWidgetCommand({},null,command,{}),false);
   }
+});
+test('engine reports require an explicit bounded action epoch and reject extra fields',()=>{
+  const report={revision:1,epoch:0,playing:false,currentTime:0,duration:180,volume:.5};
+  assert.equal(validCommand('player.report',report,[]),true);
+  assert.equal(validCommand('player.report',{...report,errorCode:'playback'},[]),true);
+  const {epoch,...missing}=report;assert.equal(validCommand('player.report',missing,[]),false);
+  for(const epoch of [undefined,-1,.5,NaN,Infinity,Number.MAX_SAFE_INTEGER+1,'0',null]) assert.equal(validCommand('player.report',{...report,epoch},[]),false);
+  assert.equal(validCommand('player.report',{...report,path:'PRIVATE_PATH'},[]),false);
 });

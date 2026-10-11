@@ -1,6 +1,6 @@
 import type { LocalPlayerState } from '../settings/LocalMusicPlayerControls.js';
 export interface PlayerAction { revision: number; epoch?: number; action: 'play' | 'pause' | 'stop' | 'seek' | 'volume'; value?: number }
-export interface PlayerReport { revision: number; playing: boolean; currentTime: number; duration: number; volume: number; errorCode?: 'unavailable' | 'unsupported' | 'playback' }
+export interface PlayerReport { revision: number; epoch: number; playing: boolean; currentTime: number; duration: number; volume: number; errorCode?: 'unavailable' | 'unsupported' | 'playback' }
 interface Options {
   report: (state: PlayerReport) => Promise<unknown> | void;
   spectrum?: (state: { revision: number; bands: number[] }) => Promise<unknown> | void;
@@ -171,7 +171,7 @@ export class LocalMusicPlayerEngine {
   }
   private report(): void {
     if (this.disposed || this.revision < 0) return;
-    const report: PlayerReport = { revision: this.revision, playing: this.ready && this.wanted && !this.error && this.tracks.some(track => !track.paused), currentTime: this.time, duration: this.duration, volume: this.volume, ...(this.error ? { errorCode: this.error } : {}) };
+    const report: PlayerReport = { revision: this.revision, epoch: this.epoch, playing: this.ready && this.wanted && !this.error && this.tracks.some(track => !track.paused), currentTime: this.time, duration: this.duration, volume: this.volume, ...(this.error ? { errorCode: this.error } : {}) };
     try { void Promise.resolve(this.options.report(report)).catch(() => {}); } catch { /* Host disposal must not keep audio running. */ }
   }
   private release(): void {

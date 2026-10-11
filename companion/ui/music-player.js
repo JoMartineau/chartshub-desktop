@@ -10,7 +10,7 @@ const controls = new LocalMusicPlayerControls({ root: document.querySelector('#l
 } });
 const engine = new LocalMusicPlayerEngine({
   report: state => {
-    if (lastSnapshot?.player && state.revision === lastSnapshot.player.revision) {
+    if (lastSnapshot?.player && state.revision === lastSnapshot.player.revision && state.epoch === lastSnapshot.player.playbackEpoch) {
       controls.update({ ...lastSnapshot, player: { ...lastSnapshot.player, ...state, error: state.errorCode ?? null } });
     }
     return api.command('player.report', state);
