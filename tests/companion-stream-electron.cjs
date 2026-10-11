@@ -100,6 +100,7 @@ async function verifyStream(panel, host, data, passed) {
     assert.equal(initial.stream.enabled, false, 'the server starts only after an explicit action');
     assert.equal(initial.stream.clients, 0);
     assert.equal(initial.stream.url, null);
+    assert.deepEqual(initial.buttonMotion, { economy: false }, 'the isolated host starts with only the default bounded presentation value');
     assert.equal(initial.player.selection, null, 'the OBS fixture starts without a selected local song');
     assert.equal(initial.player.playing, false);
     panel.setSize(1250, 900);
@@ -123,7 +124,10 @@ async function verifyStream(panel, host, data, passed) {
         // unit fixture separately verifies transparent:true and #00000000.
         assert.equal(window.isAlwaysOnTop(), true); assert.equal(window.getBackgroundColor(), '#000000');
         const playerSnapshot = await window.webContents.executeJavaScript('window.ChartsHubCompanion.getSnapshot()');
-        assert.deepEqual(Object.keys(playerSnapshot).sort(), ['floatingPanels', 'language', 'player']);
+        assert.deepEqual(Object.keys(playerSnapshot).sort(), ['buttonMotion', 'floatingPanels', 'language', 'player']);
+        assert.deepEqual(Object.keys(playerSnapshot.buttonMotion), ['economy'], 'the player receives no extra presentation or host fields');
+        assert.equal(playerSnapshot.buttonMotion.economy, false);
+        assert.deepEqual(playerSnapshot.buttonMotion, initial.buttonMotion, 'opening the OBS player does not change the saved presentation');
         assert.deepEqual(Object.keys(playerSnapshot.floatingPanels.appearance), ['player']);
         assert.equal(playerSnapshot.player.selection, initial.player.selection); assert.equal(playerSnapshot.player.playing, initial.player.playing);
         assert.equal((await window.webContents.executeJavaScript("window.ChartsHubCompanion.command('capture.player',{})")).ok, false, 'OBS opening action remains main-only in real IPC');
