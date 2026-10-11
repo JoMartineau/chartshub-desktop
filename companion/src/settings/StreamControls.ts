@@ -6,6 +6,7 @@ interface StreamSnapshot {
   state: AppState;
   editor?: { revision: number; canUndo: boolean; canRedo: boolean };
   stream?: { enabled: boolean; url: string | null; clients: number; error: string | null };
+  captureWindows?: Partial<Record<'catalogue' | 'filters', { canOpen: boolean; title: string }>>;
 }
 interface StreamControlOptions {
   root: HTMLElement;
@@ -26,6 +27,7 @@ export class StreamControls {
   private snapshot: StreamSnapshot | null = null;
   private busy = false;
   private dirty = false;
+  private disposed = false;
 
   constructor(private readonly options: StreamControlOptions) {
     const signal = this.abort.signal;
@@ -48,14 +50,44 @@ export class StreamControls {
       this.element(`#stream-${suffix}`).addEventListener('change', mark, { signal });
     }
     this.element('#stream-settings-apply').addEventListener('click', () => { void this.commitSettings(); }, { signal });
+    for (const name of ['catalogue', 'filters'] as const) {
+      this.element(`#stream-open-${name}`).addEventListener('click', () => { void this.openWindow(name); }, { signal });
+    }
+    this.options.root.ownerDocument.defaultView?.addEventListener('chartshub:languagechange', () => { this.renderCaptureWindows(); }, { signal });
+    this.renderCaptureWindows();
     this.refreshAvailability();
   }
 
-  update(snapshot: StreamSnapshot): void { this.snapshot = snapshot; this.render(); }
-  dispose(): void { this.abort.abort(); this.rows.clear(); }
+  update(snapshot: StreamSnapshot): void { if (!this.disposed) { this.snapshot = snapshot; this.render(); } }
+  dispose(): void { this.disposed = true; this.abort.abort(); this.rows.clear(); }
 
   private get settings(): StreamSettings { return this.snapshot?.state.stream ?? createDefaultStream(this.snapshot?.state.widgets.instances ?? []); }
   private get revision(): number { return this.snapshot?.editor?.revision ?? 0; }
+  private tr(fr: string, en: string): string { return this.options.root.ownerDocument.documentElement.lang.startsWith('fr') ? fr : en; }
+
+  private async openWindow(name: 'catalogue' | 'filters'): Promise<void> {
+    if (this.disposed || this.busy || this.snapshot?.captureWindows?.[name]?.canOpen !== true) return;
+    await this.send(`${name}.widget`, { enabled: true }, false);
+  }
+
+  private renderCaptureWindows(): void {
+    if (this.disposed) return;
+    const copy = {
+      '#stream-description': this.tr('Widgets du morceau et fenêtres flottantes dans OBS / Streamlabs.', 'Song widgets and floating windows in OBS / Streamlabs.'),
+      '#stream-browser-heading': this.tr('Widgets du morceau — source Navigateur', 'Song widgets — Browser Source'),
+      '#stream-windows-heading': this.tr('Catalogue et Filtres — Capture de fenêtre', 'Catalogue and Filters — Window Capture'),
+      '#stream-window-instructions': this.tr('Dans OBS, ajoutez une source « Capture de fenêtre » pour chaque panneau et sélectionnez son titre ci-dessous. Gardez ces fenêtres ouvertes pendant la capture.', 'In OBS, add a Window Capture source for each panel and select its title below. Keep these windows open during capture.'),
+      '#stream-open-catalogue': this.tr('Ouvrir le Catalogue', 'Open Catalogue'),
+      '#stream-open-filters': this.tr('Ouvrir les Filtres', 'Open Filters'),
+    };
+    for (const [selector, text] of Object.entries(copy)) this.element(selector).textContent = text;
+    this.element('#stream-catalogue-window-title').textContent = this.snapshot?.captureWindows?.catalogue?.title ?? 'ChartsHub — Mini Catalogue';
+    this.element('#stream-filters-window-title').textContent = this.snapshot?.captureWindows?.filters?.title ?? 'ChartsHub — Filtres du jeu';
+    const unavailable = [];
+    if (this.snapshot?.captureWindows?.catalogue?.canOpen !== true) unavailable.push(this.tr('Catalogue indisponible pour le moment.', 'Catalogue is currently unavailable.'));
+    if (this.snapshot?.captureWindows?.filters?.canOpen !== true) unavailable.push(this.tr('Filtres indisponibles sur cette installation.', 'Filters are unavailable on this installation.'));
+    const status = this.element('#stream-window-status'); status.hidden = unavailable.length === 0; status.textContent = unavailable.join(' ');
+  }
 
   private element<T extends HTMLElement = HTMLElement>(selector: string): T {
     const element = this.options.root.querySelector<T>(selector);
@@ -101,20 +133,22 @@ export class StreamControls {
   }
 
   private async send(command: string, payload: unknown, clearDraft: boolean): Promise<void> {
-    if (!this.snapshot || this.busy) return;
+    if (!this.snapshot || this.busy || this.disposed) return;
     this.busy = true; this.feedback('Mise à jour…'); this.refreshAvailability();
     try {
       const result = await this.options.command(command, payload);
+      if (this.disposed) return;
       const ok = result && typeof result === 'object' && 'ok' in result && result.ok === true;
       if (ok) {
         if (clearDraft) this.dirty = false;
-        this.feedback(command === 'stream.copyUrl' ? 'URL copiée.' : command === 'stream.enabled' ? '' : 'Réglage enregistré.');
+        this.feedback(command.endsWith('.widget') ? this.tr('Fenêtre ouverte. Sélectionnez son titre dans OBS.', 'Window opened. Select its title in OBS.') : command === 'stream.copyUrl' ? 'URL copiée.' : command === 'stream.enabled' ? '' : 'Réglage enregistré.');
       } else this.feedback('Cette action n’a pas pu être appliquée. Vérifiez les réglages et réessayez.', true);
-    } catch { this.feedback('Le Stream ne répond pas à cette action. Réessayez dans un instant.', true); }
-    finally { this.busy = false; this.render(); }
+    } catch { if (!this.disposed) this.feedback('Le Stream ne répond pas à cette action. Réessayez dans un instant.', true); }
+    finally { this.busy = false; if (!this.disposed) this.render(); }
   }
 
   private render(): void {
+    this.renderCaptureWindows();
     if (!this.snapshot) { this.refreshAvailability(); return; }
     const status = this.snapshot.stream;
     const enabled = !!status?.enabled;
@@ -173,6 +207,7 @@ export class StreamControls {
     this.element<HTMLInputElement>('#stream-width').disabled = disabled || !custom;
     this.element<HTMLInputElement>('#stream-height').disabled = disabled || !custom;
     this.element<HTMLButtonElement>('#stream-settings-apply').disabled = disabled || !this.dirty;
+    for (const name of ['catalogue', 'filters'] as const) this.element<HTMLButtonElement>(`#stream-open-${name}`).disabled = disabled || this.snapshot?.captureWindows?.[name]?.canOpen !== true;
     this.element('#stream-settings-status').textContent = this.dirty ? 'Modifications à appliquer.' : 'Réglages enregistrés.';
   }
 }

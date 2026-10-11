@@ -1,5 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { createDocument, tick } = require('./floating-panel-dom.cjs');
 
 const modules = Promise.all([
   import('../companion/dist/overlay/stream/StreamConfig.js'),
@@ -142,4 +144,97 @@ test('projected stream preview uses stream visibility and independent layout whi
   original.gameplay = { state: 'playing', isChartActive: true };
   original.nowPlaying.title = undefined;
   assert.deepEqual(renderer.renderWidgetModels(api.projectStreamState(original), 'stream').map(item => item.type), ['song.charter']);
+});
+
+async function controlsFixture(t) {
+  const api = await modules, { StreamControls } = await import('../companion/dist/settings/StreamControls.js');
+  const document = createDocument(), root = document.createElement('main'), panel = document.createElement('section');
+  panel.id = 'stream-panel'; root.append(panel);
+  const html = readFileSync(require.resolve('../companion/ui/index.html'), 'utf8');
+  for (const [, tag, id] of html.matchAll(/<(\w+)\b[^>]*\bid="(stream-[^"]+)"/g)) {
+    if (id === panel.id) continue;
+    const element = document.createElement(tag); element.id = id; panel.append(element);
+  }
+  const originalQueryAll = panel.querySelectorAll.bind(panel);
+  panel.querySelectorAll = selector => selector.split(',').flatMap(part => originalQueryAll(part.trim()));
+  const calls = [], controls = new StreamControls({ root, command: (name, payload) => new Promise(resolve => calls.push({ name, payload, resolve })) });
+  t.after(() => controls.dispose());
+  const snapshot = { state: state(api), editor: { revision: 9, canUndo: false, canRedo: false }, stream: { enabled: false, url: null, clients: 0, error: null },
+    captureWindows: { catalogue: { canOpen: true, title: 'ChartsHub — Mini Catalogue' }, filters: { canOpen: true, title: 'ChartsHub — Filtres du jeu' } } };
+  return { document, root, controls, calls, snapshot, html, get: selector => root.querySelector(selector) };
+}
+
+test('OBS native window controls remain unavailable until each host permission is explicitly ready', async t => {
+  const ui = await controlsFixture(t);
+  const forceClick = name => ui.get('#stream-open-' + name).dispatchEvent(new Event('click'));
+  for (const name of ['catalogue', 'filters']) { assert.equal(ui.get('#stream-open-' + name).disabled, true); forceClick(name); }
+  assert.equal(ui.calls.length, 0);
+  for (const captureWindows of [undefined, {}, { catalogue: { canOpen: false, title: 'Catalogue' }, filters: { canOpen: false, title: 'Filters' } }]) {
+    ui.controls.update({ ...ui.snapshot, captureWindows });
+    for (const name of ['catalogue', 'filters']) { assert.equal(ui.get('#stream-open-' + name).disabled, true); forceClick(name); }
+  }
+  ui.controls.update({ ...ui.snapshot, captureWindows: { catalogue: { canOpen: true, title: 'Catalogue' } } });
+  assert.equal(ui.get('#stream-open-catalogue').disabled, false); assert.equal(ui.get('#stream-open-filters').disabled, true);
+  forceClick('filters'); assert.equal(ui.calls.length, 0);
+  ui.controls.update({ ...ui.snapshot, captureWindows: { filters: { canOpen: true, title: 'Filters' } } });
+  assert.equal(ui.get('#stream-open-catalogue').disabled, true); assert.equal(ui.get('#stream-open-filters').disabled, false);
+  forceClick('catalogue'); assert.equal(ui.calls.length, 0, 'rendering availability never opens a window or starts a stream');
+});
+
+test('OBS opens only the selected existing native window and preserves stream/game settings', async t => {
+  const ui = await controlsFixture(t), before = structuredClone(ui.snapshot);
+  ui.controls.update(ui.snapshot);
+  assert.equal(ui.get('#stream-enabled').checked, false);
+  assert.equal(ui.get('#stream-copy-url').disabled, true);
+  ui.get('#stream-open-catalogue').click();
+  assert.deepEqual(ui.calls.map(({ name, payload }) => ({ name, payload })), [{ name: 'catalogue.widget', payload: { enabled: true } }]);
+  assert.equal(ui.get('#stream-open-catalogue').disabled, true); assert.equal(ui.get('#stream-open-filters').disabled, true);
+  ui.get('#stream-open-filters').dispatchEvent(new Event('click')); assert.equal(ui.calls.length, 1, 'pending opening is not duplicated');
+  ui.calls[0].resolve({ ok: false }); await tick();
+  assert.equal(ui.get('#stream-feedback').attributes['is-error'], true);
+  assert.equal(ui.get('#stream-open-filters').disabled, false);
+  ui.get('#stream-open-filters').click();
+  assert.deepEqual(ui.calls[1].payload, { enabled: true }); assert.equal(ui.calls[1].name, 'filters.widget');
+  ui.calls[1].resolve({ ok: true }); await tick();
+  assert.match(ui.get('#stream-feedback').textContent, /Fenêtre ouverte/);
+  assert.deepEqual(ui.snapshot, before, 'opening windows cannot change song visibility, effects or stream activation');
+  assert.equal(ui.get('#stream-enabled').checked, false);
+});
+
+test('OBS capture guidance changes language but retains exact native titles and never injects HTML', async t => {
+  const ui = await controlsFixture(t); ui.controls.update(ui.snapshot);
+  assert.equal(ui.get('#stream-open-catalogue').textContent, 'Ouvrir le Catalogue');
+  assert.match(ui.get('#stream-browser-heading').textContent, /Widgets du morceau/);
+  assert.match(ui.get('#stream-window-instructions').textContent, /Capture de fenêtre/);
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  assert.equal(ui.get('#stream-open-catalogue').textContent, 'Open Catalogue');
+  assert.equal(ui.get('#stream-open-filters').textContent, 'Open Filters');
+  assert.match(ui.get('#stream-browser-heading').textContent, /Browser Source/);
+  assert.match(ui.get('#stream-window-instructions').textContent, /Window Capture/);
+  assert.equal(ui.get('#stream-catalogue-window-title').textContent, 'ChartsHub — Mini Catalogue');
+  assert.equal(ui.get('#stream-filters-window-title').textContent, 'ChartsHub — Filtres du jeu');
+  ui.controls.update({ ...ui.snapshot, captureWindows: { catalogue: { canOpen: false, title: '<img src=x onerror=unsafe()>' } } });
+  assert.equal(ui.get('#stream-catalogue-window-title').textContent, '<img src=x onerror=unsafe()>');
+  assert.match(ui.get('#stream-window-status').textContent, /Catalogue is currently unavailable/);
+  assert.match(ui.get('#stream-window-status').textContent, /Filters are unavailable/);
+  ui.document.documentElement.lang = 'fr'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  assert.match(ui.get('#stream-window-status').textContent, /Catalogue indisponible/);
+  assert.equal(ui.calls.length, 0);
+  assert.match(ui.html, /id="stream-open-catalogue"[^>]*aria-describedby="stream-catalogue-window-title"/);
+  assert.match(ui.html, /id="stream-open-filters"[^>]*aria-describedby="stream-filters-window-title"/);
+});
+
+test('OBS window readiness revocation and disposal cannot re-enable or silently reopen native windows', async t => {
+  const ui = await controlsFixture(t); ui.controls.update(ui.snapshot);
+  ui.get('#stream-open-catalogue').click(); assert.equal(ui.calls.length, 1);
+  ui.controls.update({ ...ui.snapshot, captureWindows: {} });
+  ui.calls[0].resolve({ ok: false }); await tick();
+  assert.equal(ui.get('#stream-open-catalogue').disabled, true);
+  ui.controls.update(ui.snapshot); ui.get('#stream-open-filters').click(); assert.equal(ui.calls.length, 2);
+  ui.controls.dispose(); const writes = ui.document.writes;
+  ui.calls[1].resolve({ ok: true }); await tick();
+  ui.controls.update(ui.snapshot); ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  ui.get('#stream-open-catalogue').dispatchEvent(new Event('click'));
+  assert.equal(ui.document.writes, writes, 'late opening completion never writes into disposed controls');
+  assert.equal(ui.calls.length, 2);
 });

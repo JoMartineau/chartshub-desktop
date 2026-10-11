@@ -68,9 +68,30 @@ async function verifyLibrary(panel, host, data, passed) {
   const select = async (selector, value) => {
     await evaluate(`(()=>{const node=document.querySelector(${JSON.stringify(selector)});if(node.disabled)throw Error('Library filter is disabled.');node.value=${JSON.stringify(value)};node.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   };
+  const scrollToEnd = async (expected, contains) => {
+    const point = await evaluate(`(()=>{
+      const node=document.querySelector('#library-table-container');node.scrollIntoView({block:'center'});
+      const rect=node.getBoundingClientRect();
+      if(!rect.width||!rect.height||node.scrollHeight<=node.clientHeight)throw Error('Library scroll container unavailable.');
+      window.__libraryFirstRow=document.querySelector('#library-rows tr');
+      window.__libraryScrollBeforeAppend=null;
+      node.addEventListener('scroll',()=>{window.__libraryScrollBeforeAppend=node.scrollTop;},{once:true});
+      return {x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)};
+    })()`);
+    panel.focus(); panel.webContents.focus();
+    panel.webContents.sendInputEvent({type:'mouseMove',...point});
+    // Electron forwards native wheel deltas; Chromium negates them for DOM scrolling.
+    panel.webContents.sendInputEvent({type:'mouseWheel',...point,deltaX:0,deltaY:-100000,hasPreciseScrollingDeltas:true,canScroll:true});
+    await rowsReady(expected, contains);
+    assert.equal(await evaluate("document.querySelector('#library-rows tr')===window.__libraryFirstRow"),true);
+    assert.equal(await evaluate("new Set([...document.querySelectorAll('#library-rows tr')].map(n=>n.dataset.librarySongId)).size"),expected);
+    assert.equal(await evaluate("document.querySelector('#library-load-more').hidden"),expected===116);
+    assert.ok(await evaluate("document.querySelector('#library-table-container').scrollTop")>0);
+    assert.equal(await evaluate("window.__libraryScrollBeforeAppend>0&&document.querySelector('#library-table-container').scrollTop>=window.__libraryScrollBeforeAppend-1"),true);
+  };
 
   try {
-    for (let index = 0; index < 55; index++) await createChart(index);
+    for (let index = 0; index < 116; index++) await createChart(index);
     await createChart(54, 'Library Chart 000', 'Artist 000', 'Creator 000');
     await fs.writeFile(path.join(folder(0), 'song.ogg'), Buffer.from('fixture-audio-presence'));
     dialog.showOpenDialog = async () => { selected++; return { canceled: false, filePaths: [root] }; };
@@ -78,19 +99,23 @@ async function verifyLibrary(panel, host, data, passed) {
     panel.setSize(1250, 900);
 
     await click('#library-choose-root');
-    await waitFor(() => host.snapshot().library?.settings.rootPath === root && host.snapshot().library.status === 'ready' && host.snapshot().library.count === 55, 'choosing Songs automatically completes a full scan');
+    await waitFor(() => host.snapshot().library?.settings.rootPath === root && host.snapshot().library.status === 'ready' && host.snapshot().library.count === 116, 'choosing Songs automatically completes a full scan');
     await rowsReady(50, 'Library Chart 000');
     assert.equal(selected, 1);
     assert.equal(host.snapshot().library.mode, 'full');
     assert.equal(await evaluate("document.querySelector('#library-root').textContent"), root);
     assert.equal(await evaluate("document.querySelector('#library-rows tr td:nth-child(5)').textContent"), 'Présent');
-    passed.push('library folder choice automatically scans 55 local charts; first page has 50 rows and detected audio');
+    passed.push('library folder choice automatically scans 116 local charts; first batch has 50 rows and detected audio');
 
-    await click('#library-next'); await rowsReady(5, 'Library Chart 050');
+    assert.equal(await evaluate("!!document.querySelector('#library-prev')||!!document.querySelector('#library-next')"),false);
+    await scrollToEnd(100, 'Library Chart 050');
+    await scrollToEnd(116, 'Library Chart 115');
+    passed.push('native wheel scrolling automatically appends the next 50-row batch without duplicate IDs or replacing earlier rows');
     await select('#library-audio', 'present'); await rowsReady(1, 'Library Chart 000');
-    assert.match(await evaluate("document.querySelector('#library-page-status').textContent"), /1–1 sur 1/);
+    assert.match(await evaluate("document.querySelector('#library-page-status').textContent"), /1 sur 1 résultat affiché/);
+    assert.equal(await evaluate("document.querySelector('#library-table-container').scrollTop"),0);
     await select('#library-audio', 'missing'); await rowsReady(50);
-    assert.match(await evaluate("document.querySelector('#library-page-status').textContent"), /sur 54/);
+    assert.match(await evaluate("document.querySelector('#library-page-status').textContent"), /sur 115/);
     await select('#library-duplicates', 'possible'); await rowsReady(1, 'Library Chart 000');
     assert.equal(await evaluate("document.querySelector('#library-rows td[data-audio]').dataset.audio"), 'missing');
     assert.equal(await evaluate("document.querySelector('#library-rows .library-duplicate-badge').textContent"), 'Doublon possible (2)');
@@ -128,8 +153,8 @@ async function verifyLibrary(panel, host, data, passed) {
     assert.match(await evaluate("document.querySelector('#library-empty-title').textContent"), /ces filtres/);
     await click('#library-clear-filters'); await rowsReady(50);
     passed.push('audio and possible-duplicate filters combine, reset pagination, preserve search when cleared and show recoverable empty results');
-    await click('#library-next'); await rowsReady(5, 'Library Chart 050');
-    await click('#library-prev'); await rowsReady(50, 'Library Chart 000');
+    await scrollToEnd(100, 'Library Chart 050');
+    await scrollToEnd(116, 'Library Chart 115');
     for (const query of ['Library Chart 042', 'Artist 042', 'Creator 042']) {
       await search(query); await rowsReady(1, 'Library Chart 042');
     }
@@ -138,7 +163,7 @@ async function verifyLibrary(panel, host, data, passed) {
     await click('#library-rows button[data-library-open-id]');
     await waitFor(() => opened !== null, 'open a chart folder through UI');
     assert.equal(opened, folder(42));
-    passed.push('library paging, title/artist/charter search, sort and scoped folder opening work through UI IPC');
+    passed.push('library scroll loading, title/artist/charter search, sort and scoped folder opening work through UI IPC');
 
     // A global builder shortcut must leave text editing in the search field alone.
     await click('#builder-toggle');
@@ -153,13 +178,13 @@ async function verifyLibrary(panel, host, data, passed) {
     await checkbox('#library-refresh-on-start', false);
     assert.equal(host.snapshot().library.settings.refreshOnStart, false);
 
-    await createChart(55, 'Library Added Chart', 'New Artist');
+    await createChart(116, 'Library Added Chart', 'New Artist');
     await fs.unlink(path.join(folder(1), 'notes.chart'));
     await fs.writeFile(path.join(folder(2), 'song.ini'), '[song]\nname = Library Modified Chart\nartist = Changed Artist\ncharter = Changed Creator\n');
     const previousScan = host.snapshot().library.lastScanAt;
     await click('#library-refresh');
     await waitFor(() => host.snapshot().library.status === 'ready' && host.snapshot().library.lastScanAt !== previousScan, 'quick scan finishes');
-    assert.equal(host.snapshot().library.count, 55);
+    assert.equal(host.snapshot().library.count, 116);
     assert.equal(host.snapshot().library.mode, 'quick');
     assert.equal(host.snapshot().library.changes.added, 1);
     assert.equal(host.snapshot().library.changes.removed, 1);

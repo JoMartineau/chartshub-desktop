@@ -1,3 +1,12 @@
+ChartsHub Desktop 0.14.11 — Catalogue et Companion
+
+NOUVEAUTES 0.14.11
+Catalogue flottant redimensionnable jusqu’à 280 x 220 pixels. Les onglets et la fermeture restent visibles ; faites défiler le contenu pour retrouver les cartes et réglages.
+Le logo et le nom ChartsHub.ca apparaissent en haut de l’application. Le Companion reprend les fonds bleu nuit et les accents cyan et violet ChartsHub. Les préférences de bloom et des panneaux flottants sont conservées.
+Le pack optionnel ReShade comprend Curves, MagicHDR et Technicolor2. Les effets restent désactivés par défaut.
+Bibliothèque : les résultats suivants se chargent automatiquement quand vous faites défiler la liste jusqu’en bas. Les filtres et les choix de doublons restent conservés.
+Stream / OBS : les widgets du morceau utilisent la source Navigateur transparente. Les boutons Catalogue et Filtres ouvrent leurs fenêtres flottantes ; ajoutez chacune comme source Capture de fenêtre dans OBS en choisissant le titre indiqué.
+
 ChartsHub Desktop 0.14.8 — Catalogue et Companion
 
 NOUVEAUTÉS 0.14.8
@@ -80,8 +89,8 @@ Une analyse interrompue conserve le dernier index terminé.
 ASSISTANT D’INSTALLATION RESHADE 0.12.0
 Filtres du jeu propose le téléchargement officiel de ReShade 6.8 avec add-ons.
 Choisir le dossier de Clone Hero, préparer les fichiers, puis fermer le jeu
-et installer dans le dossier affiché. Le pack optionnel contient ArcaneBloom,
-FilmGrain et ChromaticAberration, désactivés au départ. Les fichiers remplacés
+et installer dans le dossier affiché. Le pack optionnel contient Curves,
+MagicHDR et Technicolor2, désactivés au départ. Les fichiers remplacés
 sont sauvegardés ; les presets et shaders déjà présents sont conservés.
 Les joueurs n’ont plus besoin de chercher les téléchargements eux-mêmes.
 

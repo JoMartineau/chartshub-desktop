@@ -22,6 +22,7 @@ const { createCloneHeroProcessProbe } = require('./clonehero-process.cjs');
 const { createOverlayProfiles } = require('./overlay-profiles.cjs');
 const { createFloatingPanels } = require('./floating-panels.cjs');
 const SCHEME = 'chartshub-companion';
+const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu' });
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 }
@@ -126,7 +127,11 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function harden(window, page) { window.setMenuBarVisibility(false); hardenContents(window.webContents, page); }
   const streamStatus = () => streamServer?.status() ?? { enabled: false, url: null, clients: 0, error: streamError };
   const catalogueShortcut = () => ({ accelerator: catalogueAccelerator, registered: shortcutRegistered, error: shortcutError });
-  const snapshot = () => ({ language, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const captureWindows = () => ({
+    catalogue: { canOpen: !disposing && !stopTask && catalogueAllowed(), title: CAPTURE_WINDOW_TITLES.catalogue },
+    filters: { canOpen: !disposing && !stopTask && (filters?.status()?.supported === true || reshade?.status()?.supported === true), title: CAPTURE_WINDOW_TITLES.filters }
+  });
+  const snapshot = () => ({ language, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
     return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
@@ -461,9 +466,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (ticket !== catalogueWidgetTicket) return;
     catalogueWidgetEnabled = true;
     if (!catalogueWidget || catalogueWidget.isDestroyed()) {
-      const window = new BrowserWindow({ width: 580, height: 720, minWidth: 390, minHeight: 360, show: false, frame: false, transparent: true, backgroundColor: '#00000000', alwaysOnTop: true, focusable: true, skipTaskbar: true, resizable: true, movable: true, title: 'ChartsHub — Mini Catalogue',
+      const window = new BrowserWindow({ width: 580, height: 720, minWidth: 280, minHeight: 220, show: false, frame: false, transparent: true, backgroundColor: '#00000000', alwaysOnTop: true, focusable: true, skipTaskbar: true, resizable: true, movable: true, title: CAPTURE_WINDOW_TITLES.catalogue,
         webPreferences: { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`] } });
       catalogueWidget = window; harden(window, 'catalogue-widget.html');
+      window.on('page-title-updated', event => event.preventDefault());
       window.setAlwaysOnTop(true, 'screen-saver');
       window.on('closed', () => {
         if (catalogueWidget === window) { catalogueWidget = null; catalogueWidgetLoad = null; catalogueWidgetEnabled = false; catalogueWidgetTicket++; if (!disposing) publishPanel(); }
@@ -482,9 +488,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     filtersWidgetEnabled = enabled;
     if (!enabled) { if (filtersWidget && !filtersWidget.isDestroyed()) filtersWidget.hide(); publish(); return; }
     if (!filtersWidget || filtersWidget.isDestroyed()) {
-      const window = new BrowserWindow({ width: 410, height: 610, minWidth: 360, minHeight: 360, show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: true, movable: true, title: 'ChartsHub — Filtres du jeu', backgroundColor: '#00000000', webPreferences: { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`] } });
+      const window = new BrowserWindow({ width: 410, height: 610, minWidth: 360, minHeight: 360, show: false, frame: false, transparent: true, alwaysOnTop: true, skipTaskbar: true, resizable: true, movable: true, title: CAPTURE_WINDOW_TITLES.filters, backgroundColor: '#00000000', webPreferences: { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`] } });
       filtersWidget = window;
       harden(window, 'filters-widget.html');
+      window.on('page-title-updated', event => event.preventDefault());
       window.on('closed', () => { if (filtersWidget === window) { filtersWidget = null; filtersWidgetEnabled = false; publish(); } });
       filtersWidgetLoad = window.loadURL(`${SCHEME}://app/ui/filters-widget.html`).catch(error => { if (!window.isDestroyed() && filtersWidgetEnabled) throw error; });
     }

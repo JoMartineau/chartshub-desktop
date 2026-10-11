@@ -9,7 +9,7 @@ const { createReShadeService } = require('../companion/reshade-service.cjs');
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const safeError = error => error?.code === 'RESHADE_SETUP_SAFE';
 const closed = { running: false, sessions: [] };
-const shaderName = 'ChartsHub-ReShade-Shaders/Shaders/ChartsHub_ArcaneBloom.fx';
+const shaderName = 'ChartsHub-ReShade-Shaders/Shaders/ChartsHub_Curves.fx';
 const shader = Buffer.from('// downloaded shader fixture; never compiled');
 function exe(extra = '') {
   const bytes = Buffer.alloc(256); bytes.write('MZ'); bytes.writeUInt32LE(0x80, 0x3c); bytes.write('PE\0\0', 0x80); bytes.writeUInt16LE(0x8664, 0x84);

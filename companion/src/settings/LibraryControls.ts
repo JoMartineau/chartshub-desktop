@@ -61,6 +61,8 @@ export class LibraryControls {
   private querySerial = 0;
   private queryTimer: ReturnType<typeof setTimeout> | null = null;
   private querying = false;
+  private observer: IntersectionObserver | null = null;
+  private sentinelVisible = false;
   private queryError = false;
   private hasResult = false;
   private staleRetries = 0;
@@ -119,8 +121,16 @@ export class LibraryControls {
       this.element<HTMLSelectElement>('#library-duplicates').value = 'all';
       this.scheduleQuery(0);
     }, { signal });
-    this.element('#library-prev').addEventListener('click', () => { this.offset = Math.max(0, this.offset - this.limit); this.scheduleQuery(0); }, { signal });
-    this.element('#library-next').addEventListener('click', () => { if (this.offset + this.limit < this.total) { this.offset += this.limit; this.scheduleQuery(0); } }, { signal });
+    this.element('#library-load-more').addEventListener('click', () => this.loadMore(), { signal });
+    const scroller = this.element('#library-table-container');
+    scroller.addEventListener('scroll', () => this.loadOnScroll(), { signal });
+    if (typeof IntersectionObserver !== 'undefined') {
+      this.observer = new IntersectionObserver(entries => {
+        this.sentinelVisible = entries.some(entry => entry.isIntersecting);
+        if (this.sentinelVisible) this.loadMore(true);
+      }, { root: scroller, rootMargin: '160px 0px', threshold: 0 });
+      this.observer.observe(this.element('#library-load-sentinel'));
+    }
     this.element('#library-query-retry').addEventListener('click', () => { this.staleRetries = 0; this.scheduleQuery(0); }, { signal });
     this.element('#library-verify-all-duplicates').addEventListener('click', () => { void this.verifyAllDuplicates(); }, { signal });
     this.element('#library-cancel-duplicate-verification').addEventListener('click', () => { void this.cancelDuplicateVerification(); }, { signal });
@@ -133,16 +143,11 @@ export class LibraryControls {
     const signature = JSON.stringify(snapshot.library);
     if (signature === this.summarySignature) return;
     this.summarySignature = signature;
-    const previousRoot = this.summary?.settings.rootPath;
     this.summary = snapshot.library;
     this.renderSummary();
     const index = `${this.summary.settings.rootPath ?? ''}\u0000${this.summary.revision}`;
     if (index !== this.observedIndex) {
       this.observedIndex = index; this.staleRetries = 0; this.bulkResult = null; this.bulkMessage = ''; this.bulkError = false;
-      if (previousRoot !== this.summary.settings.rootPath) {
-        this.offset = 0; this.items = []; this.total = 0; this.hasResult = false;
-        this.renderRows();
-      }
       this.scheduleQuery(0);
     }
     this.refreshAvailability();
@@ -152,6 +157,7 @@ export class LibraryControls {
 
   dispose(): void {
     this.disposed = true; this.abort.abort(); this.querySerial++; this.bulkSerial++;
+    this.observer?.disconnect(); this.observer = null;
     this.comparison.dispose();
     if (this.queryTimer) clearTimeout(this.queryTimer);
     this.queryTimer = null; this.rows.clear();
@@ -174,11 +180,25 @@ export class LibraryControls {
     this.query = query; this.offset = 0; this.staleRetries = 0; this.scheduleQuery(220);
   }
 
-  private scheduleQuery(delay: number): void {
+  private loadMore(automatic = false): void {
+    if (this.disposed || this.querying || !this.hasResult || this.offset >= this.total || (automatic && this.queryError)) return;
+    this.staleRetries = 0; this.scheduleQuery(0, true);
+  }
+
+  private loadOnScroll(): void {
+    const scroller = this.element('#library-table-container');
+    if (scroller.clientHeight > 0 && scroller.scrollHeight > 0 && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 160) this.loadMore(true);
+  }
+
+  private scheduleQuery(delay: number, append = false): void {
     if (this.queryTimer) clearTimeout(this.queryTimer);
     this.queryTimer = null;
     const serial = ++this.querySerial;
     this.queryError = false;
+    if (!append) {
+      this.offset = 0; this.items = []; this.total = 0; this.hasResult = false; this.sentinelVisible = false;
+      this.renderRows(); this.element('#library-table-container').scrollTop = 0;
+    }
     if (this.disposed || !this.summary?.settings.rootPath) {
       this.querying = false; this.items = []; this.total = 0; this.hasResult = false;
       this.renderRows(); this.renderResultsStatus(); this.refreshAvailability(); return;
@@ -189,9 +209,9 @@ export class LibraryControls {
 
   private async requestPage(serial: number): Promise<void> {
     if (this.disposed || serial !== this.querySerial || !this.summary?.settings.rootPath) return;
-    const root = this.summary.settings.rootPath;
+    const root = this.summary.settings.rootPath, offset = this.offset;
     try {
-      const response = await this.options.command('library.query', { query: this.query, sort: this.sort, audio: this.audio, duplicates: this.duplicates, offset: this.offset, limit: this.limit }) as LibraryResponse | undefined;
+      const response = await this.options.command('library.query', { query: this.query, sort: this.sort, audio: this.audio, duplicates: this.duplicates, offset, limit: this.limit }) as LibraryResponse | undefined;
       if (this.disposed || serial !== this.querySerial || root !== this.summary?.settings.rootPath) return;
       const result = response?.result;
       if (!response?.ok || !result || !Array.isArray(result.items)) throw Error('Library query unavailable');
@@ -199,20 +219,23 @@ export class LibraryControls {
         if (this.staleRetries++ < 2) { this.scheduleQuery(100); return; }
         throw Error('Library index changed');
       }
+      if (!Number.isSafeInteger(result.total) || result.total < 0 || result.offset !== offset || result.limit !== this.limit
+        || (offset > 0 && result.total !== this.total) || (!result.items.length && offset < result.total)
+        || result.items.some(item => !item || typeof item.id !== 'string' || !/^[a-f0-9]{64}$/.test(item.id))) throw Error('Invalid library page');
       this.staleRetries = 0;
-      this.total = Math.max(0, Math.trunc(result.total));
-      this.offset = Math.max(0, Math.trunc(result.offset));
-      if (!result.items.length && this.total > 0 && this.offset >= this.total) {
-        this.offset = Math.floor((this.total - 1) / this.limit) * this.limit; this.scheduleQuery(0); return;
-      }
-      this.items = result.items.slice(0, this.limit); this.hasResult = true; this.queryError = false;
-      this.renderRows();
+      this.total = result.total; this.offset = Math.min(this.total, offset + this.limit);
+      const page = result.items.slice(0, this.limit), ids = new Set(this.items.map(item => item.id)), additions: LibraryItem[] = [];
+      for (const item of page) if (!ids.has(item.id)) { ids.add(item.id); additions.push(item); }
+      this.items.push(...additions); this.hasResult = true; this.queryError = false;
+      if (additions.length) this.renderRows(additions);
     } catch {
       if (this.disposed || serial !== this.querySerial) return;
-      this.queryError = true; this.items = []; this.total = 0; this.hasResult = false; this.renderRows();
+      this.queryError = true;
+      if (!this.hasResult) { this.items = []; this.total = 0; this.renderRows(); }
     } finally {
       if (!this.disposed && serial === this.querySerial) {
         this.querying = false; this.renderResultsStatus(); this.refreshAvailability();
+        if (this.sentinelVisible) this.loadOnScroll();
       }
     }
   }
@@ -344,7 +367,7 @@ export class LibraryControls {
     this.element<HTMLInputElement>('#library-refresh-on-start').checked = summary.settings.refreshOnStart;
   }
 
-  private renderRows(): void {
+  private renderRows(items: LibraryItem[] = this.items): void {
     const document = this.options.root.ownerDocument;
     const focused = (document.activeElement as HTMLElement | null)?.dataset.libraryOpenId;
     const focusedCatalogue = (document.activeElement as HTMLElement | null)?.dataset.libraryCatalogueId;
@@ -352,8 +375,9 @@ export class LibraryControls {
     const ids = new Set(this.items.map(item => item.id));
     for (const [id, entry] of this.rows) if (!ids.has(id)) { entry.row.remove(); this.rows.delete(id); }
     const body = this.element<HTMLTableSectionElement>('#library-rows');
-    for (const item of this.items) {
+    for (const item of items) {
       let entry = this.rows.get(item.id);
+      const created = !entry;
       if (!entry) {
         const row = document.createElement('tr'); row.dataset.librarySongId = item.id;
         const titleCell = document.createElement('td'); titleCell.className = 'library-song-title-cell';
@@ -389,7 +413,7 @@ export class LibraryControls {
       entry.audio.textContent = item.audio === 'present' ? 'Présent' : item.audio === 'missing' ? 'Absent' : 'Non vérifié';
       entry.audio.dataset.audio = item.audio; entry.open.setAttribute('aria-label', `Ouvrir le dossier de ${text(item.title, 'ce morceau')}`);
       entry.catalogue.setAttribute('aria-label', `Comparer ${text(item.title, 'ce morceau')} sur ChartsHub`);
-      body.append(entry.row);
+      if (created) body.append(entry.row);
     }
     if (focused && this.rows.has(focused)) this.rows.get(focused)!.open.focus({ preventScroll: true });
     if (focusedCatalogue && this.rows.has(focusedCatalogue)) this.rows.get(focusedCatalogue)!.catalogue.focus({ preventScroll: true });
@@ -408,8 +432,14 @@ export class LibraryControls {
     else if (root && this.query) { title = 'Aucun résultat pour cette recherche'; description = 'Essayez un autre titre, artiste ou créateur de chart.'; }
     else if (root) { title = this.summary?.status === 'scanning' ? 'Analyse en cours…' : 'Aucune chart dans l’index'; description = this.summary?.status === 'scanning' ? 'La liste sera mise à jour à la fin de l’analyse.' : 'Lancez un scan complet ou vérifiez le dossier Songs sélectionné.'; }
     this.element('#library-empty-title').textContent = title; this.element('#library-empty-description').textContent = description;
-    this.element('#library-query-retry').hidden = !this.queryError;
-    this.element('#library-page-status').textContent = this.querying ? 'Chargement des résultats…' : this.items.length ? `${count(this.offset + 1)}–${count(this.offset + this.items.length)} sur ${count(this.total)} résultat${this.total > 1 ? 's' : ''} · page ${count(Math.floor(this.offset / this.limit) + 1)} sur ${count(Math.ceil(this.total / this.limit))}` : this.queryError ? 'Affichage indisponible' : '0 résultat';
+    this.element('#library-query-retry').hidden = !this.queryError || this.hasResult;
+    const status = this.element('#library-page-status');
+    const loaded = `${count(this.items.length)} sur ${count(this.total)} résultat${this.total > 1 ? 's' : ''} affiché${this.total > 1 ? 's' : ''}`;
+    status.textContent = this.hasResult ? loaded + (this.querying ? ' · Chargement de la suite…' : this.queryError ? ' · Suite indisponible' : '') : this.querying ? 'Chargement des résultats…' : this.queryError ? 'Affichage indisponible' : '0 résultat';
+    const more = this.element<HTMLButtonElement>('#library-load-more');
+    if (this.querying && this.options.root.ownerDocument.activeElement === more) status.focus({ preventScroll: true });
+    more.hidden = !this.hasResult || this.offset >= this.total || this.querying;
+    more.textContent = this.queryError ? 'Réessayer le chargement' : 'Charger plus';
   }
 
   private refreshAvailability(): void {
@@ -429,13 +459,13 @@ export class LibraryControls {
     this.element<HTMLSelectElement>('#library-duplicates').disabled = unavailable || noRoot;
     this.element<HTMLButtonElement>('#library-clear-filters').disabled = unavailable || noRoot || (this.audio === 'all' && this.duplicates === 'all');
     this.element<HTMLButtonElement>('#library-clear-search').disabled = unavailable || !this.query;
-    this.element<HTMLButtonElement>('#library-prev').disabled = unavailable || this.querying || this.offset === 0 || this.queryError;
-    this.element<HTMLButtonElement>('#library-next').disabled = unavailable || this.querying || this.offset + this.limit >= this.total || this.queryError;
+    this.element<HTMLButtonElement>('#library-load-more').disabled = unavailable || noRoot || this.querying || !this.hasResult || this.offset >= this.total;
     this.element<HTMLButtonElement>('#library-query-retry').disabled = unavailable || this.querying;
     this.element<HTMLButtonElement>('#library-verify-all-duplicates').disabled = unavailable || noRoot || busy || scanning || this.querying;
     for (const entry of this.rows.values()) {
-      entry.open.disabled = unavailable || busy || this.querying; entry.catalogue.disabled = unavailable || busy || this.querying || scanning;
-      entry.compare.disabled = unavailable || busy || this.querying || scanning || entry.compare.hidden;
+      const firstPageLoading = this.querying && !this.hasResult;
+      entry.open.disabled = unavailable || busy || firstPageLoading; entry.catalogue.disabled = unavailable || busy || firstPageLoading || scanning;
+      entry.compare.disabled = unavailable || busy || firstPageLoading || scanning || entry.compare.hidden;
     }
     this.comparison.update({ rootPath: this.summary?.settings.rootPath ?? null, revision: this.summary?.revision ?? 0, scanning, busy });
     this.renderBulkVerification();

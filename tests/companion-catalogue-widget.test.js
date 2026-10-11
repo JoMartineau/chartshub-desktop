@@ -91,6 +91,7 @@ test('floating catalogue is hardened, searchable and receives no private panel d
   const mini = f.host.getCatalogueWidget();
   assert.equal(mini.visible, true); assert.equal(mini.focused, true);
   assert.equal(mini.options.transparent, true); assert.equal(mini.options.frame, false); assert.equal(mini.options.resizable, true);
+  assert.deepEqual([mini.options.minWidth, mini.options.minHeight], [280, 220], 'compact resizing is supported by the actual host configuration');
   assert.equal(mini.options.webPreferences.sandbox, true); assert.equal(mini.options.webPreferences.nodeIntegration, false); assert.equal(mini.options.webPreferences.contextIsolation, true);
   assert.deepEqual(mini.windowHandler(), { action: 'deny' });
   let prevented = false; mini.webContents.emit('will-navigate', { preventDefault() { prevented = true; } }, 'https://chartshub.ca'); assert.equal(prevented, true);

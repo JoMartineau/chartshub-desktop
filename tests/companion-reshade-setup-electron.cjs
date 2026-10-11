@@ -27,7 +27,7 @@ const reshadeSetupService = { async load() {}, status: () => structuredClone(sta
   async install() { calls.push({ action: 'install' }); Object.assign(state, { state: 'complete', busy: false, progress: null, message: 'ReShade est installé. Lancez Clone Hero pour connecter ses effets.' }); source.installed = true; publish(); }
 };
 function ready() {
-  Object.assign(state, { state: 'ready', busy: false, progress: null, message: 'Fichiers prêts. Fermez Clone Hero, puis installez dans le dossier affiché.', files: ['dxgi.dll', 'ReShade.ini', 'ChartsHubReShade.addon64', 'ChartsHub-ReShade-Shaders/Shaders/Bloom.fx', 'ChartsHub-ReShade-Shaders/Shaders/FilmGrain.fx', 'ChartsHub-ReShade-Shaders/Shaders/ChromaticAberration.fx'] }); publish(); finishPreparation?.(); finishPreparation = null;
+  Object.assign(state, { state: 'ready', busy: false, progress: null, message: 'Fichiers prêts. Fermez Clone Hero, puis installez dans le dossier affiché.', files: ['dxgi.dll', 'ReShade.ini', 'ChartsHubReShade.addon64', 'ChartsHub-ReShade-Shaders/Shaders/ChartsHub_Curves.fx', 'ChartsHub-ReShade-Shaders/Shaders/ChartsHub_MagicHDR.fx', 'ChartsHub-ReShade-Shaders/Shaders/ChartsHub_Technicolor2.fx'] }); publish(); finishPreparation?.(); finishPreparation = null;
 }
 app.whenReady().then(async () => {
   await fs.mkdir(directory, { recursive: true });
@@ -35,6 +35,12 @@ app.whenReady().then(async () => {
   const panel = await host.open(), evaluate = code => panel.webContents.executeJavaScript(code);
   await waitFor(() => evaluate("!document.querySelector('#reshade-setup').hidden&&!document.querySelector('#reshade-setup-prepare').disabled"), 'assistant appears before connection');
   assert.equal(await evaluate("document.querySelector('#reshade-setup-effects').checked"), false);
+  assert.match(await evaluate("document.querySelector('.reshade-setup-option').textContent"), /Ajouter le pack Curves, MagicHDR et Technicolor2/);
+  host.setLanguage('en');
+  await waitFor(() => evaluate("document.querySelector('.reshade-setup-option').textContent.includes('Add the Curves, MagicHDR and Technicolor2 pack')"), 'English optional pack label');
+  assert.equal(await evaluate("document.querySelector('#reshade-setup-effects').checked"), false, 'language change never selects optional effects');
+  host.setLanguage('fr');
+  await waitFor(() => evaluate("document.querySelector('.reshade-setup-option').textContent.includes('Ajouter le pack Curves, MagicHDR et Technicolor2')"), 'French optional pack label');
   assert.equal(calls.length, 0, 'opening the assistant must not download anything');
   await evaluate("document.querySelector('#reshade-setup-prepare').click()");
   await waitFor(() => evaluate("!document.querySelector('#reshade-setup-cancel').disabled&&!document.querySelector('#reshade-setup-progress').hidden"), 'preparation can be cancelled');
@@ -48,6 +54,9 @@ app.whenReady().then(async () => {
   assert.equal(calls.filter(item => item.action === 'prepare').at(-1).includeStarterEffects, true);
   ready();
   await waitFor(() => evaluate("!document.querySelector('#reshade-setup-review').hidden"), 'prepared file list appears');
+  const displayedFiles = await evaluate("[...document.querySelectorAll('#reshade-setup-files li')].map(n=>n.textContent)");
+  for (const shader of ['ChartsHub_Curves.fx', 'ChartsHub_MagicHDR.fx', 'ChartsHub_Technicolor2.fx']) assert.ok(displayedFiles.some(file => file.endsWith('/' + shader)), 'review contains ' + shader);
+  assert.equal(displayedFiles.some(file => /\/(?:Bloom|FilmGrain|ChromaticAberration)\.fx$/.test(file)), false);
   assert.equal(await evaluate("document.querySelector('#reshade-setup-install').disabled"), true);
   assert.match(await evaluate("document.querySelector('#reshade-setup-ready-note').textContent"), /Fermez Clone Hero/);
   assert.ok(await evaluate(`document.querySelector('#reshade-setup-root').textContent===${JSON.stringify(source.rootPath)}`));

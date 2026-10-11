@@ -25,6 +25,41 @@ test('native Theme panel follows the synchronized document language',()=>{
  assert.ok(bloom.includes("button('open', 'Theme', 'Thème')"));
 });
 
+test('OBS opening confirmation follows live French and English language selection',()=>{
+ const {runInNewContext}=require('node:vm');
+ const window={ChartsHubCompanion:{initialLanguage:'fr'},dispatchEvent(){}},document={readyState:'loading',documentElement:{},addEventListener(){}};
+ runInNewContext(read('companion/ui/localization.js'),{window,document,CustomEvent:class {}});
+ const language=window.ChartshubCompanionLanguage,message='Fenêtre ouverte. Sélectionnez son titre dans OBS.';
+ assert.equal(language.translate(message),message);
+ language.apply('en');assert.equal(language.translate(message),'Window opened. Select its title in OBS.');
+ language.apply('fr');assert.equal(language.translate(message),message);
+});
+
+test('optional ReShade pack follows French and English without implying automatic activation',()=>{
+ const {runInNewContext}=require('node:vm');
+ const window={ChartsHubCompanion:{initialLanguage:'en'},dispatchEvent(){}},document={readyState:'loading',documentElement:{},addEventListener(){}};
+ runInNewContext(read('companion/ui/localization.js'),{window,document,CustomEvent:class {}});
+ const language=window.ChartshubCompanionLanguage,label='Ajouter le pack Curves, MagicHDR et Technicolor2';
+ assert.equal(language.translate(label),'Add the Curves, MagicHDR and Technicolor2 pack');
+ assert.equal(language.translate('Ces effets resteront désactivés par défaut. Vous pourrez les choisir après connexion.'),'These effects remain disabled by default. You can choose them after connecting.');
+ language.apply('fr');assert.equal(language.translate(label),label);
+ const html=read('companion/ui/index.html');assert.ok(html.includes(label));
+ assert.match(html,/<input id="reshade-setup-effects" type="checkbox" disabled>/);
+});
+
+test('progressive library loading status and retry labels follow French and English',()=>{
+ const {runInNewContext}=require('node:vm');
+ const window={ChartsHubCompanion:{initialLanguage:'en'},dispatchEvent(){}},document={readyState:'loading',documentElement:{},addEventListener(){}};
+ runInNewContext(read('companion/ui/localization.js'),{window,document,CustomEvent:class {}});
+ const language=window.ChartshubCompanionLanguage;
+ assert.equal(language.translate('50 sur 116 résultats affichés'),'50 of 116 results displayed');
+ assert.equal(language.translate('50 sur 116 résultats affichés · Chargement de la suite…'),'50 of 116 results displayed · Loading more…');
+ assert.equal(language.translate('50 sur 116 résultats affichés · Suite indisponible'),'50 of 116 results displayed · More results unavailable');
+ assert.equal(language.translate('Réessayer le chargement'),'Retry loading');
+ assert.equal(language.translate('Chargement automatique · lots de 50'),'Automatic loading · batches of 50');
+ language.apply('fr');assert.equal(language.translate('50 sur 116 résultats affichés'),'50 sur 116 résultats affichés');
+});
+
 test('direct duplicate cleanup labels are available in both French and English',()=>{
  const source=read('companion/src/settings/DuplicateComparisonControls.ts'),locale=read('companion/ui/localization.js'),html=read('companion/ui/index.html');
  for(const phrase of ['Envoyer la copie sélectionnée à la Corbeille…','copies sélectionnées à la Corbeille…','Supprimer quand même','Cochez les copies à envoyer à la Corbeille','Revérifier les autres versions'])assert.ok(source.includes(phrase),phrase);

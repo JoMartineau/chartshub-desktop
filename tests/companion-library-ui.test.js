@@ -2,11 +2,13 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { setMaxListeners } = require('node:events');
 const { test } = require('node:test');
+const { createHash } = require('node:crypto');
 
 class Element extends EventTarget {
   constructor(document, tag) {
     super(); this.ownerDocument = document; this.tagName = tag; this.dataset = {}; this.attributes = {};
     this.children = []; this.value = ''; this.disabled = false; this.hidden = false; this.text = '';
+    this.scrollTop = 0; this.clientHeight = 0; this.scrollHeight = 0;
     this.classList = { toggle: (name, enabled) => { this.ownerDocument.writes++; this.attributes[name] = enabled; } };
   }
   set textContent(value) { this.ownerDocument.writes++; this.text = value; this.children = []; }
@@ -52,15 +54,26 @@ async function waitFor(predicate) {
   const deadline = Date.now() + 2000;
   while (!predicate()) { if (Date.now() >= deadline) assert.fail('Library UI did not settle'); await tick(); }
 }
-const song = (id, extra = {}) => ({ id: String(id), relativePath: `Songs/${id}`, title: `Song ${id}`, artist: 'Artist', charter: 'Creator', format: 'chart', audio: 'missing', ...extra });
+const song = (id, extra = {}) => ({ id: /^[a-f0-9]{64}$/.test(String(id)) ? String(id) : createHash('sha256').update(String(id)).digest('hex'), relativePath: `Songs/${id}`, title: `Song ${id}`, artist: 'Artist', charter: 'Creator', format: 'chart', audio: 'missing', ...extra });
 const snapshot = (extra = {}) => ({ library: {
   settings: { rootPath: 'C:\\Songs', watch: false, refreshOnStart: true }, status: 'ready', mode: 'full',
   progress: { visited: 101, processed: 101, discovered: 101 }, count: 101, lastScanAt: null,
   changes: { added: 0, removed: 0, modified: 0 }, warningCount: 0, skippedCount: 0, error: null, watcher: 'off', revision: 1, ...extra,
 } });
-async function setup(t) {
+async function setup(t, observe = false) {
   const { LibraryControls } = await import('../companion/dist/settings/LibraryControls.js');
   const ui = fixture(), calls = [];
+  const observers = [];
+  if (observe) {
+    const previous = globalThis.IntersectionObserver;
+    globalThis.IntersectionObserver = class {
+      constructor(callback, options) { this.callback = callback; this.options = options; observers.push(this); }
+      observe(target) { this.target = target; }
+      disconnect() { this.disconnected = true; }
+      emit(isIntersecting) { this.callback([{ target: this.target, isIntersecting }]); }
+    };
+    t.after(() => { if (previous === undefined) delete globalThis.IntersectionObserver; else globalThis.IntersectionObserver = previous; });
+  }
   const controls = new LibraryControls({ root: ui.root, command: (name, payload) => new Promise(resolve => calls.push({ name, payload, resolve })) });
   t.after(() => controls.dispose());
   const request = async index => { await waitFor(() => calls.length > index); return calls[index]; };
@@ -69,7 +82,7 @@ async function setup(t) {
     call.resolve({ ok: true, result: { items, total, revision, offset: call.payload.offset, limit: 50 } });
     await tick();
   };
-  return { ...ui, controls, calls, request, respond };
+  return { ...ui, controls, calls, request, respond, observers };
 }
 
 test('library filter controls are labeled, unavailable without a folder, and retain a 50-row page', async t => {
@@ -89,13 +102,14 @@ test('library filter controls are labeled, unavailable without a folder, and ret
   assert.deepEqual({ name: call.name, payload: call.payload }, { name: 'library.query', payload: { query: '', sort: 'title', audio: 'all', duplicates: 'all', offset: 0, limit: 50 } });
   await ui.respond(0, { items: Array.from({ length: 60 }, (_, i) => song(i)), total: 101 });
   assert.equal(ui.get('#library-rows').children.length, 50);
-  assert.match(ui.get('#library-page-status').textContent, /1–50 sur 101/);
+  assert.match(ui.get('#library-page-status').textContent, /50 sur 101 résultats affichés/);
+  assert.equal(ui.get('#library-prev'), null); assert.equal(ui.get('#library-next'), null);
   assert.equal(ui.get('#library-clear-filters').disabled, true);
 });
 
 test('search, sort and both filters combine; changing each filter resets pagination and scan snapshots preserve them', async t => {
   const ui = await setup(t); ui.controls.update(snapshot()); await ui.respond(0, { total: 101 });
-  ui.get('#library-next').click(); assert.equal((await ui.request(1)).payload.offset, 50); await ui.respond(1, { total: 101 });
+  ui.get('#library-load-more').click(); assert.equal((await ui.request(1)).payload.offset, 50); await ui.respond(1, { total: 101 });
   ui.search('Artist'); ui.change('#library-sort', 'artist'); ui.change('#library-audio', 'missing'); ui.change('#library-duplicates', 'possible');
   assert.deepEqual((await ui.request(2)).payload, { query: 'Artist', sort: 'artist', audio: 'missing', duplicates: 'possible', offset: 0, limit: 50 });
   await ui.respond(2, { total: 101 });
@@ -104,11 +118,11 @@ test('search, sort and both filters combine; changing each filter resets paginat
   assert.equal(ui.get('#library-search').value, 'Artist');
   assert.equal(ui.get('#library-audio').value, 'missing'); assert.equal(ui.get('#library-duplicates').value, 'possible');
   await tick(); assert.equal(ui.calls.length, 3, 'scan progress alone must not repeat queries');
-  ui.get('#library-next').click(); assert.equal((await ui.request(3)).payload.offset, 50); await ui.respond(3, { total: 101 });
+  ui.get('#library-load-more').click(); assert.equal((await ui.request(3)).payload.offset, 50); await ui.respond(3, { total: 101 });
   ui.change('#library-audio', 'present');
   assert.deepEqual((await ui.request(4)).payload, { query: 'Artist', sort: 'artist', audio: 'present', duplicates: 'possible', offset: 0, limit: 50 });
   await ui.respond(4, { total: 101 });
-  ui.get('#library-next').click(); await ui.respond(5, { total: 101 });
+  ui.get('#library-load-more').click(); await ui.respond(5, { total: 101 });
   ui.change('#library-duplicates', 'all'); assert.equal((await ui.request(6)).payload.offset, 0); await ui.respond(6, { total: 101 });
   ui.change('#library-audio', 'unknown'); assert.equal((await ui.request(7)).payload.audio, 'unknown'); await ui.respond(7, { total: 101 });
   ui.controls.update(snapshot({ revision: 2 }));
@@ -131,7 +145,7 @@ test('late results and errors from superseded filters cannot overwrite the activ
   await ui.respond(0, { items: [song('old')] });
   ui.calls[1].resolve({ ok: false }); await tick();
   assert.equal(ui.get('#library-rows').children.length, 1);
-  assert.equal(ui.get('#library-rows').children[0].dataset.librarySongId, 'current');
+  assert.equal(ui.get('#library-rows').children[0].dataset.librarySongId, song('current').id);
   assert.equal(ui.get('#library-query-retry').hidden, true);
   assert.equal(ui.get('#library-results').attributes['aria-busy'], 'false');
 });
@@ -143,12 +157,13 @@ test('filtered empty results have a recovery action; duplicate badges remain ten
   assert.equal(row.querySelector('strong').textContent, '<img src=x onerror=neverExecute()>');
   assert.equal(badge.hidden, false); assert.equal(badge.textContent, 'Doublon possible (2)');
   ui.controls.update(snapshot({ revision: 2 })); await ui.respond(1, { items: [song('same', { duplicateCount: 1 })], revision: 2 });
-  assert.equal(ui.get('#library-rows').children[0], row); assert.equal(badge.hidden, true); assert.equal(badge.textContent, '');
+  const refreshed = ui.get('#library-rows').children[0];
+  assert.notEqual(refreshed, row); assert.equal(refreshed.querySelector('.library-duplicate-badge').hidden, true);
   ui.change('#library-audio', 'unknown'); ui.change('#library-duplicates', 'possible'); await ui.respond(2, { items: [], revision: 2 });
   assert.equal(ui.get('#library-empty').hidden, false); assert.equal(ui.get('#library-table-container').hidden, true);
   assert.match(ui.get('#library-empty-title').textContent, /ces filtres/);
   assert.match(ui.get('#library-empty-description').textContent, /Réinitialisez/);
-  assert.equal(ui.get('#library-clear-filters').disabled, false); assert.equal(ui.get('#library-next').disabled, true);
+  assert.equal(ui.get('#library-clear-filters').disabled, false); assert.equal(ui.get('#library-load-more').hidden, true);
   ui.search('Other'); await ui.respond(3, { items: [], revision: 2 });
   assert.match(ui.get('#library-empty-description').textContent, /recherche/);
   ui.get('#library-clear-filters').click(); await ui.respond(4, { items: [], revision: 2 });
@@ -171,6 +186,92 @@ test('a stale index revision retries the active filter, and disposal cancels pen
 });
 
 const variantId = letter => letter.repeat(64);
+
+test('the scroll sentinel appends three bounded batches exactly once and disconnects on disposal', async t => {
+  const ui = await setup(t, true), page = offset => Array.from({ length: Math.min(50, 116 - offset) }, (_, i) => song(offset + i));
+  ui.controls.update(snapshot()); await ui.respond(0, { items: page(0), total: 116 });
+  const observer = ui.observers[0], first = ui.get('#library-rows').children[0];
+  assert.equal(observer.options.root, ui.get('#library-table-container')); assert.equal(observer.options.rootMargin, '160px 0px');
+  assert.equal(observer.target, ui.get('#library-load-sentinel'));
+  observer.emit(true); observer.emit(true); observer.emit(true);
+  assert.equal((await ui.request(1)).payload.offset, 50); await tick(); assert.equal(ui.calls.length, 2);
+  assert.equal(ui.get('#library-load-more').hidden, true);
+  await ui.respond(1, { items: page(50), total: 116 });
+  assert.equal(ui.get('#library-rows').children.length, 100); assert.equal(ui.get('#library-rows').children[0], first);
+  observer.emit(false); observer.emit(true);
+  assert.equal((await ui.request(2)).payload.offset, 100); await ui.respond(2, { items: page(100), total: 116 });
+  assert.equal(ui.get('#library-rows').children.length, 116);
+  assert.equal(new Set(ui.get('#library-rows').children.map(row => row.dataset.librarySongId)).size, 116);
+  observer.emit(true); await tick(); assert.equal(ui.calls.length, 3);
+  assert.ok(ui.calls.every(call => call.payload.limit === 50)); assert.equal(ui.get('#library-load-more').hidden, true);
+  ui.controls.dispose(); assert.equal(observer.disconnected, true); observer.emit(true); await tick(); assert.equal(ui.calls.length, 3);
+});
+
+test('scroll fallback preserves rows, focus and scroll across append and scan progress without duplicate IDs', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot());
+  await ui.respond(0, { items: Array.from({ length: 50 }, (_, i) => song(i)), total: 101 });
+  const scroller = ui.get('#library-table-container'), first = ui.get('#library-rows').children[0], action = first.querySelector('button');
+  action.focus(); scroller.clientHeight = 400; scroller.scrollHeight = 5000; scroller.scrollTop = 4500;
+  scroller.dispatchEvent(new Event('scroll')); scroller.dispatchEvent(new Event('scroll'));
+  assert.equal((await ui.request(1)).payload.offset, 50); assert.equal(action.disabled, false);
+  ui.controls.update(snapshot({ status: 'scanning', progress: { visited: 500, processed: 200, discovered: 100 } }));
+  assert.equal(scroller.scrollTop, 4500); assert.equal(ui.get('#library-rows').children[0], first); assert.equal(ui.calls.length, 2);
+  await ui.respond(1, { items: [song(49), ...Array.from({ length: 49 }, (_, i) => song(50 + i))], total: 101 });
+  assert.equal(ui.get('#library-rows').children.length, 99); assert.equal(ui.get('#library-rows').children[0], first);
+  assert.equal(scroller.scrollTop, 4500); assert.equal(ui.document.activeElement, action);
+  assert.equal(new Set(ui.get('#library-rows').children.map(row => row.dataset.librarySongId)).size, 99);
+});
+
+test('a failed appended page keeps loaded charts and offers an explicit retry without automatic retry loops', async t => {
+  const ui = await setup(t, true); ui.controls.update(snapshot());
+  await ui.respond(0, { items: Array.from({ length: 50 }, (_, i) => song(i)), total: 101 });
+  const more = ui.get('#library-load-more'), first = ui.get('#library-rows').children[0];
+  more.focus(); more.click(); const failed = await ui.request(1);
+  assert.equal(ui.document.activeElement, ui.get('#library-page-status')); assert.equal(more.hidden, true);
+  failed.resolve({ ok: false }); await tick();
+  assert.equal(ui.get('#library-rows').children.length, 50); assert.equal(ui.get('#library-rows').children[0], first);
+  assert.equal(more.textContent, 'Réessayer le chargement'); assert.equal(more.hidden, false); assert.equal(more.disabled, false);
+  assert.match(ui.get('#library-page-status').textContent, /50 sur 101.*Suite indisponible/);
+  assert.equal(ui.get('#library-query-retry').hidden, true);
+  ui.observers[0].emit(true); ui.observers[0].emit(true); await tick(); assert.equal(ui.calls.length, 2);
+  more.click(); assert.equal((await ui.request(2)).payload.offset, 50);
+  await ui.respond(2, { items: Array.from({ length: 50 }, (_, i) => song(50 + i)), total: 101 });
+  assert.equal(ui.get('#library-rows').children.length, 100); assert.equal(more.textContent, 'Charger plus');
+});
+
+test('a new query or scan revision resets loaded batches and ignores any older appended result', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot());
+  await ui.respond(0, { items: Array.from({ length: 50 }, (_, i) => song(i)), total: 101 });
+  ui.get('#library-load-more').click(); await ui.request(1);
+  ui.get('#library-table-container').scrollTop = 700;
+  ui.search('New song'); const searched = await ui.request(2);
+  assert.equal(searched.payload.offset, 0); assert.equal(ui.get('#library-rows').children.length, 0);
+  assert.equal(ui.get('#library-table-container').scrollTop, 0);
+  await ui.respond(2, { items: [song('new')] }); await ui.respond(1, { items: [song('late')], total: 101 });
+  assert.equal(ui.get('#library-rows').children.length, 1); assert.equal(ui.get('#library-rows').children[0].dataset.librarySongId, song('new').id);
+  ui.controls.update(snapshot({ revision: 2 })); assert.equal((await ui.request(3)).payload.offset, 0);
+  await ui.respond(3, { revision: 2, items: Array.from({ length: 50 }, (_, i) => song('scan-' + i)), total: 101 });
+  ui.get('#library-load-more').click(); await ui.request(4);
+  ui.controls.update(snapshot({ revision: 3 })); assert.equal((await ui.request(5)).payload.offset, 0);
+  await ui.respond(5, { revision: 3, items: [song('current-scan')] }); await ui.respond(4, { revision: 2, items: [song('late-scan')], total: 101 });
+  assert.equal(ui.get('#library-rows').children.length, 1); assert.equal(ui.get('#library-rows').children[0].dataset.librarySongId, song('current-scan').id);
+});
+
+test('inconsistent or unsafe appended pages cannot replace loaded rows or advance the cursor', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot());
+  await ui.respond(0, { items: Array.from({ length: 50 }, (_, i) => song(i)), total: 101 });
+  for (const result of [
+    { items: [song('wrong-offset')], offset: 0, limit: 50, total: 101, revision: 1 },
+    { items: [song('changed-total')], offset: 50, limit: 50, total: 100, revision: 1 },
+    { items: [song(null, { id: {} })], offset: 50, limit: 50, total: 101, revision: 1 },
+    { items: [song('unsafe', { id: '../../Songs/unsafe' })], offset: 50, limit: 50, total: 101, revision: 1 },
+    { items: [], offset: 50, limit: 50, total: 101, revision: 1 }
+  ]) {
+    ui.get('#library-load-more').click(); const request = await ui.request(ui.calls.length);
+    assert.equal(request.payload.offset, 50); request.resolve({ ok: true, result }); await tick();
+    assert.equal(ui.get('#library-rows').children.length, 50); assert.equal(ui.get('#library-load-more').textContent, 'Réessayer le chargement');
+  }
+});
 const comparison = (extra = {}) => ({
   contextId: 'e'.repeat(32), revision: 1, title: '<img src=x onerror=neverExecute()>', artist: 'Artist', charter: 'Creator',
   preferredId: null, selectionError: null, canChoose: true,
@@ -183,9 +284,9 @@ const comparison = (extra = {}) => ({
   })), ...extra,
 });
 const card = (ui, letter) => ui.get('#library-comparison-cards').children.find(element => element.dataset.variantId === variantId(letter));
-async function openComparison(t, result = comparison()) {
+async function openComparison(t, result = comparison(), total) {
   const ui = await setup(t); ui.controls.update(snapshot());
-  await ui.respond(0, { items: [song(variantId('a'), { duplicateCount: 4 }), song(variantId('b'), { duplicateCount: 4 }), song('unique')] });
+  await ui.respond(0, { items: [song(variantId('a'), { duplicateCount: 4 }), song(variantId('b'), { duplicateCount: 4 }), song('unique')], ...(total === undefined ? {} : { total }) });
   ui.get('#library-rows').children[0].querySelector('.library-compare').click();
   const request = await ui.request(1); request.resolve({ ok: true, result }); await tick();
   return ui;
@@ -333,11 +434,25 @@ const cleanupPlan = (extra = {}) => ({
 });
 const cleanupCheck = (ui, letter) => ui.get('#library-cleanup-candidates').children.find(element => element.dataset.cleanupId === variantId(letter))?.querySelector('input');
 const checkCleanup = (ui, letter, checked = true) => { const check = cleanupCheck(ui, letter); check.checked = checked; check.dispatchEvent(new Event('change')); };
-async function preparedCleanup(t, plan = cleanupPlan()) {
-  const ui = await openComparison(t, comparison({ preferredId: variantId('a') }));
+async function preparedCleanup(t, plan = cleanupPlan(), total) {
+  const ui = await openComparison(t, comparison({ preferredId: variantId('a') }), total);
   ui.get('#library-cleanup-prepare').click(); const prepare = await ui.request(2);
   prepare.resolve({ ok: true, result: plan }); await tick(); return ui;
 }
+
+test('loading another batch preserves the chosen keeper and every explicit deletion selection', async t => {
+  const ui = await preparedCleanup(t, cleanupPlan(), 101); checkCleanup(ui, 'b');
+  const check = cleanupCheck(ui, 'b'), kept = card(ui, 'a'), plan = ui.get('#library-cleanup-plan');
+  ui.get('#library-load-more').click(); const appended = await ui.request(3);
+  assert.equal(appended.name, 'library.query'); assert.equal(appended.payload.offset, 50);
+  assert.equal(plan.hidden, false); assert.equal(cleanupCheck(ui, 'b'), check); assert.equal(check.checked, true);
+  await ui.respond(3, { items: Array.from({ length: 50 }, (_, i) => song(50 + i)), total: 101 });
+  assert.equal(ui.get('#library-comparison').hidden, false); assert.equal(card(ui, 'a'), kept);
+  assert.equal(card(ui, 'a').querySelector('.library-preferred-badge').hidden, false);
+  assert.equal(cleanupCheck(ui, 'b'), check); assert.equal(check.checked, true);
+  assert.equal(cleanupCheck(ui, 'd').checked, false); assert.equal(cleanupCheck(ui, 'a'), undefined);
+  assert.equal(ui.calls.some(call => call.name === 'library.chooseDuplicate' || call.name === 'library.recycleDuplicates'), false);
+});
 
 test('cleanup requires individual selection while unsafe copies, unchecked copies and the keeper remain protected', async t => {
   const initial = await openComparison(t);
