@@ -26,6 +26,7 @@ html[data-ch-bloom="on"] .ch-bloom-dialog .ch-bloom-sample { box-shadow: var(--c
 .ch-bloom-label { font-weight: 600; }
 .ch-bloom-field input:not([type="range"]):not([type="checkbox"]) { grid-column: 1 / -1; width: 100%; min-width: 0; padding: 8px 10px; min-height: 40px; background: #172335; color: #edf4ff; border: 1px solid #52657e; border-radius: 8px; font: 14px system-ui, sans-serif; }
 .ch-bloom-field input[type="color"] { padding: 4px !important; height: 44px; }
+.ch-bloom-field select { grid-column:1 / -1; min-width:0; width:100%; padding:8px 10px; min-height:40px; background:#172335; color:#edf4ff; border:1px solid #52657e; border-radius:8px; font:14px system-ui,sans-serif; }
 .ch-bloom-field input[type="range"] { grid-column: 1 / -1; grid-row: 2; width: 100%; margin: 4px 0; accent-color: #b696ff; }
 .ch-bloom-field input[aria-invalid="true"] { border-color: #ff889a !important; }
 .ch-bloom-value { grid-column: 2; grid-row: 1; font-variant-numeric: tabular-nums; color: #cdd6e8; }

@@ -1,4 +1,5 @@
 import * as model from './ui-bloom-model.js';
+import { applyButtonMotion } from './button-motion.js';
 
 // All preview changes stay in this renderer. Only Apply invokes the native store.
 const bridge = window.ChartsHubUIBloom;
@@ -31,7 +32,7 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   const heading = node('div', 'ch-bloom-heading');
   const title = node('h2', '', 'Theme and colors', 'Thème et couleurs'); title.id = 'ch-bloom-title';
   const close = button('close', 'Close', 'Fermer'); heading.setAttribute('translate', 'no'); heading.append(title, close);
-  const info = node('p', 'ch-bloom-muted', 'Decorative Companion panels only. No changes to notes, mini-widgets or ReShade. Local to this app profile, not synced with the website or your ChartsHub account.', 'Panneaux décoratifs du Companion uniquement. Aucun changement des notes, mini-widgets ou effets ReShade. Réglage local à ce profil de l’application, non synchronisé avec le site ou votre compte ChartsHub.');
+  const info = node('p', 'ch-bloom-muted', 'Bloom decorates Companion panels. Button movement also applies to floating windows. Notes and ReShade effects stay unchanged. Local to this app profile, not synced with the website or your ChartsHub account.', 'Le bloom décore les panneaux du Companion. Le mouvement des boutons s’applique aussi aux fenêtres flottantes. Les notes et les effets ReShade restent inchangés. Réglage local à ce profil de l’application, non synchronisé avec le site ou votre compte ChartsHub.');
   info.id = 'ch-bloom-info'; form.append(info);
   function field(name, type, en, french, parent = form) {
     const label = node('label', 'ch-bloom-field');
@@ -78,6 +79,20 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
     input.addEventListener('input', () => { preview({ ...draft, [key]: input.valueAsNumber }); output.textContent = draft[key] + unit; });
   }
   toggle('economy', 'Economy mode (smaller, single halo)', 'Mode économique (halo unique et réduit)');
+  const hoverLabel = node('label', 'ch-bloom-field'); hoverLabel.htmlFor = 'ch-bloom-hover';
+  hoverLabel.append(node('span', 'ch-bloom-label', 'Button hover movement', 'Mouvement des boutons au survol'));
+  const hover = node('select'); hover.id = 'ch-bloom-hover'; controls.hover = hover;
+  for (const [value, en, french] of [['auto', 'Automatic', 'Automatique'], ['1', 'Light (1 px)', 'Léger (1 px)'], ['3', 'Medium (3 px)', 'Moyen (3 px)'], ['5', 'Strong (5 px)', 'Prononcé (5 px)']]) {
+    const option = node('option', '', en, french); option.value = value; hover.append(option);
+  }
+  hoverLabel.append(hover); form.append(hoverLabel);
+  hover.addEventListener('change', () => {
+    if (!['auto', '1', '3', '5'].includes(hover.value)) return;
+    const value = { ...draft }; delete value.hoverLift;
+    if (hover.value !== 'auto') value.hoverLift = Number(hover.value);
+    preview(value);
+  });
+  form.append(node('p', 'ch-bloom-muted', 'Saved hover movement applies to app buttons and floating windows. Economy mode and system accessibility settings keep controls still.', 'Le mouvement enregistré s’applique aux boutons de l’application et des fenêtres flottantes. Le mode économique et les réglages d’accessibilité du système gardent les contrôles immobiles.'));
   const status = node('p', 'ch-bloom-status'); status.id = 'ch-bloom-status'; status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite'); form.append(status);
   const actions = node('div', 'ch-bloom-actions');
   const reset = button('reset', 'Reset', 'Réinitialiser'), cancel = button('cancel', 'Cancel', 'Annuler'), apply = button('apply', 'Apply', 'Appliquer');
@@ -101,6 +116,7 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
     const p = model.normalize(value);
     document.documentElement.style.setProperty('--ch-bloom-shadow', model.shadow(p));
     document.documentElement.dataset.chBloom = model.shadow(p) === 'none' ? 'off' : 'on';
+    applyButtonMotion(document.documentElement, p);
     return p;
   }
   function preview(value) { if (busy) return; draft = paint(value); say('preview'); }
@@ -111,12 +127,13 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   }
   function fill() {
     controls.enabled.checked = draft.enabled; controls.economy.checked = draft.economy;
+    controls.hover.value = String(draft.hoverLift ?? 'auto');
     for (const [key, [, , unit]] of Object.entries(model.RANGES)) { controls[key].value = draft[key]; controls[key + 'Value'].textContent = draft[key] + unit; }
     syncColors();
   }
   function setBusy(value) {
     busy = value; form.setAttribute('aria-busy', String(value));
-    for (const el of form.querySelectorAll('input, button')) el.disabled = value;
+    for (const el of form.querySelectorAll('input, button, select')) el.disabled = value;
     apply.disabled = value || !loaded; trigger.disabled = value;
   }
   async function load() {

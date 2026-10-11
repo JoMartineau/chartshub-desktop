@@ -1,6 +1,7 @@
 import { LocalMusicPlayerControls } from '../dist/settings/LocalMusicPlayerControls.js';
 import { LocalMusicPlayerEngine } from '../dist/player/LocalMusicPlayerEngine.js';
 import { applyFloatingAppearance } from './floating-panels-controls.js';
+import { applyButtonMotion } from './button-motion.js';
 
 const api = window.ChartsHubCompanion;
 let disposed = false, received = false, unsubscribe = () => {}, unsubscribeActions = () => {}, lastSnapshot = null;
@@ -27,6 +28,7 @@ function update(snapshot) {
   document.documentElement.lang = snapshot.language === 'fr' ? 'fr' : 'en';
   lastSnapshot = snapshot; controls.update(snapshot);
   applyFloatingAppearance(document.body, snapshot.floatingPanels?.appearance?.player);
+  applyButtonMotion(document.documentElement, snapshot.buttonMotion);
   engine.update(snapshot.player);
 }
 async function connect() {

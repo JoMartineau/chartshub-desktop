@@ -4,7 +4,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { randomUUID } = require('node:crypto');
 const { windowTheme } = require('../window-theme');
-const { createUIBloomIpc } = require('./ui-bloom.cjs');
+const { createUIBloomIpc, createUIBloomStore } = require('./ui-bloom.cjs');
 
 const HEADER_HEIGHT = 108;
 const STATE_CHANNEL = 'chartshub-shell:state';
@@ -14,11 +14,13 @@ const validTab = name => name === 'catalogue' || name === 'companion';
 const messages = { catalogue: 'Le catalogue est indisponible. Vérifiez votre connexion, puis réessayez.', companion: 'Le Companion ne peut pas démarrer. Réessayez dans un instant.' };
 
 /** The shell owns the catalogue; Companion retains ownership of its own view. */
-function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () => {} } = {}) {
+function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () => {}, onButtonMotion = () => {} } = {}) {
   if (typeof onSelectTab !== 'function') throw TypeError('Invalid desktop tab callback');
   const filename = path.join(__dirname, 'index.html'), shellUrl = pathToFileURL(filename).href;
   let disposed = false, companionView = null, activeTab = 'catalogue', companionAvailable = false;
   let theme = windowTheme({ mode: 'dark', accent: '#49bbff' });
+  let buttonMotion = { economy: false };
+  let buttonMotionRevision = 0;
   const state = {
     catalogue: { ready: false, loading: true, error: null },
     companion: { ready: false, loading: false, error: null }
@@ -51,11 +53,19 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
   }
   const alive = view => Boolean(view && !deadViews.has(view) && contentsAlive(contentsByView.get(view)));
   let bloom, bloomDisposed;
+  function applyButtonSettings(settings) {
+    if (disposed) return;
+    buttonMotionRevision++;
+    const next = { economy: settings.economy === true, ...([1, 3, 5].includes(settings.hoverLift) ? { hoverLift: settings.hoverLift } : {}) };
+    if (JSON.stringify(next) === JSON.stringify(buttonMotion)) return;
+    buttonMotion = next; publish(); onButtonMotion({ ...next });
+  }
   const mountBloom = () => bloom || (bloom = createUIBloomIpc({
     ipcMain,
     getContents: () => alive(companionView) ? contentsByView.get(companionView) : null,
     isAvailable: () => !disposed && !window.isDestroyed() && companionAvailable,
-    getDirectory: () => path.join(app.getPath('userData'), 'companion')
+    getDirectory: () => path.join(app.getPath('userData'), 'companion'),
+    onSettings: applyButtonSettings
   }));
   function detach(view) {
     if (!view || window.isDestroyed()) return;
@@ -64,7 +74,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     try { window.contentView.removeChildView(view); } catch { /* Already detached. */ }
   }
   function snapshot() {
-    return { activeTab, companionAvailable, tabs: { catalogue: { ...state.catalogue }, companion: { ...state.companion } }, theme: { ...theme }, platform: process.platform };
+    return { activeTab, companionAvailable, tabs: { catalogue: { ...state.catalogue }, companion: { ...state.companion } }, theme: { ...theme }, buttonMotion: { ...buttonMotion }, platform: process.platform };
   }
   function trusted(event) {
     return !disposed && !window.isDestroyed() && contentsAlive(shellWeb)
@@ -230,7 +240,11 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
   ipcMain.handle(STATE_CHANNEL, (event, payload) => trusted(event) && payload === undefined ? snapshot() : null);
   ipcMain.handle(SELECT_CHANNEL, (event, name) => trusted(event) && validTab(name) ? selectTab(name) : null);
   layout();
-  const ready = window.loadFile(filename);
+  // Read-only restoration also covers startup on the Catalogue tab. A newer
+  // native read/save must win if it completes before this initial read.
+  const restoreMotion = createUIBloomStore(path.join(app.getPath('userData'), 'companion'))
+    .then(store => store.read()).then(result => { if (!disposed && buttonMotionRevision === 0) applyButtonSettings(result.settings); }).catch(() => {});
+  const ready = Promise.all([window.loadFile(filename), restoreMotion]).then(() => undefined);
   return { window, catalogueView, ready, attachCompanion, showTab, setTheme, setCompanionAvailable, dispose };
 }
 

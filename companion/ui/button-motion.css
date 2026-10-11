@@ -1,0 +1,43 @@
+/* Shared interaction only: no palette, glow, dimensions or drag-region changes. */
+:root {
+  --ch-button-lift: calc(-1 * var(--ch-motion-hover-lift, 3px));
+  --ch-button-press: 1px;
+  --ch-button-scale: .985;
+  --ch-button-duration: 160ms;
+}
+html[data-ch-motion="arcade"] { --ch-button-lift: calc(-1 * var(--ch-motion-hover-lift, 5px)); }
+html:is([data-ch-motion="off"], [data-ch-motion="subtle"], [data-ch-economy="on"]) {
+  --ch-motion-hover-lift: 0px !important;
+  --ch-button-lift: 0px;
+  --ch-button-press: 0px;
+  --ch-button-scale: 1;
+  --ch-button-duration: 0ms;
+}
+
+/* Preserve window hit targets and the builder's positioned resize handles. */
+html :is(button, input[type="button"], input[type="submit"], input[type="reset"], [role="button"], a.button):not(:where(.titlebar *, .floating-titlebar *, .catalogue-widget-titlebar *, .local-player-window #local-player-widget, .builder-resize-handle, [data-resize-handle], #builder-canvas *, #builder-layer *, #game-preview *, #theme-preview *, #stream-preview *, [data-button-motion="off"])) {
+  transition: translate var(--ch-button-duration) ease-out, scale var(--ch-button-duration) ease-out, background-color 120ms, border-color 120ms, color 120ms;
+}
+@media (hover: hover) and (pointer: fine) {
+  html :is(button, input[type="button"], input[type="submit"], input[type="reset"], [role="button"], a.button):not(:where(:disabled, [aria-disabled="true"], [inert] *, .titlebar *, .floating-titlebar *, .catalogue-widget-titlebar *, .local-player-window #local-player-widget, .builder-resize-handle, [data-resize-handle], #builder-canvas *, #builder-layer *, #game-preview *, #theme-preview *, #stream-preview *, [data-button-motion="off"])):hover {
+    translate: 0 var(--ch-button-lift);
+  }
+}
+html :is(button, input[type="button"], input[type="submit"], input[type="reset"], [role="button"], a.button):not(:where(:disabled, [aria-disabled="true"], [inert] *, .titlebar *, .floating-titlebar *, .catalogue-widget-titlebar *, .local-player-window #local-player-widget, .builder-resize-handle, [data-resize-handle], #builder-canvas *, #builder-layer *, #game-preview *, #theme-preview *, #stream-preview *, [data-button-motion="off"])):active {
+  translate: 0 var(--ch-button-press);
+  scale: var(--ch-button-scale);
+}
+html :is(button, input[type="button"], input[type="submit"], input[type="reset"], [role="button"], a.button):is(:disabled, [aria-disabled="true"]) {
+  translate: none;
+  scale: none;
+  transition-duration: 0ms;
+}
+@media (prefers-reduced-motion: reduce), (forced-colors: active) {
+  :root {
+    --ch-motion-hover-lift: 0px !important;
+    --ch-button-lift: 0px !important;
+    --ch-button-press: 0px !important;
+    --ch-button-scale: 1 !important;
+    --ch-button-duration: 0ms !important;
+  }
+}

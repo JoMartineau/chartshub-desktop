@@ -98,7 +98,8 @@ test('floating catalogue is hardened, searchable and receives no private panel d
   const result = await f.invoke(mini, 'catalogue.search', search);
   assert.equal(result.ok, true); assert.equal(result.result.items[0].id, 'mini-chart');
   const value = f.snapshot(mini);
-  assert.deepEqual(Object.keys(value).sort(), ['catalogue', 'catalogueShortcut', 'catalogueWidgetEnabled', 'downloads', 'floatingPanels', 'language']);
+  assert.deepEqual(Object.keys(value).sort(), ['buttonMotion', 'catalogue', 'catalogueShortcut', 'catalogueWidgetEnabled', 'downloads', 'floatingPanels', 'language']);
+  assert.deepEqual(value.buttonMotion, { economy: false });
   assert.deepEqual(Object.keys(value.floatingPanels.appearance), ['catalogue']);
   assert.equal(value.downloads.hasRoot, false); assert.doesNotMatch(JSON.stringify(value), /stream-access|library\.json|currentsong|rootPath|destination/);
   for (const [name, payload] of [['library.chooseRoot'], ['catalogue.link', {}], ['panels.appearance', { revision: 0, panel: 'filters', appearance }], ['downloads.enqueue', { chartId: 'mini-chart', endpoint: 'https://outside' }]]) assert.equal((await f.invoke(mini, name, payload)).ok, false);
@@ -107,6 +108,11 @@ test('floating catalogue is hardened, searchable and receives no private panel d
   const filterSnapshot = f.snapshot(f.host.getFiltersWidget());
   assert.deepEqual(Object.keys(filterSnapshot.floatingPanels.appearance), ['filters']);
   assert.equal(filterSnapshot.language, 'en');
+  f.host.setButtonMotion({ economy: true, hoverLift: 1 });
+  for (const window of [mini, f.host.getFiltersWidget()]) {
+    assert.deepEqual(f.snapshot(window).buttonMotion, { economy: true, hoverLift: 1 });
+    assert.deepEqual(window.messages.at(-1).value.buttonMotion, { economy: true, hoverLift: 1 });
+  }
 });
 
 test('floating catalogue favorite IPC persists only known IDs, filters results and rejects forged frames', async t => {
