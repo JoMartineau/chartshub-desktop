@@ -53,7 +53,7 @@ function chartTracks(bytes) {
   const tracks = [];
   for (const section of text.matchAll(/^\s*\[(Easy|Medium|Hard|Expert)([A-Za-z]+)\]\s*\r?\n\s*\{([^}]*)\}/gm)) {
     const instrument = chartInstruments[section[2]];
-    const playable = instrument?.includes('6fret') ? '(?:[0-4]|[7-9])' : instrument === 'drums' ? '[0-5]' : '(?:[0-4]|7)';
+    const playable = instrument?.includes('6fret') ? '(?:[0-4]|[78])' : instrument === 'drums' ? '[0-5]' : '(?:[0-4]|7)';
     if (!instrument || !new RegExp('^\\s*\\d+\\s*=\\s*N\\s+' + playable + '\\s+\\d+', 'm').test(section[3])) continue;
     const difficulty = section[1].toLowerCase();
     tracks.push({ instrument, difficulty });

@@ -69,25 +69,71 @@ async function verifyLibrary(panel, host, data, passed) {
     await evaluate(`(()=>{const node=document.querySelector(${JSON.stringify(selector)});if(node.disabled)throw Error('Library filter is disabled.');node.value=${JSON.stringify(value)};node.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   };
   const scrollToEnd = async (expected, contains) => {
-    const point = await evaluate(`(()=>{
-      const node=document.querySelector('#library-table-container');node.scrollIntoView({block:'center'});
-      const rect=node.getBoundingClientRect();
-      if(!rect.width||!rect.height||node.scrollHeight<=node.clientHeight)throw Error('Library scroll container unavailable.');
-      window.__libraryFirstRow=document.querySelector('#library-rows tr');
-      window.__libraryScrollBeforeAppend=null;
-      node.addEventListener('scroll',()=>{window.__libraryScrollBeforeAppend=node.scrollTop;},{once:true});
-      return {x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)};
-    })()`);
     panel.focus(); panel.webContents.focus();
-    panel.webContents.sendInputEvent({type:'mouseMove',...point});
-    // Electron forwards native wheel deltas; Chromium negates them for DOM scrolling.
-    panel.webContents.sendInputEvent({type:'mouseWheel',...point,deltaX:0,deltaY:-100000,hasPreciseScrollingDeltas:true,canScroll:true});
-    await rowsReady(expected, contains);
-    assert.equal(await evaluate("document.querySelector('#library-rows tr')===window.__libraryFirstRow"),true);
-    assert.equal(await evaluate("new Set([...document.querySelectorAll('#library-rows tr')].map(n=>n.dataset.librarySongId)).size"),expected);
-    assert.equal(await evaluate("document.querySelector('#library-load-more').hidden"),expected===116);
-    assert.ok(await evaluate("document.querySelector('#library-table-container').scrollTop")>0);
-    assert.equal(await evaluate("window.__libraryScrollBeforeAppend>0&&document.querySelector('#library-table-container').scrollTop>=window.__libraryScrollBeforeAppend-1"),true);
+    await waitFor(() => panel.isFocused() && panel.webContents.isFocused(), 'library wheel focus');
+    const state = () => evaluate(`(()=>{
+      const node=document.querySelector('#library-table-container'),rect=node.getBoundingClientRect();
+      const point={x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)};
+      const hit=document.elementFromPoint(point.x,point.y);
+      return {point,hit:hit?.id||hit?.tagName,inside:!!hit&&node.contains(hit),
+        scrollTop:node.scrollTop,scrollHeight:node.scrollHeight,clientHeight:node.clientHeight,
+        outerScroll:document.scrollingElement.scrollTop,rows:document.querySelectorAll('#library-rows tr').length,
+        busy:document.querySelector('#library-results').getAttribute('aria-busy')==='true',
+        status:document.querySelector('#library-page-status').textContent,wheels:window.__libraryWheels};
+    })()`);
+    try {
+      await evaluate(`(async()=>{
+        const node=document.querySelector('#library-table-container');
+        node.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
+        // Native wheel hit-testing uses the compositor's committed scroll position.
+        await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
+        if(!node.clientHeight||node.scrollHeight<=node.clientHeight)throw Error('Library scroll container unavailable.');
+        window.__libraryFirstRow=document.querySelector('#library-rows tr');
+        window.__libraryScrollBeforeAppend=null;window.__libraryWheels=[];
+        window.__libraryScrollListener=()=>{window.__libraryScrollBeforeAppend=node.scrollTop;};
+        window.__libraryWheelListener=event=>{window.__libraryWheels.push({trusted:event.isTrusted,inside:node.contains(event.target),deltaY:event.deltaY});};
+        node.addEventListener('scroll',window.__libraryScrollListener,{once:true});
+        document.addEventListener('wheel',window.__libraryWheelListener,{capture:true,passive:true});
+      })()`);
+      const initial = await state();
+      assert.equal(initial.inside,true,'native wheel point must hit the library table');
+      assert.ok(initial.rows < expected);
+      // Scroll as a viewer would. An enormous wheel also chains into the outer
+      // page; stop issuing input as soon as the next bounded query starts.
+      for (let step = 0; step < 40; step++) {
+        const before = await state();
+        if (before.rows !== initial.rows || before.busy) break;
+        assert.equal(before.inside,true,'library remains under the native wheel point');
+        const remaining = before.scrollHeight-before.scrollTop-before.clientHeight;
+        assert.ok(remaining>0,'reaching the library end must trigger an automatic append');
+        const delta = Math.min(480,Math.ceil(remaining));
+        panel.webContents.sendInputEvent({type:'mouseMove',...before.point});
+        // Chromium converts the native negative delta to downward DOM scrolling.
+        panel.webContents.sendInputEvent({type:'mouseWheel',...before.point,deltaX:0,deltaY:-delta,hasPreciseScrollingDeltas:true,canScroll:true});
+        await waitFor(async () => {
+          const after = await state();
+          return after.scrollTop>before.scrollTop || after.rows!==initial.rows || after.busy;
+        }, 'native wheel advances the library scroller', 2000);
+      }
+      await rowsReady(expected, contains);
+      const appended = await state();
+      assert.ok(appended.wheels.some(event=>event.trusted&&event.inside&&event.deltaY>0),'a real downward wheel reaches the library');
+      assert.equal(appended.outerScroll,initial.outerScroll,'bounded wheel does not scroll the outer page');
+      assert.equal(await evaluate("document.querySelector('#library-rows tr')===window.__libraryFirstRow"),true);
+      assert.equal(await evaluate("new Set([...document.querySelectorAll('#library-rows tr')].map(n=>n.dataset.librarySongId)).size"),expected);
+      assert.equal(await evaluate("document.querySelector('#library-load-more').hidden"),expected===116);
+      assert.ok(appended.scrollTop>0);
+      assert.equal(await evaluate("window.__libraryScrollBeforeAppend>0&&document.querySelector('#library-table-container').scrollTop>=window.__libraryScrollBeforeAppend-1"),true);
+    } catch (error) {
+      let diagnostic;
+      try { diagnostic = await state(); } catch { diagnostic = { unavailable:true }; }
+      throw Error(error.message+'; library scroll diagnostics: '+JSON.stringify(diagnostic),{cause:error});
+    } finally {
+      await evaluate(`(()=>{
+        document.querySelector('#library-table-container').removeEventListener('scroll',window.__libraryScrollListener);
+        document.removeEventListener('wheel',window.__libraryWheelListener,{capture:true});
+      })()`);
+    }
   };
 
   try {

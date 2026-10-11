@@ -194,6 +194,11 @@ test('chart HOPO/tap/cymbal markers alone cannot prove a playable instrument/dif
   assert.deepEqual(chartTracks(bytes), []);
 });
 
+test('six-fret charts recognize their last lane and open notes without treating markers or unknown lane 9 as playable', () => {
+  for (const lane of [0, 1, 2, 3, 4, 7, 8]) assert.deepEqual(chartTracks(Buffer.from(`[ExpertGHLGuitar]\n{\n 0 = N ${lane} 0\n}\n`)), [{ instrument: 'guitar-6fret', difficulty: 'expert' }]);
+  for (const lane of [5, 6, 9]) assert.deepEqual(chartTracks(Buffer.from(`[ExpertGHLGuitar]\n{\n 0 = N ${lane} 0\n}\n`)), []);
+});
+
 test('MIDI parser handles per-track names, running status, note-off/zero velocity and independent difficulty tracks', () => {
   const bytes = midi([{ name: 'PART GUITAR', events: [[0, 144, 60, 100], [0, 61, 100], [0, 144, 96, 0]] },
     { name: 'PART DRUMS', events: [[0, 144, 96, 100], [0, 144, 110, 100], [0, 128, 84, 100]] }]);
