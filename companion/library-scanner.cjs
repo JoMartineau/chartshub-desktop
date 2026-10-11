@@ -4,10 +4,11 @@ const { constants } = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { captureBundleSnapshot } = require('./chart-bundle.cjs');
+const { chartTracks, midiTracks } = require('./song-request-library.cjs');
 
-const TEXT_LIMIT = 256 * 1024, SNG_SECTION_LIMIT = 1024 * 1024, SNG_COUNT_LIMIT = 4096;
+const TEXT_LIMIT = 256 * 1024, NOTES_LIMIT = 16 * 1024 * 1024, SNG_SECTION_LIMIT = 1024 * 1024, SNG_COUNT_LIMIT = 4096;
 const AUDIO = /\.(?:ogg|opus|mp3|wav|flac|aiff?|m4a)$/i;
-const fields = { name: 'title', title: 'title', artist: 'artist', charter: 'charter', frets: 'charter', album: 'album', year: 'year' };
+const fields = { name: 'title', title: 'title', artist: 'artist', charter: 'charter', frets: 'charter', album: 'album', year: 'year', genre: 'genre' };
 const missing = error => error?.code === 'ENOENT' || error?.code === 'ENOTDIR';
 function abort(signal) {
   if (signal?.aborted) { const error = Error('Analyse annulée.'); error.name = 'AbortError'; error.code = 'ABORT_ERR'; throw error; }
@@ -34,7 +35,7 @@ function decode(bytes) {
   return bytes.toString('utf8').replace(/^\uFEFF/, '');
 }
 function parseText(bytes, chart) {
-  const metadata = {}, lines = decode(bytes).split(/\r?\n/); let section = chart ? '' : 'song';
+  const metadata = {}, lines = decode(bytes).split(/\r?\n/); let section = chart ? '' : 'song', genreConflict = false;
   for (const line of lines) {
     const trimmed = line.trim(), heading = /^\[([^\]]+)\]/.exec(trimmed);
     if (heading) { section = heading[1].trim().toLowerCase(); continue; }
@@ -45,7 +46,9 @@ function parseText(bytes, chart) {
     let value = pair[2].trim();
     if (value.startsWith('"')) { const quoted = /^"((?:\\.|[^"\\])*)"/.exec(value); if (quoted) value = quoted[1].replace(/\\(["\\])/g, '$1'); }
     if (field === 'year') value = value.replace(/^,\s*/, '');
-    const text = safeText(value); if (text && (key !== 'frets' || !metadata.charter)) metadata[field] = text;
+    const text = safeText(value);
+    if (field === 'genre' && text && metadata.genre && metadata.genre !== text) { genreConflict = true; metadata.genre = ''; }
+    if (text && (key !== 'frets' || !metadata.charter) && !(field === 'genre' && genreConflict)) metadata[field] = text;
   }
   return metadata;
 }
@@ -146,10 +149,10 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
       return handle;
     } catch (error) { await handle.close(); throw error; }
   }
-  async function readText(entry) {
+  async function readText(entry, maximum = TEXT_LIMIT) {
     const handle = await openChecked(entry.filename, entry.stat);
     try {
-      const bytes = Buffer.alloc(Math.min(TEXT_LIMIT, entry.stat.size)); let offset = 0;
+      const bytes = Buffer.alloc(Math.min(maximum, entry.stat.size)); let offset = 0;
       while (offset < bytes.length) { const part = await handle.read(bytes, offset, bytes.length - offset, offset); abort(signal); if (!part.bytesRead) break; offset += part.bytesRead; }
       return bytes.subarray(0, offset);
     } finally { await handle.close(); }
@@ -157,12 +160,13 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
   function signature(entries) {
     return digest('library-v1\n' + entries.map(entry => `${entry.name}\0${entry.stat.size}\0${entry.stat.mtimeMs}`).sort().join('\n'));
   }
-  function itemFor(entry, folder, format, fingerprint, metadata, audio) {
+  function itemFor(entry, folder, format, fingerprint, metadata, audio, tracks) {
     const relativePath = portable(path.relative(root, entry.filename));
     return {
       id: digest(relativePath), relativePath, title: metadata.title || safeText(format === 'sng' ? path.basename(entry.name, path.extname(entry.name)) : path.basename(folder)),
       artist: metadata.artist || '', charter: metadata.charter || '', album: metadata.album || '', year: metadata.year || '', format, audio,
-      signature: fingerprint, folderRelativePath: portable(path.relative(root, folder))
+      signature: fingerprint, folderRelativePath: portable(path.relative(root, folder)), musicMetadataVersion: 1,
+      ...(metadata.genre ? { genre: metadata.genre } : {}), ...(tracks ? { tracks } : {})
     };
   }
   async function scanSong(entry, folder, files, format) {
@@ -172,14 +176,23 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
     if (old && hasPreservedPrefix(relativePath)) { add({ ...old }); return; }
     const snapshotOptions = { rootPath: root, relativePath, format, signal };
     const cleanupSnapshot = await captureBundleSnapshot(snapshotOptions); abort(signal);
-    if (mode === 'quick' && old?.signature === fingerprint && old.cleanupSnapshot === cleanupSnapshot) { if (old.audio === 'unknown') warningCount++; add({ ...old, id: digest(relativePath), relativePath, folderRelativePath: portable(path.relative(root, folder)) }); return; }
-    let metadata = {}, audio = format === 'sng' ? 'unknown' : files.some(file => isAudio(file.name)) ? 'present' : 'missing';
+    if (mode === 'quick' && old?.musicMetadataVersion === 1 && old.signature === fingerprint && old.cleanupSnapshot === cleanupSnapshot) { if (old.audio === 'unknown') warningCount++; add({ ...old, id: digest(relativePath), relativePath, folderRelativePath: portable(path.relative(root, folder)) }); return; }
+    let metadata = {}, tracks, audio = format === 'sng' ? 'unknown' : files.some(file => isAudio(file.name)) ? 'present' : 'missing';
     try {
       if (format === 'sng') {
         const handle = await openChecked(entry.filename, entry.stat);
         try { ({ metadata, audio } = await readSng(handle, entry.stat.size, signal)); } finally { await handle.close(); }
       } else {
-        if (format === 'chart') metadata = parseText(await readText(entry), true);
+        const bytes = format === 'chart' ? await readText(entry, entry.stat.size <= NOTES_LIMIT ? NOTES_LIMIT : TEXT_LIMIT)
+          : entry.stat.size >= 14 && entry.stat.size <= NOTES_LIMIT ? await readText(entry, NOTES_LIMIT) : null;
+        if (format === 'chart') metadata = parseText(bytes.subarray(0, TEXT_LIMIT), true);
+        if (bytes && entry.stat.size <= NOTES_LIMIT) {
+          try {
+            const parsed = format === 'chart' ? chartTracks(bytes) : midiTracks(bytes);
+            tracks = [...new Map(parsed.map(track => [JSON.stringify([track.instrument, track.difficulty]), track])).values()];
+          }
+          catch { warningCount++; }
+        } else if (entry.stat.size > NOTES_LIMIT) warningCount++;
         const ini = files.find(file => /^song\.ini$/i.test(file.name));
         if (ini) { if (ini.stat.size > TEXT_LIMIT) warningCount++; metadata = { ...metadata, ...parseText(await readText(ini), false) }; }
       }
@@ -192,7 +205,7 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
     // Metadata reads cannot silently advance the cleanup baseline when files
     // changed during this song's scan. A fresh scan is required in that case.
     const finalSnapshot = cleanupSnapshot && await captureBundleSnapshot(snapshotOptions); abort(signal);
-    add({ ...itemFor(entry, folder, format, fingerprint, metadata, audio), cleanupSnapshot: cleanupSnapshot === finalSnapshot ? cleanupSnapshot : null });
+    add({ ...itemFor(entry, folder, format, fingerprint, metadata, audio, tracks), cleanupSnapshot: cleanupSnapshot === finalSnapshot ? cleanupSnapshot : null });
   }
 
   progress(true); abort(signal);
@@ -245,4 +258,4 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
 }
 
 // Only individual metadata reads are bounded; library size has no fixed quota.
-module.exports = { scanLibrary, SCANNER_LIMITS: Object.freeze({ metadataBytes: TEXT_LIMIT, sngSectionBytes: SNG_SECTION_LIMIT }) };
+module.exports = { scanLibrary, SCANNER_LIMITS: Object.freeze({ metadataBytes: TEXT_LIMIT, notesBytes: NOTES_LIMIT, sngSectionBytes: SNG_SECTION_LIMIT }) };

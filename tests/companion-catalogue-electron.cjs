@@ -115,8 +115,11 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
     passed.push('catalogue text, verification and instrument/difficulty filters use cached results; external opening is scoped in the harness');
 
     await text('#library-search', 'Library Chart 000'); await key('Enter');
-    await waitFor(() => evaluate("document.querySelector('#library-results').getAttribute('aria-busy')==='false'&&document.querySelectorAll('#library-rows tr').length===1"), 'local chart row');
-    await click('#library-rows button[data-library-catalogue-id]'); await rows(2);
+    await waitFor(() => evaluate("document.querySelector('#library-results').getAttribute('aria-busy')==='false'&&document.querySelectorAll('#library-rows tr').length===2"), 'both local duplicate rows');
+    const localMatches = await host.library.query({ query: 'Library Chart 000', offset: 0, limit: 50 });
+    const localOriginal = localMatches.items.find(item => item.relativePath === 'Song 000/notes.chart');
+    assert.ok(localOriginal, 'select the original fixture explicitly among its duplicate copies');
+    await click('#library-rows button[data-library-catalogue-id="' + localOriginal.id + '"]'); await rows(2);
     await waitFor(readyToLink, 'fresh local catalogue context');
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(first + ' [data-catalogue-relation]')}).dataset.catalogueRelation`), 'candidate');
     await click(first + ' [data-catalogue-action="link"]');

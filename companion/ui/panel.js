@@ -16,6 +16,7 @@ import { ReShadeControls } from './reshade-controls.js';
 import { ReShadeSetupControls } from './reshade-setup-controls.js';
 import { ProfileControls } from '../dist/settings/ProfileControls.js';
 import { SongRequestControls } from '../dist/settings/SongRequestControls.js';
+import { LocalMusicPlayerControls } from '../dist/settings/LocalMusicPlayerControls.js';
 
 const api = window.ChartsHubCompanion;
 const query = selector => document.querySelector(selector);
@@ -56,6 +57,8 @@ const themes = new ThemeControls({ root: query('#companion-app'), command: (name
 const stream = new StreamControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
+const musicPlayer = new LocalMusicPlayerControls({ root: query('#local-music-player-panel'), command: (name, payload) => command(name, payload) });
+const unsubscribeSpectrum = api?.player?.subscribeSpectrum?.(state => musicPlayer.spectrum(state)) ?? (() => {});
 const cleanupHistory = new CleanupHistoryControls({ root: query('#library-history-container'), command: (name, payload) => command(name, payload) });
 const floatingPanels = new FloatingPanelsControls({ root: query('#floating-panels-settings'), command: (name, payload) => command(name, payload) });
 const catalogue = new CatalogueControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
@@ -175,6 +178,7 @@ function applySnapshot(snapshot) {
   reshadeSetup.update(snapshot);
   profiles.update(snapshot);
   songRequests.update(snapshot);
+  musicPlayer.update(snapshot);
   themePreview.render({
     ...state,
     gameplay: { state: 'playing', isChartActive: true },
@@ -264,12 +268,13 @@ async function command(name, payload, control) {
   const sourceCommand = name.startsWith('clonehero.');
   const profileCommand = name.startsWith('profile.');
   const songRequestCommand = name.startsWith('songRequests.');
+  const playerCommand = name.startsWith('player.');
   const filtersCommand = name.startsWith('filters.') || name.startsWith('reshade.');
   if (!libraryQuery && !catalogueCommand && !downloadsCommand && !sourceCommand && !filtersCommand && !profileCommand) controls.feedback.hidden = true;
   if (control) control.disabled = true;
   try {
     const result = await api.command(name, payload);
-    if (catalogueCommand || downloadsCommand || sourceCommand || filtersCommand || profileCommand || songRequestCommand) {
+    if (catalogueCommand || downloadsCommand || sourceCommand || filtersCommand || profileCommand || songRequestCommand || playerCommand) {
       applySnapshot(result?.snapshot ?? await api.getSnapshot());
       return result;
     }
@@ -347,6 +352,7 @@ window.addEventListener('beforeunload', () => {
   reshadeSetup.dispose();
   profiles.dispose();
   songRequests.dispose();
+  unsubscribeSpectrum(); musicPlayer.dispose();
 }, { once: true });
 
 void connect();

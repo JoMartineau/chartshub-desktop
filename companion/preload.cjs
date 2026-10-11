@@ -3,8 +3,19 @@ const { contextBridge, ipcRenderer } = require('electron');
 if (location.protocol === 'chartshub-companion:' && location.hostname === 'app') {
   const languageArg = (typeof process !== 'undefined' && Array.isArray(process.argv) ? process.argv : []).find(value => value.startsWith('--chartshub-companion-language='));
   const initialLanguage = ['fr','en'].includes(languageArg?.split('=')[1]) ? languageArg.split('=')[1] : 'en';
+  const playerPage = location.href === 'chartshub-companion://app/ui/music-player.html' && process.isMainFrame !== false;
+  const panelPage = location.href === 'chartshub-companion://app/ui/index.html' && process.isMainFrame !== false;
+  const listen = channel => listener => {
+    if (typeof listener !== 'function') throw new TypeError('Listener required');
+    const handler = (_event, value) => listener(value); ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  };
   contextBridge.exposeInMainWorld('ChartsHubCompanion', Object.freeze({
     initialLanguage,
+    ...(playerPage || panelPage ? { player: Object.freeze({
+      subscribeSpectrum: listen('companion:player-spectrum'),
+      ...(playerPage ? { subscribeAction: listen('companion:player-action') } : {})
+    }) } : {}),
     getSnapshot: () => ipcRenderer.invoke('companion:snapshot'),
     subscribe(listener) {
       if (typeof listener !== 'function') throw new TypeError('Listener required');

@@ -31,6 +31,10 @@ jobs:
       - name: Verify ReShade optional pack review in Electron
         shell: pwsh
         run: node node_modules/electron/cli.js tests/companion-reshade-setup-electron.cjs "$env:RUNNER_TEMP/reshade-setup"
+      - name: Verify local music player and spectrum models in Electron
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: node node_modules/electron/cli.js tests/companion-music-player-electron.cjs "$env:RUNNER_TEMP/music-player"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -41,6 +45,15 @@ jobs:
             ${{ runner.temp }}/companion-duplicates/**/failure.png
             ${{ runner.temp }}/companion-duplicates/**/selected-copy-summary.png
             ${{ runner.temp }}/companion-duplicates/**/partial-success.png
+          if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: companion-music-player-verification
+          path: |
+            ${{ runner.temp }}/music-player/**/report.json
+            ${{ runner.temp }}/music-player/**/failure.txt
+            ${{ runner.temp }}/music-player/**/*.png
           if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()

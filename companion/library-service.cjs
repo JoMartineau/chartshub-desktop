@@ -9,7 +9,9 @@ const { createLibraryDuplicates } = require('./library-duplicates.cjs');
 const { createLibraryCleanup } = require('./library-cleanup.cjs');
 const { createLibraryCleanupHistory } = require('./library-cleanup-history.cjs');
 const { resolveInstalledSong } = require('./song-request-library.cjs');
+const { preparePlaybackMedia } = require('./library-media.cjs');
 const { captureBundleSnapshot } = require('./chart-bundle.cjs');
+const { INSTRUMENTS, DIFFICULTIES } = require('./song-requests.cjs');
 
 const VERSION = 1;
 const TEXT_FIELDS = ['title', 'artist', 'charter', 'album', 'year'];
@@ -34,7 +36,15 @@ function settings(value) {
 function validateItem(value) {
   if (!object(value) || !relative(value.relativePath) || value.id !== digest(value.relativePath) || !relative(value.folderRelativePath, true) || value.folderRelativePath !== (path.posix.dirname(value.relativePath) === '.' ? '' : path.posix.dirname(value.relativePath)) || !['chart', 'midi', 'sng'].includes(value.format) || !['present', 'missing', 'unknown'].includes(value.audio) || typeof value.signature !== 'string' || value.signature.length > 8192 || TEXT_FIELDS.some(key => typeof value[key] !== 'string' || value[key].length > 512)) throw Error('Invalid library item');
   if (!(value.cleanupSnapshot == null || (typeof value.cleanupSnapshot === 'string' && /^[a-f0-9]{64}$/.test(value.cleanupSnapshot)))) throw Error('Invalid library cleanup snapshot');
-  return { ...Object.fromEntries([...PUBLIC_FIELDS, 'signature', 'folderRelativePath'].map(key => [key, value[key]])), cleanupSnapshot: value.cleanupSnapshot ?? null };
+  if (!(value.genre === undefined || (typeof value.genre === 'string' && value.genre.length <= 512 && !/[\u0000-\u001f\u007f]/.test(value.genre)))) throw Error('Invalid library genre');
+  if (!(value.musicMetadataVersion === undefined || value.musicMetadataVersion === 1)) throw Error('Invalid library music metadata');
+  if (!(value.tracks === undefined || (Array.isArray(value.tracks) && value.tracks.length <= 48 && value.tracks.every(track => object(track)
+      && Object.keys(track).length === 2 && Object.keys(track).every(key => ['instrument', 'difficulty'].includes(key))
+      && track.instrument !== 'all' && INSTRUMENTS.includes(track.instrument) && track.difficulty !== 'all' && DIFFICULTIES.includes(track.difficulty))
+      && new Set(value.tracks.map(track => JSON.stringify([track.instrument, track.difficulty]))).size === value.tracks.length))) throw Error('Invalid library tracks');
+  return { ...Object.fromEntries([...PUBLIC_FIELDS, 'signature', 'folderRelativePath'].map(key => [key, value[key]])), cleanupSnapshot: value.cleanupSnapshot ?? null,
+    ...(value.genre === undefined ? {} : { genre: value.genre }), ...(value.tracks === undefined ? {} : { tracks: value.tracks.map(track => ({ ...track })) }),
+    ...(value.musicMetadataVersion === undefined ? {} : { musicMetadataVersion: value.musicMetadataVersion }) };
 }
 function validateDocument(value) {
   if (!object(value) || value.version !== VERSION || !Array.isArray(value.items) || !count(value.revision) || !(value.lastScanAt === null || (typeof value.lastScanAt === 'string' && value.lastScanAt.length < 50 && Number.isFinite(Date.parse(value.lastScanAt))))) throw Error('Invalid library index');
@@ -149,7 +159,8 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   }
   function changes(items) {
     const old = new Map(document.items.map(item => [item.id, item])); let added = 0, modified = 0;
-    for (const item of items) { const previous = old.get(item.id); if (!previous) added++; else if (previous.signature !== item.signature || PUBLIC_FIELDS.some(key => previous[key] !== item[key])) modified++; old.delete(item.id); }
+    for (const item of items) { const previous = old.get(item.id); if (!previous) added++; else if (previous.signature !== item.signature || PUBLIC_FIELDS.some(key => previous[key] !== item[key])
+      || previous.genre !== item.genre || JSON.stringify(previous.tracks) !== JSON.stringify(item.tracks)) modified++; old.delete(item.id); }
     return { added, removed: old.size, modified };
   }
   function beginScan(nextMode) {
@@ -422,8 +433,34 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     if (requestedEpoch !== epoch || run || stopTask || phase !== 'ready' || matchingSnapshot().rootKey !== index.rootKey || matchingSnapshot().revision !== index.revision || !songs.length) throw safeError('La bibliothèque n’est plus disponible.');
     return { songs, unavailableCount, revision: index.revision, rootKey: index.rootKey };
   }
+  async function resolvePlaybackSong(id) {
+    const index = matchingSnapshot(), requestedEpoch = epoch;
+    const item = typeof id === 'string' && /^[a-f0-9]{64}$/.test(id) ? document.items.find(value => value.id === id) : null;
+    const root = document.settings.rootPath;
+    const current = () => requestedEpoch === epoch && !run && !stopTask && phase === 'ready'
+      && matchingSnapshot().rootKey === index.rootKey && matchingSnapshot().revision === index.revision;
+    try {
+      if (!item || !root || !current()) throw Error();
+      const media = await preparePlaybackMedia({ root, item });
+      const song = await resolveInstalledSong(root, item);
+      if (!current() || await captureBundleSnapshot({ rootPath: root, relativePath: item.relativePath, format: item.format }) !== item.cleanupSnapshot || !current()) throw Error();
+      // This plan crosses only the worker/main boundary. The host keeps paths
+      // and identities private and gives the renderer opaque media URLs.
+      return { ...song, album: item.album, year: item.year, ...media, ...(item.genre ? { genre: item.genre } : {}), rootKey: index.rootKey, revision: index.revision };
+    } catch (error) {
+      if (['LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED'].includes(error?.code)) throw error;
+      throw Object.assign(safeError('Cette chanson n’est plus disponible ou a changé. Actualisez la bibliothèque avant de la lire.'), { code: 'LIBRARY_MEDIA_SAFE' });
+    }
+  }
+  function queryPlayback(options) {
+    if (run || stopTask || phase !== 'ready' || !document.settings.rootPath) throw Object.assign(safeError('Actualisez la bibliothèque avant de rechercher un morceau.'), { code: 'LIBRARY_MEDIA_SAFE' });
+    const { queryMusicLibrary } = require('./music-library-query.cjs');
+    return queryMusicLibrary(document, options);
+  }
   return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, verifyAllDuplicates, cancelDuplicateVerification, resolveSongFolder, matchingSnapshot,
     resolveRequestSong,
+    resolvePlaybackSong,
+    queryPlayback,
     requestLibraryForSharing,
     cleanupHistory: (options = {}) => history.list({ ...options, rootPath: document.settings.rootPath }),
     prepareCleanup: options => cleanupOperation('prepare', options), cleanupReview: options => cleanupOperation('review', options),

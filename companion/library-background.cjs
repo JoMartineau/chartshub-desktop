@@ -70,7 +70,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
         connection.pending.delete(message.id);
         if (!connection.pending.size && !connection.stopping) worker.unref();
         if (message.ok) pending.resolve(message.result);
-        else pending.reject(Object.assign(Error(message.error), ['LIBRARY_COMPARISON_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY'].includes(message.code) ? { code: message.code } : {}));
+        else pending.reject(Object.assign(Error(message.error), ['LIBRARY_COMPARISON_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED'].includes(message.code) ? { code: message.code } : {}));
       });
       worker.on('error', () => fail(connection));
       worker.on('exit', () => { if (current === connection) fail(connection); });
@@ -142,6 +142,8 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     recycleDuplicates: options => call('recycleDuplicates', [options]), forceRecycleDuplicate: options => call('forceRecycleDuplicate', [options]),
     query: options => call('query', [options]), resolveSongFolder: id => call('resolveSongFolder', [id]),
     resolveRequestSong: (id, context) => call('resolveRequestSong', [id, context]),
+    resolvePlaybackSong: id => call('resolvePlaybackSong', [id]),
+    queryPlayback: options => call('queryPlayback', [options]),
     requestLibraryForSharing: () => call('requestLibraryForSharing', [])
   };
 }
