@@ -129,7 +129,7 @@ app.whenReady().then(async () => {
     await shot(panel, 'player-playlists');
     passed.push('Native playlist creation and two individual additions persist opaque local IDs without autoplay');
 
-    await evaluate(panel, "window.__musicFrames=[];window.ChartsHubCompanion.player.subscribeSpectrum(frame=>{window.__musicFrames.push(frame);if(window.__musicFrames.length>30)window.__musicFrames.shift()})");
+    await evaluate(panel, "window.__musicFrames=[];window.ChartsHubCompanion.player.subscribeSpectrum(frame=>{window.__musicFrames.push(frame);if(window.__musicFrames.length>30)window.__musicFrames.shift()});void 0");
     await click(panel, '#local-player-playlist-play');
     await waitFor(() => host.snapshot().player.playing && host.snapshot().player.duration >= 59, 'actual WAV playback');
     await waitFor(() => evaluate(panel, "window.__musicFrames.some(frame=>frame.bands.some(value=>value>0))"), 'real nonzero FFT');
