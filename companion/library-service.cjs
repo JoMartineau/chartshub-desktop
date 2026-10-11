@@ -7,6 +7,7 @@ const { scanLibrary } = require('./library-scanner.cjs');
 const { createLibraryQuery } = require('./library-query.cjs');
 const { createLibraryDuplicates } = require('./library-duplicates.cjs');
 const { createLibraryCleanup } = require('./library-cleanup.cjs');
+const { createLibraryBulkCleanup } = require('./library-bulk-cleanup.cjs');
 const { createLibraryCleanupHistory } = require('./library-cleanup-history.cjs');
 const { resolveInstalledSong } = require('./song-request-library.cjs');
 const { preparePlaybackMedia } = require('./library-media.cjs');
@@ -78,13 +79,17 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     getContext: options => duplicates.cleanupContext(options), recycle: recycle ?? (async () => { throw Error('Corbeille indisponible.'); }),
     onCompleted: event => history.append(event),
     onCleaned: commitCleanup });
+  const bulkCleanup = createLibraryBulkCleanup({ getDocument: () => document, duplicates,
+    recycle: recycle ?? (async () => { throw Error('Corbeille indisponible.'); }), onChange: notify,
+    onCompleted: event => history.append(event), onCleaned: commitCleanup });
   function requireCleanupIdle() {
-    if (cleanup.busy() || duplicateVerification) throw Object.assign(Error('Attendez la fin de la vérification ou du nettoyage des copies.'), { code: 'LIBRARY_CLEANUP_SAFE' });
+    if (cleanup.busy() || bulkCleanup.busy() || duplicateVerification) throw Object.assign(Error('Attendez la fin de la vérification ou du nettoyage des copies.'), { code: 'LIBRARY_CLEANUP_SAFE' });
   }
   function status() {
     return { settings: { ...document.settings }, status: phase, mode, progress: { ...progress }, count: document.items.length,
       lastScanAt: document.lastScanAt, changes: { ...document.changes }, warningCount: document.warningCount, skippedCount: document.skippedCount,
       error, watcher: watcherState, revision: document.revision, cleanupRefreshPending: document.cleanupRefreshPending === true,
+      bulkCleanup: bulkCleanup.status(),
       duplicateVerification: duplicateVerification ? { running: true, stopping: duplicateVerification.controller.signal.aborted, processed: duplicateVerification.processed, total: duplicateVerification.total } : null };
   }
   function notify() { try { onChange?.(status()); } catch { console.warn('La notification de bibliothèque a échoué.'); } }
@@ -98,7 +103,9 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     return enqueue(async () => {
       if (document.settings.rootPath !== event.rootPath || document.revision !== event.revision || document.items !== event.items) throw safeError('La bibliothèque a changé pendant le nettoyage.');
       const removed = new Set(event.recycledIds);
-      if (removed.has(event.keepId) || [...removed].some(id => !document.items.some(item => item.id === id))) throw safeError('Résultat du nettoyage invalide.');
+      const keeperIds = event.keeperIds ?? [event.keepId];
+      if (!Array.isArray(keeperIds) || !keeperIds.length || keeperIds.some(id => removed.has(id) || !document.items.some(item => item.id === id))
+        || [...removed].some(id => !document.items.some(item => item.id === id))) throw safeError('Résultat du nettoyage invalide.');
       const items = removed.size ? document.items.filter(item => !removed.has(item.id)) : document.items;
       const next = { ...document, items, revision: document.revision + (removed.size ? 1 : 0), cleanupRefreshPending: true,
         ...(removed.size ? { changes: { added: 0, removed: removed.size, modified: 0 } } : {}) };
@@ -169,7 +176,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
         debounce = setTimeout(() => {
           debounce = null;
           if (!active || blocked) return;
-          if (cleanup.busy() || document.cleanupRefreshPending) { deferredCleanupScan = true; return; }
+          if (cleanup.busy() || bulkCleanup.busy() || document.cleanupRefreshPending) { deferredCleanupScan = true; return; }
           try { requestScan('quick'); } catch { watcherState = 'unavailable'; notify(); }
         }, 750);
         debounce.unref?.();
@@ -185,7 +192,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     return { added, removed: old.size, modified };
   }
   function beginScan(nextMode) {
-    cleanup.invalidate(); duplicates.invalidate(); verifiedDuplicateGroups = null;
+    cleanup.invalidate(); bulkCleanup.invalidate(); duplicates.invalidate(); verifiedDuplicateGroups = null;
     const current = { controller: new AbortController(), epoch, root: document.settings.rootPath, committing: false, promise: null };
     run = current; phase = 'scanning'; mode = nextMode; error = null; progress = { visited: 0, processed: 0, discovered: 0 }; notify();
     current.promise = (async () => {
@@ -249,8 +256,9 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     const verification = duplicateVerification; verification?.controller.abort();
     deferredCleanupScan = false;
     const cleanupStopped = cleanup.stop();
+    const bulkStopped = bulkCleanup.stop();
     const comparisonsStopped = duplicates.stop();
-    stopTask = (async () => { if (run) await run.promise; await serial; await verification?.promise?.catch(() => {}); await cleanupStopped; await comparisonsStopped; notify(); return status(); })();
+    stopTask = (async () => { if (run) await run.promise; await serial; await verification?.promise?.catch(() => {}); await cleanupStopped; await bulkStopped; await comparisonsStopped; notify(); return status(); })();
     try { return await stopTask; } finally { stopTask = null; }
   }
   async function selectRoot(selected) {
@@ -267,7 +275,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     cancel(); if (run) await run.promise;
     await enqueue(async () => {
       if (requestedEpoch !== epoch || ticket !== rootTicket) return;
-      requireCleanupIdle(); cleanup.invalidate();
+      requireCleanupIdle(); cleanup.invalidate(); bulkCleanup.invalidate();
       // Picking the same folder refreshes its last committed index.
       if (!blocked && document.settings.rootPath && samePath(document.settings.rootPath, root)) return;
       const next = { ...document, settings: { ...document.settings, rootPath: root }, items: [], lastScanAt: null, revision: document.revision + 1, changes: { added: 0, removed: 0, modified: 0 }, warningCount: 0, skippedCount: 0 };
@@ -291,7 +299,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     if (!object(options) || Object.keys(options).some(key => !['watch', 'refreshOnStart'].includes(key) || typeof options[key] !== 'boolean')) throw safeError('Options de bibliothèque invalides.');
     await enqueue(async () => {
       if (requestedEpoch !== epoch) return;
-      requireCleanupIdle(); cleanup.invalidate();
+      requireCleanupIdle(); cleanup.invalidate(); bulkCleanup.invalidate();
       const nextSettings = { ...document.settings, ...options };
       if (nextSettings.watch === document.settings.watch && nextSettings.refreshOnStart === document.settings.refreshOnStart) return;
       const next = { ...document, settings: nextSettings };
@@ -314,23 +322,33 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     requireCleanupIdle();
     if (run || stopTask) throw Object.assign(Error('Attendez la fin de l’analyse puis relancez la comparaison.'), { code: 'LIBRARY_COMPARISON_SAFE' });
   }
-  async function compareDuplicates(options) { requireComparisonReady(); cleanup.invalidate(); return duplicates.compare(options); }
-  async function chooseDuplicate(options) { requireComparisonReady(); cleanup.invalidate(); verifiedDuplicateGroups = null; return duplicates.choose(options); }
+  async function compareDuplicates(options) { requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); return duplicates.compare(options); }
+  async function chooseDuplicate(options) { requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); verifiedDuplicateGroups = null; return duplicates.choose(options); }
   async function keepDuplicateVersions(options) {
-    requireComparisonReady(); cleanup.invalidate(); verifiedDuplicateGroups = null;
+    requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); verifiedDuplicateGroups = null;
     const result = await duplicates.keepAll(options); notify(); return result;
   }
   async function cleanupOperation(method, options) {
-    requireComparisonReady();
+    requireComparisonReady(); bulkCleanup.invalidate();
     try { return await cleanup[method](options); }
     finally {
-      if (deferredCleanupScan && !document.cleanupRefreshPending && !cleanup.busy() && !stopTask) {
+      if (deferredCleanupScan && !document.cleanupRefreshPending && !cleanup.busy() && !bulkCleanup.busy() && !stopTask) {
+        deferredCleanupScan = false; requestScan('quick');
+      }
+    }
+  }
+  async function bulkCleanupOperation(method, options) {
+    requireComparisonReady(); cleanup.invalidate();
+    try { return await bulkCleanup[method](options); }
+    finally {
+      if (deferredCleanupScan && !document.cleanupRefreshPending && !cleanup.busy() && !bulkCleanup.busy() && !stopTask) {
         deferredCleanupScan = false; requestScan('quick');
       }
     }
   }
   async function verifyAllDuplicates() {
     ensureMutable(); requireCleanupIdle();
+    bulkCleanup.invalidate();
     if (run || stopTask) throw Object.assign(Error('Attendez la fin de l’analyse puis relancez la vérification.'), { code: 'LIBRARY_COMPARISON_SAFE' });
     const rootPath = document.settings.rootPath, revision = document.revision, items = document.items;
     if (!rootPath) throw safeError('Sélectionnez d’abord un dossier de chansons.');
@@ -488,6 +506,10 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     queryPlayback,
     requestLibraryForSharing,
     cleanupHistory: (options = {}) => history.list({ ...options, rootPath: document.settings.rootPath }),
+    prepareBulkCleanup: (options = {}) => bulkCleanupOperation('prepare', options),
+    bulkCleanupReview: options => bulkCleanupOperation('review', options),
+    recycleBulkDifferences: options => bulkCleanupOperation('execute', options),
+    cancelBulkCleanup: (options = {}) => bulkCleanup.cancel(options),
     prepareCleanup: options => cleanupOperation('prepare', options), cleanupReview: options => cleanupOperation('review', options),
     cleanupForceReview: options => cleanupOperation('forceReview', options), recycleDuplicates: options => cleanupOperation('execute', options),
     forceRecycleDuplicate: options => cleanupOperation('forceExecute', options) };

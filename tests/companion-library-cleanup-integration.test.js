@@ -93,6 +93,70 @@ test('native recycle removes only selected copies from the index without scannin
   await assert.rejects(f.service.cleanupReview(f.selection(plan)), { code: 'LIBRARY_CLEANUP_SAFE' });
 });
 
+test('different readable note bytes or formats allow only one explicitly reviewed manual recycle', async t => {
+  for (const format of ['chart', 'midi']) {
+    const f = await fixture(t, { beforeScan: async ({ root, base }) => {
+      const notes = path.join(root, 'B', 'notes.chart');
+      if (format === 'chart') await fs.appendFile(notes, '[ExpertSingle]\n{\n 0 = N 1 192\n}\n');
+      else {
+        await fs.rename(notes, path.join(base, 'original-B-notes.chart'));
+        // A complete single-track SMF with a note and an end-of-track event.
+        await fs.writeFile(path.join(root, 'B', 'notes.mid'), Buffer.from('4d546864000000060000000100c04d54726b0000000c00903c7f60803c0000ff2f00', 'hex'));
+      }
+      await fs.writeFile(path.join(root, 'B', 'album.png'), 'unique copy artwork');
+    }, recycle: async (target, base) => {
+      assert.equal(target, path.join(base, 'songs', 'B'));
+      await fs.rename(target, path.join(base, 'fake-bin-B'));
+    } });
+    const kept = await fs.readFile(path.join(f.root, 'A', 'notes.chart'));
+    const unchecked = await fs.readFile(path.join(f.root, 'C', 'notes.chart'));
+    const variant = f.comparison.variants.find(value => value.relativePath.startsWith('B/'));
+    assert.equal(variant.notes.status, 'readable'); assert.equal(variant.notes.format, format);
+    assert.notEqual(variant.noteGroup, f.comparison.variants.find(value => value.id === f.preparation.keepId).noteGroup);
+    const plan = await f.prepare(), candidate = plan.candidates.find(value => value.id === variant.id);
+    assert.equal(candidate.eligible, false); assert.equal(candidate.forceable, true); assert.match(candidate.reason, /notes.*différent/);
+    assert.equal(candidate.differences.status, 'verified');
+    const notes = candidate.differences.files.filter(file => file.category === 'notes');
+    assert.deepEqual(notes.map(file => file.status), format === 'chart' ? ['changed'] : ['only-keeper', 'only-copy']);
+    assert.ok(candidate.differences.files.some(file => file.category === 'audio' && file.status === 'identical'));
+    await assert.rejects(f.service.cleanupReview({ planId: plan.planId, revision: plan.revision, ids: [candidate.id] }), { code: 'LIBRARY_CLEANUP_SAFE' });
+    const selection = { planId: plan.planId, revision: plan.revision, id: candidate.id };
+    const review = await f.service.cleanupForceReview(selection);
+    assert.deepEqual(review.candidates.map(value => value.id), [candidate.id]); assert.equal(review.keep.id, plan.keepId);
+    assert.deepEqual(f.recycled, [], 'review alone never recycles the different notes');
+    const result = await f.service.forceRecycleDuplicate(selection);
+    assert.deepEqual(result.recycledIds, [candidate.id]); assert.deepEqual(result.failed, []); assert.equal(result.refreshRequested, false);
+    assert.deepEqual(f.recycled, [path.join(f.root, 'B')]); assert.deepEqual(f.scans, ['full']);
+    assert.deepEqual((await fs.readdir(f.root)).sort(), ['A', 'C']);
+    assert.deepEqual(await fs.readFile(path.join(f.root, 'A', 'notes.chart')), kept);
+    assert.deepEqual(await fs.readFile(path.join(f.root, 'C', 'notes.chart')), unchecked);
+    assert.equal(f.service.status().count, 2); assert.equal(f.service.status().cleanupRefreshPending, true);
+    await assert.rejects(f.service.forceRecycleDuplicate(selection), { code: 'LIBRARY_CLEANUP_SAFE' });
+    const comparison = await f.service.compareDuplicates({ id: plan.keepId, revision: f.service.status().revision });
+    assert.equal(comparison.preferredId, plan.keepId);
+  }
+});
+
+test('different-note manual review does not authorize keeper or target notes changed before native recycling', async t => {
+  for (const folder of ['A', 'B']) {
+    const f = await fixture(t, { beforeScan: async ({ root }) => {
+      await fs.appendFile(path.join(root, 'B', 'notes.chart'), '[ExpertSingle]\n{\n 0 = N 1 192\n}\n');
+    } });
+    const plan = await f.prepare(), candidate = plan.candidates.find(value => value.targetRelativePath === 'B');
+    assert.equal(candidate.forceable, true);
+    const selection = { planId: plan.planId, revision: plan.revision, id: candidate.id };
+    await f.service.cleanupForceReview(selection);
+    const filename = path.join(f.root, folder, 'notes.chart'), before = await fs.stat(filename);
+    const changed = Buffer.from(await fs.readFile(filename)); changed[0] ^= 1;
+    await fs.writeFile(filename, changed); await fs.utimes(filename, before.atime, before.mtime);
+    const result = await f.service.forceRecycleDuplicate(selection);
+    assert.deepEqual(result.recycledIds, []); assert.deepEqual(result.failed.map(value => value.id), [candidate.id]);
+    assert.deepEqual(f.recycled, []); assert.equal(f.service.status().count, 3); assert.deepEqual(f.scans, ['full']);
+    assert.deepEqual((await fs.readdir(f.root)).sort(), ['A', 'B', 'C']);
+    await assert.rejects(f.service.cleanupForceReview(selection), { code: 'LIBRARY_CLEANUP_SAFE' });
+  }
+});
+
 test('service blocks concurrent mutations while native recycling runs and stop drains only the current target', async t => {
   const entered = deferred(), gate = deferred();
   const f = await fixture(t, { recycle: async () => { entered.resolve(); await gate.promise; } });

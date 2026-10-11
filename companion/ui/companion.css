@@ -421,6 +421,15 @@ select { min-width: 122px; min-height: 35px; background: var(--surface); color: 
 .library-duplicate-bulk strong { color: var(--text); font-size: 12px; }
 .library-duplicate-bulk .helper-text { margin: 4px 0 0; line-height: 1.55; }
 .library-duplicate-bulk .button { flex: 0 0 auto; }
+.library-bulk-cleanup { min-width: 0; margin: 16px 0 22px; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.library-bulk-cleanup .library-comparison-heading { align-items: flex-start; gap: 16px; }
+.library-bulk-cleanup .library-comparison-heading > div { min-width: 0; }
+.library-bulk-cleanup .library-comparison-heading h3 { margin: 0 0 8px; }
+.library-bulk-cleanup .library-comparison-heading .helper-text { line-height: 1.6; }
+.library-bulk-cleanup .library-comparison-heading > .button { flex: 0 0 auto; }
+.library-bulk-cleanup-candidates { max-height: 620px; overflow: auto; padding-right: 6px; scrollbar-gutter: stable; }
+.library-bulk-cleanup-group + .library-bulk-cleanup-group { margin-top: 20px; padding-top: 10px; border-top: 1px solid var(--border); }
+.library-bulk-cleanup-song { display: block; margin-top: 8px; color: var(--text); font-size: 12px; overflow-wrap: anywhere; }
 .library-verify-all-status { margin: 0 0 14px; }
 .library-duplicate-badge[data-verification="ready"] { border-color: var(--accent); color: var(--text); background: var(--accent-soft); }
 .library-duplicate-badge[data-verification="needs_keeper"] { border-color: #7b704a; color: #f0dda3; background: var(--surface-raised); }

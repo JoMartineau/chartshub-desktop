@@ -104,7 +104,7 @@ function validCommand(command, payload, widgetIds) {
     && Object.keys(payload).every(key => ['id', ...(command === 'songRequests.move' ? ['direction'] : [])].includes(key))
     && (command !== 'songRequests.move' || ['up', 'down'].includes(payload.direction));
   if (['mock.next', 'mock.reset', 'editor.undo', 'editor.redo'].includes(command)) return payload === undefined || payload === null;
-  if (['stream.copyUrl', 'library.chooseRoot', 'library.cancel', 'library.verifyAllDuplicates', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (['stream.copyUrl', 'library.chooseRoot', 'library.cancel', 'library.verifyAllDuplicates', 'library.prepareBulkCleanup', 'library.cancelBulkCleanup', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'library.cancelDuplicateVerification') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
   if (command === 'catalogue.widget') return Object.keys(payload).length === 1 && typeof payload.enabled === 'boolean';
@@ -176,8 +176,9 @@ function validCommand(command, payload, widgetIds) {
   if (command === 'library.prepareCleanup') return typeof payload.contextId === 'string' && /^[a-f0-9]{32}$/.test(payload.contextId)
     && typeof payload.keepId === 'string' && /^[a-f0-9]{64}$/.test(payload.keepId)
     && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && Object.keys(payload).every(key => ['contextId', 'revision', 'keepId'].includes(key));
-  if (command === 'library.recycleDuplicates') return typeof payload.planId === 'string' && /^[a-f0-9]{32}$/.test(payload.planId)
+  if (command === 'library.recycleDuplicates' || command === 'library.recycleBulkDifferences') return typeof payload.planId === 'string' && /^[a-f0-9]{32}$/.test(payload.planId)
     && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && Array.isArray(payload.ids) && payload.ids.length > 0
+    && (command !== 'library.recycleBulkDifferences' || payload.ids.length <= 10000)
     && payload.ids.every(id => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)) && new Set(payload.ids).size === payload.ids.length
     && Object.keys(payload).every(key => ['planId', 'revision', 'ids'].includes(key));
   if (command === 'library.forceRecycleDuplicate') return typeof payload.planId === 'string' && /^[a-f0-9]{32}$/.test(payload.planId)

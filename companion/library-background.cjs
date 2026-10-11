@@ -6,8 +6,9 @@ const FAILED = 'Le service de bibliothèque est indisponible. Rouvrez le Compani
 const STOPPED = 'Le service de bibliothèque est arrêté.';
 const initialStatus = () => ({ settings: { rootPath: null, watch: false, refreshOnStart: true }, status: 'idle', mode: null,
   progress: { visited: 0, processed: 0, discovered: 0 }, count: 0, lastScanAt: null, changes: { added: 0, removed: 0, modified: 0 },
-  warningCount: 0, skippedCount: 0, error: null, watcher: 'off', revision: 0, cleanupRefreshPending: false });
-const copyStatus = value => ({ ...value, settings: { ...value.settings }, progress: { ...value.progress }, changes: { ...value.changes } });
+  warningCount: 0, skippedCount: 0, error: null, watcher: 'off', revision: 0, cleanupRefreshPending: false, bulkCleanup: null });
+const copyStatus = value => ({ ...value, settings: { ...value.settings }, progress: { ...value.progress }, changes: { ...value.changes },
+  bulkCleanup: value.bulkCleanup ? { ...value.bulkCleanup } : null });
 function freezeMatching(value) {
   for (const item of value.items) Object.freeze(item);
   Object.freeze(value.items);
@@ -33,7 +34,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     current = null; lifecycle = 'failed';
     for (const pending of connection.pending.values()) pending.reject(Error(FAILED));
     connection.pending.clear();
-    cachedStatus = { ...cachedStatus, status: 'error', mode: null, error: FAILED, watcher: 'off' };
+    cachedStatus = { ...cachedStatus, status: 'error', mode: null, error: FAILED, watcher: 'off', bulkCleanup: null };
     notify();
     connection.worker?.unref();
     connection.worker?.terminate().catch(() => {});
@@ -49,7 +50,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
         if (current !== connection) return;
         if (message.type === 'recycle') {
           const parent = connection.pending.get(message.requestId);
-          const allowed = !connection.stopping && !connection.recycling && ['recycleDuplicates', 'forceRecycleDuplicate'].includes(parent?.method)
+          const allowed = !connection.stopping && !connection.recycling && ['recycleDuplicates', 'forceRecycleDuplicate', 'recycleBulkDifferences'].includes(parent?.method)
             && Number.isSafeInteger(message.id) && message.id > 0 && !connection.recycleIds.has(message.id)
             && typeof recycle === 'function' && typeof message.target === 'string' && path.isAbsolute(message.target) && !message.target.includes('\0');
           const reply = ok => { try { worker.postMessage({ type: 'recycle-result', id: message.id, ok }); } catch {} };
@@ -141,6 +142,8 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     keepDuplicateVersions: options => call('keepDuplicateVersions', [options]),
     prepareCleanup: options => call('prepareCleanup', [options]), cleanupReview: options => call('cleanupReview', [options]), cleanupForceReview: options => call('cleanupForceReview', [options]),
     recycleDuplicates: options => call('recycleDuplicates', [options]), forceRecycleDuplicate: options => call('forceRecycleDuplicate', [options]),
+    prepareBulkCleanup: options => call('prepareBulkCleanup', [options]), bulkCleanupReview: options => call('bulkCleanupReview', [options]),
+    recycleBulkDifferences: options => call('recycleBulkDifferences', [options]), cancelBulkCleanup: options => call('cancelBulkCleanup', [options]),
     query: options => call('query', [options]), resolveSongFolder: id => call('resolveSongFolder', [id]),
     resolveRequestSong: (id, context) => call('resolveRequestSong', [id, context]),
     resolvePlaybackSong: id => call('resolvePlaybackSong', [id]),

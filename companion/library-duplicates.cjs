@@ -60,6 +60,7 @@ function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
   let store = { version: VERSION, choices: Object.create(null), keptGroups: Object.create(null) }, loaded = false, loading = null, blocked = null, diskFingerprint = null;
   let context = null, serial = Promise.resolve(), stopping = null;
   const pending = new Set();
+  const cleanupReceipts = new WeakMap();
 
   function track(task) {
     pending.add(task);
@@ -324,15 +325,68 @@ function createLibraryDuplicates({ dataDirectory, getDocument } = {}) {
       const previous = current.members.get(item.id);
       return !previous || previous.relativePath !== item.relativePath || previous.format !== item.format || (item.cleanupSnapshot ?? null) !== current.scanSnapshots.get(item.id);
     })) throw staleError();
-    return {
+    const receipt = {
       contextId, revision, rootPath: current.root, keepId, keepHash: choice.hash, keepFormat: choice.format,
       preferenceToken, members: [...current.members.values()].map(({ id, relativePath, format }) => ({ id, relativePath, format,
         cleanupSnapshot: current.scanSnapshots.get(id), bundle: current.bundles.get(id) ?? null }))
     };
+    cleanupReceipts.set(receipt, { items: current.items, key: current.key, group: current.group, membership: membership(live) });
+    return receipt;
+  }
+  // Internal receipts survive advancing the comparison to another group, but
+  // remain bound to the same index and exact persisted preference generation.
+  async function validateCleanupReceipt(receipt) {
+    ensureReady();
+    const stamp = cleanupReceipts.get(receipt);
+    const check = () => {
+      const document = getDocument(), choice = stamp && store.choices[stamp.key];
+      if (!stamp || blocked || serial !== receipt.preferenceToken || document.items !== stamp.items
+        || document.revision !== receipt.revision || document.settings.rootPath !== receipt.rootPath
+        || choice?.id !== receipt.keepId || choice.hash !== receipt.keepHash || choice.format !== receipt.keepFormat
+        || membership(document.items.filter(item => identity(item) === stamp.group)) !== stamp.membership) throw staleError();
+    };
+    check(); await receipt.preferenceToken; check();
+    let previous = null;
+    try { previous = await readStore(); }
+    catch (failure) { if (failure?.code !== 'ENOENT') { blocked = 'changed'; throw staleError(); } }
+    check();
+    if ((previous?.fingerprint ?? null) !== diskFingerprint) { blocked = 'changed'; throw staleError(); }
+    return receipt;
+  }
+  async function collectCleanupContexts({ signal, onGroup } = {}) {
+    ensureReady(); await load(); await serial;
+    const document = getDocument(), preferenceToken = serial;
+    const check = () => {
+      const latest = getDocument();
+      if (signal?.aborted || stopping || blocked || latest.items !== document.items || latest.revision !== document.revision
+        || latest.settings.rootPath !== document.settings.rootPath || serial !== preferenceToken || !document.settings.rootPath) throw staleError();
+    };
+    check();
+    const grouped = new Map();
+    for (const item of document.items) {
+      const group = identity(item); if (!group) continue;
+      if (!grouped.has(group)) grouped.set(group, []); grouped.get(group).push(item);
+    }
+    const groups = [...grouped.values()].filter(members => new Set(members.map(item => item.relativePath)).size > 1 && !isKeptGroup(document.settings.rootPath, members));
+    const summary = { totalGroups: groups.length, needsKeeperGroups: 0, blockedGroups: 0 };
+    const cancel = () => invalidate(); signal?.addEventListener('abort', cancel, { once: true });
+    try {
+      for (const [index, members] of groups.entries()) {
+        check();
+        const saved = store.choices[rootGroupKey(document.settings.rootPath, identity(members[0]))];
+        if (!saved) { summary.needsKeeperGroups++; await onGroup?.(null, index + 1, groups.length); continue; }
+        const compared = await runComparison({ id: members[0].id, revision: document.revision }); check();
+        if (!compared.preferredId) { summary.blockedGroups++; await onGroup?.(null, index + 1, groups.length); continue; }
+        const source = await cleanupContext({ contextId: compared.contextId, revision: compared.revision, keepId: compared.preferredId }); check();
+        await onGroup?.({ source, title: compared.title, artist: compared.artist, charter: compared.charter }, index + 1, groups.length); check();
+      }
+      check(); return summary;
+    } finally { signal?.removeEventListener('abort', cancel); }
   }
   return { load, isKeptGroup, preferenceToken: () => blocked ?? store,
     compare: options => track(runComparison(options)), choose: options => track(runChoice(options)), keepAll: options => track(runKeepAll(options)),
-    cleanupContext: options => track(cleanupContext(options)), invalidate, stop };
+    cleanupContext: options => track(cleanupContext(options)),
+    collectCleanupContexts: options => track(collectCleanupContexts(options)), validateCleanupReceipt: receipt => track(validateCleanupReceipt(receipt)), invalidate, stop };
 }
 
 module.exports = { createLibraryDuplicates };

@@ -110,6 +110,7 @@ export class DuplicateComparisonControls {
 
   open(id: string, title: string, trigger: HTMLButtonElement): void {
     if (this.disposed || this.executing || !this.state?.rootPath || this.state.scanning || this.state.busy) return;
+    this.options.root.dispatchEvent(new CustomEvent('companion:duplicate-context-changed'));
     this.close(false);
     this.targetId = id; this.trigger = trigger;
     this.element('#library-comparison').hidden = false;
@@ -208,6 +209,7 @@ export class DuplicateComparisonControls {
       result.selectionError = null;
       const previouslyKeptAll = result.keptAll;
       result.keptAll = false;
+      this.options.root.dispatchEvent(new CustomEvent('companion:duplicate-choice-changed'));
       if (previouslyKeptAll) this.options.refreshIndex();
       prepareAfterSave = id !== null;
       this.feedback(id === null ? 'Toutes les versions sont conservées. Aucun fichier déplacé ou supprimé.' : 'Version à conserver enregistrée. Vérification automatique des autres versions…');
@@ -231,6 +233,7 @@ export class DuplicateComparisonControls {
       if (!response?.ok) throw Error(response?.error || 'Le choix n’a pas pu être enregistré. Rechargez la comparaison pour réessayer.');
       if (response.result?.contextId !== result.contextId || response.result.revision !== revision || response.result.preferredId !== null || response.result.keptAll !== true) throw Error('La comparaison a changé. Rechargez-la avant de choisir une version.');
       result.preferredId = null; result.keptAll = true; result.selectionError = null;
+      this.options.root.dispatchEvent(new CustomEvent('companion:duplicate-choice-changed'));
       const message = 'Toutes les versions sont conservées. Aucun fichier déplacé ou supprimé. Ce groupe est retiré des doublons à traiter.';
       this.feedback(message); this.options.feedback(message); this.options.refreshIndex();
     } catch (error) {
@@ -320,6 +323,7 @@ export class DuplicateComparisonControls {
   private async prepareCleanup(): Promise<void> {
     const comparison = this.result;
     if (!comparison?.preferredId || !this.state?.rootPath || !this.cleanupAvailable()) return;
+    this.options.root.dispatchEvent(new CustomEvent('companion:duplicate-context-changed'));
     const serial = ++this.serial, root = this.state.rootPath, revision = this.state.revision, keepId = comparison.preferredId;
     this.clearCleanup(); this.preparing = true;
     this.feedback('Vérification des notes, de l’audio et de tous les fichiers…'); this.refreshAvailability();
@@ -349,7 +353,7 @@ export class DuplicateComparisonControls {
       this.feedback(eligible
         ? `${number(eligible)} copie(s) vérifiée(s) disponible(s). Cochez individuellement les copies à envoyer à la Corbeille.${forceable ? ` ${number(forceable)} version(s) vérifiée(s) mais différente(s) peuvent être supprimées manuellement.` : ''}${blocked ? ` ${number(blocked)} version(s) restent protégées.` : ''} Aucune copie n’est sélectionnée automatiquement.`
         : forceable
-          ? `${number(forceable)} autre(s) version(s) ont les mêmes notes, mais leur audio ou certains fichiers diffèrent. Utilisez « Supprimer quand même » uniquement si vous acceptez de perdre ces différences.`
+          ? `${number(forceable)} autre(s) version(s) sont entièrement vérifiées, mais leurs notes, leur audio ou certains fichiers diffèrent. Utilisez « Supprimer quand même » uniquement si vous acceptez de perdre ces différences.`
           : 'Aucune autre version n’est suffisamment vérifiée pour être supprimée. Consultez les raisons indiquées.');
     } catch (error) {
       if (!this.current(serial, root, revision)) return;
@@ -387,11 +391,11 @@ export class DuplicateComparisonControls {
       check.id = `library-cleanup-check-${index}`; check.dataset.cleanupId = candidate.id;
       const eligible = this.eligible(candidate, plan);
       check.checked = eligible && this.cleanupSelection.has(candidate.id);
-      const caption = document.createElement('span'); caption.textContent = eligible ? `Supprimer cette copie : ${candidate.relativePath}` : `Suppression bloquée : ${candidate.relativePath}`;
+      const caption = document.createElement('span'); caption.textContent = eligible ? `Supprimer cette copie : ${candidate.relativePath}` : candidate.forceable ? `Suppression manuelle uniquement : ${candidate.relativePath}` : `Suppression bloquée : ${candidate.relativePath}`;
       label.append(check, caption); item.append(label); details(candidate, item);
       const reason = document.createElement('p'); reason.className = 'library-cleanup-reason'; reason.id = `library-cleanup-reason-${index}`;
       reason.textContent = eligible ? 'Notes, audio et tous les fichiers identiques à la version conservée.'
-        : candidate.forceable ? 'Les notes sont identiques et la copie est entièrement vérifiée, mais son audio ou certains fichiers diffèrent. Cette copie ne sera jamais présélectionnée.'
+        : candidate.forceable ? 'La copie est entièrement vérifiée, mais ses notes, son audio ou certains fichiers diffèrent. Consultez les différences avant de confirmer. Cette copie ne sera jamais présélectionnée.'
         : candidate.reason || 'Nettoyage bloqué : les fichiers et un audio présent doivent être entièrement vérifiés.';
       check.setAttribute('aria-describedby', reason.id); item.append(reason);
       this.renderDifferences(candidate, item);

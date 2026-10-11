@@ -124,8 +124,13 @@ function createLibraryCleanup({ getDocument, getContext, recycle, onCleaned = as
           && keptBundle.audio?.status === 'verified' && keptBundle.audio.count > 0
           && HEX.test(bundle.audio.digest) && HEX.test(keptBundle.audio.digest);
         const sameSafeKind = bundle?.kind === 'folder' && keptBundle.kind === 'folder';
-        const forceable = [reason.audio, reason.contents].includes(blocked) && validKeep && notesMatch && !blockedTarget
-          && sameSafeKind && verifiedAudio;
+        const verifiedNotes = [keptBundle, bundle].every(value => ['chart', 'midi'].includes(value?.notes?.format)
+          && HEX.test(value.notes.sha256) && Number.isSafeInteger(value.notes.bytes) && value.notes.bytes >= 0);
+        // An explicit single-copy override may discard different readable notes,
+        // including a different supported format. It never relaxes the scan,
+        // full-bundle or target checks, and never enables normal cleanup.
+        const forceable = [reason.notes, reason.audio, reason.contents].includes(blocked) && validKeep && !blockedTarget
+          && sameSafeKind && verifiedAudio && verifiedNotes;
         current.candidates.push({ ...summary(member, bundle), eligible: !blocked, forceable, reason: blocked,
           differences: describeBundleDifferences(keptBundle, bundle) });
       }

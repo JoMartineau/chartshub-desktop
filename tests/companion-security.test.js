@@ -1531,12 +1531,26 @@ test('cleanup IPC accepts only revision-bound plans and explicit force-delete ch
   assert.equal(validCommand('library.cleanupReview', execute, []), false);
 });
 
-async function cleanupHostFixture(t, { differentAudio = false, differentExtra = false } = {}) {
+test('bulk differing-copy IPC accepts only server plans and unique selected IDs from the main panel', () => {
+  const request = { planId: 'a'.repeat(32), revision: 1, ids: ['b'.repeat(64), 'c'.repeat(64)] };
+  for (const command of ['library.prepareBulkCleanup', 'library.cancelBulkCleanup']) {
+    for (const empty of [undefined, null, {}]) assert.equal(validCommand(command, empty, []), true);
+    for (const extra of [[], { path: 'C:/Songs' }, { all: true }]) assert.equal(validCommand(command, extra, []), false);
+  }
+  assert.equal(validCommand('library.recycleBulkDifferences', request, []), true);
+  for (const extra of [{ ids: [] }, { ids: [request.ids[0], request.ids[0]] }, { ids: ['../notes.chart'] },
+    { revision: -1 }, { revision: NaN }, { planId: 'unknown' }, { path: 'C:/Songs' }, { permanent: true }, { keeperId: request.ids[0] }]) {
+    assert.equal(validCommand('library.recycleBulkDifferences', { ...request, ...extra }, []), false);
+  }
+  assert.equal(validCommand('library.bulkCleanupReview', request, []), false);
+});
+
+async function cleanupHostFixture(t, { differentNotes = false, differentAudio = false, differentExtra = false } = {}) {
   const f = await hostFixture(t), fs = require('node:fs/promises'), songs = path.join(f.directory, 'Songs');
   for (const name of ['A', 'B', 'C']) {
     const folder = path.join(songs, name); await fs.mkdir(folder, { recursive: true });
     await fs.writeFile(path.join(folder, 'song.ini'), '[song]\nname = Example\nartist = Band\ncharter = Creator\n');
-    await fs.writeFile(path.join(folder, 'notes.chart'), '[Song]\n{}\n[ExpertSingle]\n{\n0 = N 0 0\n}');
+    await fs.writeFile(path.join(folder, 'notes.chart'), differentNotes && name === 'B' ? '[Song]\n{}\n[ExpertSingle]\n{\n0 = N 1 0\n}' : '[Song]\n{}\n[ExpertSingle]\n{\n0 = N 0 0\n}');
     await fs.writeFile(path.join(folder, 'song.ogg'), differentAudio && name === 'B' ? 'different-audio-bytes' : 'fixture-audio-bytes');
     if (differentExtra && name === 'B') await fs.writeFile(path.join(folder, 'extra-metadata.txt'), 'different verified extra file');
   }
@@ -1552,7 +1566,7 @@ async function cleanupHostFixture(t, { differentAudio = false, differentExtra = 
   const contextId = compared.result.contextId;
   assert.equal((await command('library.chooseDuplicate', { contextId, revision, id: keepId })).ok, true);
   const prepared = await command('library.prepareCleanup', { contextId, revision, keepId }); assert.equal(prepared.ok, true, prepared.error);
-  if (differentAudio || differentExtra) { assert.equal(prepared.result.candidates.filter(item => item.forceable).length, 1); assert.equal(prepared.result.candidates.filter(item => item.eligible).length, 1); }
+  if (differentNotes || differentAudio || differentExtra) { assert.equal(prepared.result.candidates.filter(item => item.forceable).length, 1); assert.equal(prepared.result.candidates.filter(item => item.eligible).length, 1); }
   else assert.ok(prepared.result.candidates.every(item => item.eligible));
   const payload = { planId: prepared.result.planId, revision, ids: prepared.result.candidates.filter(item => item.eligible).map(item => item.id) };
   return { ...f, fs, songs, panel, command, plan: prepared.result, payload };
@@ -1587,7 +1601,7 @@ test('native cleanup defaults to cancel and recycles only the explicitly selecte
 
 
 test('verified differences require reinforced native confirmation and only then reach the Recycle Bin', async t => {
-  for (const options of [{ differentAudio: true }, { differentExtra: true }]) {
+  for (const options of [{ differentNotes: true }, { differentAudio: true }, { differentExtra: true }]) {
     const f = await cleanupHostFixture(t, options), recycled = [];
     const forced = f.plan.candidates.find(item => item.forceable);
     assert.ok(forced); assert.equal(forced.eligible, false);
@@ -1605,12 +1619,74 @@ test('verified differences require reinforced native confirmation and only then 
     assert.match(optionsSeen.detail, /Version conservée|Kept version/);
     assert.match(optionsSeen.detail, /audio/i);
     assert.match(optionsSeen.detail, /fichiers non audio|non-audio files/i);
+    assert.match(optionsSeen.detail, /notes/i);
     f.dialog.showMessageBox = async () => ({ response: 1 });
     const result = await f.command('library.forceRecycleDuplicate', request);
     assert.equal(result.ok, true, result.error); assert.deepEqual(result.result.recycledIds, [forced.id]); assert.deepEqual(result.result.failed, []);
     assert.equal(recycled.length, 1);
     const remaining = (await f.fs.readdir(f.songs)).sort(); assert.deepEqual(remaining, ['A', 'C']);
   }
+});
+
+async function bulkCleanupHostFixture(t) {
+  const f = await cleanupHostFixture(t, { differentNotes: true });
+  for (const name of ['D', 'E', 'F']) {
+    const folder = path.join(f.songs, name); await f.fs.mkdir(folder);
+    await f.fs.writeFile(path.join(folder, 'song.ini'), '[song]\nname = Second song\nartist = Band\ncharter = Creator\n');
+    await f.fs.writeFile(path.join(folder, 'notes.chart'), '[Song]\n{}\n[ExpertSingle]\n{\n0 = N ' + (name === 'E' ? '1' : '0') + ' 0\n}');
+    await f.fs.writeFile(path.join(folder, 'song.ogg'), 'fixture-audio-bytes');
+  }
+  assert.equal((await f.command('library.scan', { mode: 'full' })).ok, true);
+  const until = Date.now() + 10000;
+  while (f.host.library.status().status === 'scanning' && Date.now() < until) await new Promise(resolve => setTimeout(resolve, 10));
+  assert.equal(f.host.library.status().count, 6);
+  const revision = f.host.library.status().revision, rows = (await f.host.library.query({ duplicates: 'possible' })).items;
+  for (const name of ['A', 'D']) {
+    const id = rows.find(row => row.relativePath === name + '/notes.chart').id;
+    const comparison = await f.command('library.compareDuplicates', { id, revision }); assert.equal(comparison.ok, true);
+    assert.equal((await f.command('library.chooseDuplicate', { contextId: comparison.result.contextId, revision, id })).ok, true);
+  }
+  const prepared = await f.command('library.prepareBulkCleanup', {}); assert.equal(prepared.ok, true, prepared.error);
+  assert.deepEqual(prepared.result.candidates.map(candidate => candidate.targetRelativePath).sort(), ['B', 'E']);
+  return { ...f, bulk: prepared.result, revision, lastScanAt: f.host.library.status().lastScanAt };
+}
+
+test('one bulk native confirmation binds each selected differing copy to its own keeper and preserves all others', async t => {
+  const f = await bulkCleanupHostFixture(t), recycled = [];
+  const request = { planId: f.bulk.planId, revision: f.revision, ids: f.bulk.candidates.map(candidate => candidate.id) };
+  f.shell.trashItem = async target => { recycled.push(path.basename(target)); await f.fs.rename(target, path.join(f.directory, 'fake-bulk-' + path.basename(target))); };
+  let confirmations = 0;
+  f.dialog.showMessageBox = async (owner, options) => {
+    confirmations++; assert.equal(owner, f.panel); assert.equal(options.defaultId, 0); assert.equal(options.cancelId, 0);
+    assert.match(options.title, /versions différentes sélectionnées|selected different versions/);
+    assert.match(options.detail, /notes/i); assert.match(options.detail, /A/); assert.match(options.detail, /D/);
+    assert.match(options.detail, /B/); assert.match(options.detail, /E/); return { response: 0 };
+  };
+  assert.deepEqual(await f.command('library.recycleBulkDifferences', request), { ok: true, cancelled: true });
+  assert.deepEqual(recycled, []); assert.equal(f.host.library.status().count, 6);
+  confirmations = 0; f.dialog.showMessageBox = async () => { confirmations++; return { response: 1 }; };
+  const result = await f.command('library.recycleBulkDifferences', request);
+  assert.equal(result.ok, true, result.error); assert.equal(confirmations, 1);
+  assert.deepEqual(result.result.recycledIds.sort(), [...request.ids].sort()); assert.deepEqual(result.result.failed, []);
+  assert.equal(result.result.refreshRequested, false); assert.deepEqual(recycled, ['B', 'E']);
+  assert.deepEqual((await f.fs.readdir(f.songs)).sort(), ['A', 'C', 'D', 'F']);
+  assert.equal(f.host.library.status().count, 4); assert.equal(f.host.library.status().revision, f.revision + 1);
+  assert.equal(f.host.library.status().lastScanAt, f.lastScanAt); assert.equal(f.host.library.status().cleanupRefreshPending, true);
+  assert.equal((await f.command('library.recycleBulkDifferences', request)).ok, false);
+  assert.equal(confirmations, 1, 'used plans cannot open another native confirmation');
+});
+
+test('changing the second selected bundle during bulk confirmation prevents every recycle', async t => {
+  const f = await bulkCleanupHostFixture(t), recycled = [];
+  f.shell.trashItem = async target => { recycled.push(target); };
+  f.dialog.showMessageBox = async () => {
+    await f.fs.writeFile(path.join(f.songs, 'E', 'notes.chart'), '[Song]\n{}\n[ExpertSingle]\n{\n0 = N 2 0\n}');
+    return { response: 1 };
+  };
+  const result = await f.command('library.recycleBulkDifferences', { planId: f.bulk.planId, revision: f.revision, ids: f.bulk.candidates.map(candidate => candidate.id) });
+  assert.ok(result.ok === false || result.result.recycledIds.length === 0);
+  assert.deepEqual(recycled, []); assert.equal(f.host.library.status().count, 6);
+  assert.deepEqual((await f.fs.readdir(f.songs)).sort(), ['A', 'B', 'C', 'D', 'E', 'F']);
 });
 
 test('cleanup refuses a copy whose audio changes while native confirmation is open', async t => {

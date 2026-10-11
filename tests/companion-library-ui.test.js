@@ -887,7 +887,7 @@ test('cleanup requires individual selection while unsafe copies, unchecked copie
 });
 
 test('verified but different copy stays unselected and offers a separate delete-anyway action', async t => {
-  for (const reason of ['Les fichiers audio sont absents, différents ou non vérifiés.', 'Cette version contient des fichiers différents ou supplémentaires.']) {
+  for (const reason of ['Le contenu ou le format des notes est différent.', 'Les fichiers audio sont absents, différents ou non vérifiés.', 'Cette version contient des fichiers différents ou supplémentaires.']) {
     const ui = await preparedCleanup(t, cleanupPlan({ candidates: [
       cleanupTarget('b', { eligible: false, forceable: true, audio: { status: 'verified', count: 1, bytes: 2565590 }, reason })
     ] }));
@@ -895,6 +895,10 @@ test('verified but different copy stays unselected and offers a separate delete-
     const check = cleanupCheck(ui, 'b');
     assert.equal(check.checked, false); assert.equal(check.disabled, true);
     assert.match(candidate.textContent, /copie est entièrement vérifiée/i);
+    assert.match(candidate.textContent, /Suppression manuelle uniquement/);
+    assert.match(candidate.textContent, /ses notes, son audio ou certains fichiers diffèrent/);
+    assert.doesNotMatch(candidate.textContent, /notes sont identiques|mêmes notes/i);
+    assert.match(ui.get('#library-comparison-feedback').textContent, /leurs notes, leur audio ou certains fichiers diffèrent/);
     const force = candidate.querySelector('.library-cleanup-force');
     assert.ok(force); assert.equal(force.textContent, 'Supprimer quand même');
     assert.equal(ui.get('#library-cleanup-recycle').disabled, true);
@@ -933,6 +937,37 @@ test('file comparison expands for different copies and shows categories, exact s
   assert.equal(cleanupCheck(ui, 'b').checked, false); assert.equal(cleanupCheck(ui, 'b').disabled, true);
   assert.equal(cleanupCheck(ui, 'a'), undefined, 'the keeper has no deletion checkbox');
   assert.equal(candidate.querySelector('.library-cleanup-force').disabled, false);
+});
+
+test('manual deletion guidance for changed notes translates without claiming identical notes', async t => {
+  const ui = await preparedCleanup(t, cleanupPlan({ candidates: [cleanupTarget('b', { eligible: false, forceable: true,
+    reason: 'Le contenu ou le format des notes est différent.',
+    differences: { status: 'verified', counts: { identical: 0, changed: 1, onlyKeeper: 0, onlyCopy: 0, unverified: 0 },
+      files: [{ name: 'notes.chart', category: 'notes', status: 'changed', keeperBytes: 21524, copyBytes: 21436 }] }
+  })] }));
+  const candidate = ui.get('#library-cleanup-candidates').children[0];
+  const details = candidate.querySelector('.library-file-differences');
+  assert.equal(details.open, true);
+  assert.equal(details.querySelector('tbody').children[0].dataset.fileStatus, 'changed');
+  assert.equal(cleanupCheck(ui, 'b').disabled, true);
+  assert.equal(candidate.querySelector('.library-cleanup-force').disabled, false);
+  const elements = [ui.get('#library-comparison-feedback'), candidate.querySelector('label').querySelector('span'), candidate.querySelector('.library-cleanup-reason')];
+  const french = elements.map(element => element.textContent);
+  const nodes = elements.map(element => ({ parentElement: element,
+    get nodeValue() { return element.textContent; }, set nodeValue(value) { element.textContent = value; } }));
+  const document = { body: ui.root, readyState: 'loading', documentElement: { lang: 'fr' }, addEventListener() {},
+    createTreeWalker() { let index = 0; return { nextNode: () => nodes[index++] ?? null }; } };
+  const window = { ChartsHubCompanion: { initialLanguage: 'fr' }, dispatchEvent() {} };
+  require('node:vm').runInNewContext(readFileSync(require.resolve('../companion/ui/localization.js'), 'utf8'), {
+    window, document, Node: { TEXT_NODE: 3, ELEMENT_NODE: 1 }, NodeFilter: { SHOW_TEXT: 4 }, CustomEvent: class {},
+  });
+  window.ChartshubCompanionLanguage.apply('en');
+  assert.match(elements[0].textContent, /their notes, audio or some files differ/);
+  assert.equal(elements[1].textContent, 'Manual deletion only: Charts/b');
+  assert.match(elements[2].textContent, /Review the differences before confirming/);
+  assert.doesNotMatch(elements.map(element => element.textContent).join(' '), /same notes|notes are identical/i);
+  window.ChartshubCompanionLanguage.apply('fr');
+  assert.deepEqual(elements.map(element => element.textContent), french);
 });
 
 test('unverified file comparisons never label unknown content as absent or alter explicit selection', async t => {
