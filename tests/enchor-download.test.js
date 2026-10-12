@@ -111,3 +111,15 @@ test('a slow but active stream remains usable and is committed only after struct
  const result=await downloadEnchor({request,directory:root,idleTimeoutMs:80,fetcher:async()=>new Response(new ReadableStream({start(controller){let offset=0;const timer=setInterval(()=>{observedStaging||=fs.readdirSync(root).some(name=>name.startsWith('.chartshub-partial-'));assert.equal(fs.existsSync(path.join(root,'Band - Song.sng')),false);controller.enqueue(bytes.subarray(offset,offset+size));offset+=size;if(offset>=bytes.length){clearInterval(timer);controller.close();}},15);}}),{headers:{'Content-Length':String(bytes.length)}})});
  assert.equal(observedStaging,true);assert.deepEqual(fs.readFileSync(result.destination),bytes);assert.deepEqual(fs.readdirSync(root),['Band - Song']);
 }));
+test('cancellation during fresh folder reservation removes only that uncommitted folder',async t=>temporary(async root=>{
+ const controller=new AbortController(),mkdir=fs.promises.mkdir.bind(fs.promises);fs.writeFileSync(path.join(root,'keep.txt'),'keep');
+ t.mock.method(fs.promises,'mkdir',async(...args)=>{const result=await mkdir(...args);if(args[0]===path.join(root,'Band - Song'))controller.abort(Error('Annulation demandée.'));return result;});
+ await assert.rejects(downloadEnchor({request,directory:root,signal:controller.signal,fetcher:async()=>response(sng())}),/Annulation demandée/);
+ assert.deepEqual(fs.readdirSync(root),['keep.txt']);assert.equal(fs.readFileSync(path.join(root,'keep.txt'),'utf8'),'keep');
+}));
+test('cancellation after atomic publication keeps the complete song and reports success',async t=>temporary(async root=>{
+ const controller=new AbortController(),rename=fs.promises.rename.bind(fs.promises),bytes=sng(),progress=[];
+ t.mock.method(fs.promises,'rename',async(...args)=>{const result=await rename(...args);controller.abort();return result;});
+ const result=await downloadEnchor({request,directory:root,signal:controller.signal,progress:value=>progress.push(value),fetcher:async()=>response(bytes)});
+ assert.deepEqual(fs.readFileSync(result.destination),bytes);assert.equal(progress.at(-1).percent,100);assert.deepEqual(fs.readdirSync(root),['Band - Song']);
+}));

@@ -70,7 +70,7 @@ async function transfer({request,directory,fetcher,signal,wait,touch,progress=()
    signal.throwIfAborted();folderName=base+(n===1?'':` (${n})`);validateDestination(root,folderName,[{parts:[fileName]}]);reserved=path.join(root,folderName);
    try{await fsp.mkdir(reserved,{mode:0o700});break;}catch(error){reserved=null;if(error.code!=='EEXIST')throw error;}
   }
-  destination=path.join(reserved,fileName);await fsp.rename(target,destination);committed=true;
+  signal.throwIfAborted();destination=path.join(reserved,fileName);await fsp.rename(target,destination);committed=true;
   progress({message:'Téléchargement terminé : '+folderName,percent:100});return {folderName,fileName,destination,files:checked.files,format:'sng'};
  }finally{
   cancelBody(response);
