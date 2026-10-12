@@ -16,6 +16,7 @@ test('trusted catalogue preload exposes explicit tabbed or legacy layout before 
   assert.equal(api.layout,tabbed?'tabbed':'legacy');
   assert.equal(f.events.length,1);assert.equal(f.events[0].name,'DOMContentLoaded');
   assert.equal(typeof api.download,'function');
+  assert.deepEqual(Array.from(api.enchorDownloadFormats),['folder','zip','sng']);
  }
 });
 test('layout metadata does not expose a new capability or relax main-frame and origin checks',()=>{

@@ -3,8 +3,9 @@ const fs=require('node:fs'),fsp=fs.promises,path=require('node:path');
 const {Readable,Transform}=require('node:stream');
 const {pipeline}=require('node:stream/promises');
 const {idleTransfer}=require('./transfer-timeout');
-const {songFolderName,validateDestination}=require('./download');
-const {validateSngHeader,MAX_BYTES,MAX_FILE_BYTES,MAX_HEADER_BYTES}=require('./enchor-sng');
+const {songFolderName,validateDestination,safePart}=require('./download');
+const {validateSngHeader,parseSngHeader,MAX_BYTES,MAX_FILE_BYTES,MAX_HEADER_BYTES}=require('./enchor-sng');
+const {writeZipFromSng,writeFilteredSng,writeFolderFromSng}=require('./enchor-archive');
 const CDN='https://files.enchor.us/';
 const invalid=()=>Error('Le fichier ChorusEncore n’est pas un conteneur SNG valide.');
 function normalizeEnchorRequest(value){
@@ -18,12 +19,18 @@ function normalizeEnchorRequest(value){
  return result;
 }
 function enchorIdentity(md5){return 'enchor:'+normalizeEnchorRequest({md5}).md5;}
-async function validateSng(filename,size,signal){
+function normalizeEnchorDownloadRequest(value){
+ if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!['md5','title','artist','format','includeVideo'].includes(key)))throw Error('Demande ChorusEncore invalide.');
+ const request=normalizeEnchorRequest(Object.fromEntries(['md5','title','artist'].filter(key=>Object.hasOwn(value,key)).map(key=>[key,value[key]])));
+ if(value.format!==undefined&&!['folder','zip','sng'].includes(value.format)||value.includeVideo!==undefined&&typeof value.includeVideo!=='boolean')throw Error('Format ChorusEncore invalide.');
+ return {request,format:value.format??'folder',includeVideo:value.includeVideo!==false};
+}
+async function validateSng(filename,size,signal,details=false){
  const file=await fsp.open(filename,'r');
  try{
   if(!Number.isSafeInteger(size)||size<0||size>MAX_BYTES)throw invalid();const data=Buffer.alloc(Math.min(size,MAX_HEADER_BYTES));let offset=0;
   while(offset<data.length){signal?.throwIfAborted();const read=await file.read(data,offset,data.length-offset,offset);if(!read.bytesRead)throw invalid();offset+=read.bytesRead;}
-  const header=validateSngHeader(data);if(!header||header.totalBytes!==size)throw invalid();return header;
+  const header=(details?parseSngHeader:validateSngHeader)(data);if(!header||header.totalBytes!==size)throw invalid();return header;
  }finally{await file.close();}
 }
 function downloadError(status,headers){
@@ -41,9 +48,39 @@ async function downloadEnchor(options){
  const request=normalizeEnchorRequest(options.request),activity=idleTransfer(options.signal,options.idleTimeoutMs??60000);
  try{return await transfer({...options,request,...activity});}finally{activity.close();}
 }
-async function transfer({request,directory,fetcher,signal,wait,touch,progress=()=>{}}){
+async function fileSnapshot(target){
+ let info;try{info=await fsp.lstat(target,{bigint:true});}catch(error){if(error.code==='ENOENT')return null;throw error;}
+ if(!info.isFile()||info.isSymbolicLink()||info.nlink!==1n)throw Error('La destination doit être un fichier ordinaire, sans lien.');
+ return snapshot(info);
+}
+function snapshot(info){return {dev:info.dev,ino:info.ino,size:info.size,mtime:info.mtimeNs,ctime:info.ctimeNs};}
+function sameFile(left,right){return left===null?right===null:!!right&&Object.keys(left).every(key=>left[key]===right[key]);}
+async function prepareSavePath(outputPath,format,overwriteConfirmed){
+ if(typeof outputPath!=='string'||!path.isAbsolute(outputPath)||!safePart(path.basename(outputPath))||path.extname(outputPath).toLowerCase()!=='.'+format)throw Error('Choisissez un nom de fichier .'+format+' valide.');
+ const root=await fsp.realpath(path.dirname(outputPath));if(!(await fsp.stat(root)).isDirectory())throw Error('Choisissez un dossier.');
+ const filename=path.basename(outputPath),destination=path.join(root,filename);validateDestination(root,'',[{parts:[filename]}]);
+ const snapshot=await fileSnapshot(destination);if(snapshot&&!overwriteConfirmed)throw Error('Le fichier existe déjà. Choisissez un autre nom.');
+ return {root,filename,destination,snapshot};
+}
+async function publishSavedFile(source,save,signal){
+ signal.throwIfAborted();const current=await fileSnapshot(save.destination);if(!sameFile(save.snapshot,current))throw Error('Le fichier de destination a changé. Choisissez un autre nom et réessayez.');
+ let reserved,committed=false;
+ try{
+  if(!current){
+   // Exclusive reservation works on NTFS, exFAT and filesystems without links.
+   // Rename may replace only this fresh, unchanged empty file.
+   const handle=await fsp.open(save.destination,'wx',0o600);try{const info=await handle.stat({bigint:true});if(info.size!==0n||info.nlink!==1n)throw Error('Le fichier de destination a changé. Choisissez un autre nom et réessayez.');reserved=snapshot(info);}finally{await handle.close();}
+   signal.throwIfAborted();if(!sameFile(reserved,await fileSnapshot(save.destination)))throw Error('Le fichier de destination a changé. Choisissez un autre nom et réessayez.');
+  }
+  signal.throwIfAborted();await fsp.rename(source,save.destination);committed=true;
+ }finally{
+  if(!committed&&reserved&&sameFile(reserved,await fileSnapshot(save.destination)))await fsp.unlink(save.destination);
+ }
+}
+async function transfer({request,directory,outputPath,format='folder',includeVideo=true,overwriteConfirmed=false,fetcher,signal,wait,touch,progress=()=>{}}){
  if(typeof fetcher!=='function')throw Error('Téléchargement ChorusEncore indisponible.');
- signal.throwIfAborted();const root=await fsp.realpath(directory);if(!(await fsp.stat(root)).isDirectory())throw Error('Choisissez un dossier.');
+ if(!['folder','zip','sng'].includes(format)||typeof includeVideo!=='boolean'||typeof overwriteConfirmed!=='boolean')throw Error('Format ChorusEncore invalide.');
+ signal.throwIfAborted();const save=format==='folder'?null:await prepareSavePath(outputPath,format,overwriteConfirmed),root=save?.root||await fsp.realpath(directory);if(!(await fsp.stat(root)).isDirectory())throw Error('Choisissez un dossier.');
  const base=songFolderName(request);validateDestination(root,'',[{parts:[base+'.sng']}]);
  const staging=await fsp.mkdtemp(path.join(root,'.chartshub-partial-')),target=path.join(staging,'chart.sng');let response,reserved,committed=false;
  try{
@@ -62,16 +99,32 @@ async function transfer({request,directory,fetcher,signal,wait,touch,progress=()
   const verify=new Transform({transform(chunk,_encoding,done){touch();bytes+=chunk.length;if(bytes>MAX_BYTES||(expected!==null&&bytes>expected))return done(Error('Taille du téléchargement ChorusEncore invalide ou supérieure à 4 Go.'));if(Date.now()-last>200){last=Date.now();progress({message:'Téléchargement ChorusEncore…',percent:expected?Math.min(99,Math.floor(bytes/expected*100)):0});}done(null,chunk);}});
   await wait(pipeline(Readable.fromWeb(response.body),verify,fs.createWriteStream(target,{flags:'wx',mode:0o600}),{signal}));
   if(expected!==null&&bytes!==expected)throw Error('Le téléchargement ChorusEncore est incomplet.');
-  signal.throwIfAborted();progress({message:'Vérification du conteneur SNG…',percent:99});const checked=await wait(validateSng(target,bytes,signal));touch();
-  let folderName,destination;const fileName=base+'.sng';
-  // Reserve a fresh song directory atomically, as the native chart downloader
-  // does. Clone Hero discovers this complete SNG inside the selected Songs tree.
+  signal.throwIfAborted();progress({message:'Vérification du conteneur SNG…',percent:99});const checked=await wait(validateSng(target,bytes,signal,format!=='sng'||!includeVideo));touch();
+  let prepared=target,result={files:checked.files,format:'sng'};
+  if(format==='folder'){
+   prepared=path.join(staging,'prepared-folder');validateDestination(root,base,checked.members.map(member=>({parts:member.parts})).concat([{parts:['song.ini']}]));
+   progress({message:'Importation des fichiers de la chart…',percent:99});
+   result=await writeFolderFromSng({sourceFile:target,header:checked,outputDirectory:prepared,signal,touch,includeVideo,progress:()=>touch()});
+  }else if(format==='zip'||!includeVideo){
+   prepared=path.join(staging,'prepared.'+(format==='zip'?'zip':'sng'));progress({message:format==='zip'?'Préparation du ZIP…':'Préparation du SNG sans vidéo…',percent:99});
+   const convert=format==='zip'?writeZipFromSng:writeFilteredSng;
+   result=await convert({sourceFile:target,header:checked,outputFile:prepared,signal,touch,includeVideo,progress:()=>touch()});
+  }
+  if(save){
+   await publishSavedFile(prepared,save,signal);committed=true;
+   progress({message:'Téléchargement terminé : '+save.filename,percent:100});return {...result,fileName:save.filename,folderName:save.filename,destination:save.destination,output:format};
+  }
+  let folderName,destination;
+  // Reserve a fresh directory, then publish only this operation's fully verified
+  // and decoded files. No existing chart is replaced.
   for(let n=1;;n++){
-   signal.throwIfAborted();folderName=base+(n===1?'':` (${n})`);validateDestination(root,folderName,[{parts:[fileName]}]);reserved=path.join(root,folderName);
+   signal.throwIfAborted();folderName=base+(n===1?'':` (${n})`);validateDestination(root,folderName,checked.members.map(member=>({parts:member.parts})).concat([{parts:['song.ini']}]));reserved=path.join(root,folderName);
    try{await fsp.mkdir(reserved,{mode:0o700});break;}catch(error){reserved=null;if(error.code!=='EEXIST')throw error;}
   }
-  signal.throwIfAborted();destination=path.join(reserved,fileName);await fsp.rename(target,destination);committed=true;
-  progress({message:'Téléchargement terminé : '+folderName,percent:100});return {folderName,fileName,destination,files:checked.files,format:'sng'};
+  signal.throwIfAborted();destination=reserved;
+  for(const name of await fsp.readdir(prepared)){signal.throwIfAborted();await fsp.rename(path.join(prepared,name),path.join(reserved,name));}
+  committed=true;
+  progress({message:'Téléchargement terminé : '+folderName,percent:100});return {folderName,destination,files:result.files,format:'folder',output:'folder'};
  }finally{
   cancelBody(response);
   // Remove only this operation's freshly created child of the resolved root.
@@ -79,4 +132,4 @@ async function transfer({request,directory,fetcher,signal,wait,touch,progress=()
   if(!committed&&reserved&&path.dirname(reserved)===root)await fsp.rm(reserved,{recursive:true,force:true});
  }
 }
-module.exports={normalizeEnchorRequest,enchorIdentity,validateSngHeader,validateSng,downloadEnchor,downloadError,MAX_BYTES,MAX_FILE_BYTES};
+module.exports={normalizeEnchorRequest,normalizeEnchorDownloadRequest,enchorIdentity,validateSngHeader,validateSng,downloadEnchor,downloadError,MAX_BYTES,MAX_FILE_BYTES};

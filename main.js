@@ -38,8 +38,8 @@ async function selectTab(tab){
  if(closing||requestedTab!==tab)return;
  desktop.showTab('catalogue');loadCatalogue();focusWindow();
 }
-const {ORIGIN,endpointValid,downloadChart}=require('./download');
-const {normalizeEnchorRequest,enchorIdentity,downloadEnchor}=require('./enchor-download');
+const {ORIGIN,endpointValid,downloadChart,songFolderName}=require('./download');
+const {normalizeEnchorDownloadRequest,enchorIdentity,downloadEnchor}=require('./enchor-download');
 const {applicationMenu,canPreviewVisitor}=require('./app-menu');
 const {batchValid,normalizeBatch,downloadBatch}=require('./batch-download');
 const {folderPreferences}=require('./download-folder');
@@ -230,21 +230,28 @@ else{
   });
   ipcMain.handle('chartshub:download-enchor',async(event,payload)=>{
    if(!allowedSender(event))return {ok:false,error:'Demande non autorisée.'};
-   let request;try{request=normalizeEnchorRequest(payload);}catch{return {ok:false,error:'Demande ChorusEncore invalide.'};}
+   let intent;try{intent=normalizeEnchorDownloadRequest(payload);}catch{return {ok:false,error:'Demande ChorusEncore invalide.'};}
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
+   const {request,format,includeVideo}=intent;
    const endpoint=enchorIdentity(request.md5),controller=new AbortController();job=controller;
    let outcome,token;
    try{
     const account=await refreshAccount();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
     controller.signal.throwIfAborted();if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
     token=downloads.begin([endpoint],'single');
-    const directory=await chooseFolder('catalogue');if(!directory)return outcome={ok:false,cancelled:true};
+    let directory,outputPath;
+    if(format==='folder'){directory=await chooseFolder('catalogue');if(!directory)return outcome={ok:false,cancelled:true};}
+    else{
+     const choice=await dialog.showSaveDialog(win,{title:'Enregistrer la chart en '+format.toUpperCase(),defaultPath:path.join(app.getPath('downloads'),songFolderName(request)+'.'+format),filters:[{name:format.toUpperCase(),extensions:[format]}],properties:['showOverwriteConfirmation','createDirectory']});
+     if(choice.canceled||!choice.filePath)return outcome={ok:false,cancelled:true};outputPath=choice.filePath;
+    }
+    controller.signal.throwIfAborted();
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    const result=await downloadEnchor({request,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,{...data,endpoint,itemPercent:data.percent})});
+    const result=await downloadEnchor({request,directory,outputPath,format,includeVideo,overwriteConfirmed:format!=='folder',fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,{...data,endpoint,itemPercent:data.percent})});
     controller.signal.throwIfAborted();
     await refreshAccount();if(!downloads.current(token))return outcome={ok:false,cancelled:true};
     shell.showItemInFolder(result.destination);
-    return outcome={ok:true,folderName:result.folderName,fileName:result.fileName,files:result.files,format:'sng'};
+    return outcome={ok:true,folderName:result.folderName,fileName:result.fileName,files:result.files,format:result.format,output:format};
    }catch(error){return outcome=controller.signal.aborted?{ok:false,cancelled:true}:{ok:false,error:error.message};}
    finally{downloads.finish(token,outcome);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
