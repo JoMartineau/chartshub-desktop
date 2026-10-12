@@ -5,6 +5,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { createDownloadWorker } = require('../companion/download-worker.cjs');
+const { MAX_BYTES, MAX_FILE_BYTES } = require('../enchor-sng');
 
 const ORIGIN = 'https://chartshub.ca';
 const endpoint = '/api/charts/12345678-1234-1234-1234-123456789012/SongFolderabcdefghij/download-manifest';
@@ -146,7 +147,8 @@ test('Companion download worker rejects arbitrary, admin, redirect and malformed
 
 test('Companion download worker inherits the desktop manifest limits, extension rules and path conflict validation', async t => {
   const f = await fixture(t), original = structuredClone(f.source.data.manifest), file = original.files[0];
-  for (const files of [[], Array(1001).fill(file), [{ ...file, size: 2_000_000_001 }], [{ ...file, size: -1 }],
+  for (const files of [[], Array(1001).fill(file), [{ ...file, size: MAX_FILE_BYTES + 1 }], [{ ...file, size: -1 }],
+    [{ ...file, parts: ['video.webm'], size: MAX_FILE_BYTES }, { ...file, parts: ['video.mp4'], size: MAX_BYTES - MAX_FILE_BYTES + 1 }],
     [{ ...file, parts: ['..', 'song.ini'] }], [{ ...file, parts: ['CON.chart'] }], [{ ...file, parts: ['secret.exe'] }],
     [{ ...file, parts: ['other.ini'] }], [{ ...file, parts: ['song.ini.'] }], [{ ...file, parts: ['x'.repeat(181) + '.chart'] }],
     [{ ...file, parts: ['x', 'x', 'x', 'x', 'x', 'x', 'notes.chart'] }], [file, { ...file, parts: ['SONG.INI'] }],
@@ -155,6 +157,23 @@ test('Companion download worker inherits the desktop manifest limits, extension 
     f.source.data.manifest = { ...original, files };
     await assert.rejects(f.worker.run(f.args), { code: 'DOWNLOAD_INVALID' });
     assert.deepEqual(await fs.readdir(f.rootPath), []);
+  }
+});
+
+test('Companion accepts enlarged manifest boundaries before file transfer without allocating large fixtures', async t => {
+  for (const sizes of [[2_070_057_243], [MAX_FILE_BYTES], [MAX_FILE_BYTES, MAX_BYTES - MAX_FILE_BYTES]]) {
+    const f = await fixture(t), controller = new AbortController(), original = f.source.data.manifest.files[0];
+    f.source.data.manifest.files = sizes.map((size, index) => ({ ...original, size, parts: [index ? 'video.mp4' : 'video.webm'] }));
+    f.source.intercept = url => {
+      if (url === ORIGIN + endpoint) return null;
+      controller.abort(); return new Promise(() => {});
+    };
+    const progress = [];
+    await assert.rejects(f.worker.run({ ...f.args, signal: controller.signal, onProgress: item => progress.push(item) }), { name: 'AbortError' });
+    assert.equal(f.calls.length, 2, 'The valid manifest reaches the file transfer');
+    assert.equal(progress[0].totalBytes, sizes.reduce((sum, size) => sum + size, 0));
+    assert.deepEqual((await fs.readdir(f.rootPath)).filter(name => !name.startsWith('.chartshub-companion-')), []);
+    await assert.rejects(fs.stat(path.join(f.stage, 'active.part')), { code: 'ENOENT' });
   }
 });
 
