@@ -24,7 +24,18 @@ test('accepts only ChartsHub chart endpoints and safe files with an optional val
  for(const sha256 of [null,'',false,123,{},'0'.repeat(63),'0'.repeat(65),'z'.repeat(64)])assert.throws(()=>validateManifest({files:[{...entry(),sha256}]},endpoint),/SHA-256/);
  assert.throws(()=>validateManifest({files:[null]},endpoint));
  assert.throws(()=>validateManifest({files:[entry(),entry('SONG.INI')]},endpoint));
- assert.throws(()=>validateManifest({files:[{...entry(),size:2000000001}]},endpoint));
+ assert.throws(()=>validateManifest({files:[{...entry(),size:require('../enchor-sng').MAX_FILE_BYTES+1}]},endpoint));
+});
+test('native manifests distinguish the 4 GB chart limit from individual file limits without allocating payloads',()=>{
+ const {MAX_BYTES,MAX_FILE_BYTES}=require('../enchor-sng');
+ const file=(name,size,index)=>({...entry(name,''),size,sha256:undefined,url:endpoint.replace('download-manifest','files/fileabcdefghijk'+index)});
+ const threeGigabytes=[file('song.ogg',1500000000,1),file('video.webm',1500000000,2)];
+ assert.equal(validateManifest({files:threeGigabytes},endpoint),3000000000);
+ assert.equal(validateManifest({files:[file('video.webm',2070057243,1)]},endpoint),2070057243);
+ assert.equal(validateManifest({files:[file('video.webm',MAX_FILE_BYTES,1)]},endpoint),MAX_FILE_BYTES);
+ assert.throws(()=>validateManifest({files:[file('video.webm',MAX_FILE_BYTES+1,1)]},endpoint),/fichier.*2 Gio/);
+ assert.throws(()=>validateManifest({files:[file('song.ogg',1500000000,1),file('guitar.ogg',1500000000,2),file('video.webm',1000000001,3)]},endpoint),/chart.*4 Go/);
+ assert.equal(validateManifest({files:[file('song.ogg',1500000000,1),file('guitar.ogg',1500000000,2),file('video.webm',1000000000,3)]},endpoint),MAX_BYTES);
 });
 test('native download writes song.ini and publishes the directory only after hash validation',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-native-test-'));const progress=[];const data='[Song]\nname=Test';

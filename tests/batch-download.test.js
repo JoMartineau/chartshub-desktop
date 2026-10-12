@@ -24,3 +24,21 @@ test('an idle chart fails precisely while remaining charts continue and can be r
   assert.equal(retried.ok,true);assert.deepEqual(fs.readdirSync(root).sort(),['Saved','Saved (2)']);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
+test('mixed batches validate hashes and native endpoints, deduplicate stable identities, and never accept external URLs',()=>{
+ const {normalizeBatch}=require('../batch-download'),md5='0123456789abcdef0123456789abcdef',external={md5,title:'Song',artist:'Band'};
+ assert.equal(batchValid([endpoint(1),external,endpoint(2)]),true);
+ assert.deepEqual(normalizeBatch([endpoint(1),external]),[{endpoint:endpoint(1)},{endpoint:'enchor:'+md5,request:external}]);
+ for(const list of [[external,{...external,md5:md5.toUpperCase()}],[{...external,url:'https://evil.test/file.sng'}],['enchor:'+md5],[{md5:'invalid'}],[external,endpoint(1).replace('/charts/','/admin/charts/')]])assert.equal(batchValid(list),false);
+});
+test('mixed batches download sequentially into the same destination and keep source-specific progress and failures',async()=>{
+ const md5='0123456789abcdef0123456789abcdef',external={md5,title:'External',artist:'Band'},events=[],called=[];
+ const common=async(options,kind)=>{assert.equal(options.directory,'Songs');called.push(kind);options.progress({percent:50,message:kind});if(kind==='external')throw Error('Provider unavailable');return {folderName:'Native',files:2};};
+ const result=await downloadBatch({endpoints:[endpoint(1),external,endpoint(2)],directory:'Songs',signal:new AbortController().signal,progress:event=>events.push(event),download:options=>common(options,'native'),downloadExternal:options=>{assert.deepEqual(options.request,external);assert.equal(options.endpoint,undefined);return common(options,'external');}});
+ assert.deepEqual(called,['native','external','native']);assert.deepEqual(result.results.map(item=>item.endpoint),[endpoint(1),'enchor:'+md5,endpoint(2)]);assert.deepEqual(result.results.map(item=>item.ok),[true,false,true]);
+ assert.deepEqual(events.filter(item=>item.itemPercent===50).map(item=>item.endpoint),[endpoint(1),'enchor:'+md5,endpoint(2)]);assert.equal(result.cancelled,false);
+});
+test('cancelling a mixed batch preserves an already imported SNG and skips following native charts',async()=>{
+ const md5='0123456789abcdef0123456789abcdef',controller=new AbortController();let native=0;
+ const result=await downloadBatch({endpoints:[{md5},endpoint(1)],signal:controller.signal,download:async()=>{native++;},downloadExternal:async()=>{controller.abort();return {folderName:'External',fileName:'External.sng',files:3};}});
+ assert.equal(native,0);assert.equal(result.cancelled,true);assert.deepEqual(result.results,[{endpoint:'enchor:'+md5,ok:true,folderName:'External',files:3,fileName:'External.sng',format:'sng'}]);
+});

@@ -39,8 +39,9 @@ async function selectTab(tab){
  desktop.showTab('catalogue');loadCatalogue();focusWindow();
 }
 const {ORIGIN,endpointValid,downloadChart}=require('./download');
+const {normalizeEnchorRequest,enchorIdentity,downloadEnchor}=require('./enchor-download');
 const {applicationMenu,canPreviewVisitor}=require('./app-menu');
-const {batchValid,downloadBatch}=require('./batch-download');
+const {batchValid,normalizeBatch,downloadBatch}=require('./batch-download');
 const {folderPreferences}=require('./download-folder');
 const {windowTheme}=require('./window-theme');
 const {createAccountBoundDownloads}=require('./download-state');
@@ -190,20 +191,21 @@ else{
   ipcMain.handle('chartshub:download-batch',async(event,endpoints)=>{
    if(!allowedSender(event)||!batchValid(endpoints))return {ok:false,error:'Sélection non autorisée.'};
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
+   const items=normalizeBatch(endpoints),identities=items.map(item=>item.endpoint),requests=items.map(item=>item.request||item.endpoint);
    const controller=new AbortController();job=controller;
    let result,token,notificationScope;
    try{
     const account=await refreshAccount();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
     controller.signal.throwIfAborted();if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    token=downloads.begin(endpoints,'batch');
+    token=downloads.begin(identities,'batch');
     notificationScope=notificationBroker.capture();
     const directory=await chooseFolder('catalogue');
     if(!directory)return result={ok:false,cancelled:true,results:[]};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    result=await downloadBatch({endpoints,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data)});
+    result=await downloadBatch({endpoints:requests,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data)});
     await refreshAccount();return downloads.current(token)?result:{ok:false,cancelled:true,results:[]};
    }catch(error){return result={ok:false,error:error.message,cancelled:controller.signal.aborted};}
-   finally{downloads.finish(token,result);notificationBroker.finishNative(notificationScope,endpoints,result);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
+   finally{downloads.finish(token,result);notificationBroker.finishNative(notificationScope,identities,result);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
   ipcMain.handle('chartshub:download',async(event,endpoint)=>{
    if(!allowedSender(event)||!endpointValid(endpoint))return {ok:false,error:'Demande non autorisée.'};
@@ -225,6 +227,26 @@ else{
     return outcome={ok:true,folderName:result.folderName,files:result.files};
    }catch(error){return outcome=controller.signal.aborted?{ok:false,cancelled:true}:{ok:false,error:error.message};}
    finally{downloads.finish(token,outcome);notificationBroker.finishNative(notificationScope,[endpoint],outcome);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
+  });
+  ipcMain.handle('chartshub:download-enchor',async(event,payload)=>{
+   if(!allowedSender(event))return {ok:false,error:'Demande non autorisée.'};
+   let request;try{request=normalizeEnchorRequest(payload);}catch{return {ok:false,error:'Demande ChorusEncore invalide.'};}
+   if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
+   const endpoint=enchorIdentity(request.md5),controller=new AbortController();job=controller;
+   let outcome,token;
+   try{
+    const account=await refreshAccount();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
+    controller.signal.throwIfAborted();if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
+    token=downloads.begin([endpoint],'single');
+    const directory=await chooseFolder('catalogue');if(!directory)return outcome={ok:false,cancelled:true};
+    if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
+    const result=await downloadEnchor({request,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,{...data,endpoint,itemPercent:data.percent})});
+    controller.signal.throwIfAborted();
+    await refreshAccount();if(!downloads.current(token))return outcome={ok:false,cancelled:true};
+    shell.showItemInFolder(result.destination);
+    return outcome={ok:true,folderName:result.folderName,fileName:result.fileName,files:result.files,format:'sng'};
+   }catch(error){return outcome=controller.signal.aborted?{ok:false,cancelled:true}:{ok:false,error:error.message};}
+   finally{downloads.finish(token,outcome);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
   ipcMain.handle('chartshub:cancel',event=>{if(allowedSender(event))job?.abort();});
   const finishClose=async()=>{
