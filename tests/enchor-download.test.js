@@ -31,7 +31,7 @@ test('browser-compatible validation accepts an incomplete header without retaini
  const short=bytes.subarray(0,26+8);short.writeBigUInt64LE(1048577n,26);assert.throws(()=>validateSngHeader(short),/SNG valide/);
 });
 test('SNG headers reject oversized members, unsafe metadata and excessive file counts before payload processing',()=>{
- for(const metadata of [[['name','x\nmalformed']], [['name','Song'],['NAME','Duplicate']], [['bad=key','value']]])assert.throws(()=>validateSngHeader(sng({metadata})),/SNG valide/);
+ for(const metadata of [[['name','x\nmalformed']], [['name','x\rmalformed']], [['name','x\0malformed']], [['name','Song'],['NAME','Duplicate']], [['bad=key','value']], [['bad;key','value']]])assert.throws(()=>validateSngHeader(sng({metadata})),/SNG valide/);
  let bytes=sng(),position=26;position+=8+Number(bytes.readBigUInt64LE(position));const entry=position+16,length=bytes[entry];bytes.writeBigUInt64LE(BigInt(MAX_FILE_BYTES+1),entry+1+length);assert.throws(()=>validateSngHeader(bytes),/SNG valide/);
  bytes=sng();position=26;position+=8+Number(bytes.readBigUInt64LE(position));bytes.writeBigUInt64LE(1001n,position+8);assert.throws(()=>validateSngHeader(bytes),/SNG valide/);
 });
@@ -58,6 +58,17 @@ test('complete SNG downloads keep every original byte and reuse the chosen folde
  assert.equal(library.items.length,2);assert.equal(library.warningCount,0);
  for(const chart of library.items){assert.equal(chart.format,'sng');assert.equal(chart.title,'Song');assert.equal(chart.artist,'Band');assert.equal(chart.audio,'present');}
 }));
+test('complete SNG imports preserve semicolons in title and artist metadata and remain indexable',async()=>temporary(async root=>{
+ const title='Song; Part II',artist='Band; Ensemble',bytes=sng({metadata:[['name',title],['artist',artist]]});
+ const imported=await downloadEnchor({request:{md5,title,artist},directory:root,fetcher:async()=>response(bytes)});
+ assert.equal(imported.folderName,artist+' - '+title);
+ assert.deepEqual(fs.readFileSync(imported.destination),bytes);
+ const library=await require('../companion/library-scanner.cjs').scanLibrary({rootPath:root});
+ assert.equal(library.items.length,1);assert.equal(library.warningCount,0);
+ assert.equal(library.items[0].title,title);assert.equal(library.items[0].artist,artist);
+ assert.equal(library.items[0].format,'sng');assert.equal(library.items[0].audio,'present');
+}));
+
 test('invalid containers, versions, truncated files and mismatched lengths never publish into Songs',async()=>{
  const valid=sng(),modes=[Buffer.from('<html>upstream error</html>'),sng({version:2}),valid.subarray(0,valid.length-1),Buffer.concat([valid,Buffer.from('trailing')])];
  for(const bytes of modes)await temporary(async root=>{fs.writeFileSync(path.join(root,'keep.sng'),'existing');await assert.rejects(downloadEnchor({request,directory:root,fetcher:async()=>response(bytes)}));assert.deepEqual(fs.readdirSync(root),['keep.sng']);assert.equal(fs.readFileSync(path.join(root,'keep.sng'),'utf8'),'existing');});

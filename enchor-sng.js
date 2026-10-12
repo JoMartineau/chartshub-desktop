@@ -21,8 +21,8 @@
   function section(position){if(position+8>data.length)return null;const length=u64(position,SECTION_BYTES);if(length<8)throw invalid();const start=position+8,end=start+length;if(end>MAX_HEADER_BYTES)throw invalid();if(end>data.length)return null;return {start,end,length};}
   const metadata=section(26);if(!metadata)return null;const metadataCount=u64(metadata.start,4096);let cursor=metadata.start+8;
   if(metadataCount>Math.floor((metadata.length-8)/8))throw invalid();
-  function string(end){if(cursor+4>end)throw invalid();const length=view.getInt32(cursor,true);cursor+=4;if(length<0||length>end-cursor)throw invalid();let value;try{value=utf8.decode(data.subarray(cursor,cursor+length));}catch{throw invalid();}cursor+=length;if(/[\0\r\n;]/.test(value))throw invalid();return value;}
-  const keys=new Set();for(let i=0;i<metadataCount;i++){const key=string(metadata.end);string(metadata.end);if(!key||key.includes('=')||keys.has(key.toLowerCase()))throw invalid();keys.add(key.toLowerCase());}
+  function string(end){if(cursor+4>end)throw invalid();const length=view.getInt32(cursor,true);cursor+=4;if(length<0||length>end-cursor)throw invalid();let value;try{value=utf8.decode(data.subarray(cursor,cursor+length));}catch{throw invalid();}cursor+=length;if(/[\0\r\n]/.test(value))throw invalid();return value;}
+  const keys=new Set();for(let i=0;i<metadataCount;i++){const key=string(metadata.end);string(metadata.end);if(!key||/[=;]/.test(key)||keys.has(key.toLowerCase()))throw invalid();keys.add(key.toLowerCase());}
   if(cursor!==metadata.end)throw invalid();
   const index=section(metadata.end);if(!index)return null;const files=u64(index.start,MAX_FILES);cursor=index.start+8;
   if(!files||files>Math.floor((index.length-8)/18))throw invalid();
