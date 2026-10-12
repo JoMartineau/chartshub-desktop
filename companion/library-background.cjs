@@ -50,7 +50,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
         if (current !== connection) return;
         if (message.type === 'recycle') {
           const parent = connection.pending.get(message.requestId);
-          const allowed = !connection.stopping && !connection.recycling && ['recycleDuplicates', 'forceRecycleDuplicate', 'recycleBulkDifferences'].includes(parent?.method)
+          const allowed = !connection.stopping && !connection.recycling && ['recycleDuplicates', 'forceRecycleDuplicate', 'recycleBulkDifferences', 'recycleBadSongs'].includes(parent?.method)
             && Number.isSafeInteger(message.id) && message.id > 0 && !connection.recycleIds.has(message.id)
             && typeof recycle === 'function' && typeof message.target === 'string' && path.isAbsolute(message.target) && !message.target.includes('\0');
           const reply = ok => { try { worker.postMessage({ type: 'recycle-result', id: message.id, ok }); } catch {} };
@@ -71,7 +71,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
         connection.pending.delete(message.id);
         if (!connection.pending.size && !connection.stopping) worker.unref();
         if (message.ok) pending.resolve(message.result);
-        else pending.reject(Object.assign(Error(message.error), ['LIBRARY_COMPARISON_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED'].includes(message.code) ? { code: message.code } : {}));
+        else pending.reject(Object.assign(Error(message.error), ['LIBRARY_COMPARISON_SAFE', 'LIBRARY_BAD_SONGS_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED'].includes(message.code) ? { code: message.code } : {}));
       });
       worker.on('error', () => fail(connection));
       worker.on('exit', () => { if (current === connection) fail(connection); });
@@ -140,6 +140,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     cleanupHistory: options => call('cleanupHistory', [options]),
     compareDuplicates: options => call('compareDuplicates', [options]), chooseDuplicate: options => call('chooseDuplicate', [options]),
     keepDuplicateVersions: options => call('keepDuplicateVersions', [options]),
+    prepareBadSongs: filename => call('prepareBadSongs', [filename]), badSongsReview: options => call('badSongsReview', [options]), recycleBadSongs: options => call('recycleBadSongs', [options]), cancelBadSongs: () => call('cancelBadSongs', []),
     prepareCleanup: options => call('prepareCleanup', [options]), cleanupReview: options => call('cleanupReview', [options]), cleanupForceReview: options => call('cleanupForceReview', [options]),
     recycleDuplicates: options => call('recycleDuplicates', [options]), forceRecycleDuplicate: options => call('forceRecycleDuplicate', [options]),
     prepareBulkCleanup: options => call('prepareBulkCleanup', [options]), bulkCleanupReview: options => call('bulkCleanupReview', [options]),

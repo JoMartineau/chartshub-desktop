@@ -104,7 +104,7 @@ function validCommand(command, payload, widgetIds) {
     && Object.keys(payload).every(key => ['id', ...(command === 'songRequests.move' ? ['direction'] : [])].includes(key))
     && (command !== 'songRequests.move' || ['up', 'down'].includes(payload.direction));
   if (['mock.next', 'mock.reset', 'editor.undo', 'editor.redo'].includes(command)) return payload === undefined || payload === null;
-  if (['stream.copyUrl', 'library.chooseRoot', 'library.cancel', 'library.verifyAllDuplicates', 'library.prepareBulkCleanup', 'library.cancelBulkCleanup', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (['stream.copyUrl', 'library.chooseRoot', 'library.chooseBadSongs', 'library.cancelBadSongs', 'library.cancel', 'library.verifyAllDuplicates', 'library.prepareBulkCleanup', 'library.cancelBulkCleanup', 'catalogue.refresh', 'downloads.chooseRoot', 'clonehero.chooseFile', 'clonehero.detect', 'filters.chooseRoot', 'filters.install', 'filters.restore', 'filters.refresh', 'filters.openPanel', 'reshade.chooseRoot', 'reshade.install', 'reshade.refresh', 'reshade.setupInstall', 'reshade.setupCancel'].includes(command)) return payload === undefined || payload === null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'library.cancelDuplicateVerification') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
   if (command === 'catalogue.widget') return Object.keys(payload).length === 1 && typeof payload.enabled === 'boolean';
@@ -118,6 +118,9 @@ function validCommand(command, payload, widgetIds) {
       && ['system', 'arial', 'verdana', 'georgia', 'consolas'].includes(style.fontFamily)
       && Number.isInteger(style.fontSize) && style.fontSize >= 10 && style.fontSize <= 24;
   }
+  if (command === 'library.recycleBadSongs') return Object.keys(payload).length === 3 && ['planId','revision','ids'].every(key => Object.hasOwn(payload,key))
+    && typeof payload.planId === 'string' && /^[a-f0-9]{32}$/.test(payload.planId) && Number.isSafeInteger(payload.revision) && payload.revision >= 0
+    && Array.isArray(payload.ids) && payload.ids.length > 0 && payload.ids.length <= 200 && payload.ids.every(id => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)) && new Set(payload.ids).size === payload.ids.length;
   if (command === 'library.cleanupHistory') return Object.keys(payload).every(key => ['offset', 'limit'].includes(key))
     && (payload.offset === undefined || (Number.isSafeInteger(payload.offset) && payload.offset >= 0 && payload.offset <= 200))
     && (payload.limit === undefined || (Number.isSafeInteger(payload.limit) && payload.limit >= 1 && payload.limit <= 50));

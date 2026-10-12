@@ -40,6 +40,15 @@ jobs:
           if ($reports.Count -ne 1) { throw 'Bulk cleanup verification report missing' }
           $report = Get-Content -LiteralPath $reports[0].FullName -Raw | ConvertFrom-Json
           if ($report.ok -ne $true -or @($report.passed).Count -ne 3 -or @($report.recycled).Count -ne 2) { throw 'Bulk cleanup did not finish every required stage' }
+      - name: Verify Clone Hero reported chart cleanup in Electron
+        shell: pwsh
+        run: |
+          node node_modules/electron/cli.js tests/companion-bad-songs-electron.cjs "$env:RUNNER_TEMP/bad-songs"
+          if ($LASTEXITCODE -ne 0) { throw 'Bad songs Electron verification failed' }
+          $reports = @(Get-ChildItem -LiteralPath "$env:RUNNER_TEMP/bad-songs" -Filter verification.json -Recurse -File)
+          if ($reports.Count -ne 1) { throw 'Bad songs verification report missing' }
+          $report = Get-Content -LiteralPath $reports[0].FullName -Raw | ConvertFrom-Json
+          if ($report.ok -ne $true -or @($report.passed).Count -ne 6 -or @($report.recycled).Count -ne 1 -or $report.confirmations -ne 3 -or $report.fixtureOnly -ne $true -or $report.nativeTrashUsed -ne $false -or $report.providerRequests -ne 0) { throw 'Bad songs cleanup did not finish every required stage' }
       - name: Verify local music player and spectrum models in Electron
         if: ${{ !cancelled() }}
         shell: pwsh
@@ -50,6 +59,14 @@ jobs:
           if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Music player verification report missing' }
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
           if ($report.ok -ne $true -or @($report.passed).Count -ne 9) { throw 'Music player verification did not finish every required stage' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: companion-bad-songs-verification
+          path: |
+            ${{ runner.temp }}/bad-songs/**/verification.json
+            ${{ runner.temp }}/bad-songs/**/*.png
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         if: always()
         with:

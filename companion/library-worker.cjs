@@ -7,6 +7,7 @@ const METHODS = new Set(['load', 'start', 'stop', 'selectRoot', 'configure', 're
 let lastRoot, lastRevision, stopping = false;
 METHODS.add('cancelDuplicateVerification');
 METHODS.add('cleanupHistory');
+for (const method of ['prepareBadSongs', 'badSongsReview', 'recycleBadSongs', 'cancelBadSongs']) METHODS.add(method);
 METHODS.add('keepDuplicateVersions');
 METHODS.add('resolveRequestSong');
 METHODS.add('resolvePlaybackSong');
@@ -19,7 +20,7 @@ let nextRecycleId = 0;
 const service = createInstalledLibraryService({ dataDirectory: workerData.dataDirectory,
   recycle: (target, proof) => new Promise((resolve, reject) => {
     const request = requests.getStore();
-    if (stopping || !['recycleDuplicates', 'forceRecycleDuplicate', 'recycleBulkDifferences'].includes(request?.method)) return reject(Error('Nettoyage arrêté.'));
+    if (stopping || !['recycleDuplicates', 'forceRecycleDuplicate', 'recycleBulkDifferences', 'recycleBadSongs'].includes(request?.method)) return reject(Error('Nettoyage arrêté.'));
     const id = ++nextRecycleId;
     recycleRequests.set(id, { resolve, reject });
     parentPort.postMessage({ type: 'recycle', id, requestId: request.id, target, proof });
@@ -61,7 +62,7 @@ parentPort.on('message', message => {
     parentPort.postMessage({ type: 'reply', id: message.id, ok: true, result, state: snapshot() });
   }, failure => {
     parentPort.postMessage({ type: 'reply', id: message.id, ok: false,
-      ...(['LIBRARY_COMPARISON_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED'].includes(failure?.code) ? { code: failure.code } : {}),
+      ...(['LIBRARY_COMPARISON_SAFE', 'LIBRARY_BAD_SONGS_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED'].includes(failure?.code) ? { code: failure.code } : {}),
       error: typeof failure?.message === 'string' ? failure.message : 'Requête de bibliothèque invalide.', state: snapshot() });
   }).finally(() => pending.delete(task));
 });

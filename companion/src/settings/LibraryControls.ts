@@ -15,6 +15,7 @@ interface LibrarySummary {
   watcher: 'off' | 'watching' | 'unavailable';
   revision: number;
   cleanupRefreshPending?: boolean;
+  badSongsBusy?: boolean;
   duplicateVerification?: { running: boolean; stopping?: boolean; processed: number; total: number } | null;
   bulkCleanup?: { phase: 'preparing' | 'executing'; processed: number; total: number } | null;
 }
@@ -466,7 +467,7 @@ export class LibraryControls {
     const unavailable = !this.summary;
     const scanning = this.summary?.status === 'scanning';
     const verificationBusy = this.bulkPending || (this.summary?.duplicateVerification?.running === true && !this.bulkResult && !this.bulkMessage);
-    const externalBusy = this.pendingActions.size > 0 || verificationBusy;
+    const externalBusy = this.pendingActions.size > 0 || verificationBusy || this.summary?.badSongsBusy === true;
     const busy = externalBusy || this.differentCleanup.busy || !!this.summary?.bulkCleanup;
     const noRoot = !this.summary?.settings.rootPath;
     this.element<HTMLButtonElement>('#library-choose-root').disabled = unavailable || busy || scanning;

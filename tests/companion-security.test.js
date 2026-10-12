@@ -1744,3 +1744,46 @@ test('host shutdown drains an in-flight recycle and prevents recycling the next 
   settle(); const result = await action; await shutdown;
   assert.equal(result.ok, true, result.error); assert.equal(result.result.recycledIds.length, 1); assert.equal(result.result.cancelled, true); assert.equal(calls, 1);
 });
+
+
+async function badSongsHostFixture(t) {
+  const f = await hostFixture(t), fs = require('node:fs/promises'), os = require('node:os');
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'chartshub-bad-host-')), songs = path.join(base, 'Songs'), filename = path.join(base, 'badsongs.txt');
+  await fs.mkdir(songs);
+  for (const name of ['A','B']) { const folder = path.join(songs, name); await fs.mkdir(folder); await fs.writeFile(path.join(folder, 'notes.chart'), '[Song]\n{}\n[ExpertSingle]\n{\n0 = N 0 0\n}'); await fs.writeFile(path.join(folder, 'song.ini'), '[song]\nname=Example\nartist=Band\ncharter=Creator\n'); }
+  await fs.writeFile(filename, 'ERROR: These folders have corrupt (or broken) notes.mid or notes.chart files!\n' + ['A','B'].map(name => path.join(songs,name)).join('\n') + '\n');
+  t.after(async () => { await f.host.stop(); assert.equal(path.dirname(base), await fs.realpath(os.tmpdir())); assert.match(path.basename(base), /^chartshub-bad-host-/); await fs.rm(base, {recursive:true,force:true}); });
+  const panel = await f.host.open(), command = (name, payload) => f.handlers.get('companion:command')(f.eventFor(panel), name, payload);
+  await f.host.library.selectRoot(songs);
+  for (let attempt = 0; attempt < 300 && f.host.library.status().status === 'scanning'; attempt++) await new Promise(resolve => setTimeout(resolve,10));
+  assert.equal(f.host.library.status().status, 'ready');
+  f.dialog.showOpenDialog = async (owner, options) => { assert.equal(owner,panel); assert.match(options.title,/badsongs\.txt/); return {canceled:false,filePaths:[filename]}; };
+  const prepared = await command('library.chooseBadSongs', {}); assert.equal(prepared.ok,true,prepared.error); assert.ok(prepared.result.entries.every(entry => entry.eligible));
+  return { ...f, fs, base, songs, filename, panel, command, plan: prepared.result, payload: {planId:prepared.result.planId,revision:prepared.result.revision,ids:prepared.result.entries.map(entry=>entry.id)} };
+}
+test('bad songs cleanup IPC denies paths, warnings, duplicate IDs and non-panel requests', async t => {
+  const f = await badSongsHostFixture(t);
+  for (const payload of [{...f.payload,rootPath:f.songs}, {...f.payload,ids:[]}, {...f.payload,ids:[f.payload.ids[0],f.payload.ids[0]]}, {...f.payload,planId:'../badsongs.txt'}]) assert.equal(validCommand('library.recycleBadSongs',payload,[]),false);
+  assert.equal(validCommand('library.prepareBadSongs',{filename:f.filename},[]),false); assert.equal(validCommand('library.badSongsReview',f.payload,[]),false);
+  const forged={sender:{},senderFrame:{url:'chartshub-companion://app/ui/overlay.html'}};
+  assert.equal((await f.handlers.get('companion:command')(forged,'library.recycleBadSongs',f.payload)).ok,false);
+  assert.equal(trustedFiltersWidgetCommand(f.eventFor(f.panel),f.panel,'library.recycleBadSongs',f.payload),false);
+  assert.equal(require('../companion/security.cjs').trustedCatalogueWidgetCommand(f.eventFor(f.panel),f.panel,'library.recycleBadSongs',f.payload),false);
+});
+test('bad songs native confirmation starts cancelled and recycles only the explicitly selected chart', async t => {
+  const f = await badSongsHostFixture(t), recycled=[]; let accepted=false, confirmations=0;
+  f.shell.trashItem=async target=>{recycled.push(target);await f.fs.rename(target,path.join(f.base,'fake-bin-'+path.basename(target)));};
+  f.dialog.showMessageBox=async(owner,options)=>{confirmations++;assert.equal(owner,f.panel);assert.equal(options.defaultId,0);assert.equal(options.cancelId,0);assert.ok(options.detail.includes(f.songs));assert.ok(options.detail.includes(path.join(f.songs,'A')));assert.equal(options.detail.includes(path.join(f.songs,'B')),false);return{response:accepted?1:0};};
+  const request={...f.payload,ids:[f.payload.ids[0]]};assert.deepEqual(await f.command('library.recycleBadSongs',request),{ok:true,cancelled:true});assert.deepEqual(recycled,[]);
+  accepted=true;const response=await f.command('library.recycleBadSongs',request);assert.equal(response.ok,true,response.error);assert.equal(response.result.recycledIds.length,1);assert.deepEqual(recycled,[path.join(f.songs,'A')]);assert.ok(await f.fs.stat(path.join(f.songs,'B')));assert.equal(confirmations,2);assert.equal(f.host.library.status().cleanupRefreshPending,true);
+});
+test('bad songs report changed during native confirmation blocks every target', async t => {
+  const f = await badSongsHostFixture(t), recycled=[];f.shell.trashItem=async target=>{recycled.push(target);};
+  f.dialog.showMessageBox=async()=>{await f.fs.appendFile(f.filename,'\n');return{response:1};};
+  const response=await f.command('library.recycleBadSongs',f.payload);assert.equal(response.ok,true,response.error);assert.equal(response.result.failed.length,1);assert.equal(response.result.recycledIds.length,0);assert.deepEqual(recycled,[]);
+});
+test('bad songs batch stops on a changed second chart and keeps its current index row', async t => {
+  const f = await badSongsHostFixture(t), recycled=[];const before=f.host.library.status().lastScanAt;
+  f.dialog.showMessageBox=async()=>({response:1});f.shell.trashItem=async target=>{recycled.push(target);await f.fs.rename(target,path.join(f.base,'fake-bin-'+path.basename(target)));await f.fs.writeFile(path.join(f.songs,'B','notes.chart'),'edited after confirmation');};
+  const response=await f.command('library.recycleBadSongs',f.payload);assert.equal(response.ok,true,response.error);assert.equal(response.result.recycledIds.length,1);assert.equal(response.result.failed.length,1);assert.deepEqual(recycled,[path.join(f.songs,'A')]);assert.equal(f.host.library.status().count,1);assert.equal(f.host.library.status().lastScanAt,before);assert.equal(f.host.library.status().cleanupRefreshPending,true);
+});

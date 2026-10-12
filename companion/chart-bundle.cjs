@@ -338,4 +338,40 @@ async function recheckBundleIdentity({ rootPath, relativePath, format, expected,
   }
 }
 
-module.exports = { inspectChartBundle, revalidateBundle, recheckBundleIdentity, captureBundleSnapshot, bundleSnapshot };
+/** A Clone Hero error report can name unreadable notes or missing audio. Hash
+ * their raw files with the same path guards; never require playable content. */
+async function inspectReportedBundle({ rootPath, targetRelativePath, kind = 'folder', signal, expected, identityOnly = false } = {}) {
+  abort(signal);
+  try {
+    if (typeof rootPath !== 'string' || !path.isAbsolute(rootPath) || !validRelative(targetRelativePath)
+      || !['folder', 'sng'].includes(kind) || (kind === 'sng' && !/\.sng$/i.test(targetRelativePath))) return null;
+    const root = path.resolve(rootPath), target = path.resolve(root, ...targetRelativePath.split('/'));
+    if (!within(root, target)) return null;
+    const ancestry = await inspectPath(root, targetRelativePath, kind, signal), leaf = ancestry.at(-1);
+    const identity = { version: 1, targetRelativePath, kind, ancestors: ancestry.slice(0, -1).map(entry => descriptor(entry.stat, false)), target: descriptor(leaf.stat), files: [] };
+    const names = kind === 'folder' ? (await fs.readdir(target)).sort(sortNames) : [path.basename(target)];
+    const normalized = new Set(), files = []; let bytes = 0;
+    if (kind === 'folder' && (!names.length || !names.some(name => /^(?:notes\.(?:chart|mid)|song\.ini)$/i.test(name)))) return null;
+    // A reported folder must be one leaf song, never a pack or two versions.
+    if (kind === 'folder' && names.filter(name => /\.(?:chart|mid|midi|sng|srb)$/i.test(name)).length > 1) return null;
+    for (const name of names) {
+      abort(signal);
+      if (!validRelative(name) || name.includes('/') || normalized.has(normalizedName(name))) return null;
+      normalized.add(normalizedName(name));
+      const filename = kind === 'folder' ? path.join(target, name) : target, stat = await inspectFile(filename, signal);
+      identity.files.push({ name, ...descriptor(stat) }); bytes += Number(stat.size);
+      if (!Number.isSafeInteger(bytes)) return null;
+      if (!identityOnly) files.push({ name, bytes: Number(stat.size), sha256: await openRead(filename, stat, signal, async (read, size) => hashRange(read, 0, size, signal)) });
+    }
+    if (kind === 'folder' && JSON.stringify(names) !== JSON.stringify((await fs.readdir(target)).sort(sortNames))) return null;
+    await inspectPath(root, targetRelativePath, kind, signal, ancestry);
+    for (const entry of identity.files) await inspectFile(kind === 'folder' ? path.join(target, entry.name) : target, signal, {
+      ...Object.fromEntries(Object.entries(entry).filter(([key]) => key !== 'name').map(([key, value]) => [key, BigInt(value)]))
+    });
+    const value = { targetRelativePath, kind, bytes, identity, ...(identityOnly ? {} : { digest: manifestDigest('chartshub-reported-song-v1', files), files }) };
+    if (expected && (JSON.stringify(identity) !== JSON.stringify(expected.identity) || (!identityOnly && value.digest !== expected.digest))) return null;
+    return value;
+  } catch (error) { abort(signal); if (error?.name === 'AbortError') throw error; return null; }
+}
+
+module.exports = { inspectChartBundle, revalidateBundle, recheckBundleIdentity, captureBundleSnapshot, bundleSnapshot, inspectReportedBundle };
