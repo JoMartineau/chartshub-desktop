@@ -42,3 +42,16 @@ test('cancelling a mixed batch preserves an already imported SNG and skips follo
  const result=await downloadBatch({endpoints:[{md5},endpoint(1)],signal:controller.signal,download:async()=>{native++;},downloadExternal:async()=>{controller.abort();return {folderName:'External',fileName:'External.sng',files:3};}});
  assert.equal(native,0);assert.equal(result.cancelled,true);assert.deepEqual(result.results,[{endpoint:'enchor:'+md5,ok:true,folderName:'External',files:3,fileName:'External.sng',format:'sng'}]);
 });
+
+test('a ChorusEncore denial or rate limit stops the batch without requesting following charts or losing successes',async()=>{
+ const {downloadError}=require('../enchor-download'),external={md5:'a'.repeat(32)};
+ for(const status of [401,403,429]){let calls=0;const error=downloadError(status,new Headers({'Retry-After':'7200'}));const result=await downloadBatch({endpoints:[endpoint(1),external,endpoint(2)],signal:new AbortController().signal,download:async()=>{calls++;return {folderName:'Saved',files:2};},downloadExternal:async()=>{calls++;throw error;}});
+  assert.equal(calls,2);assert.deepEqual(result.results.map(item=>item.ok),[true,false]);assert.equal(result.cancelled,false);assert.equal(result.error,error.message);assert.equal(result.code,status===429?'ENCHOR_DOWNLOAD_RATE_LIMITED':'ENCHOR_DOWNLOAD_ACCESS_DENIED');if(status===429)assert.equal(result.retryAfterSeconds,7200);
+ }
+});
+
+test('ChorusEncore retry delays accept safe seconds and HTTP dates without scheduling another request',()=>{
+ const {downloadError}=require('../enchor-download');assert.equal(downloadError(429,new Headers({'Date':'Mon, 12 Oct 2026 20:00:00 GMT','Retry-After':'Mon, 12 Oct 2026 22:00:00 GMT'})).retryAfterSeconds,7200);
+ for(const value of ['bad','-1','999999999999999999999999'])assert.equal(downloadError(429,new Headers({'Retry-After':value})).retryAfterSeconds,undefined);
+ assert.equal(downloadError(404).code,undefined);
+});

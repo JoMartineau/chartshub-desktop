@@ -26,8 +26,11 @@ async function validateSng(filename,size,signal){
   const header=validateSngHeader(data);if(!header||header.totalBytes!==size)throw invalid();return header;
  }finally{await file.close();}
 }
-function downloadError(status){
- return Error(status===404?'Cette chart ChorusEncore n’est plus disponible.':status===401||status===403?'ChorusEncore refuse ce téléchargement.':status===429?'ChorusEncore limite temporairement les téléchargements. Réessayez plus tard.':'Le téléchargement ChorusEncore a échoué (HTTP '+status+'). Réessayez plus tard.');
+function downloadError(status,headers){
+ const error=Error(status===404?'Cette chart ChorusEncore n’est plus disponible.':status===401||status===403?'ChorusEncore refuse ce téléchargement.':status===429?'ChorusEncore limite temporairement les téléchargements. Réessayez plus tard.':'Le téléchargement ChorusEncore a échoué (HTTP '+status+'). Réessayez plus tard.');
+ if(status===401||status===403)error.code='ENCHOR_DOWNLOAD_ACCESS_DENIED';
+ if(status===429){error.code='ENCHOR_DOWNLOAD_RATE_LIMITED';const value=headers?.get?.('retry-after')?.trim(),server=Date.parse(headers?.get?.('date')||'');let seconds=0;if(value&&/^\d+$/.test(value))seconds=Number(value);else if(value&&Number.isFinite(Date.parse(value)))seconds=Math.max(0,Math.ceil((Date.parse(value)-(Number.isFinite(server)?server:Date.now()))/1000));if(Number.isSafeInteger(seconds)&&seconds>0){error.retryAfterSeconds=seconds;error.message+=' Attendez '+seconds+' secondes.';}}
+ return error;
 }
 function cancelBody(response){
  // Cancellation belongs to the transport and may itself never settle. Request
@@ -50,7 +53,7 @@ async function transfer({request,directory,fetcher,signal,wait,touch,progress=()
   // idle deadline. Close that late response even though the job already ended.
   fetching.then(reply=>{if(signal.aborted)cancelBody(reply);},()=>{});
   response=await wait(fetching);
-  if(response?.status!==200)throw downloadError(Number.isInteger(response?.status)?response.status:503);
+  if(response?.status!==200)throw downloadError(Number.isInteger(response?.status)?response.status:503,response?.headers);
   if(response.redirected||(response.url&&response.url!==url)||!response.body)throw Error('Réponse ChorusEncore invalide.');
   const encoding=(response.headers?.get('content-encoding')||'').trim().toLowerCase();if(encoding&&encoding!=='identity')throw Error('Encodage du téléchargement ChorusEncore non pris en charge.');
   const declared=response.headers?.get('content-length');let expected=null;
@@ -76,4 +79,4 @@ async function transfer({request,directory,fetcher,signal,wait,touch,progress=()
   if(!committed&&reserved&&path.dirname(reserved)===root)await fsp.rm(reserved,{recursive:true,force:true});
  }
 }
-module.exports={normalizeEnchorRequest,enchorIdentity,validateSngHeader,validateSng,downloadEnchor,MAX_BYTES,MAX_FILE_BYTES};
+module.exports={normalizeEnchorRequest,enchorIdentity,validateSngHeader,validateSng,downloadEnchor,downloadError,MAX_BYTES,MAX_FILE_BYTES};

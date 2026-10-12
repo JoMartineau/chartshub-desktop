@@ -12,7 +12,7 @@ function normalizeBatch(endpoints){
 function batchValid(endpoints){try{normalizeBatch(endpoints);return true;}catch{return false;}}
 async function downloadBatch({endpoints,directory,fetcher,signal,progress=()=>{},download=downloadChart,downloadExternal=downloadEnchor,idleTimeoutMs}){
  const items=normalizeBatch(endpoints);
- const results=[];
+ const results=[];let stopped;
  for(let i=0;i<items.length;i++){
   if(signal.aborted)break;
   const item=items[i];
@@ -22,8 +22,8 @@ async function downloadBatch({endpoints,directory,fetcher,signal,progress=()=>{}
    const result=await(item.request?downloadExternal({...options,request:item.request}):download({...options,endpoint:item.endpoint}));
    results.push({endpoint:item.endpoint,ok:true,folderName:result.folderName,files:result.files,...(item.request?{fileName:result.fileName,format:'sng'}:{})});
    progress({endpoint:item.endpoint,state:'complete',itemPercent:100,percent:Math.floor((i+1)/items.length*100),folderName:result.folderName,message:`${i+1}/${items.length} · ${result.folderName}`});
-  }catch(error){if(signal.aborted)break;results.push({endpoint:item.endpoint,ok:false,error:error.message});progress({endpoint:item.endpoint,state:'error',itemPercent:0,percent:Math.floor((i+1)/items.length*100),error:error.message,message:`${i+1}/${items.length} · ${error.message}`});}
+  }catch(error){if(signal.aborted)break;results.push({endpoint:item.endpoint,ok:false,error:error.message});progress({endpoint:item.endpoint,state:'error',itemPercent:0,percent:Math.floor((i+1)/items.length*100),error:error.message,message:`${i+1}/${items.length} · ${error.message}`});if(item.request&&['ENCHOR_DOWNLOAD_ACCESS_DENIED','ENCHOR_DOWNLOAD_RATE_LIMITED'].includes(error.code)){stopped=error;break;}}
  }
- return {ok:results.length===items.length&&results.every(r=>r.ok),cancelled:signal.aborted,results,total:items.length};
+ return {ok:results.length===items.length&&results.every(r=>r.ok),cancelled:signal.aborted,results,total:items.length,...(stopped?{error:stopped.message,code:stopped.code,...(stopped.retryAfterSeconds?{retryAfterSeconds:stopped.retryAfterSeconds}:{})}:{})};
 }
 module.exports={batchValid,normalizeBatch,downloadBatch};
