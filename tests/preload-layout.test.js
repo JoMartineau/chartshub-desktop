@@ -23,3 +23,8 @@ test('layout metadata does not expose a new capability or relax main-frame and o
  const api=preload({tabbed:true}).exposed.get('ChartsHubDesktop');
  assert.equal(api.ipcRenderer,undefined);assert.equal(api.send,undefined);assert.equal(api.invoke,undefined);
 });
+
+test('both sandboxed catalogue layouts expose the version declared by the release package',()=>{
+ const version=require('../package.json').version;
+ for(const tabbed of [false,true]) assert.equal(preload({tabbed}).exposed.get('ChartsHubDesktop').version,version);
+});
