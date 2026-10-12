@@ -24,7 +24,6 @@ La liste des signalements défile séparément de la page et charge 50 élément
 à la fois. Les commandes et les résultats existent en français et en anglais,
 avec les couleurs du thème ChartsHub.
 
-Validation du candidat : 109 tests ciblés passent localement, sans appel à la
-vraie Corbeille ni modification d’une bibliothèque Songs réelle. Une fixture
-Electron de six étapes avec captures, dialogues simulés et corbeille de test
-est préparée ; son exécution en CI reste à confirmer avant publication.
+Les vérifications couvrent la sélection, la confirmation annulée, le changement
+des fichiers ou du rapport, les résultats partiels et l’absence de suppression
+automatique. Les tests utilisent une bibliothèque et une Corbeille simulées.

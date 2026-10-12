@@ -6,6 +6,7 @@ class Element extends EventTarget {
   set innerHTML(_){throw Error('Report text must not be HTML');}append(...children){this.children.push(...children);}setAttribute(key,value){this.attributes[key]=String(value);}
   addEventListener(name,listener,options){if(options?.signal)setMaxListeners(0,options.signal);super.addEventListener(name,listener,options);}
   querySelector(selector){return this.querySelectorAll(selector)[0]??null;}querySelectorAll(selector){const match=entry=>selector.startsWith('#')?entry.id===selector.slice(1):entry.tagName===selector;return this.children.flatMap(entry=>[...(match(entry)?[entry]:[]),...entry.querySelectorAll(selector)]);}
+  matches(selector){return selector.startsWith('#')?this.id===selector.slice(1):this.tagName===selector;}
   click(){if(!this.disabled)this.dispatchEvent(new Event('click'));}
 }
 const entry=(id,extra={})=>({id:id.repeat(64),targetRelativePath:'Artist/<Song>',reportedPath:'C:/Songs/Artist/<Song>',severity:'error',reasons:['ERROR: <script>bad</script>'],eligible:true,blocked:null,bytes:55,kind:'folder',...extra});
@@ -14,16 +15,22 @@ const snapshot=(extra={})=>({library:{settings:{rootPath:'C:/Songs'},revision:1,
 const tick=()=>new Promise(resolve=>setTimeout(resolve,0));
 async function fixture(t){
   const old={window:globalThis.window,document:globalThis.document},document={documentElement:{lang:'fr'},createElement(tag){return new Element(this,tag);}},window=new EventTarget();
-  globalThis.document=document;globalThis.window=window;const root=document.createElement('main'),html=fs.readFileSync(require.resolve('../companion/ui/index.html'),'utf8');
-  for(const [,tag,id]of html.matchAll(/<(\w+)\b[^>]*\bid="(library-bad-songs[^"]*)"/g)){const item=document.createElement(tag);item.id=id;root.append(item);}
+  globalThis.document=document;globalThis.window=window;const page=document.createElement('main'),html=fs.readFileSync(require.resolve('../companion/ui/index.html'),'utf8');let root;
+  for(const [,tag,id]of html.matchAll(/<(\w+)\b[^>]*\bid="(library-bad-songs[^"]*)"/g)){const item=document.createElement(tag);item.id=id;if(id==='library-bad-songs'){root=item;page.append(item);}else root.append(item);}
+  assert.equal(root.tagName,'details');assert.equal(root.querySelector('#library-bad-songs'),null,'Element.querySelector searches descendants, excluding the element itself');
   const {BadSongsCleanupControls}=await import('../companion/dist/settings/BadSongsCleanupControls.js'),calls=[];
   const controls=new BadSongsCleanupControls({root,command:(name,payload)=>new Promise(resolve=>calls.push({name,payload,resolve}))});controls.update(snapshot());
   t.after(()=>{controls.dispose();for(const key of ['window','document'])if(old[key]===undefined)delete globalThis[key];else globalThis[key]=old[key];});
-  const get=selector=>root.querySelector(selector),ui={controls,calls,get,document};
+  const get=selector=>page.querySelector(selector),ui={controls,calls,get,document};
   ui.prepare=async(result=plan())=>{get('#library-bad-songs-import').click();assert.equal(calls.at(-1).name,'library.chooseBadSongs');calls.at(-1).resolve({ok:true,result});await tick();};
   ui.check=id=>get('#library-bad-songs-list').querySelectorAll('input').find(item=>item.dataset.id===id.repeat(64));
   ui.select=id=>{const check=ui.check(id);check.checked=true;check.dispatchEvent(new Event('change'));};return ui;
 }
+test('panel bootstrap initializes with the real details element as the component root',async t=>{
+  const ui=await fixture(t),panel=fs.readFileSync(require.resolve('../companion/ui/panel.js'),'utf8');
+  assert.match(panel,/new BadSongsCleanupControls\(\{ root: query\('#library-bad-songs'\)/);
+  assert.equal(ui.get('#library-bad-songs').attributes['aria-busy'],'false');assert.equal(ui.get('#library-bad-songs-import').disabled,false);assert.equal(ui.get('#library-bad-songs-plan').hidden,true);
+});
 test('import displays report time and reasons as text, with all checkboxes initially clear and warnings disabled',async t=>{
   const ui=await fixture(t);await ui.prepare();assert.equal(ui.check('a').checked,false);assert.equal(ui.check('b').checked,false);assert.equal(ui.check('b').disabled,true);
   assert.equal(ui.get('#library-bad-songs-recycle').disabled,true);assert.match(ui.get('#library-bad-songs-list').textContent,/<script>bad<\/script>/);assert.match(ui.get('#library-bad-songs-status').textContent,/2026-10-12/);

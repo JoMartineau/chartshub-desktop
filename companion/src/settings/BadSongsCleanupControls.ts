@@ -33,7 +33,7 @@ export class BadSongsCleanupControls {
     if (typeof window !== 'undefined') window.addEventListener('chartshub:languagechange', () => { this.renderEntries(); this.refresh(); }, { signal });
     this.refresh();
   }
-  private element<T extends HTMLElement = HTMLElement>(selector: string): T { const value = this.options.root.querySelector<T>(selector); if (!value) throw Error('Missing bad songs control: ' + selector); return value; }
+  private element<T extends HTMLElement = HTMLElement>(selector: string): T { const value = this.options.root.matches(selector) ? this.options.root as T : this.options.root.querySelector<T>(selector); if (!value) throw Error('Missing bad songs control: ' + selector); return value; }
   private get blocked(): boolean { return this.busy || !this.state?.settings.rootPath || this.state.status !== 'ready' || !!this.state.bulkCleanup || this.state.duplicateVerification?.running === true || this.state.badSongsBusy === true; }
   update(snapshot: { library?: LibraryState }): void {
     if (this.disposed || !snapshot.library) return;
