@@ -20,7 +20,7 @@ async function downloadBatch({endpoints,directory,fetcher,signal,progress=()=>{}
    progress({endpoint:item.endpoint,state:'downloading',itemPercent:0,percent:Math.floor(i/items.length*100),message:`${i+1}/${items.length} · Préparation…`});
    const options={directory,fetcher,signal,idleTimeoutMs,progress:p=>progress({...p,endpoint:item.endpoint,state:'downloading',itemPercent:p.percent,itemMessage:p.message,percent:Math.floor((i+p.percent/100)/items.length*100),message:`${i+1}/${items.length} · ${p.message}`})};
    const result=await(item.request?downloadExternal({...options,request:item.request}):download({...options,endpoint:item.endpoint}));
-   results.push({endpoint:item.endpoint,ok:true,folderName:result.folderName,files:result.files,...(item.request?{fileName:result.fileName,format:'sng'}:{})});
+   results.push({endpoint:item.endpoint,ok:true,folderName:result.folderName,files:result.files,...(item.request?{fileName:result.fileName,format:result.format||(result.fileName?'sng':'folder')}:{})});
    progress({endpoint:item.endpoint,state:'complete',itemPercent:100,percent:Math.floor((i+1)/items.length*100),folderName:result.folderName,message:`${i+1}/${items.length} · ${result.folderName}`});
   }catch(error){if(signal.aborted)break;results.push({endpoint:item.endpoint,ok:false,error:error.message});progress({endpoint:item.endpoint,state:'error',itemPercent:0,percent:Math.floor((i+1)/items.length*100),error:error.message,message:`${i+1}/${items.length} · ${error.message}`});if(item.request&&['ENCHOR_DOWNLOAD_ACCESS_DENIED','ENCHOR_DOWNLOAD_RATE_LIMITED'].includes(error.code)){stopped=error;break;}}
  }

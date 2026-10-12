@@ -48,25 +48,25 @@ test('a 2,070,057,243-byte video and the exact guarded file boundary fit valid S
  for(const size of [2070057243,MAX_FILE_BYTES]){const header=validateSngHeader(videoHeader(size));assert.equal(header.files,3);assert.ok(header.totalBytes>size);assert.ok(header.totalBytes<MAX_BYTES);}
  assert.equal(MAX_FILE_BYTES,2147483644);assert.throws(()=>validateSngHeader(videoHeader(MAX_FILE_BYTES+1)),/SNG valide/);
 });
-test('complete SNG downloads keep every original byte and reuse the chosen folder without overwriting a chart',async()=>temporary(async root=>{
+test('direct imports decode all original files into the chosen folder without overwriting a chart',async()=>temporary(async root=>{
  const bytes=sng(),calls=[],progress=[],options={request,directory:root,progress:value=>progress.push(value),fetcher:async(url,opts)=>{calls.push(url);assert.equal(url,'https://files.enchor.us/'+md5+'.sng');assert.equal(opts.credentials,'omit');assert.equal(opts.redirect,'error');assert.equal(opts.cache,'no-store');assert.equal(opts.headers.Cookie,undefined);assert.equal(opts.headers.Authorization,undefined);return response(bytes);}};
  const first=await downloadEnchor(options),second=await downloadEnchor(options);
- assert.equal(first.folderName,'Band - Song');assert.equal(second.folderName,'Band - Song (2)');assert.equal(first.fileName,'Band - Song.sng');assert.equal(first.format,'sng');assert.equal(first.files,3);
- assert.deepEqual(fs.readFileSync(first.destination),bytes);assert.deepEqual(fs.readFileSync(second.destination),bytes);
+ assert.equal(first.folderName,'Band - Song');assert.equal(second.folderName,'Band - Song (2)');assert.equal(first.format,'folder');assert.equal(first.files,4);
+ for(const result of [first,second]){assert.equal(fs.readFileSync(path.join(result.destination,'notes.chart'),'utf8'),'[Song]\n{}');assert.equal(fs.readFileSync(path.join(result.destination,'song.ogg'),'utf8'),'original audio');assert.equal(fs.readFileSync(path.join(result.destination,'video.webm'),'utf8'),'original video');assert.equal(fs.readFileSync(path.join(result.destination,'song.ini'),'utf8'),'[Song]\nname = Song\nartist = Band\n');}
  assert.deepEqual(fs.readdirSync(root).sort(),[first.folderName,second.folderName]);assert.equal(progress.at(-1).percent,100);assert.equal(calls.length,2);
  const library=await require('../companion/library-scanner.cjs').scanLibrary({rootPath:root});
  assert.equal(library.items.length,2);assert.equal(library.warningCount,0);
- for(const chart of library.items){assert.equal(chart.format,'sng');assert.equal(chart.title,'Song');assert.equal(chart.artist,'Band');assert.equal(chart.audio,'present');}
+ for(const chart of library.items){assert.equal(chart.format,'chart');assert.equal(chart.title,'Song');assert.equal(chart.artist,'Band');assert.equal(chart.audio,'present');}
 }));
-test('complete SNG imports preserve semicolons in title and artist metadata and remain indexable',async()=>temporary(async root=>{
+test('direct folder imports preserve semicolons in title and artist metadata and remain indexable',async()=>temporary(async root=>{
  const title='Song; Part II',artist='Band; Ensemble',bytes=sng({metadata:[['name',title],['artist',artist]]});
  const imported=await downloadEnchor({request:{md5,title,artist},directory:root,fetcher:async()=>response(bytes)});
  assert.equal(imported.folderName,artist+' - '+title);
- assert.deepEqual(fs.readFileSync(imported.destination),bytes);
+ assert.equal(fs.readFileSync(path.join(imported.destination,'song.ini'),'utf8'),'[Song]\nname = '+title+'\nartist = '+artist+'\n');
  const library=await require('../companion/library-scanner.cjs').scanLibrary({rootPath:root});
  assert.equal(library.items.length,1);assert.equal(library.warningCount,0);
  assert.equal(library.items[0].title,title);assert.equal(library.items[0].artist,artist);
- assert.equal(library.items[0].format,'sng');assert.equal(library.items[0].audio,'present');
+ assert.equal(library.items[0].format,'chart');assert.equal(library.items[0].audio,'present');
 }));
 
 test('invalid containers, versions, truncated files and mismatched lengths never publish into Songs',async()=>{
@@ -118,9 +118,9 @@ test('cancelled and stalled streams clean only their operation’s temporary fil
  });
 });
 test('a slow but active stream remains usable and is committed only after structural validation',async()=>temporary(async root=>{
- const bytes=sng(),size=32;let observedStaging=false;
- const result=await downloadEnchor({request,directory:root,idleTimeoutMs:80,fetcher:async()=>new Response(new ReadableStream({start(controller){let offset=0;const timer=setInterval(()=>{observedStaging||=fs.readdirSync(root).some(name=>name.startsWith('.chartshub-partial-'));assert.equal(fs.existsSync(path.join(root,'Band - Song.sng')),false);controller.enqueue(bytes.subarray(offset,offset+size));offset+=size;if(offset>=bytes.length){clearInterval(timer);controller.close();}},15);}}),{headers:{'Content-Length':String(bytes.length)}})});
- assert.equal(observedStaging,true);assert.deepEqual(fs.readFileSync(result.destination),bytes);assert.deepEqual(fs.readdirSync(root),['Band - Song']);
+ const bytes=sng(),size=32,idleTimeoutMs=500,started=Date.now();let observedStaging=false;
+ const result=await downloadEnchor({request,directory:root,idleTimeoutMs,fetcher:async()=>new Response(new ReadableStream({start(controller){let offset=0;const timer=setInterval(()=>{observedStaging||=fs.readdirSync(root).some(name=>name.startsWith('.chartshub-partial-'));assert.equal(fs.existsSync(path.join(root,'Band - Song.sng')),false);controller.enqueue(bytes.subarray(offset,offset+size));offset+=size;if(offset>=bytes.length){clearInterval(timer);controller.close();}},125);}}),{headers:{'Content-Length':String(bytes.length)}})});
+ assert.ok(Date.now()-started>idleTimeoutMs,'healthy activity must outlive the configured idle deadline');assert.equal(observedStaging,true);assert.equal(fs.readFileSync(path.join(result.destination,'song.ogg'),'utf8'),'original audio');assert.deepEqual(fs.readdirSync(root),['Band - Song']);
 }));
 test('cancellation during fresh folder reservation removes only that uncommitted folder',async t=>temporary(async root=>{
  const controller=new AbortController(),mkdir=fs.promises.mkdir.bind(fs.promises);fs.writeFileSync(path.join(root,'keep.txt'),'keep');
@@ -128,9 +128,9 @@ test('cancellation during fresh folder reservation removes only that uncommitted
  await assert.rejects(downloadEnchor({request,directory:root,signal:controller.signal,fetcher:async()=>response(sng())}),/Annulation demandée/);
  assert.deepEqual(fs.readdirSync(root),['keep.txt']);assert.equal(fs.readFileSync(path.join(root,'keep.txt'),'utf8'),'keep');
 }));
-test('cancellation after atomic publication keeps the complete song and reports success',async t=>temporary(async root=>{
+test('cancellation after the final verified file is published keeps the complete song and reports success',async t=>temporary(async root=>{
  const controller=new AbortController(),rename=fs.promises.rename.bind(fs.promises),bytes=sng(),progress=[];
- t.mock.method(fs.promises,'rename',async(...args)=>{const result=await rename(...args);controller.abort();return result;});
+ t.mock.method(fs.promises,'rename',async(...args)=>{const result=await rename(...args);if(path.basename(args[1])==='video.webm')controller.abort();return result;});
  const result=await downloadEnchor({request,directory:root,signal:controller.signal,progress:value=>progress.push(value),fetcher:async()=>response(bytes)});
- assert.deepEqual(fs.readFileSync(result.destination),bytes);assert.equal(progress.at(-1).percent,100);assert.deepEqual(fs.readdirSync(root),['Band - Song']);
+ assert.equal(fs.readFileSync(path.join(result.destination,'video.webm'),'utf8'),'original video');assert.equal(progress.at(-1).percent,100);assert.deepEqual(fs.readdirSync(root),['Band - Song']);
 }));

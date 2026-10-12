@@ -3,7 +3,7 @@ const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  const tabbed=process.argv.includes('--chartshub-tabbed');
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
-  version:'0.14.18',
+  version:'0.14.19',
   layout:tabbed?'tabbed':'legacy',
   saveCheckerReport:payload=>ipcRenderer.invoke('chartshub:save-checker-report',payload),
   downloadState:()=>ipcRenderer.invoke('chartshub:download-state'),
@@ -12,6 +12,7 @@ if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
   downloadFolder:change=>ipcRenderer.invoke('chartshub:folder',change===true),
   download:endpoint=>ipcRenderer.invoke('chartshub:download',endpoint),
   downloadEnchor:request=>ipcRenderer.invoke('chartshub:download-enchor',request),
+  enchorDownloadFormats:['folder','zip','sng'],
   cancel:()=>ipcRenderer.invoke('chartshub:cancel'),
   language:value=>ipcRenderer.invoke('chartshub:language',value),
   onProgress:callback=>{if(typeof callback!=='function')return ()=>{};const listener=(_event,data)=>callback(data);ipcRenderer.on('chartshub:progress',listener);return ()=>ipcRenderer.removeListener('chartshub:progress',listener);}
