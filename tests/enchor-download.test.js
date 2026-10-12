@@ -118,9 +118,9 @@ test('cancelled and stalled streams clean only their operation’s temporary fil
  });
 });
 test('a slow but active stream remains usable and is committed only after structural validation',async()=>temporary(async root=>{
- const bytes=sng(),size=32;let observedStaging=false;
- const result=await downloadEnchor({request,directory:root,idleTimeoutMs:80,fetcher:async()=>new Response(new ReadableStream({start(controller){let offset=0;const timer=setInterval(()=>{observedStaging||=fs.readdirSync(root).some(name=>name.startsWith('.chartshub-partial-'));assert.equal(fs.existsSync(path.join(root,'Band - Song.sng')),false);controller.enqueue(bytes.subarray(offset,offset+size));offset+=size;if(offset>=bytes.length){clearInterval(timer);controller.close();}},15);}}),{headers:{'Content-Length':String(bytes.length)}})});
- assert.equal(observedStaging,true);assert.equal(fs.readFileSync(path.join(result.destination,'song.ogg'),'utf8'),'original audio');assert.deepEqual(fs.readdirSync(root),['Band - Song']);
+ const bytes=sng(),size=32,idleTimeoutMs=500,started=Date.now();let observedStaging=false;
+ const result=await downloadEnchor({request,directory:root,idleTimeoutMs,fetcher:async()=>new Response(new ReadableStream({start(controller){let offset=0;const timer=setInterval(()=>{observedStaging||=fs.readdirSync(root).some(name=>name.startsWith('.chartshub-partial-'));assert.equal(fs.existsSync(path.join(root,'Band - Song.sng')),false);controller.enqueue(bytes.subarray(offset,offset+size));offset+=size;if(offset>=bytes.length){clearInterval(timer);controller.close();}},125);}}),{headers:{'Content-Length':String(bytes.length)}})});
+ assert.ok(Date.now()-started>idleTimeoutMs,'healthy activity must outlive the configured idle deadline');assert.equal(observedStaging,true);assert.equal(fs.readFileSync(path.join(result.destination,'song.ogg'),'utf8'),'original audio');assert.deepEqual(fs.readdirSync(root),['Band - Song']);
 }));
 test('cancellation during fresh folder reservation removes only that uncommitted folder',async t=>temporary(async root=>{
  const controller=new AbortController(),mkdir=fs.promises.mkdir.bind(fs.promises);fs.writeFileSync(path.join(root,'keep.txt'),'keep');
