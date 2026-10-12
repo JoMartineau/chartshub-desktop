@@ -688,3 +688,11 @@ select { min-width: 122px; min-height: 35px; background: var(--surface); color: 
 .song-requests-sharing { margin: 22px 0; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .song-requests-sharing h3 { margin-top: 0; }
 @media (max-width: 1000px) { .song-requests-rules { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+
+.library-bad-songs { margin-top: 22px; padding: 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.library-bad-songs > summary { cursor: pointer; font-weight: 600; color: var(--text); }
+.library-bad-songs-list { max-height: min(55vh, 480px); overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; margin: 16px 0; padding-right: 8px; }
+.library-bad-song { margin: 10px 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-raised); }
+.library-bad-song label { display: flex; gap: 10px; align-items: center; color: var(--text); }
+.library-bad-song code { display: block; margin: 10px 0; white-space: normal; overflow-wrap: anywhere; color: var(--muted); }
+.library-bad-song p { font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; margin: 6px 0; }

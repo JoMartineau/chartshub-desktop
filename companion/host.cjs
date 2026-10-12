@@ -12,6 +12,7 @@ const { createReShadeSetupService } = require('./reshade-setup.cjs');
 const { createLocalOverlayServer } = require('./stream-server.cjs');
 const { createBackgroundLibraryService } = require('./library-background.cjs');
 const { verifyNativeCleanup } = require('./native-cleanup.cjs');
+const { verifyNativeBadSongCleanup } = require('./library-bad-songs.cjs');
 const { createChartsHubClient } = require('./catalogue-client.cjs');
 const { createCatalogueService } = require('./catalogue-service.cjs');
 const { createDownloadService } = require('./download-service.cjs');
@@ -212,9 +213,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!relative || path.isAbsolute(relative) || relative === '..' || relative.startsWith('..' + path.sep)) throw Error('Copie invalide.');
     // Bind the final check to the identities hashed by the worker, including
     // the keeper: a replacement during the IPC hop cannot reuse this approval.
-    const keep = approval.keeps ? approval.keeps.get(target) : approval.keep;
-    if (!keep || approval.targets.has(keep)) throw Error('Version conservée invalide.');
-    await verifyNativeCleanup({ root: approval.root, keep, target, proof });
+    if (approval.kind === 'bad-songs') await verifyNativeBadSongCleanup({ root: approval.root, target, proof });
+    else {
+      const keep = approval.keeps ? approval.keeps.get(target) : approval.keep;
+      if (!keep || approval.targets.has(keep)) throw Error('Version conservée invalide.');
+      await verifyNativeCleanup({ root: approval.root, keep, target, proof });
+    }
     if (disposing || stopTask || approval !== cleanupApproval || approval.lifecycle !== lifecycleRevision || approval.owner !== panel || panel.isDestroyed()) throw Error('Nettoyage arrêté.');
     approval.targets.delete(target);
     await shell.trashItem(target);
@@ -894,6 +898,36 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
           cleanupTask = library.recycleDuplicates(request);
           return { ok: true, result: await cleanupTask };
         } finally { cleanupApproval = null; cleanupTask = null; cleanupDialogOpen = false; }
+      } else if (command === 'library.chooseBadSongs') {
+        if (rootPickerOpen) return { ok: false, error: 'Le choix du fichier est déjà ouvert.' };
+        const owner = panel, lifecycle = lifecycleRevision;
+        rootPickerOpen = true;
+        try {
+          const exportPath = integration.status().filePath;
+          const choice = await dialog.showOpenDialog(owner, { title: tr('Importer badsongs.txt de Clone Hero', 'Import Clone Hero badsongs.txt'), properties: ['openFile'], filters: [{ name: 'Clone Hero badsongs.txt', extensions: ['txt'] }],
+            defaultPath: path.join(exportPath ? path.dirname(exportPath) : app.getPath('documents'), exportPath ? 'badsongs.txt' : 'Clone Hero/badsongs.txt') });
+          if (disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
+          if (choice.canceled || choice.filePaths.length !== 1) return { ok: true, cancelled: true };
+          return { ok: true, result: await library.prepareBadSongs(choice.filePaths[0]) };
+        } finally { rootPickerOpen = false; }
+      } else if (command === 'library.cancelBadSongs') {
+        return { ok: true, result: await library.cancelBadSongs() };
+      } else if (command === 'library.recycleBadSongs') {
+        const owner = panel, lifecycle = lifecycleRevision, request = { planId: payload.planId, revision: payload.revision, ids: [...payload.ids] };
+        cleanupDialogOpen = true;
+        try {
+          const review = await library.badSongsReview(request), root = library.status().settings.rootPath;
+          if (disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
+          const paths = review.entries.map(entry => path.resolve(root, ...entry.targetRelativePath.split('/')));
+          const choice = await dialog.showMessageBox(owner, { type: 'warning', title: tr('Supprimer les charts signalées par Clone Hero ?', 'Delete charts reported by Clone Hero?'),
+            message: tr(paths.length + ' chart(s) sélectionnée(s).', paths.length + ' selected chart(s).'),
+            detail: tr('Dossier Songs : ', 'Songs folder: ') + root + '\n\n' + review.entries.map((entry, index) => paths[index] + '\n' + entry.reasons.join('\n')).join('\n\n') + '\n\n' + tr('Les dossiers sélectionnés et tout leur contenu seront envoyés à la Corbeille Windows. Les charts non cochées restent en place.', 'Selected folders and all their contents will be sent to the Windows Recycle Bin. Unchecked charts stay in place.'),
+            buttons: [tr('Annuler', 'Cancel'), tr('Envoyer la sélection à la Corbeille', 'Send selection to Recycle Bin')], defaultId: 0, cancelId: 0, noLink: true });
+          if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
+          cleanupApproval = { owner, lifecycle, root, kind: 'bad-songs', targets: new Set(paths) };
+          cleanupTask = library.recycleBadSongs(request);
+          return { ok: true, result: await cleanupTask };
+        } finally { cleanupApproval = null; cleanupTask = null; cleanupDialogOpen = false; }
       } else if (command === 'library.chooseRoot') {
         if (rootPickerOpen) return { ok: false, error: 'Le choix du dossier est déjà ouvert.' };
         const owner = panel, revision = lifecycleRevision;
@@ -959,7 +993,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'panels.appearance') return { ok: false, ...(error?.code === 'STALE_FLOATING_PANELS' ? { code: error.code } : {}), error: ['FLOATING_PANELS_SAFE', 'STALE_FLOATING_PANELS'].includes(error?.code) ? error.message : 'Les réglages des panneaux n’ont pas pu être enregistrés.' };
       if (error?.code === 'CATALOGUE_WIDGET_SAFE' || command === 'catalogue.widget') return { ok: false, error: 'Le mini Catalogue nécessite une connexion ChartsHub active.' };
       if (command === 'library.cleanupHistory') return { ok: false, error: 'L’historique des nettoyages est indisponible. Les résultats du nettoyage restent inchangés.' };
-      if (['library.prepareCleanup', 'library.recycleDuplicates', 'library.forceRecycleDuplicate', 'library.verifyAllDuplicates', 'library.prepareBulkCleanup', 'library.recycleBulkDifferences', 'library.cancelBulkCleanup'].includes(command) || error?.code === 'LIBRARY_CLEANUP_SAFE') {
+      if (['library.chooseBadSongs', 'library.recycleBadSongs', 'library.prepareCleanup', 'library.recycleDuplicates', 'library.forceRecycleDuplicate', 'library.verifyAllDuplicates', 'library.prepareBulkCleanup', 'library.recycleBulkDifferences', 'library.cancelBulkCleanup'].includes(command) || error?.code === 'LIBRARY_CLEANUP_SAFE') {
         return { ok: false, error: ['LIBRARY_CLEANUP_SAFE', 'LIBRARY_COMPARISON_SAFE'].includes(error?.code) ? error.message : 'Le nettoyage n’a pas pu être terminé. Vérifiez les copies puis relancez la vérification.' };
       }
       if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate' || command === 'library.keepDuplicateVersions') {

@@ -7,6 +7,7 @@ import { ThemeControls } from '../dist/settings/ThemeControls.js';
 import { StreamControls } from '../dist/settings/StreamControls.js';
 import { StreamRenderer } from '../dist/overlay/stream/StreamRenderer.js';
 import { LibraryControls } from '../dist/settings/LibraryControls.js';
+import { BadSongsCleanupControls } from '../dist/settings/BadSongsCleanupControls.js';
 import { CleanupHistoryControls } from '../dist/settings/CleanupHistoryControls.js';
 import { FloatingPanelsControls } from './floating-panels-controls.js';
 import { CatalogueControls } from '../dist/settings/CatalogueControls.js';
@@ -56,6 +57,7 @@ const builder = new WidgetBuilder({
 const themes = new ThemeControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const stream = new StreamControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
+const badSongs = new BadSongsCleanupControls({ root: query('#library-bad-songs'), command: (name, payload) => command(name, payload) });
 const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
 const musicPlayer = new LocalMusicPlayerControls({ root: query('#local-music-player-panel'), appearanceRoot: query('#theme-player-colors'), command: (name, payload) => command(name, payload) });
 const unsubscribeSpectrum = api?.player?.subscribeSpectrum?.(state => musicPlayer.spectrum(state)) ?? (() => {});
@@ -168,6 +170,7 @@ function applySnapshot(snapshot) {
   themes.update(snapshot);
   stream.update(snapshot);
   library.update(snapshot);
+  badSongs.update(snapshot);
   cleanupHistory.update({ rootPath: snapshot.library?.settings?.rootPath ?? null, revision: snapshot.library?.revision ?? 0 });
   for (const panel of floatingPanels) panel.update(snapshot);
   query('#catalogue-widget-toggle').checked = Boolean(snapshot.catalogueWidgetEnabled);
@@ -348,6 +351,7 @@ window.addEventListener('beforeunload', () => {
   streamPreview.dispose();
   library.dispose();
   cleanupHistory.dispose();
+  badSongs.dispose();
   for (const panel of floatingPanels) panel.dispose();
   catalogue.dispose();
   downloads.dispose();

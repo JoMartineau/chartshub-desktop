@@ -185,6 +185,17 @@
           </div>
         </div>
         <p id="library-cleanup-result" class="library-feedback library-cleanup-result" role="status" aria-live="polite" tabindex="-1" hidden></p>
+        <details id="library-bad-songs" class="library-bad-songs" aria-busy="false">
+          <summary>Charts signalées par Clone Hero</summary>
+          <p class="helper-text">Importez badsongs.txt après Scan Songs dans Clone Hero. Les erreurs et leur motif s’affichent ici ; les avertissements restent conservés.</p>
+          <button id="library-bad-songs-import" class="button secondary" type="button" disabled>Importer badsongs.txt</button>
+          <p id="library-bad-songs-status" class="library-feedback" role="status" aria-live="polite">Importez le rapport créé par Scan Songs dans Clone Hero.</p>
+          <div id="library-bad-songs-plan" hidden>
+            <div id="library-bad-songs-list" class="library-bad-songs-list" role="region" aria-label="Charts signalées, défilement indépendant" tabindex="0"></div>
+            <p id="library-bad-songs-selection" role="status">0 chart cochée.</p>
+            <div class="library-comparison-actions"><button id="library-bad-songs-clear" class="button secondary" type="button" disabled>Tout décocher</button><button id="library-bad-songs-close" class="button secondary" type="button">Fermer la sélection</button><button id="library-bad-songs-recycle" class="button primary" type="button" disabled>Envoyer la sélection à la Corbeille</button></div>
+          </div>
+        </details>
         <div id="library-history-container"></div>
       </div>
     </section>

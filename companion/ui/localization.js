@@ -4,6 +4,9 @@
   let language = initial;
   let writing = false;
   const exact = new Map([
+    ['Charts signalées par Clone Hero','Charts reported by Clone Hero'],['Importer badsongs.txt','Import badsongs.txt'],
+    ['Importez badsongs.txt après Scan Songs dans Clone Hero. Les erreurs et leur motif s’affichent ici ; les avertissements restent conservés.','Import badsongs.txt after Scan Songs in Clone Hero. Errors and their reasons are displayed here; warnings are kept.'],
+    ['Importez le rapport créé par Scan Songs dans Clone Hero.','Import the report created by Scan Songs in Clone Hero.'],['Charts signalées, défilement indépendant','Reported charts, independent scrolling'],['0 chart cochée.','0 charts selected.'],['Envoyer la sélection à la Corbeille','Send selection to Recycle Bin'],
     ['Supprimer quand même · sélection groupée','Delete anyway · bulk selection'],
     ['Choisissez une version à garder par morceau, puis vérifiez et cochez les copies différentes à envoyer ensemble à la Corbeille Windows. Une confirmation unique présente toute votre sélection.','Choose a kept version for each song, then review and select different copies to send together to the Windows Recycle Bin. One confirmation shows your complete selection.'],
     ['Prépare les copies vérifiées qui diffèrent. Aucune copie n’est cochée automatiquement.','Prepares verified copies that differ. No copy is selected automatically.'],
