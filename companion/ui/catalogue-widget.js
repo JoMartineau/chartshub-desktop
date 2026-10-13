@@ -1,6 +1,7 @@
 import { applyFloatingAppearance } from './floating-panels-controls.js';
 import { applyButtonMotion } from './button-motion.js';
 import { createCatalogueCard } from './catalogue-card.js';
+import { isExternalCatalogueItem, externalCatalogueStatus } from './catalogue-card-data.js';
 
 const tabs = ['search', 'downloads', 'recent'];
 const chartId = value => typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/.test(value);
@@ -13,9 +14,9 @@ const text = (value, fallback = '—') => typeof value === 'string' && value.tri
 export class CatalogueWidgetControls {
   constructor({ root, command }) {
     this.root = root; this.command = command; this.abort = new AbortController(); this.resultAbort = new AbortController(); this.downloadAbort = new AbortController();
-    this.catalogue = null; this.downloads = null; this.snapshotSignature = ''; this.items = []; this.page = 1; this.hasMore = false; this.filters = null;
+    this.catalogue = null; this.downloads = null; this.snapshotSignature = ''; this.items = []; this.page = 1; this.hasMore = false; this.filters = null; this.external = null;
     this.searchSerial = 0; this.loading = false; this.refreshing = false; this.choosing = false; this.closing = false; this.stale = false; this.disposed = false; this.tab = 'search';
-    this.pendingCharts = new Set(); this.pendingDownloads = new Set(); this.expandedCharts = new Set(); this.selectedCharts = new Set(); this.pendingFavorites = new Set();
+    this.pendingCharts = new Set(); this.pendingDownloads = new Set(); this.pendingOpens = new Set(); this.expandedCharts = new Set(); this.selectedCharts = new Set(); this.pendingFavorites = new Set();
     this.batchRunning = false; this.batchCancelled = false; this.batchReport = null; this.operationEpoch = 0;
     const signal = this.abort.signal;
     this.element('#catalogue-widget-search-form').addEventListener('submit', event => { event.preventDefault(); if (this.batchRunning || this.pendingFavorites.size) return; this.filters = this.readFilters(); void this.search(1); }, { signal });
@@ -44,14 +45,16 @@ export class CatalogueWidgetControls {
   locale() { return this.root.ownerDocument.documentElement?.lang?.startsWith('en') ? 'en-US' : 'fr-FR'; }
   tr(fr, en) { return this.locale().startsWith('fr') ? fr : en; }
   renderFeatureLabels() {
-    const labels = { 'installed-label': ['Installation', 'Installation'], 'installed-all': ['Toutes les charts', 'All charts'], 'installed-linked': ['Déjà installées', 'Already installed'],
+    const labels = { 'source-label': ['Source', 'Source'], 'source-all': ['Toutes les sources', 'All sources'], 'installed-label': ['Installation', 'Installation'], 'installed-all': ['Toutes les charts', 'All charts'], 'installed-linked': ['Déjà installées', 'Already installed'],
       'installed-unlinked': ['Sans installation confirmée', 'No confirmed installation'], 'favorites-label': ['Favoris', 'Favorites'], 'favorites-all': ['Toutes les charts', 'All charts'], 'favorites-yes': ['Mes favoris', 'My favorites'] };
     for (const [id, labelsForId] of Object.entries(labels)) this.element('#catalogue-widget-' + id).textContent = this.tr(...labelsForId);
+    this.renderExternalStatus();
   }
   readFilters() {
     const value = field => this.element(`#catalogue-widget-${field}`).value.trim().slice(0, field === 'query' ? 200 : 128);
     const installed = value('installed');
-    return { query: value('query'), artist: value('artist'), charter: value('charter'), instrument: value('instrument'), difficulty: value('difficulty'), genre: '', year: '', verified: 'all', installed: ['linked', 'unlinked'].includes(installed) ? installed : 'all', ...(value('favorites') === 'yes' ? { favorites: 'yes' } : {}) };
+    const source = value('source');
+    return { source: ['chartshub', 'chorusencore'].includes(source) ? source : 'all', query: value('query'), artist: value('artist'), charter: value('charter'), instrument: value('instrument'), difficulty: value('difficulty'), genre: '', year: '', verified: 'all', installed: ['linked', 'unlinked'].includes(installed) ? installed : 'all', ...(value('favorites') === 'yes' ? { favorites: 'yes' } : {}) };
   }
   resultConditions() {
     const queued = [...new Set((this.downloads?.items ?? []).filter(item => ['Queued', 'Downloading', 'Paused'].includes(item.state)).map(item => item.chartId))].sort();
@@ -94,16 +97,20 @@ export class CatalogueWidgetControls {
     this.element('#catalogue-widget-results').setAttribute('aria-busy', String(this.loading));
     this.renderSelection();
   }
-  async search(page) {
+  renderExternalStatus() {
+    const node = this.element('#catalogue-widget-external-status');
+    node.textContent = externalCatalogueStatus(this.external, this.filters?.source || 'all', this.locale()); node.hidden = !node.textContent;
+  }
+  async search(page, externalSearch = true) {
     if (this.disposed || this.closing || this.batchRunning || this.pendingFavorites.size || !this.catalogue || this.refreshing || !this.filters || page < 1 || page > 1000) return;
-    const serial = ++this.searchSerial, filters = { ...this.filters, page };
-    this.loading = true; this.stale = false; this.items = []; this.expandedCharts.clear(); this.selectedCharts.clear(); this.batchReport = null; this.renderResults(); this.feedback(''); this.element('#catalogue-widget-search-status').textContent = 'Recherche en cours…'; this.availability();
+    const serial = ++this.searchSerial, filters = { ...this.filters, page, externalSearch };
+    this.loading = true; this.stale = false; this.items = []; this.external = null; this.renderExternalStatus(); this.expandedCharts.clear(); this.selectedCharts.clear(); this.batchReport = null; this.renderResults(); this.feedback(''); this.element('#catalogue-widget-search-status').textContent = 'Recherche en cours…'; this.availability();
     try {
       const response = await this.command('catalogue.search', filters);
       if (this.disposed || serial !== this.searchSerial) return;
       const result = response?.result;
-      if (!response?.ok || !result || !Array.isArray(result.items) || result.items.length > 20 || result.items.some(item => !item || !chartId(item.id)) || !Number.isSafeInteger(result.total) || result.total < 0 || result.page !== page || typeof result.hasMore !== 'boolean') throw Error(response?.error || 'La recherche est indisponible. Réessayez.');
-      this.items = result.items; this.page = page; this.hasMore = result.hasMore;
+      if (!response?.ok || !result || !Array.isArray(result.items) || result.items.length > 20 || result.items.some(item => !item || !chartId(item.id) || isExternalCatalogueItem(item) && !/^enchor:[a-f0-9]{32}$/.test(item.id)) || !Number.isSafeInteger(result.total) || result.total < 0 || result.page !== page || typeof result.hasMore !== 'boolean') throw Error(response?.error || 'La recherche est indisponible. Réessayez.');
+      this.items = result.items; this.page = page; this.hasMore = result.hasMore; this.external = result.external || null; this.renderExternalStatus();
       this.element('#catalogue-widget-search-status').textContent = result.items.length ? `${result.total.toLocaleString(this.locale())} résultat(s)` : 'Aucun résultat. Modifiez votre recherche.';
       this.element('#catalogue-widget-page').textContent = result.total ? `Page ${page.toLocaleString(this.locale())}` : '';
     } catch (failure) {
@@ -117,6 +124,7 @@ export class CatalogueWidgetControls {
     for (const item of this.items) {
       const { card, body } = createCatalogueCard(this.root.ownerDocument, item, { locale: this.locale(), demo: !!this.catalogue?.demo, signal: this.resultAbort.signal,
         expanded: this.expandedCharts.has(item.id), onToggle: open => { if (open) this.expandedCharts.add(item.id); else this.expandedCharts.delete(item.id); } });
+      const external = isExternalCatalogueItem(item);
       const favorite = this.make('button', item.favorite === true ? '★' : '☆', 'catalogue-favorite'); favorite.type = 'button'; favorite.dataset.chartId = item.id;
       favorite.setAttribute('aria-pressed', String(item.favorite === true)); favorite.setAttribute('aria-label', this.tr(item.favorite === true ? 'Retirer des favoris' : 'Ajouter aux favoris', item.favorite === true ? 'Remove from favorites' : 'Add to favorites') + ' : ' + text(item.title));
       favorite.disabled = !!this.catalogue?.demo || this.loading || this.stale || this.batchRunning || this.pendingFavorites.size > 0 || this.closing;
@@ -125,16 +133,21 @@ export class CatalogueWidgetControls {
       checkbox.setAttribute('aria-label', this.tr('Sélectionner', 'Select') + ' : ' + text(item.title)); checkbox.disabled = !this.canDownload(item) || this.pendingCharts.has(item.id) || this.batchRunning || this.pendingFavorites.size > 0;
       checkbox.addEventListener('change', () => { if (!checkbox.disabled && this.canDownload(item)) { if (checkbox.checked) this.selectedCharts.add(item.id); else this.selectedCharts.delete(item.id); this.batchReport = null; this.renderSelection(); } }, { signal: this.resultAbort.signal });
       selection.append(checkbox, this.make('span', this.tr('Sélectionner', 'Select')));
-      const controls = this.make('div', '', 'catalogue-card-controls'); controls.append(favorite, selection); body.append(controls);
+      const controls = this.make('div', '', 'catalogue-card-controls'); if (!external) controls.append(favorite); controls.append(selection); body.append(controls);
       const queued = this.isQueued(item.id);
       const button = this.make('button', queued ? 'Déjà dans la file' : 'Télécharger', 'catalogue-download-single'); button.type = 'button'; button.dataset.chartId = item.id;
       button.disabled = !this.canDownload(item) || this.pendingCharts.has(item.id) || this.batchRunning || this.pendingFavorites.size > 0;
       button.addEventListener('click', () => { void this.enqueue(item.id); }, { signal: this.resultAbort.signal }); body.append(button); container.append(card);
+      if (external) {
+        const open = this.make('button', this.tr('Ouvrir sur Chorus Encore', 'Open on Chorus Encore'), 'catalogue-open-external'); open.type = 'button';
+        open.disabled = this.loading || this.stale || this.closing || this.batchRunning || this.pendingOpens.has(item.id);
+        open.addEventListener('click', () => { void this.openExternal(item, open); }, { signal: this.resultAbort.signal }); body.append(open);
+      }
     }
     this.renderSelection();
   }
   isQueued(id) { return this.downloads?.items?.some(value => value.chartId === id && ['Queued', 'Downloading', 'Paused'].includes(value.state)); }
-  availableToDownload(item) { return !!item && chartId(item.id) && item.downloadable === true && !this.catalogue?.demo && !!this.downloads?.hasRoot && !this.isQueued(item.id); }
+  availableToDownload(item) { return !!item && chartId(item.id) && (!isExternalCatalogueItem(item) || /^enchor:[a-f0-9]{32}$/.test(item.id)) && item.downloadable === true && !this.catalogue?.demo && !!this.downloads?.hasRoot && !this.isQueued(item.id); }
   canDownload(item) { return this.availableToDownload(item) && !this.loading && !this.stale && !this.closing && !this.disposed; }
   renderSelection() {
     const selected = this.items.filter(item => this.selectedCharts.has(item.id));
@@ -161,7 +174,7 @@ export class CatalogueWidgetControls {
   }
   async setFavorite(id) {
     const item = this.items.find(value => value.id === id);
-    if (this.disposed || this.closing || !item || this.pendingFavorites.size || this.batchRunning || this.loading || this.stale || this.catalogue?.demo) return;
+    if (this.disposed || this.closing || !item || isExternalCatalogueItem(item) || this.pendingFavorites.size || this.batchRunning || this.loading || this.stale || this.catalogue?.demo) return;
     const favorite = item.favorite !== true, epoch = this.operationEpoch;
     this.pendingFavorites.add(id); this.renderResults(); this.availability(); this.feedback(''); let saved = false;
     try {
@@ -171,7 +184,14 @@ export class CatalogueWidgetControls {
       item.favorite = favorite; saved = true;
     } catch (_) { if (!this.disposed && epoch === this.operationEpoch) this.feedback(this.tr('Le favori n’a pas pu être enregistré. Réessayez.', 'The favorite could not be saved. Try again.'), true); }
     finally { this.pendingFavorites.delete(id); if (!this.disposed) { this.renderResults(); this.availability(); } }
-    if (saved && epoch === this.operationEpoch) await this.search(this.page);
+    if (saved && epoch === this.operationEpoch) await this.search(this.page, false);
+  }
+  async openExternal(item, origin) {
+    if (this.disposed || this.closing || this.loading || this.stale || this.batchRunning || !isExternalCatalogueItem(item) || !/^enchor:[a-f0-9]{32}$/.test(item.id) || this.pendingOpens.has(item.id)) return;
+    const epoch = this.operationEpoch; this.pendingOpens.add(item.id); if (origin) origin.disabled = true;
+    try { const response = await this.command('catalogue.open', { chartId: item.id }); if (!this.disposed && epoch === this.operationEpoch && !response?.ok) this.feedback(response?.error || this.tr('La fiche Chorus Encore n’a pas pu être ouverte.', 'The Chorus Encore page could not be opened.'), true); }
+    catch (_) { if (!this.disposed && epoch === this.operationEpoch) this.feedback(this.tr('La fiche Chorus Encore n’a pas pu être ouverte.', 'The Chorus Encore page could not be opened.'), true); }
+    finally { this.pendingOpens.delete(item.id); if (!this.disposed && origin && origin.isConnected !== false) origin.disabled = this.loading || this.stale || this.closing || this.batchRunning; }
   }
   async enqueueSelection() {
     if (this.disposed || this.closing || this.batchRunning || this.pendingFavorites.size || this.pendingCharts.size) return;

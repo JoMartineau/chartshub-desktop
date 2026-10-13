@@ -1,8 +1,9 @@
 interface CatalogueItem {
+  source?: 'chartshub' | 'chorusencore';
   id: string; title: string; artist: string; charter: string; verified: boolean | null;
   album: string; year: string; genre: string; instruments: string[]; difficulties: string[];
   artworkUrl: string | null; viewUrl: string; downloadable: boolean;
-  installed: { status: 'linked' | 'candidate' | 'none'; localIds: string[]; reason: string };
+  installed?: { status: 'linked' | 'candidate' | 'none'; localIds: string[]; reason: string };
   matchKind?: string; reason?: string; ambiguous?: boolean;
 }
 interface CatalogueStatus {
@@ -10,28 +11,34 @@ interface CatalogueStatus {
   revision: number; availableCount: number; lastLoadedAt: string | null; demo: boolean;
 }
 interface Filters {
+  source: 'all' | 'chartshub' | 'chorusencore';
   query: string; artist: string; charter: string; genre: string; year: string; instrument: string;
   difficulty: string; verified: 'all' | 'yes'; installed: 'all' | 'linked' | 'unlinked';
 }
 interface SearchResult {
   items: CatalogueItem[]; page: number; pageSize: number; total: number; hasMore: boolean;
   facets: { instruments: string[]; difficulties: string[] };
+  external?: ExternalStatus;
 }
+interface ExternalStatus { status: string; error?: string | null; retryAfterSeconds?: number | null; unsupported?: string[]; localFilters?: string[]; }
 interface CandidateResult {
   local: { id: string; title: string; artist: string; charter: string }; contextId: string;
   items: CatalogueItem[]; linkedChartId: string | null; total: number;
 }
 interface Response { ok: boolean; result?: SearchResult | CandidateResult; error?: string; cancelled?: boolean; }
 interface Options { root: HTMLElement; command: (name: string, payload?: unknown) => Promise<unknown>; }
-const emptyFilters = (): Filters => ({ query: '', artist: '', charter: '', genre: '', year: '', instrument: '', difficulty: '', verified: 'all', installed: 'all' });
+const emptyFilters = (): Filters => ({ source: 'all', query: '', artist: '', charter: '', genre: '', year: '', instrument: '', difficulty: '', verified: 'all', installed: 'all' });
 const readable = (value: string, fallback = 'Non renseigné'): string => value?.trim() || fallback;
 const locale = (): string => typeof document === 'undefined' || document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US';
 const count = (value: number): string => Math.max(0, Math.trunc(value || 0)).toLocaleString(locale());
+const externalItem = (item: CatalogueItem): boolean => item.source === 'chorusencore' || item.id.startsWith('enchor:');
+const tr = (french: string, english: string): string => locale().startsWith('fr') ? french : english;
 
 /** Catalogue requests only follow an explicit search, comparison, paging or refresh action. */
 export class CatalogueControls {
   private readonly abort = new AbortController();
   private status: CatalogueStatus | null = null;
+  private external: ExternalStatus | null = null;
   private snapshotSignature = '';
   private libraryRevision = -1;
   private resultRevision = -1;
@@ -71,6 +78,7 @@ export class CatalogueControls {
     }
     this.element('#catalogue-prev').addEventListener('click', () => { if (this.page > 1) void this.request(this.page - 1); }, { signal });
     this.element('#catalogue-next').addEventListener('click', () => { if (this.hasMore) void this.request(this.page + 1); }, { signal });
+    this.options.root.ownerDocument.defaultView?.addEventListener('chartshub:languagechange', () => { if (!this.disposed) { this.renderItems(); this.renderStatus(); } }, { signal });
     this.renderStatus();
   }
 
@@ -91,8 +99,9 @@ export class CatalogueControls {
   showCandidates(localId: string): void {
     if (!localId || this.disposed || this.changing) return;
     this.localId = localId; this.context = null; this.page = 1;
+    this.element<HTMLSelectElement>('#catalogue-source').value = 'chartshub';
     this.element('#catalogue-panel').scrollIntoView({ block: 'start', behavior: 'smooth' });
-    void this.request(1);
+    void this.request(1, false);
   }
 
   dispose(): void { this.disposed = true; this.serial++; this.abort.abort(); }
@@ -110,6 +119,8 @@ export class CatalogueControls {
   }
   private readFilters(): Filters {
     const filters = emptyFilters();
+    const source = this.element<HTMLSelectElement>('#catalogue-source').value;
+    filters.source = source === 'chartshub' || source === 'chorusencore' ? source : 'all';
     for (const key of ['query', 'artist', 'charter', 'genre', 'year', 'instrument', 'difficulty'] as const) filters[key] = this.element<HTMLInputElement>(`#catalogue-${key}`).value.trim();
     filters.verified = this.element<HTMLSelectElement>('#catalogue-verified').value === 'yes' ? 'yes' : 'all';
     const installed = this.element<HTMLSelectElement>('#catalogue-installed').value;
@@ -119,34 +130,34 @@ export class CatalogueControls {
   private clear(): void {
     if (this.changing) return;
     this.serial++; this.localId = null; this.context = null; this.requested = false;
-    this.loading = false; this.error = false; this.items = []; this.total = 0; this.page = 1; this.hasMore = false;
+    this.loading = false; this.error = false; this.items = []; this.external = null; this.total = 0; this.page = 1; this.hasMore = false;
     this.filters = emptyFilters(); this.resultRevision = -1; this.resultCatalogueRevision = -1; this.contextInvalidated = false;
     for (const [key, value] of Object.entries(this.filters)) this.element<HTMLInputElement>(`#catalogue-${key}`).value = value;
     this.feedback(''); this.renderItems(); this.renderStatus(); this.element('#catalogue-query').focus();
   }
-  private async request(page: number): Promise<void> {
+  private async request(page: number, externalSearch = true): Promise<void> {
     if (this.disposed || !this.status || this.changing) return;
     const serial = ++this.serial, localId = this.localId, revision = this.libraryRevision;
-    this.requested = true; this.loading = true; this.error = false; this.page = Math.max(1, page);
+    this.requested = true; this.loading = true; this.error = false; this.external = null; this.page = Math.max(1, page);
     this.feedback(''); this.renderStatus();
     try {
-      const response = await this.options.command(localId ? 'catalogue.candidates' : 'catalogue.search', localId ? { localId } : { ...this.filters, page: this.page }) as Response | undefined;
+      const response = await this.options.command(localId ? 'catalogue.candidates' : 'catalogue.search', localId ? { localId } : { ...this.filters, page: this.page, externalSearch }) as Response | undefined;
       if (this.disposed || serial !== this.serial) return;
-      if (!response?.ok || !response.result || !Array.isArray(response.result.items)) throw Error('Catalogue unavailable');
+      if (!response?.ok || !response.result || !Array.isArray(response.result.items)) throw Error(response?.error || 'Le catalogue ne peut pas être chargé. Réessayez dans un instant.');
       const result = response.result;
       this.items = result.items; this.total = result.total; this.resultRevision = revision;
       this.resultCatalogueRevision = this.status.revision; this.contextInvalidated = false;
       if (localId) {
         this.context = result as CandidateResult; this.hasMore = false;
       } else {
-        const search = result as SearchResult; this.context = null; this.page = search.page; this.hasMore = search.hasMore;
+        const search = result as SearchResult; this.context = null; this.page = search.page; this.hasMore = search.hasMore; this.external = search.external || null;
         this.setFacet('#catalogue-instrument', search.facets?.instruments ?? [], 'Tous');
         this.setFacet('#catalogue-difficulty', search.facets?.difficulties ?? [], 'Toutes');
       }
-    } catch {
+    } catch (failure) {
       if (this.disposed || serial !== this.serial) return;
       this.error = true; this.items = []; this.total = 0; this.hasMore = false;
-      this.feedback(this.status?.error || 'Le catalogue ne peut pas être chargé. Réessayez dans un instant.', true);
+      this.feedback(failure instanceof Error ? failure.message : this.status?.error || 'Le catalogue ne peut pas être chargé. Réessayez dans un instant.', true);
     } finally {
       if (!this.disposed && serial === this.serial) { this.loading = false; this.renderItems(); this.renderStatus(); }
     }
@@ -164,11 +175,13 @@ export class CatalogueControls {
     finally { this.changing = false; if (!this.disposed) this.renderStatus(); }
     if (success && !this.disposed) {
       if (!this.requested) this.filters = this.readFilters();
-      await this.request(this.page);
+      await this.request(this.page, false);
     }
   }
   private async action(action: 'open' | 'link' | 'unlink' | 'download', item: CatalogueItem): Promise<void> {
     if (this.changing || this.loading || this.disposed) return;
+    const external = externalItem(item), provider = external ? 'Chorus Encore' : 'ChartsHub';
+    if (external && (!/^enchor:[a-f0-9]{32}$/.test(item.id) || action === 'link' || action === 'unlink' || this.stale)) return;
     if ((action === 'link' || action === 'unlink') && (!this.context || this.stale || this.status?.demo)) return;
     if (action === 'download' && (!item.downloadable || this.status?.demo)) return;
     const context = this.context;
@@ -184,8 +197,8 @@ export class CatalogueControls {
       }
       if (action === 'download' && response.cancelled) { this.feedback('Aucun téléchargement ajouté.'); return; }
       success = true;
-      this.feedback(action === 'download' ? 'Cette chart figure dans la file de téléchargements ci-dessous.' : action === 'open' ? 'La fiche ChartsHub a été ouverte dans votre navigateur.' : action === 'link' ? 'Cette chart est maintenant liée à votre morceau local.' : 'Le lien a été retiré. Votre morceau local est conservé.');
-    } catch { if (!this.disposed) this.feedback(action === 'download' ? 'Cette chart n’a pas pu être ajoutée à la file de téléchargements.' : action === 'open' ? 'La fiche ChartsHub n’a pas pu être ouverte.' : 'Le lien n’a pas pu être modifié. Rechargez les résultats puis réessayez.', true); }
+      this.feedback(action === 'download' ? 'Cette chart figure dans la file de téléchargements ci-dessous.' : action === 'open' ? tr(`La fiche ${provider} a été ouverte dans votre navigateur.`, `The ${provider} page was opened in your browser.`) : action === 'link' ? 'Cette chart est maintenant liée à votre morceau local.' : 'Le lien a été retiré. Votre morceau local est conservé.');
+    } catch { if (!this.disposed) this.feedback(action === 'download' ? 'Cette chart n’a pas pu être ajoutée à la file de téléchargements.' : action === 'open' ? tr(`La fiche ${provider} n’a pas pu être ouverte.`, `The ${provider} page could not be opened.`) : 'Le lien n’a pas pu être modifié. Rechargez les résultats puis réessayez.', true); }
     finally { this.changing = false; if (!this.disposed) this.renderStatus(); }
     if (success && (action === 'link' || action === 'unlink') && !this.disposed) {
       await this.request(1);
@@ -207,7 +220,9 @@ export class CatalogueControls {
     const focusAction = active?.dataset.catalogueAction, focusId = active?.closest<HTMLElement>('[data-catalogue-id]')?.dataset.catalogueId;
     const nodes: HTMLElement[] = [];
     for (const item of this.items) {
+      const external = externalItem(item);
       const card = document.createElement('article'); card.className = 'catalogue-item'; card.dataset.catalogueId = item.id; card.setAttribute('role', 'listitem');
+      card.dataset.source = external ? 'chorusencore' : 'chartshub';
       const art = document.createElement('div'); art.className = 'catalogue-artwork'; art.setAttribute('aria-hidden', 'true');
       const placeholder = document.createElement('span'); placeholder.textContent = '♪'; art.append(placeholder);
       if (item.artworkUrl && /^chartshub-companion:\/\/app\/catalogue-artwork\/[a-f0-9]{64}$/.test(item.artworkUrl)) {
@@ -220,26 +235,28 @@ export class CatalogueControls {
       const artist = document.createElement('p'); artist.className = 'catalogue-item-artist'; artist.textContent = readable(item.artist, 'Artiste non renseigné');
       const creator = document.createElement('div'); creator.className = 'catalogue-item-creator';
       const name = document.createElement('span'); name.textContent = `Chart : ${readable(item.charter)}`; creator.append(name);
-      if (item.verified === true && !this.status?.demo) { const badge = document.createElement('span'); badge.className = 'catalogue-verified'; badge.dataset.catalogueVerified = 'true'; badge.textContent = 'Créateur vérifié'; creator.append(badge); }
+      const source = document.createElement('span'); source.className = 'catalogue-source-badge'; source.textContent = external ? 'Chorus Encore' : 'ChartsHub'; creator.append(source);
+      if (!external && item.verified === true && !this.status?.demo) { const badge = document.createElement('span'); badge.className = 'catalogue-verified'; badge.dataset.catalogueVerified = 'true'; badge.textContent = 'Créateur vérifié'; creator.append(badge); }
       const details = document.createElement('p'); details.className = 'catalogue-item-details'; details.textContent = [item.album, item.year, item.genre].filter(Boolean).join(' · '); details.hidden = !details.textContent;
       const playable = document.createElement('p'); playable.className = 'catalogue-item-playable';
       playable.textContent = [item.instruments?.length ? `Instruments : ${item.instruments.join(', ')}` : '', item.difficulties?.length ? `Difficultés : ${item.difficulties.join(', ')}` : ''].filter(Boolean).join(' · '); playable.hidden = !playable.textContent;
       const relation = document.createElement('p'); relation.className = 'catalogue-relation';
-      const linked = this.context ? this.context.linkedChartId === item.id : item.installed.status === 'linked';
-      const possible = !!this.context || item.installed.status === 'candidate';
+      const linked = this.context ? this.context.linkedChartId === item.id : item.installed?.status === 'linked';
+      const possible = !!this.context || item.installed?.status === 'candidate';
       relation.dataset.catalogueRelation = this.stale ? 'stale' : linked ? 'linked' : possible ? 'candidate' : 'none';
       relation.textContent = this.stale ? 'Liens à actualiser' : linked ? 'Liée à votre bibliothèque' : possible ? 'Correspondance possible' : 'Aucun lien confirmé';
-      const reason = document.createElement('p'); reason.className = 'catalogue-match-reason'; reason.textContent = item.reason || item.installed.reason || ''; reason.hidden = !reason.textContent || this.stale;
-      body.append(title, artist, creator, details, playable, relation, reason);
+      const reason = document.createElement('p'); reason.className = 'catalogue-match-reason'; reason.textContent = item.reason || item.installed?.reason || ''; reason.hidden = !reason.textContent || this.stale;
+      body.append(title, artist, creator, details, playable); if (!external) body.append(relation, reason);
       const actions = document.createElement('div'); actions.className = 'catalogue-item-actions';
       const button = (action: 'open' | 'link' | 'unlink' | 'download', label: string): void => {
         const node = document.createElement('button'); node.type = 'button'; node.className = `button ${action === 'link' || action === 'download' ? 'primary' : 'secondary'}`; node.textContent = label; node.dataset.catalogueAction = action;
+        node.dataset.external = String(external);
         if (action === 'download') { node.dataset.downloadable = String(item.downloadable === true); node.title = item.downloadable ? 'Ajouter cette chart à la file de téléchargements' : 'Cette chart ne propose pas de téléchargement disponible.'; }
         node.addEventListener('click', () => { void this.action(action, item); }, { signal: this.abort.signal }); actions.append(node);
       };
       button('download', 'Ajouter à la file');
-      button('open', 'Ouvrir sur ChartsHub');
-      if (this.context) button(linked ? 'unlink' : 'link', linked ? 'Retirer le lien' : this.context.linkedChartId ? 'Remplacer le lien' : 'Lier cette chart');
+      button('open', external ? tr('Ouvrir sur Chorus Encore', 'Open on Chorus Encore') : 'Ouvrir sur ChartsHub');
+      if (!external && this.context) button(linked ? 'unlink' : 'link', linked ? 'Retirer le lien' : this.context.linkedChartId ? 'Remplacer le lien' : 'Lier cette chart');
       card.append(art, body, actions); nodes.push(card);
     }
     container.replaceChildren(...nodes);
@@ -250,18 +267,38 @@ export class CatalogueControls {
   }
   private renderStatus(): void {
     const busy = this.loading || this.changing, available = !!this.status;
+    this.element('#catalogue-source-all').textContent = tr('Toutes les sources', 'All sources');
+    this.element<HTMLSelectElement>('#catalogue-source').disabled = !!this.localId || this.changing;
+    const provider = this.element('#catalogue-external-status'), external = this.external;
+    let providerMessage = '';
+    if (external && this.filters.source !== 'chartshub' && !this.localId) {
+      if (external.status === 'idle') providerMessage = tr('Chorus Encore : saisissez un titre, un artiste ou un créateur, puis lancez Rechercher.', 'Chorus Encore: enter a title, artist or charter, then choose Search.');
+      else if (external.status === 'loading') providerMessage = tr('Recherche Chorus Encore en cours…', 'Searching Chorus Encore…');
+      else if (external.status === 'disabled') providerMessage = tr('Chorus Encore est désactivé. Les résultats ChartsHub restent disponibles.', 'Chorus Encore is disabled. ChartsHub results remain available.');
+      else if (external.status === 'suspended') providerMessage = tr('Chorus Encore est temporairement suspendu. Relancez la recherche plus tard.', 'Chorus Encore is temporarily suspended. Search again later.');
+      else if (external.status === 'cooldown') {
+        const seconds = typeof external.retryAfterSeconds === 'number' && Number.isFinite(external.retryAfterSeconds) ? Math.max(1, Math.ceil(external.retryAfterSeconds)) : null;
+        providerMessage = seconds ? tr(`Chorus Encore : réessayez dans ${seconds} s en cliquant sur Rechercher.`, `Chorus Encore: wait ${seconds} s, then choose Search again.`) : tr('Chorus Encore demande de patienter. Relancez la recherche plus tard.', 'Chorus Encore needs more time. Search again later.');
+      } else if (external.status === 'error') providerMessage = tr('Chorus Encore est indisponible. Relancez la recherche pour réessayer.', 'Chorus Encore is unavailable. Search again to retry.');
+      else if (external.status === 'ready') providerMessage = tr('Résultats Chorus Encore · source externe.', 'Chorus Encore results · external source.');
+      if (['error', 'suspended', 'disabled'].includes(external.status) && external.error) providerMessage += ' ' + external.error.slice(0, 512);
+      const names: Record<string, string> = { favorites: tr('favoris', 'favorites'), verified: tr('créateur vérifié', 'verified charter'), installed: tr('association locale', 'local association'), instrument: tr('instrument', 'instrument'), difficulty: tr('difficulté', 'difficulty'), Vocals: tr('chant', 'vocals'), vocals: tr('chant', 'vocals') };
+      if (external.unsupported?.length) providerMessage += ' ' + tr('Filtres non pris en charge par Chorus Encore : ', 'Filters not supported by Chorus Encore: ') + external.unsupported.slice(0, 10).map(key => names[key] || key.slice(0, 80)).join(', ') + '.';
+      if (external.localFilters?.length) providerMessage += ' ' + tr('Les filtres supplémentaires s’appliquent aux résultats de la page Chorus Encore reçue.', 'Additional filters apply to the received Chorus Encore page.');
+    }
+    provider.textContent = providerMessage; provider.hidden = !providerMessage;
     this.element('#catalogue-results').setAttribute('aria-busy', String(busy));
     this.element('#catalogue-demo').hidden = !this.status?.demo;
     const loadedAt = this.status?.lastLoadedAt ? new Date(this.status.lastLoadedAt) : null;
     this.element('#catalogue-last-loaded').textContent = loadedAt && !Number.isNaN(loadedAt.getTime()) ? `Catalogue chargé le ${loadedAt.toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })}` : 'Le catalogue sera chargé à votre demande.';
     const warning = this.element('#catalogue-warning'); warning.textContent = this.status?.warning ?? ''; warning.hidden = !warning.textContent;
-    this.element('#catalogue-status').textContent = this.loading || this.status?.status === 'loading' ? 'Chargement…' : this.status?.demo ? 'Démonstration' : this.status?.status === 'ready' ? `${count(this.status.availableCount)} charts chargées` : this.status?.status === 'error' ? 'Indisponible' : 'À la demande';
+    this.element('#catalogue-status').textContent = this.loading || this.status?.status === 'loading' ? 'Chargement…' : this.status?.demo ? 'Démonstration' : this.status?.status === 'ready' ? tr(`${count(this.status.availableCount)} charts ChartsHub chargées`, `${count(this.status.availableCount)} ChartsHub charts loaded`) : this.status?.status === 'error' ? 'Indisponible' : 'À la demande';
     this.element('#catalogue-local-context').hidden = !this.localId;
     this.element('#catalogue-local-title').textContent = this.context ? `${readable(this.context.local.title)} · ${readable(this.context.local.artist)}` : 'Chargement du morceau local…';
     this.element('#catalogue-local-description').textContent = this.context ? `Créateur local : ${readable(this.context.local.charter)}. Comparez les versions avant de confirmer une association.` : 'Recherche de versions à partir du titre et de l’artiste.';
     this.element('#catalogue-stale').hidden = !this.stale || this.loading;
     this.element('#catalogue-empty').hidden = this.items.length > 0;
-    let title = 'Explorez le catalogue ChartsHub', description = 'Lancez une recherche ou comparez un morceau de votre bibliothèque. Aucune recherche ne démarre automatiquement.';
+    let title = tr('Explorez ChartsHub et Chorus Encore', 'Explore ChartsHub and Chorus Encore'), description = 'Lancez une recherche ou comparez un morceau de votre bibliothèque. Aucune recherche ne démarre automatiquement.';
     if (this.loading) { title = 'Chargement des charts…'; description = 'Le catalogue est chargé à votre demande.'; }
     else if (this.error) { title = 'Catalogue indisponible'; description = 'Vérifiez votre connexion puis réessayez.'; }
     else if (this.requested) { title = this.localId ? 'Aucune version proposée' : 'Aucune chart trouvée'; description = this.localId ? 'Aucune correspondance n’est proposée pour ce morceau local. Vous pouvez effectuer une recherche dans le catalogue.' : 'Essayez une autre recherche ou élargissez vos filtres.'; }
@@ -275,7 +312,7 @@ export class CatalogueControls {
     for (const selector of ['#catalogue-clear', '#catalogue-leave-local']) this.element<HTMLButtonElement>(selector).disabled = this.changing;
     this.options.root.querySelectorAll<HTMLButtonElement>('[data-catalogue-action]').forEach(node => {
       const action = node.dataset.catalogueAction;
-      node.disabled = busy || ((action === 'link' || action === 'unlink') && (this.stale || !!this.status?.demo)) || (action === 'download' && (node.dataset.downloadable !== 'true' || !!this.status?.demo));
+      node.disabled = busy || (node.dataset.external === 'true' && this.stale) || ((action === 'link' || action === 'unlink') && (this.stale || !!this.status?.demo)) || (action === 'download' && (node.dataset.downloadable !== 'true' || !!this.status?.demo));
     });
   }
 }

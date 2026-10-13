@@ -16,7 +16,9 @@ async function waitFor(check, label, timeout = 15000) {
 
 /** Synthetic public-catalogue transport for the native verification harness only. */
 function createCatalogueFixture() {
-  const state = { loads: 0, artworks: 0, demo: false, failNext: false };
+  const state = { loads: 0, artworks: 0, demo: false, failNext: false, includeExternal: false, externalRequests: [] };
+  const md5 = 'a'.repeat(32), externalRecord = { id: 'enchor:' + md5, md5, externalChartId: 731, source: 'chorusencore', sourceUrl: 'https://enchor.us/chart/' + md5,
+    title: 'Encore synthetic chart', artist: 'Synthetic external artist', charter: 'External creator', instruments: ['Guitar'], instrumentDifficulties: { Guitar: ['Expert'] }, coverUrl: '' };
   const records = Array.from({ length: 26 }, (_, index) => {
     const id = 'native-catalogue-' + String(index).padStart(3, '0');
     return {
@@ -34,6 +36,14 @@ function createCatalogueFixture() {
   return {
     state,
     client: {
+      enchorStatus: async () => ({ enabled: true, suspended: false, retryAfterSeconds: 0 }),
+      enchorSearch: async ({ endpoint, body }) => {
+        assert.ok(['/api/external/enchor/search', '/api/external/enchor/advanced', '/api/external/enchor/browse'].includes(endpoint));
+        assert.ok(Number.isSafeInteger(body.page) && body.page >= 1);
+        state.externalRequests.push({ endpoint, body: structuredClone(body) });
+        const charts = state.includeExternal ? [structuredClone(externalRecord)] : [];
+        return { source: 'chorusencore', page: body.page, perPage: 25, found: charts.length, hasMore: false, charts };
+      },
       load: async () => {
         state.loads++;
         await delay(30);
@@ -160,9 +170,24 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
     assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);
     await fs.writeFile(path.join(data, 'companion-catalogue.png'), (await panel.webContents.capturePage()).toPNG());
     passed.push('catalogue demo suppresses verified badges and associations; narrow layout fits without changing overlay/gameplay state');
+
+    await click('#catalogue-leave-local');
+    fixture.state.includeExternal = true; opened = null;
+    await select('#catalogue-source', 'chorusencore'); await text('#catalogue-query', 'Encore'); await click('#catalogue-search'); await rows(1);
+    const external = '[data-catalogue-id="enchor:' + 'a'.repeat(32) + '"]';
+    assert.equal(await evaluate(`document.querySelector(${JSON.stringify(external)}).dataset.source`), 'chorusencore');
+    assert.equal(await evaluate(`(()=>{const card=document.querySelector(${JSON.stringify(external)});return /Chorus Encore/.test(card.textContent)&&!card.querySelector('[data-catalogue-verified],.catalogue-staff-badge,.catalogue-installed-badge,.catalogue-favorite,[data-catalogue-action="link"],[data-catalogue-action="unlink"]')})()`), true);
+    await click(external + ' [data-catalogue-action="open"]'); await waitFor(() => opened !== null, 'safe external provider browser action');
+    assert.equal(opened, 'https://enchor.us/chart/' + 'a'.repeat(32));
+    assert.ok(fixture.state.externalRequests.length > 0);
+    await fs.writeFile(path.join(data, 'companion-catalogue-chorus-encore.png'), (await panel.webContents.capturePage()).toPNG());
+    fixture.state.includeExternal = false;
+    await select('#catalogue-source', 'chartshub'); await text('#catalogue-query', ''); await click('#catalogue-search'); await rows(20);
+    passed.push('explicit Chorus Encore search renders a distinct source without native claims or association actions and opens only its canonical chart page');
   } finally {
     fixture.state.demo = false;
     fixture.state.failNext = false;
+    fixture.state.includeExternal = false;
     shell.openExternal = originalOpenExternal;
   }
 }

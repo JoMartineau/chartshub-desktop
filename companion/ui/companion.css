@@ -501,8 +501,11 @@ select { min-width: 122px; min-height: 35px; background: var(--surface); color: 
 .catalogue-panel h2 { font-size: 19px; margin-bottom: 6px; }
 .catalogue-panel .eyebrow { font-size: 9px; margin-bottom: 6px; color: var(--muted); }
 .catalogue-content { padding: 19px 21px 18px; }
-.catalogue-search-form { display: flex; align-items: flex-end; gap: 9px; }
+.catalogue-search-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 9px; }
 .catalogue-search-form > label { flex: 1 1 auto; min-width: 150px; display: flex; flex-direction: column; gap: 7px; font-size: 10px; color: var(--muted); }
+.catalogue-search-form > .catalogue-source-filter { flex: 0 1 160px; }
+.catalogue-source-filter select { min-height: 35px; }
+.catalogue-source-badge { display: inline-flex; padding: 3px 6px; border: 1px solid var(--border); border-radius: 4px; font-size: 9px; color: var(--muted); }
 .catalogue-search-form .button { font-size: 10px; min-height: 35px; padding: 7px 11px; flex: 0 0 auto; }
 .catalogue-panel input, .catalogue-panel select { width: 100%; min-width: 0; padding: 8px 10px; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; font-size: 11px; }
 .catalogue-search-form input { min-height: 35px; font-size: 12px; }

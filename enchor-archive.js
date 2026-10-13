@@ -6,14 +6,15 @@ const {MAX_BYTES,encodeSongIni,selectSngMembers,buildSngHeader}=require('./encho
 const CHUNK_BYTES=65536;
 const CRC_TABLE=Uint32Array.from({length:256},(_,value)=>{for(let i=0;i<8;i++)value=value&1?0xedb88320^(value>>>1):value>>>1;return value>>>0;});
 function record(length,fields){const data=Buffer.alloc(length);for(const [offset,value,width=4]of fields)width===2?data.writeUInt16LE(value,offset):data.writeUInt32LE(value,offset);return data;}
-async function outputFile(filename,signal,touch,action){
- signal.throwIfAborted();const file=await fs.open(filename,'wx',0o600);let offset=0;
+async function outputFile(filename,signal,touch,action,guard=async()=>{}){
+ signal.throwIfAborted();await guard(filename);const file=await fs.open(filename,'wx',0o600);let offset=0;
  try{
+  await guard(filename,await file.stat());
   const write=async bytes=>{
    let written=0;
-   while(written<bytes.length){signal.throwIfAborted();const result=await file.write(bytes,written,bytes.length-written,offset);signal.throwIfAborted();if(!result.bytesWritten)throw Error('L’écriture de l’archive a été interrompue.');written+=result.bytesWritten;offset+=result.bytesWritten;touch();}
+   while(written<bytes.length){signal.throwIfAborted();await guard(filename);const result=await file.write(bytes,written,bytes.length-written,offset);signal.throwIfAborted();if(!result.bytesWritten)throw Error('L’écriture de l’archive a été interrompue.');written+=result.bytesWritten;offset+=result.bytesWritten;touch();}
   };
-  const result=await action(write,()=>offset);signal.throwIfAborted();await file.sync();return result;
+  const result=await action(write,()=>offset);signal.throwIfAborted();await guard(filename);await file.sync();return result;
  }finally{await file.close();}
 }
 async function readMember(source,member,mask,signal,touch,consume){
@@ -25,12 +26,12 @@ async function readMember(source,member,mask,signal,touch,consume){
   await consume(bytes,position);position+=bytes.length;
  }
 }
-async function writeZipFromSng({sourceFile,header,outputFile:filename,signal,touch=()=>{},includeVideo=true,progress=()=>{}}){
+async function writeZipFromSng({sourceFile,header,outputFile:filename,signal,touch=()=>{},includeVideo=true,progress=()=>{},guard=async()=>{}}){
  const members=selectSngMembers(header,{includeVideo}),entries=members.map(member=>({...member,nameBytes:Buffer.from(member.name,'utf8')}));
  if(!entries.some(member=>member.name.toLowerCase()==='song.ini')){const data=Buffer.from(encodeSongIni(header.metadataEntries));entries.unshift({name:'song.ini',nameBytes:Buffer.from('song.ini'),size:data.length,data});}
  const planned=22+entries.reduce((sum,entry)=>sum+entry.size+92+2*entry.nameBytes.length,0);
  if(!Number.isSafeInteger(planned)||planned>MAX_BYTES||planned>=0xffffffff||entries.length>65535)throw Error('La chart dépasse la limite ZIP de 4 Go, en-têtes compris.');
- const source=await fs.open(sourceFile,'r');
+ await guard(sourceFile);const source=await fs.open(sourceFile,'r');
  try{return await outputFile(filename,signal,touch,async(write,offset)=>{
   const central=[];let completed=0;
   for(const member of entries){
@@ -46,25 +47,26 @@ async function writeZipFromSng({sourceFile,header,outputFile:filename,signal,tou
   await write(record(22,[[0,0x06054b50],[8,entries.length,2],[10,entries.length,2],[12,offset()-start],[16,start]]));
   if(offset()!==planned)throw Error('La taille du ZIP ne correspond pas à son contenu.');
   return {files:entries.length,bytes:planned,format:'zip'};
- });}finally{await source.close();}
+ },guard);}finally{await source.close();}
 }
-async function writeFilteredSng({sourceFile,header,outputFile:filename,signal,touch=()=>{},includeVideo=true,progress=()=>{}}){
- const members=selectSngMembers(header,{includeVideo}),bytes=buildSngHeader(header,members),source=await fs.open(sourceFile,'r');
+async function writeFilteredSng({sourceFile,header,outputFile:filename,signal,touch=()=>{},includeVideo=true,progress=()=>{},guard=async()=>{}}){
+ await guard(sourceFile);const members=selectSngMembers(header,{includeVideo}),bytes=buildSngHeader(header,members),source=await fs.open(sourceFile,'r');
  try{return await outputFile(filename,signal,touch,async write=>{
   await write(Buffer.from(bytes));let completed=0;
   for(const member of members){await readMember(source,member,null,signal,touch,async part=>{await write(part);progress({name:member.name,completed,total:members.length});});completed++;}
   return {files:members.length,bytes:bytes.length+members.reduce((sum,member)=>sum+member.size,0),format:'sng'};
- });}finally{await source.close();}
+ },guard);}finally{await source.close();}
 }
-async function writeFolderFromSng({sourceFile,header,outputDirectory,signal,touch=()=>{},includeVideo=true,progress=()=>{}}){
+async function writeFolderFromSng({sourceFile,header,outputDirectory,signal,touch=()=>{},includeVideo=true,progress=()=>{},guard=async()=>{}}){
  const members=selectSngMembers(header,{includeVideo}),entries=members.slice();
  if(!entries.some(member=>member.name.toLowerCase()==='song.ini')){const data=Buffer.from(encodeSongIni(header.metadataEntries));entries.unshift({name:'song.ini',parts:['song.ini'],size:data.length,data});}
- signal.throwIfAborted();await fs.mkdir(outputDirectory,{mode:0o700});const source=await fs.open(sourceFile,'r');
+ signal.throwIfAborted();await guard(outputDirectory);await fs.mkdir(outputDirectory,{mode:0o700});await guard(outputDirectory,await fs.lstat(outputDirectory));await guard(sourceFile);const source=await fs.open(sourceFile,'r');
  try{
   let completed=0;
   for(const member of entries){
-   signal.throwIfAborted();const target=path.resolve(outputDirectory,...member.parts);if(!target.startsWith(outputDirectory+path.sep))throw Error('Chemin de fichier ChorusEncore invalide.');await fs.mkdir(path.dirname(target),{recursive:true,mode:0o700});
-   await outputFile(target,signal,touch,async write=>{if(member.data)await write(member.data);else await readMember(source,member,header.mask,signal,touch,async bytes=>{await write(bytes);progress({name:member.name,completed,total:entries.length});});});completed++;
+   signal.throwIfAborted();const target=path.resolve(outputDirectory,...member.parts);if(!target.startsWith(outputDirectory+path.sep))throw Error('Chemin de fichier ChorusEncore invalide.');await guard(outputDirectory);let parent=outputDirectory;
+   for(const part of member.parts.slice(0,-1)){parent=path.join(parent,part);await guard(parent);let created=false;try{await fs.mkdir(parent,{mode:0o700});created=true;}catch(error){if(error.code!=='EEXIST')throw error;}if(created)await guard(parent,await fs.lstat(parent));else await guard(parent);}
+   await outputFile(target,signal,touch,async write=>{if(member.data)await write(member.data);else await readMember(source,member,header.mask,signal,touch,async bytes=>{await write(bytes);progress({name:member.name,completed,total:entries.length});});},guard);completed++;
   }
   return {files:entries.length,format:'folder'};
  }finally{await source.close();}

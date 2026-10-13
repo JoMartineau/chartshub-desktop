@@ -6,6 +6,7 @@ const { createHash, randomBytes, randomUUID } = require('node:crypto');
 const { normalizeMetadata, findMatches, buildInstalledLookup, annotateInstalled } = require('./chart-matching.cjs');
 const { endpointValid } = require('../download.js');
 const { createCatalogueFavorites } = require('./catalogue-favorites.cjs');
+const { createExternalCatalogue } = require('./catalogue-external.cjs');
 
 const HEX = /^[a-f0-9]{64}$/, ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/;
 const MAX_ARTWORK = 3 * 1024 * 1024, CACHE_BYTES = 32 * 1024 * 1024;
@@ -40,6 +41,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
   if (typeof dataDirectory !== 'string' || !path.isAbsolute(dataDirectory) || typeof client?.load !== 'function' || typeof getLibrary !== 'function') throw failure('Configuration du catalogue invalide.');
   const filename = path.join(dataDirectory, 'matching.json');
   const favorites = createCatalogueFavorites({ dataDirectory });
+  const externalCatalogue = createExternalCatalogue({ client });
   let links = new Map(), protectedFile = null, storageWarning = null, loaded = false, loadingDisk = null, serial = Promise.resolve();
   let active = true, generation = 0, request = null, hasCatalogue = false, records = new Map();
   let phase = 'idle', error = null, networkWarning = null, staleWarning = null, revision = 0, lastLoadedAt = null, demo = false, remoteRevision = null;
@@ -78,10 +80,10 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     artworkRequests.clear();
   }
   async function start() {
-    const expected = generation; await load(); if (expected === generation) { await favorites.start(); if (expected === generation) active = true; } return status();
+    const expected = generation; await load(); if (expected === generation) { await favorites.start(); if (expected === generation) { active = true; externalCatalogue.start(); } } return status();
   }
   async function stop() {
-    active = false; generation++; request?.controller.abort(); request = null; contexts.clear(); clearArtwork();
+    active = false; generation++; request?.controller.abort(); request = null; contexts.clear(); clearArtwork(); externalCatalogue.stop();
     const favoritesStopped = favorites.stop();
     records = new Map(); hasCatalogue = false; remoteRevision = null; libraryCache = null; linkedCache = null;
     phase = 'idle'; error = null; networkWarning = null; staleWarning = null; demo = false; revision++;
@@ -120,6 +122,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     if (demo) delete result.staffRole;
     result.downloadable = !demo && publicDownload(record.downloadEndpoint);
     result.favorite = favorites.has(record.id);
+    result.source = 'chartshub';
     result.installed = installed(record, current); return result;
   }
   function fetchCatalogue(force = false) {
@@ -136,7 +139,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
         if (!object(result) || !Array.isArray(result.items) || result.items.length > 20000 || typeof result.demo !== 'boolean') throw Error('Invalid catalogue');
         const next = new Map();
         for (const item of result.items) {
-          if (!object(item) || typeof item.id !== 'string' || !ID.test(item.id) || !allowedView(item)) throw Error('Invalid chart');
+          if (!object(item) || typeof item.id !== 'string' || !ID.test(item.id) || item.id.startsWith('enchor:') || !allowedView(item)) throw Error('Invalid chart');
           if (!next.has(item.id)) next.set(item.id, { ...item });
         }
         records = next; clearArtwork();
@@ -157,14 +160,20 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
   async function ready() { await load(); await fetchCatalogue(); }
   async function refresh() { await load(); await fetchCatalogue(true); return status(); }
   function filters(value = {}) {
-    const keys = ['query', 'artist', 'charter', 'genre', 'year', 'instrument', 'difficulty', 'verified', 'installed', 'page', 'favorites'];
+    const keys = ['query', 'artist', 'charter', 'genre', 'year', 'instrument', 'difficulty', 'verified', 'installed', 'page', 'favorites', 'source', 'externalSearch'];
     if (!object(value) || Object.keys(value).some(key => !keys.includes(key))) throw failure('Filtres du catalogue invalides.');
-    const result = { query: '', artist: '', charter: '', genre: '', year: '', instrument: '', difficulty: '', verified: 'all', installed: 'all', favorites: 'all', page: 1, ...value };
-    if (keys.slice(0, 7).some(key => typeof result[key] !== 'string' || result[key].length > 200) || !['all', 'yes'].includes(result.verified) || !['all', 'yes'].includes(result.favorites) || !['all', 'linked', 'unlinked'].includes(result.installed) || !Number.isSafeInteger(result.page) || result.page < 1 || result.page > 1000000) throw failure('Filtres du catalogue invalides.');
+    const result = { query: '', artist: '', charter: '', genre: '', year: '', instrument: '', difficulty: '', verified: 'all', installed: 'all', favorites: 'all', page: 1, source: 'chartshub', externalSearch: false, ...value };
+    if (keys.slice(0, 7).some(key => typeof result[key] !== 'string' || result[key].length > 200 || /[\u0000-\u001f\u007f]/.test(result[key])) || !['all', 'yes'].includes(result.verified) || !['all', 'yes'].includes(result.favorites) || !['all', 'linked', 'unlinked'].includes(result.installed) || !['all', 'chartshub', 'chorusencore'].includes(result.source) || typeof result.externalSearch !== 'boolean' || !Number.isSafeInteger(result.page) || result.page < 1 || result.page > 1000000) throw failure('Filtres du catalogue invalides.');
     return result;
   }
-  async function search(input = {}) {
-    const selected = filters(input); await ready(); const current = library(), matching = [];
+  async function search(input = {}, { scope = 'panel', isCurrent = () => true } = {}) {
+    const selected = filters(input), expectedExternal = externalCatalogue.prepare(selected, scope); await load();
+    if (!active) throw failure('Le catalogue est arrêté. Rouvrez le panneau pour continuer.');
+    if (selected.source !== 'chorusencore') {
+      try { await fetchCatalogue(); } catch (problem) { if (selected.source === 'chartshub' || !active) throw problem; }
+    }
+    if (!isCurrent() || selected.source !== 'chartshub' && !externalCatalogue.isCurrent(expectedExternal, scope)) throw Object.assign(Error('La recherche a été remplacée.'), { name: 'AbortError' });
+    const current = library(), matching = [];
     const associations = selected.installed === 'all' ? null : associationIndex(current);
     const instruments = new Set(), difficulties = new Set();
     const contains = (value, term) => !term || normalizeMetadata(value).includes(normalizeMetadata(term));
@@ -186,10 +195,15 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
       // metadata-match badges only for the page returned to the renderer.
       const linked = associations?.has(record.id);
       if (selected.installed === 'linked' && !linked || selected.installed === 'unlinked' && linked) continue;
-      matching.push(record);
+      if (selected.source !== 'chorusencore') matching.push(record);
     }
-    const offset = (selected.page - 1) * 20;
-    return { items: matching.slice(offset, offset + 20).map(record => publicRecord(record, current)), page: selected.page, pageSize: 20, total: matching.length, hasMore: offset + 20 < matching.length,
+    const externalResult = await externalCatalogue.search(selected, matching.length, scope), offset = selected.source === 'chartshub' ? (selected.page - 1) * 20 : externalResult.offset, limit = selected.source === 'chartshub' ? 20 : externalResult.limit;
+    if (!active) throw stale();
+    const externalItems = externalResult.items, nativePage = matching.slice(offset, offset + limit).map(record => publicRecord(record, current));
+    const externalOffset = Math.max(0, offset - matching.length), externalSlots = limit - nativePage.length;
+    for (const item of externalItems) { for (const value of item.instruments) instruments.add(value); for (const value of item.difficulties) difficulties.add(value); }
+    const total = matching.length + externalResult.external.total;
+    return { items: [...nativePage, ...externalItems.slice(externalOffset, externalOffset + externalSlots).map(item => structuredClone(item))], page: selected.page, pageSize: 20, total, hasMore: offset + limit < matching.length + externalItems.length || externalResult.external.hasMore, nativeTotal: matching.length, externalTotal: externalResult.external.total, source: selected.source, external: externalResult.external,
       facets: { instruments: [...instruments].sort(), difficulties: [...difficulties].sort() } };
   }
   async function favorite(payload) {
@@ -263,11 +277,21 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     });
   }
   async function openUrl(chartId) {
+    if (/^enchor:[a-f0-9]{32}$/.test(chartId || '')) {
+      const external = externalCatalogue.lookup(chartId);
+      if (!active || !external) throw failure('Ce chart externe n’est plus disponible dans la recherche courante.');
+      return external.sourceUrl;
+    }
     const record = records.get(chartId);
     if (!active || !record || !allowedView(record)) throw failure('Ce chart n’est pas disponible dans le catalogue courant.');
     return record.viewUrl;
   }
   function downloadDescriptor(chartId) {
+    if (/^enchor:[a-f0-9]{32}$/.test(chartId || '')) {
+      const external = externalCatalogue.lookup(chartId);
+      if (!active || !external) throw failure('Ce chart externe n’est plus disponible dans la recherche courante.');
+      return { chartId: external.id, title: external.title, artist: external.artist, charter: external.charter, endpoint: external.id };
+    }
     const record = records.get(chartId);
     if (!active || demo || !record || !publicDownload(record.downloadEndpoint)) throw failure('Cette chart ne propose pas de téléchargement dans le catalogue courant.');
     return { chartId: record.id, title: record.title, artist: record.artist, charter: record.charter || '', endpoint: record.downloadEndpoint };
@@ -296,7 +320,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     const task = { key, url: artworkUrls.get(key), generation: artworkGeneration, resolve: null, promise: null };
     task.promise = new Promise(resolve => { task.resolve = resolve; }); artworkRequests.set(key, task.promise); artworkQueue.push(task); pumpArtwork(); return task.promise;
   }
-  return { load, start, stop, status, search, refresh, favorite, candidates, link, unlink, openUrl, downloadDescriptor, artwork, libraryChanged };
+  return { load, start, stop, status, search, refresh, favorite, candidates, link, unlink, openUrl, downloadDescriptor, artwork, libraryChanged, cancelSearch: (scope, clear = false) => externalCatalogue.cancelScope(scope, clear) };
 }
 function publicDownload(endpoint) { return typeof endpoint === 'string' && endpoint.startsWith('/api/charts/') && endpointValid(endpoint); }
 module.exports = { createCatalogueService };

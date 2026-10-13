@@ -1,4 +1,4 @@
-import { charterSegments, instrumentNames, difficultyNames, instrumentPaths } from './catalogue-card-data.js';
+import { charterSegments, instrumentNames, difficultyNames, instrumentPaths, isExternalCatalogueItem } from './catalogue-card-data.js';
 
 const localArtwork = value => typeof value === 'string' && /^chartshub-companion:\/\/app\/catalogue-artwork\/[a-f0-9]{64}$/.test(value);
 const rank = value => Number.isSafeInteger(value) && value >= 0 && value <= 1000 ? value : null;
@@ -11,6 +11,7 @@ const badgePaths = {
 /** Main-catalogue presentation, built from text nodes and fixed SVG paths only. */
 export function createCatalogueCard(document, item, { locale, demo, signal, expanded, onToggle }) {
   const fr = locale.startsWith('fr'), tr = (french, english) => fr ? french : english;
+  const external = isExternalCatalogueItem(item);
   const make = (tag, content = '', className = '') => {
     const node = document.createElement(tag); node.className = className;
     if (content !== '') node.textContent = String(content); return node;
@@ -41,12 +42,13 @@ export function createCatalogueCard(document, item, { locale, demo, signal, expa
     }
     return box;
   };
-  const card = make('article', '', 'catalogue-item floating-catalogue-item'); card.dataset.chartId = item.id;
+  const card = make('article', '', 'catalogue-item floating-catalogue-item'); card.dataset.chartId = item.id; card.dataset.source = external ? 'chorusencore' : 'chartshub';
   const body = make('div', '', 'catalogue-card-body');
   body.append(make('h3', safeText(item.title) || '—'), make('p', safeText(item.artist) || '—', 'catalogue-item-artist'));
   const tags = make('div', '', 'catalogue-card-tags');
+  tags.append(make('span', external ? 'Chorus Encore' : 'ChartsHub', 'catalogue-source-badge'));
   if (Array.isArray(item.game) && item.game.includes('Clone Hero')) tags.append(make('span', 'Clone Hero', 'catalogue-game-badge'));
-  if (!demo && ['linked', 'candidate'].includes(item.installed?.status)) {
+  if (!external && !demo && ['linked', 'candidate'].includes(item.installed?.status)) {
     const linked = item.installed.status === 'linked';
     const installed = make('span', linked ? tr('Déjà installé', 'Already installed') : tr('À confirmer', 'Needs confirmation'), 'catalogue-installed-badge');
     installed.dataset.status = item.installed.status;
@@ -78,13 +80,14 @@ export function createCatalogueCard(document, item, { locale, demo, signal, expa
   const segments = charterSegments(charter, item.charterSegments);
   if (segments) for (const part of segments) { const span = make('span', part.text); if (part.color) span.style.color = part.color; name.append(span); }
   else name.textContent = charter || '—';
-  identity.append(artwork(item.charterIconUrl, 'catalogue-charter-avatar', charter.slice(0, 2).toUpperCase() || '♪'), name);
+  if (!external) identity.append(artwork(item.charterIconUrl, 'catalogue-charter-avatar', charter.slice(0, 2).toUpperCase() || '♪'));
+  identity.append(name);
   const badge = role => {
     const label = role === 'administrator' ? 'Admin' : role === 'moderator' ? tr('Modérateur', 'Moderator') : tr('Charter vérifié', 'Verified Charter');
     const node = make('span', '', 'catalogue-staff-badge catalogue-staff-' + role); node.append(icon(badgePaths[role]), make('span', label)); return node;
   };
-  if (!demo && ['administrator', 'moderator'].includes(item.staffRole)) identity.append(badge(item.staffRole));
-  if (!demo && item.verified === true) identity.append(badge('verified'));
+  if (!external && !demo && ['administrator', 'moderator'].includes(item.staffRole)) identity.append(badge(item.staffRole));
+  if (!external && !demo && item.verified === true) identity.append(badge('verified'));
   body.append(identity);
 
   const details = make('details', '', 'catalogue-card-details'); details.open = expanded;

@@ -22,6 +22,15 @@ jobs:
       - name: Verify floating catalogue in Electron
         shell: pwsh
         run: npm run test:companion:catalogue-widget -- "$env:RUNNER_TEMP/companion-catalogue-widget"
+      - name: Verify Companion catalogue sources in Electron
+        shell: pwsh
+        run: |
+          npm run test:companion:catalogue-sources -- "$env:RUNNER_TEMP/catalogue-source"
+          if ($LASTEXITCODE -ne 0) { throw 'Catalogue source Electron verification failed' }
+          $reports = @(Get-ChildItem -LiteralPath "$env:RUNNER_TEMP/catalogue-source" -Filter report.json -Recurse -File)
+          if ($reports.Count -ne 1) { throw 'Catalogue source report missing' }
+          $report = Get-Content -LiteralPath $reports[0].FullName -Raw | ConvertFrom-Json
+          if ($report.result -ne 'COMPANION_CATALOGUE_SOURCE_OK' -or $report.count -ne 6 -or @($report.passed).Count -ne 6 -or @($report.externalRequests).Count -lt 1) { throw 'Catalogue source verification incomplete' }
       - name: Verify application branding and Companion in Electron
         shell: pwsh
         run: node node_modules/electron/cli.js tests/desktop-app-electron.cjs . "$env:RUNNER_TEMP/desktop-app"
@@ -127,3 +136,11 @@ jobs:
             ${{ runner.temp }}/companion-catalogue-widget/**/report.json
             ${{ runner.temp }}/companion-catalogue-widget/**/*.png
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: companion-catalogue-source-verification
+          path: |
+            ${{ runner.temp }}/catalogue-source/**/report.json
+            ${{ runner.temp }}/catalogue-source/**/*.png
+          if-no-files-found: error

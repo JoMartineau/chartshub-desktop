@@ -2,7 +2,7 @@
 // Real Electron renderer, IPC, host, catalogue, queue and appearance persistence.
 // Catalogue/network, native folder picker and transfer worker are synthetic.
 // This script never accesses a real chart folder or starts a network transfer.
-const { app, dialog, nativeImage } = require('electron');
+const { app, dialog, nativeImage, shell } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -14,7 +14,7 @@ const directory = path.join(output, 'catalogue-widget-' + randomUUID()), dataDir
 app.setPath('userData', path.join(directory, 'electron-profile')); app.disableHardwareAcceleration();
 app.on('window-all-closed', () => {}); registerCompanionScheme();
 const originalPicker = dialog.showOpenDialog, passed = [], runs = [], discarded = [], pickerOwners = [];
-const artworkRequests = [], layouts = [], batchRequests = [];
+const artworkRequests = [], layouts = [], batchRequests = [], externalRequests = [];
 let host, panel, mini, lastWait = null, failing = false, pickerCancelled = true, pickerTarget = songs, catalogueLoads = 0;
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const abortError = () => Object.assign(Error('Synthetic transfer interrupted'), { name: 'AbortError', code: 'ABORT_ERR' });
@@ -40,6 +40,7 @@ async function fillFields(values, target = mini) {
   await target.webContents.executeJavaScript(`(()=>{for(const [selector,value] of Object.entries(${JSON.stringify(values)})){const n=document.querySelector(selector);if(!n||n.disabled)throw Error('Unavailable input: '+selector);n.value=value;n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));}})()`);
 }
 async function search(fields, ids) {
+  await fillFields({ '#catalogue-widget-source': fields.source ?? 'all' });
   await fillFields(Object.fromEntries(['query', 'artist', 'charter', 'instrument', 'difficulty', 'installed', 'favorites'].map(key => [`#catalogue-widget-${key}`, fields[key] ?? (['installed', 'favorites'].includes(key) ? 'all' : '')])));
   await click('#catalogue-widget-search');
   await waitFor(() => evaluate(`document.querySelector('#catalogue-widget-results').getAttribute('aria-busy')==='false'&&JSON.stringify([...document.querySelectorAll('#catalogue-widget-results article')].map(n=>n.dataset.chartId).sort())===${JSON.stringify(JSON.stringify([...ids].sort()))}`), 'catalogue search results ' + ids.join(', '));
@@ -101,7 +102,9 @@ const charts = [
   ...item, viewUrl: `https://chartshub.ca/index.html?chart=${item.id}&share=2`,
   downloadEndpoint: `/api/charts/11111111-1111-4111-8111-111111111111/FixtureDownload${index}/download-manifest`,
 }));
-let fixtureCharts = charts, fixtureDemo = false, fixtureRevision = 0;
+let fixtureCharts = charts, fixtureDemo = false, fixtureRevision = 0, includeExternal = false;
+const externalMd5 = 'b'.repeat(32), externalChart = { id: 'enchor:' + externalMd5, md5: externalMd5, externalChartId: 732, source: 'chorusencore', sourceUrl: 'https://enchor.us/chart/' + externalMd5,
+  title: 'Encore synthetic chart', artist: 'External synthetic artist <img src=x onerror="window.__unsafe=true">', charter: 'External creator', instruments: ['Guitar'], instrumentDifficulties: { Guitar: ['Expert'] }, coverUrl: '' };
 const cardSelector = id => `article[data-chart-id="${id}"]`;
 const favoriteSelector = id => cardSelector(id) + ' .catalogue-favorite';
 const selectionSelector = id => cardSelector(id) + ' .catalogue-selection-check';
@@ -400,10 +403,52 @@ async function captureCompanionTheme() {
   host.setLanguage('fr');
   passed.push('full Companion theme captures in French and English retain the native panel layout');
 }
+async function verifyExternalSources() {
+  const originalOpenExternal = shell.openExternal, before = runs.length, matchingFile = path.join(dataDirectory, 'matching.json');
+  let opened = null;
+  try {
+    shell.openExternal = async url => { opened = url; };
+    await host.setCatalogueWidget(true); await click('#catalogue-widget-tab-search'); await replaceCatalogue(charts);
+    const matchingBefore = await fs.readFile(matchingFile, 'utf8');
+    includeExternal = true;
+    await fillFields({ '#catalogue-widget-source': 'chorusencore', '#catalogue-widget-query': 'Encore' }); await click('#catalogue-widget-search');
+    await waitFor(() => evaluate(`document.querySelector('#catalogue-widget-results').getAttribute('aria-busy')==='false'&&document.querySelectorAll('#catalogue-widget-results article').length===1&&!!document.querySelector(${JSON.stringify(cardSelector(externalChart.id))})`), 'external provider result in mini');
+    const selector = cardSelector(externalChart.id);
+    assert.equal(await evaluate(`(()=>{const card=document.querySelector(${JSON.stringify(selector)});return card.dataset.source==='chorusencore'&&/Chorus Encore/.test(card.textContent)&&card.querySelector('.catalogue-item-artist').textContent==='External synthetic artist'&&!card.querySelector('.catalogue-favorite,.catalogue-installed-badge,.catalogue-staff-badge,.catalogue-charter-avatar,script,[onerror]')&&window.__unsafe===undefined})()`), true, 'the host strips provider HTML while the renderer keeps source claims distinct and inert');
+    assert.equal(runs.length, before, 'external search never transfers automatically');
+    await click(selector + ' .catalogue-open-external'); await waitFor(() => opened !== null, 'external open action in mini');
+    assert.equal(opened, externalChart.sourceUrl);
+    for (const language of ['fr', 'en']) {
+      host.setLanguage(language); await waitFor(() => evaluate(`document.documentElement.lang===${JSON.stringify(language)}`), 'external source labels ' + language);
+      await resizeNative(280, 220); await recordLayout('external-' + language + '-280x220'); await capture('chorus-encore-' + language);
+    }
+    await click(selector + ' .catalogue-download-single');
+    await waitFor(() => runs.length === before + 1, 'explicit external chart reaches synthetic transfer worker');
+    const queued = host.downloads.status().items.find(item => item.chartId === externalChart.id); assert.ok(queued);
+    assert.equal(runs.at(-1).id, queued.id); assert.equal(runs.at(-1).rootPath, songs);
+    const scoped = await evaluate('window.ChartsHubCompanion.getSnapshot()');
+    assert.doesNotMatch(JSON.stringify(scoped), /rootPath|destination|download-manifest|externalChartId/);
+    await complete(runs.at(-1)); assert.equal(await fs.readFile(matchingFile, 'utf8'), matchingBefore, 'completed external chart creates no native association');
+    assert.ok(externalRequests.some(request => request.body.search === 'Encore'));
+    passed.push('Chorus Encore mini results render inert metadata and source labels at 280x220 in both languages; explicit canonical opening and synthetic download preserve native associations');
+  } finally {
+    includeExternal = false; shell.openExternal = originalOpenExternal; host.setLanguage('fr'); await resizeNative(650, 880);
+  }
+}
 async function openHost() {
   host = await createCompanionHost({ dataDirectory, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: false, sessions: [] }),
     isCatalogueAvailable: () => true, authorizeCatalogue: async () => true,
-    catalogueClient: { async load() { catalogueLoads++; return { items: fixtureCharts, revision: 'mini-electron-fixture-' + fixtureRevision, demo: fixtureDemo }; }, async artwork(url) { artworkRequests.push(url); assert.ok(charts.some(item => item.artworkUrl === url || item.charterIconUrl === url), 'only known synthetic catalogue artwork is requested'); return url.includes('/FixtureArtwork00/') ? { bytes: syntheticArtwork(), contentType: 'image/png' } : null; } },
+    catalogueClient: {
+      async enchorStatus() { return { enabled: true, suspended: false, retryAfterSeconds: 0 }; },
+      async enchorSearch({ endpoint, body }) {
+        assert.ok(['/api/external/enchor/search', '/api/external/enchor/advanced', '/api/external/enchor/browse'].includes(endpoint));
+        assert.ok(Number.isSafeInteger(body.page) && body.page >= 1); externalRequests.push({ endpoint, body: structuredClone(body) });
+        const charts = includeExternal ? [structuredClone(externalChart)] : [];
+        return { source: 'chorusencore', page: body.page, perPage: 25, found: charts.length, hasMore: false, charts };
+      },
+      async load() { catalogueLoads++; return { items: fixtureCharts, revision: 'mini-electron-fixture-' + fixtureRevision, demo: fixtureDemo }; },
+      async artwork(url) { artworkRequests.push(url); assert.ok(charts.some(item => item.artworkUrl === url || item.charterIconUrl === url), 'only known synthetic catalogue artwork is requested'); return url.includes('/FixtureArtwork00/') ? { bytes: syntheticArtwork(), contentType: 'image/png' } : null; },
+    },
     downloadWorker: worker() });
   panel = await host.open(); await host.setCatalogueWidget(true); mini = host.getCatalogueWidget(); mini.setSize(650, 880);
   await waitFor(() => evaluate("!!window.ChartsHubCompanion&&!document.querySelector('#catalogue-widget-search')?.disabled"), 'native mini ready');
@@ -516,9 +561,9 @@ app.whenReady().then(async () => {
   await capture('favorite-after-restart'); passed.push('favorite filter and pressed state survive the full host restart independently of the queue');
   const related = await verifyInstalled(); await verifyBatch(related);
   for (const id of [firstId, secondId]) assert.equal(await fs.readFile(path.join(songs, `Synthetic-${id}`, 'notes.chart'), 'utf8'), 'synthetic chart content', 'new catalogue actions preserve the already downloaded charts');
-  await captureCompanionTheme();
+  await captureCompanionTheme(); await verifyExternalSources();
 
-  const report = { result: 'COMPANION_CATALOGUE_WIDGET_OK', count: passed.length, passed, layouts, artworkRequests, batchRequests, catalogueLoads, transferRuns: runs.length, directory };
+  const report = { result: 'COMPANION_CATALOGUE_WIDGET_OK', count: passed.length, passed, layouts, artworkRequests, batchRequests, externalRequests, catalogueLoads, transferRuns: runs.length, directory };
   await fs.writeFile(path.join(directory, 'report.json'), JSON.stringify(report, null, 2)); console.log(JSON.stringify(report, null, 2));
   await host.dispose(); dialog.showOpenDialog = originalPicker; app.exit(0);
 }).catch(fail);

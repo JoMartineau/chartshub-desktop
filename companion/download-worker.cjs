@@ -354,4 +354,4 @@ function createDownloadWorker({ fetcher = globalThis.fetch, idleTimeoutMs = 6000
   return { run, discard, resolveCompleted };
 }
 
-module.exports = { createDownloadWorker };
+module.exports = { createDownloadWorker, rootContext, readJsonFile, writeNew, safeRemoveTree, statOrNull, identity };

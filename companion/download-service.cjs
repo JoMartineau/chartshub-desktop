@@ -6,6 +6,7 @@ const { randomUUID } = require('node:crypto');
 const ID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const CHART_ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/;
 const MANIFEST = /^\/api\/charts\/[a-f0-9-]{36}\/[A-Za-z0-9_-]{10,200}\/download-manifest$/;
+const EXTERNAL = /^enchor:[a-f0-9]{32}$/;
 const STATES = ['Queued', 'Downloading', 'Paused', 'Completed', 'Failed', 'Cancelled'];
 const MAX_ITEMS = 100, MAX_STATE_BYTES = 12 * 1024 * 1024;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -16,10 +17,11 @@ const text = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\
 const samePath = (a, b) => path.relative(a, b) === '';
 const absolute = value => typeof value === 'string' && value.length <= 32768 && !value.includes('\0') && path.isAbsolute(value);
 function endpoint(value) {
-  return typeof value === 'string' && value.length <= 512 && MANIFEST.test(value);
+  return typeof value === 'string' && value.length <= 512 && (MANIFEST.test(value) || EXTERNAL.test(value));
 }
 function descriptor(value) {
   if (!object(value) || Object.keys(value).some(key => !['chartId', 'title', 'artist', 'charter', 'endpoint'].includes(key)) || typeof value.chartId !== 'string' || !CHART_ID.test(value.chartId) || !endpoint(value.endpoint) || ['title', 'artist', 'charter'].some(key => typeof value[key] !== 'string' || value[key].length > 512)) throw safe('Le téléchargement demandé n’est pas valide.');
+  if ((EXTERNAL.test(value.endpoint) || value.chartId.startsWith('enchor:')) && value.chartId !== value.endpoint) throw safe('L’identité du téléchargement ChorusEncore est invalide.');
   return { chartId: value.chartId, title: text(value.title), artist: text(value.artist), charter: text(value.charter), endpoint: value.endpoint };
 }
 function downloadError(problem) {
@@ -32,7 +34,8 @@ function downloadError(problem) {
     DOWNLOAD_PATH: 'Le dossier de téléchargement a changé ou n’est pas sûr.',
     DOWNLOAD_BUSY: 'Le dossier temporaire est déjà utilisé. Réessayez.',
     DOWNLOAD_IO: 'Impossible de lire ou d’écrire les fichiers du téléchargement.',
-    ENOSPC: 'L’espace disque disponible est insuffisant.'
+    ENOSPC: 'L’espace disque disponible est insuffisant.',
+    ENCHOR_DOWNLOAD_ACCESS_DENIED: 'ChorusEncore refuse ce téléchargement.', ENCHOR_DOWNLOAD_RATE_LIMITED: 'ChorusEncore limite temporairement les téléchargements. Réessayez plus tard.'
   };
   return messages[problem?.code] ?? 'Le téléchargement a échoué. Les fichiers partiels validés sont conservés.';
 }
@@ -137,7 +140,7 @@ function createDownloadService({ dataDirectory, worker, onChange } = {}) {
         await replace(run.id, { state: 'Downloading', error: null, errorCode: null, currentFile: null }, () => check(run.epoch)); started = true;
       });
       if (!started || run.intent || run.controller.signal.aborted) return;
-      const result = await worker.run({ id: run.id, endpoint: run.endpoint, rootPath: run.rootPath, signal: run.controller.signal, onProgress: update => progress(run, update) });
+      const result = await worker.run({ id: run.id, endpoint: run.endpoint, rootPath: run.rootPath, ...(EXTERNAL.test(run.endpoint) ? { title: run.title, artist: run.artist } : {}), signal: run.controller.signal, onProgress: update => progress(run, update) });
       if (!object(result) || !absolute(result.destination) || !samePath(path.dirname(result.destination), run.rootPath) || typeof result.folderName !== 'string' || path.basename(result.destination) !== result.folderName || !nonnegative(result.files) || result.files < 1 || !nonnegative(result.totalBytes)) throw Object.assign(Error('Invalid completion'), { code: 'DOWNLOAD_PATH' });
       const canonical = await worker.resolveCompleted({ rootPath: run.rootPath, destination: result.destination });
       if (!absolute(canonical) || !samePath(canonical, result.destination)) throw Object.assign(Error('Missing completed folder'), { code: 'DOWNLOAD_PATH' });
@@ -170,7 +173,7 @@ function createDownloadService({ dataDirectory, worker, onChange } = {}) {
   function pump() {
     if (!active || current || protectedFile || diskFailed) return;
     const target = document.items.find(entry => entry.state === 'Queued'); if (!target || cleaning.has(target.id)) return;
-    const run = { id: target.id, rootPath: target.rootPath, endpoint: target.endpoint, epoch, intent: null, controller: new AbortController(), lastProgress: 0, promise: null };
+    const run = { id: target.id, rootPath: target.rootPath, endpoint: target.endpoint, title: target.title, artist: target.artist, epoch, intent: null, controller: new AbortController(), lastProgress: 0, promise: null };
     current = run; run.promise = Promise.resolve().then(() => execute(run));
   }
   async function stop() {
@@ -262,7 +265,7 @@ function createDownloadService({ dataDirectory, worker, onChange } = {}) {
           // discard owns only this UUID's staging/receipt, never the published
           // destination. Removing completed history also removes its receipt.
           if (removing || target.state !== 'Completed') {
-            try { await worker.discard({ id, rootPath: target.rootPath }); }
+            try { await worker.discard({ id, rootPath: target.rootPath, ...(EXTERNAL.test(target.endpoint) ? { endpoint: target.endpoint } : {}) }); }
             catch { throw safe('Impossible de nettoyer les fichiers temporaires de ce téléchargement.'); }
           }
           if (removing) await commit(document.items.filter(entry => entry.id !== id));

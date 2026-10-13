@@ -21,6 +21,7 @@
       <p id="catalogue-widget-feedback" class="catalogue-widget-feedback" role="status" aria-live="polite" hidden></p>
       <div id="catalogue-widget-search-panel" role="tabpanel" aria-labelledby="catalogue-widget-tab-search">
         <form id="catalogue-widget-search-form">
+          <label for="catalogue-widget-source"><span id="catalogue-widget-source-label">Source</span><select id="catalogue-widget-source"><option id="catalogue-widget-source-all" value="all">Toutes les sources</option><option value="chartshub">ChartsHub</option><option value="chorusencore">Chorus Encore</option></select></label>
           <label for="catalogue-widget-query">Titre ou recherche libre</label><input id="catalogue-widget-query" type="search" maxlength="200" autocomplete="off" placeholder="Rechercher une chart…">
           <div class="catalogue-widget-filter-grid"><label for="catalogue-widget-artist">Artiste<input id="catalogue-widget-artist" type="text" maxlength="128" autocomplete="off"></label><label for="catalogue-widget-charter">Créateur de la chart<input id="catalogue-widget-charter" type="text" maxlength="128" autocomplete="off"></label></div>
           <details class="catalogue-widget-extra-filters"><summary>Filtres supplémentaires</summary><div class="catalogue-widget-filter-grid"><label for="catalogue-widget-instrument">Instrument<input id="catalogue-widget-instrument" type="text" maxlength="128" placeholder="guitar"></label><label for="catalogue-widget-difficulty">Difficulté<input id="catalogue-widget-difficulty" type="text" maxlength="128" placeholder="expert"></label></div></details>
@@ -31,6 +32,7 @@
           <div class="catalogue-widget-actions"><button id="catalogue-widget-search" type="submit">Rechercher</button><button id="catalogue-widget-refresh" type="button">Actualiser le catalogue</button></div>
         </form>
         <p id="catalogue-widget-search-status" role="status" aria-live="polite">Lancez une recherche pour trouver des charts.</p>
+        <p id="catalogue-widget-external-status" class="catalogue-widget-provider-status" role="status" aria-live="polite" hidden></p>
         <section id="catalogue-widget-selection" class="catalogue-widget-selection" aria-labelledby="catalogue-widget-selection-summary" hidden>
           <p id="catalogue-widget-selection-summary" aria-live="polite"></p>
           <ul id="catalogue-widget-selection-items" class="catalogue-item-details"></ul>
