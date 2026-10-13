@@ -3,7 +3,7 @@ const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  const tabbed=process.argv.includes('--chartshub-tabbed');
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
-  version:'0.14.19',
+  version:'0.14.20',
   layout:tabbed?'tabbed':'legacy',
   saveCheckerReport:payload=>ipcRenderer.invoke('chartshub:save-checker-report',payload),
   downloadState:()=>ipcRenderer.invoke('chartshub:download-state'),
