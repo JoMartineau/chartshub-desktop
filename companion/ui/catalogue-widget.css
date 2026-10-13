@@ -32,6 +32,9 @@ html, body { margin: 0; min-width: 0; height: 100%; background: transparent; }
 .catalogue-widget-app h3 { margin: 0 0 5px; font-size: 1.08em; font-weight: 600; color: inherit; }
 .floating-catalogue-item p, .floating-download-item p { margin: 4px 0; }
 .catalogue-item-artist, .catalogue-item-details { font-size: .9em; }
+.catalogue-source-badge { display: inline-flex; max-width: 100%; padding: 3px 6px; border: 1px solid #ffffff35; border-radius: 5px; font-size: .8em; }
+.catalogue-widget-provider-status { font-size: .85em; line-height: 1.5; overflow-wrap: anywhere; }
+.catalogue-open-external { display: block; max-width: 100%; margin-top: 8px; overflow-wrap: anywhere; }
 .floating-catalogue-item button { margin-top: 8px; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
 .floating-catalogue-item { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; padding: 12px; margin: 10px 0; border: 1px solid #8a87f448; border-radius: 9px; background: #00000010; }
 .catalogue-card-body { min-width: 0; }

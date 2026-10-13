@@ -39,6 +39,7 @@ function trustedFiltersWidgetCommand(event, window, command, payload) {
 }
 function trustedCatalogueWidgetCommand(event, window, command, payload) {
   return (['catalogue.widget', 'catalogue.search', 'catalogue.refresh', 'catalogue.favorite', 'downloads.enqueue', 'downloads.chooseRoot', 'downloads.pause', 'downloads.resume', 'downloads.cancel', 'downloads.retry'].includes(command)
+    || (command === 'catalogue.open' && /^enchor:[a-f0-9]{32}$/.test(payload?.chartId || ''))
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
@@ -163,10 +164,12 @@ function validCommand(command, payload, widgetIds) {
   if (['downloads.pause', 'downloads.resume', 'downloads.cancel', 'downloads.retry', 'downloads.remove', 'downloads.openFolder'].includes(command)) return typeof payload.id === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(payload.id) && Object.keys(payload).every(key => key === 'id');
   if (command === 'catalogue.search') {
     const textFields = ['query', 'artist', 'charter', 'genre', 'year', 'instrument', 'difficulty'];
-    return Object.keys(payload).every(key => [...textFields, 'verified', 'installed', 'page', 'favorites'].includes(key))
+    return Object.keys(payload).every(key => [...textFields, 'verified', 'installed', 'page', 'favorites', 'source', 'externalSearch'].includes(key))
       && textFields.every(key => typeof payload[key] === 'string' && payload[key].length <= (key === 'query' ? 200 : 128) && !/[\u0000-\u001f\u007f]/.test(payload[key]))
       && ['all', 'yes'].includes(payload.verified) && ['all', 'linked', 'unlinked'].includes(payload.installed)
       && (!Object.hasOwn(payload, 'favorites') || ['all', 'yes'].includes(payload.favorites))
+      && (!Object.hasOwn(payload, 'source') || ['all', 'chartshub', 'chorusencore'].includes(payload.source))
+      && (!Object.hasOwn(payload, 'externalSearch') || typeof payload.externalSearch === 'boolean')
       && Number.isSafeInteger(payload.page) && payload.page >= 1 && payload.page <= 1000;
   }
   if (command === 'catalogue.candidates') return typeof payload.localId === 'string' && /^[a-f0-9]{64}$/.test(payload.localId) && Object.keys(payload).every(key => key === 'localId');

@@ -14,9 +14,9 @@ const { createBackgroundLibraryService } = require('./library-background.cjs');
 const { verifyNativeCleanup } = require('./native-cleanup.cjs');
 const { verifyNativeBadSongCleanup } = require('./library-bad-songs.cjs');
 const { createChartsHubClient } = require('./catalogue-client.cjs');
+const { createCatalogueDownloadWorker } = require('./catalogue-download-worker.cjs');
 const { createCatalogueService } = require('./catalogue-service.cjs');
 const { createDownloadService } = require('./download-service.cjs');
-const { createDownloadWorker } = require('./download-worker.cjs');
 const { createCloneHeroSource } = require('./clonehero-source.cjs');
 const { createCharterColorResolver } = require('./charter-color-resolver.cjs');
 const { createCloneHeroProcessProbe } = require('./clonehero-process.cjs');
@@ -313,7 +313,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!disposing) publishPanel();
   } });
   await catalogue.load();
-  downloads = createDownloadService({ dataDirectory, worker: downloadWorker ?? createDownloadWorker({ fetcher: (url, options) => net.fetch(url, options) }), onChange: value => {
+  downloads = createDownloadService({ dataDirectory, worker: downloadWorker ?? createCatalogueDownloadWorker({ fetcher: (url, options) => net.fetch(url, options) }), onChange: value => {
     downloadNotice('observe', value);
     if (!disposing) publishPanel();
   } });
@@ -556,6 +556,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (typeof enabled !== 'boolean') throw TypeError('Invalid catalogue availability');
     catalogueAccess = enabled;
     if (!enabled) {
+      catalogue?.cancelSearch('panel', true); catalogue?.cancelSearch('widget', true);
       songRequestShareRevision++;
       songRequestShare = { ...songRequestShare, url: null, count: 0, updatedAt: null, busy: false, error: null, unavailableCount: 0 };
       catalogueWidgetTicket++; catalogueWidgetEnabled = false;
@@ -577,6 +578,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const ticket = ++catalogueWidgetTicket, revision = lifecycleRevision;
     if (!enabled) {
       catalogueWidgetEnabled = false;
+      catalogue?.cancelSearch('widget');
       if (catalogueWidget && !catalogueWidget.isDestroyed()) catalogueWidget.hide();
       publishPanel(); return;
     }
@@ -590,7 +592,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       window.on('page-title-updated', event => event.preventDefault());
       window.setAlwaysOnTop(true, 'screen-saver');
       window.on('closed', () => {
-        if (catalogueWidget === window) { catalogueWidget = null; catalogueWidgetLoad = null; catalogueWidgetEnabled = false; catalogueWidgetTicket++; if (!disposing) publishPanel(); }
+        if (catalogueWidget === window) { catalogue?.cancelSearch('widget'); catalogueWidget = null; catalogueWidgetLoad = null; catalogueWidgetEnabled = false; catalogueWidgetTicket++; if (!disposing) publishPanel(); }
       });
       catalogueWidgetLoad = window.loadURL(`${SCHEME}://app/ui/catalogue-widget.html`).catch(error => {
         if (!window.isDestroyed()) window.destroy();
@@ -947,7 +949,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         const folder = await library.resolveSongFolder(payload.id);
         if (!folder || await shell.openPath(folder)) return { ok: false, error: 'Ce dossier de chanson n’est plus accessible.' };
       } else if (command === 'catalogue.search') {
-        return { ok: true, result: await catalogue.search(payload) };
+        const searchRevision = lifecycleRevision, searchTicket = catalogueWidgetTicket;
+        if (payload.externalSearch && payload.source !== 'chartshub' && (!catalogueAllowed() || mini && !catalogueWidgetEnabled)) return { ok: false, error: 'Cette recherche nécessite un panneau ChartsHub actif.' };
+        const isCurrent = () => !disposing && !stopTask && searchRevision === lifecycleRevision && (!mini || searchTicket === catalogueWidgetTicket);
+        const result = await catalogue.search(payload, { scope: mini ? 'widget' : 'panel', isCurrent });
+        if (!isCurrent()) return { ok: false, error: 'La recherche a été remplacée ou le panneau fermé.' };
+        return { ok: true, result };
       } else if (command === 'catalogue.favorite') {
         return { ok: true, result: await catalogue.favorite(payload) };
       } else if (command === 'catalogue.candidates') {

@@ -5,6 +5,7 @@ const { createDocument, tick } = require('./floating-panel-dom.cjs');
 const appearance = () => ({ backgroundColor: '#151719e6', textColor: '#eef1f2', fontFamily: 'system', fontSize: 14 });
 const snapshot = (extra = {}) => ({ language: 'fr', catalogue: { revision: 1, status: 'ready', demo: false }, downloads: { revision: 1, hasRoot: true, items: [], error: null }, floatingPanels: { revision: 0, appearance: { catalogue: appearance() }, canWrite: true, error: null }, catalogueShortcut: { registered: true }, ...extra });
 const chart = (id, extra = {}) => ({ id, title: `Title ${id}`, artist: 'Artist', charter: 'Creator', downloadable: true, ...extra });
+const externalChart = (md5 = 'a'.repeat(32), extra = {}) => chart('enchor:' + md5, { source: 'chorusencore', viewUrl: `https://enchor.us/chart/${md5}`, sourceUrl: `https://enchor.us/chart/${md5}`, ...extra });
 const uuid = n => `${n.toString(16).padStart(8, '0')}-0000-4000-8000-000000000000`;
 const download = (n, state = 'Downloading', extra = {}) => ({ id: uuid(n), chartId: `chart-${n}`, title: `Download ${n}`, artist: 'Artist', state, receivedBytes: 25, totalBytes: 100, updatedAt: `2026-10-${String(Math.min(n + 1, 28)).padStart(2, '0')}T12:00:00.000Z`, ...extra });
 const cardFor = (ui, id) => ui.get('#catalogue-widget-results').children.find(card => card.dataset.chartId === id);
@@ -20,8 +21,8 @@ async function setup(t) {
   t.after(() => controls.dispose());
   const get = selector => root.querySelector(selector);
   const search = value => { get('#catalogue-widget-query').value = value; get('#catalogue-widget-search-form').dispatchEvent(new Event('submit', { cancelable: true })); };
-  const respond = async (index, { items = [chart('chart-1')], page = calls[index].payload?.page ?? 1, total = items.length, hasMore = false } = {}) => {
-    calls[index].resolve({ ok: true, result: { items, page, total, hasMore, pageSize: 20, facets: { instruments: [], difficulties: [] } } }); await tick();
+  const respond = async (index, { items = [chart('chart-1')], page = calls[index].payload?.page ?? 1, total = items.length, hasMore = false, ...extra } = {}) => {
+    calls[index].resolve({ ok: true, result: { items, page, total, hasMore, pageSize: 20, facets: { instruments: [], difficulties: [] }, ...extra } }); await tick();
   };
   return { document, root, controls, calls, get, search, respond, html };
 }
@@ -32,8 +33,96 @@ test('the native local widget uses a restrictive CSP and waits for explicit sear
   assert.equal(ui.calls.length, 0); assert.equal(ui.get('#catalogue-widget-downloads-panel').hidden, true);
   ui.get('#catalogue-widget-artist').value = 'Artist'; ui.get('#catalogue-widget-charter').value = 'Creator'; ui.get('#catalogue-widget-instrument').value = 'guitar'; ui.get('#catalogue-widget-difficulty').value = 'expert';
   ui.search('Title');
-  assert.deepEqual(ui.calls[0], { name: 'catalogue.search', payload: { query: 'Title', artist: 'Artist', charter: 'Creator', genre: '', year: '', instrument: 'guitar', difficulty: 'expert', verified: 'all', installed: 'all', page: 1 }, resolve: ui.calls[0].resolve });
+  assert.deepEqual(ui.calls[0], { name: 'catalogue.search', payload: { query: 'Title', artist: 'Artist', charter: 'Creator', genre: '', year: '', instrument: 'guitar', difficulty: 'expert', verified: 'all', installed: 'all', source: 'all', externalSearch: true, page: 1 }, resolve: ui.calls[0].resolve });
   await ui.respond(0); assert.equal(ui.calls.length, 1);
+});
+
+test('source selection is explicit, defaults to all, and pagination retains the submitted source', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot());
+  assert.match(ui.html, /<label\b[^>]*for="catalogue-widget-source"/);
+  for (const value of ['all', 'chartshub', 'chorusencore']) assert.match(ui.html, new RegExp('<option\\b[^>]*value="' + value + '"'));
+  assert.equal(ui.calls.length, 0);
+  ui.search('default source'); assert.equal(ui.calls[0].payload.source, 'all'); assert.equal(ui.calls[0].payload.externalSearch, true);
+  await ui.respond(0);
+  ui.get('#catalogue-widget-source').value = 'chartshub'; ui.search('native source');
+  assert.equal(ui.calls[1].payload.source, 'chartshub'); assert.equal(ui.calls[1].payload.externalSearch, true); await ui.respond(1);
+  ui.get('#catalogue-widget-source').value = 'chorusencore'; ui.search('external source');
+  assert.equal(ui.calls[2].payload.source, 'chorusencore'); assert.equal(ui.calls[2].payload.externalSearch, true);
+  await ui.respond(2, { items: [externalChart()], total: 50, hasMore: true });
+  ui.get('#catalogue-widget-source').value = 'chartshub'; ui.get('#catalogue-widget-next').click();
+  assert.equal(ui.calls[3].payload.source, 'chorusencore'); assert.equal(ui.calls[3].payload.page, 2); assert.equal(ui.calls[3].payload.externalSearch, true);
+  await ui.respond(3, { items: [externalChart('b'.repeat(32))], total: 50 });
+  ui.get('#catalogue-widget-source').value = 'invalid-source'; ui.search('fallback'); assert.equal(ui.calls[4].payload.source, 'all'); await ui.respond(4);
+});
+
+test('external result cards identify Chorus Encore and suppress native claims and favorite actions', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('external presentation');
+  const external = externalChart('c'.repeat(32), { title: '<img src=x onerror=neverRun()>', favorite: true, installed: { status: 'linked' }, verified: true, staffRole: 'administrator',
+    charterIconUrl: 'chartshub-companion://app/catalogue-artwork/' + 'b'.repeat(64), charterSegments: [{ text: 'Creator', color: 'red' }] });
+  await ui.respond(0, { items: [chart('native', { verified: true, favorite: true, installed: { status: 'linked' } }), external] });
+  const card = cardFor(ui, external.id);
+  assert.equal(card.querySelector('h3').textContent, external.title); assert.match(card.textContent, /Chorus Encore/);
+  assert.equal(card.querySelector('.catalogue-favorite'), null); assert.equal(card.querySelector('.catalogue-installed-badge'), null);
+  assert.equal(card.querySelectorAll('.catalogue-staff-badge').length, 0); assert.equal(card.querySelector('.catalogue-charter-avatar'), null);
+  assert.equal(card.querySelectorAll('img').length, 0);
+  assert.equal(cardFor(ui, 'native').querySelector('.catalogue-favorite').getAttribute('aria-pressed'), 'true');
+  assert.equal(cardFor(ui, 'native').querySelector('.catalogue-installed-badge').dataset.status, 'linked');
+  const count = ui.calls.length; await ui.controls.setFavorite(external.id); assert.equal(ui.calls.length, count);
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  assert.match(cardFor(ui, external.id).textContent, /Chorus Encore/); assert.equal(ui.calls.length, count);
+});
+
+test('external open and single download actions pass only the result identifier to the host', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.get('#catalogue-widget-source').value = 'chorusencore'; ui.search('external actions');
+  const external = externalChart('d'.repeat(32), { downloadEndpoint: 'https://private.invalid/archive.zip', destination: 'C:/outside', viewUrl: 'https://private.invalid/open' });
+  await ui.respond(0, { items: [external] });
+  const card = cardFor(ui, external.id), open = card.querySelector('.catalogue-open-external'); assert.ok(open, 'external cards expose an explicit browser action');
+  open.focus(); open.click(); assert.equal(ui.calls[1].name, 'catalogue.open'); assert.deepEqual(ui.calls[1].payload, { chartId: external.id });
+  assert.equal(cardFor(ui, external.id), card); assert.equal(open.disabled, true); assert.equal(ui.document.activeElement, open);
+  ui.calls[1].resolve({ ok: true }); await tick();
+  assert.equal(cardFor(ui, external.id), card); assert.equal(open.disabled, false); assert.equal(ui.document.activeElement, open);
+  cardFor(ui, external.id).querySelector('.catalogue-download-single').click();
+  assert.equal(ui.calls[2].name, 'downloads.enqueue'); assert.deepEqual(ui.calls[2].payload, { chartId: external.id });
+  ui.calls[2].resolve({ ok: true, result: { id: uuid(1) } }); await tick();
+  assert.doesNotMatch(ui.root.textContent, /private\.invalid|C:\/outside/);
+});
+
+test('external charts join an explicit batch with native charts and stale provider searches cannot replace it', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.get('#catalogue-widget-source').value = 'chorusencore'; ui.search('old external');
+  ui.get('#catalogue-widget-source').value = 'all'; ui.search('mixed');
+  const external = externalChart('e'.repeat(32)); await ui.respond(1, { items: [chart('native'), external] }); await ui.respond(0, { items: [externalChart('f'.repeat(32))] });
+  assert.deepEqual(ui.get('#catalogue-widget-results').children.map(card => card.dataset.chartId), ['native', external.id]);
+  selectChart(ui, 'native'); selectChart(ui, external.id); ui.get('#catalogue-widget-download-selected').click();
+  assert.equal(ui.calls[2].name, 'downloads.enqueue'); assert.deepEqual(ui.calls[2].payload, { chartId: 'native' });
+  ui.calls[2].resolve({ ok: true, result: { id: uuid(1) } }); await tick();
+  assert.equal(ui.calls[3].name, 'downloads.enqueue'); assert.deepEqual(ui.calls[3].payload, { chartId: external.id });
+  ui.calls[3].resolve({ ok: true, result: { id: uuid(2) } }); await tick();
+  assert.equal(ui.controls.selectedCharts.size, 0);
+});
+
+test('provider failures preserve native results and explain an explicit retry without polling or transfers', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ui = await setup(t); ui.controls.update(snapshot());
+  const explanations = { disabled: /désactivé/, suspended: /suspendu/, cooldown: /réessayez dans 17 s/, error: /indisponible/ };
+  for (const [status, expected] of Object.entries(explanations)) {
+    const index = ui.calls.length; ui.search('native fallback');
+    await ui.respond(index, { items: [chart('native-fallback')], source: 'all', nativeTotal: 1, externalTotal: 0,
+      external: { status, enabled: status !== 'disabled', suspended: status === 'suspended', retryAfterSeconds: 17, unsupported: ['favorites', 'installed', 'Vocals'], localFilters: ['genre'], total: 0, hasMore: false } });
+    assert.match(ui.get('#catalogue-widget-external-status').textContent, expected);
+    assert.match(ui.get('#catalogue-widget-external-status').textContent, /Filtres non pris en charge par Chorus Encore : favoris, association locale, chant/);
+    assert.match(ui.get('#catalogue-widget-external-status').textContent, /page Chorus Encore reçue/);
+    assert.equal(ui.get('#catalogue-widget-external-status').hidden, false);
+    assert.equal(cardFor(ui, 'native-fallback').querySelector('.catalogue-download-single').disabled, false);
+    t.mock.timers.tick(120000); assert.equal(ui.calls.length, index + 1, 'waiting after a provider failure makes no automatic request');
+  }
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  assert.match(ui.get('#catalogue-widget-external-status').textContent, /unavailable.*Search again to retry/);
+  assert.match(ui.get('#catalogue-widget-external-status').textContent, /Filters not supported by Chorus Encore: favorites, local association, vocals/);
+  const count = ui.calls.length; cardFor(ui, 'native-fallback').querySelector('.catalogue-download-single').click();
+  assert.equal(ui.calls[count].name, 'downloads.enqueue'); assert.deepEqual(ui.calls[count].payload, { chartId: 'native-fallback' });
+  ui.calls[count].resolve({ ok: true, result: { id: uuid(1) } }); await tick();
+  ui.get('#catalogue-widget-source').value = 'chartshub'; ui.search('native only'); await ui.respond(count + 1, { external: { status: 'error' } });
+  assert.equal(ui.get('#catalogue-widget-external-status').hidden, true);
 });
 
 test('the mini catalogue reflects centrally saved appearance without a duplicate editor or automatic write', async t => {
@@ -181,6 +270,7 @@ test('favorites wait for a persisted acknowledgement, reload the current filter 
   cardFor(ui, 'favorite').querySelector('.catalogue-favorite').click(); ui.search('should-not-submit'); assert.equal(ui.calls.length, 2);
   ui.calls[1].resolve({ ok: true, result: { chartId: 'favorite', favorite: true } }); await tick();
   assert.equal(ui.calls[2].name, 'catalogue.search'); assert.equal(ui.calls[2].payload.query, 'favorite');
+  assert.equal(ui.calls[2].payload.source, 'all'); assert.equal(ui.calls[2].payload.externalSearch, false, 'saving a native favorite does not make another external provider request');
   await ui.respond(2, { items: [chart('favorite', { favorite: true })] });
   assert.equal(cardFor(ui, 'favorite').querySelector('.catalogue-favorite').getAttribute('aria-pressed'), 'true');
   assert.equal(cardFor(ui, 'favorite').querySelector('.catalogue-favorite').textContent, '★');
@@ -189,7 +279,7 @@ test('favorites wait for a persisted acknowledgement, reload the current filter 
   assert.equal(cardFor(reopened, 'favorite').querySelector('.catalogue-favorite').getAttribute('aria-pressed'), 'true');
   cardFor(reopened, 'favorite').querySelector('.catalogue-favorite').click(); assert.deepEqual(reopened.calls[1].payload, { chartId: 'favorite', favorite: false });
   reopened.calls[1].resolve({ ok: true, result: { chartId: 'favorite', favorite: false } }); await tick();
-  assert.equal(reopened.calls[2].payload.favorites, 'yes'); await reopened.respond(2, { items: [] }); assert.equal(reopened.get('#catalogue-widget-results').children.length, 0);
+  assert.equal(reopened.calls[2].payload.favorites, 'yes'); assert.equal(reopened.calls[2].payload.externalSearch, false); await reopened.respond(2, { items: [] }); assert.equal(reopened.get('#catalogue-widget-results').children.length, 0);
   assert.equal([...ui.calls, ...reopened.calls].some(call => call.name === 'downloads.enqueue'), false);
 });
 

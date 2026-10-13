@@ -1,5 +1,26 @@
 // Same bounded name/color contract as ChartsHub chart-text.js. The profile
 // accent color is intentionally unrelated to a chart's song.ini charter name.
+export const isExternalCatalogueItem = item => item?.source === 'chorusencore' || typeof item?.id === 'string' && item.id.startsWith('enchor:');
+export function externalCatalogueStatus(external, source, locale) {
+  if (!external || source === 'chartshub') return '';
+  const fr = locale.startsWith('fr'), tr = (french, english) => fr ? french : english;
+  let message = '';
+  if (external.status === 'idle') message = tr('Chorus Encore : saisissez un titre, un artiste ou un créateur, puis lancez Rechercher.', 'Chorus Encore: enter a title, artist or charter, then choose Search.');
+  else if (external.status === 'loading') message = tr('Recherche Chorus Encore en cours…', 'Searching Chorus Encore…');
+  else if (external.status === 'disabled') message = tr('Chorus Encore est désactivé. Les résultats ChartsHub restent disponibles.', 'Chorus Encore is disabled. ChartsHub results remain available.');
+  else if (external.status === 'suspended') message = tr('Chorus Encore est temporairement suspendu. Relancez la recherche plus tard.', 'Chorus Encore is temporarily suspended. Search again later.');
+  else if (external.status === 'cooldown') {
+    const seconds = Number.isFinite(external.retryAfterSeconds) ? Math.max(1, Math.ceil(external.retryAfterSeconds)) : null;
+    message = seconds ? tr(`Chorus Encore : réessayez dans ${seconds} s en cliquant sur Rechercher.`, `Chorus Encore: wait ${seconds} s, then choose Search again.`) : tr('Chorus Encore demande de patienter. Relancez la recherche plus tard.', 'Chorus Encore needs more time. Search again later.');
+  } else if (external.status === 'error') message = tr('Chorus Encore est indisponible. Relancez la recherche pour réessayer.', 'Chorus Encore is unavailable. Search again to retry.');
+  else if (external.status === 'ready') message = tr('Résultats Chorus Encore · source externe.', 'Chorus Encore results · external source.');
+  if (['error', 'suspended', 'disabled'].includes(external.status) && typeof external.error === 'string' && external.error.trim()) message += ' ' + external.error.slice(0, 512);
+  const names = { favorites: tr('favoris', 'favorites'), verified: tr('créateur vérifié', 'verified charter'), installed: tr('association locale', 'local association'), instrument: tr('instrument', 'instrument'), difficulty: tr('difficulté', 'difficulty'), Vocals: tr('chant', 'vocals'), vocals: tr('chant', 'vocals') };
+  const unsupported = Array.isArray(external.unsupported) ? external.unsupported.filter(value => typeof value === 'string').slice(0, 10) : [];
+  if (unsupported.length) message += ' ' + tr('Filtres non pris en charge par Chorus Encore : ', 'Filters not supported by Chorus Encore: ') + unsupported.map(key => names[key] || key.slice(0, 80)).join(', ') + '.';
+  if (Array.isArray(external.localFilters) && external.localFilters.length) message += ' ' + tr('Les filtres supplémentaires s’appliquent aux résultats de la page Chorus Encore reçue.', 'Additional filters apply to the received Chorus Encore page.');
+  return message;
+}
 export function safeCharterColor(value) {
   if (typeof value !== 'string' || value.length > 40) return undefined;
   const color = value.trim().replace(/^["']|["']$/g, '').toLowerCase();

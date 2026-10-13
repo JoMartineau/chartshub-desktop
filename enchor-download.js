@@ -62,27 +62,54 @@ async function prepareSavePath(outputPath,format,overwriteConfirmed){
  const snapshot=await fileSnapshot(destination);if(snapshot&&!overwriteConfirmed)throw Error('Le fichier existe déjà. Choisissez un autre nom.');
  return {root,filename,destination,snapshot};
 }
-async function publishSavedFile(source,save,signal){
- signal.throwIfAborted();const current=await fileSnapshot(save.destination);if(!sameFile(save.snapshot,current))throw Error('Le fichier de destination a changé. Choisissez un autre nom et réessayez.');
+async function publishSavedFile(source,save,signal,guard=async()=>{}){
+ signal.throwIfAborted();await guard();const current=await fileSnapshot(save.destination);if(!sameFile(save.snapshot,current))throw Error('Le fichier de destination a changé. Choisissez un autre nom et réessayez.');
  let reserved,committed=false;
  try{
   if(!current){
    // Exclusive reservation works on NTFS, exFAT and filesystems without links.
    // Rename may replace only this fresh, unchanged empty file.
-   const handle=await fsp.open(save.destination,'wx',0o600);try{const info=await handle.stat({bigint:true});if(info.size!==0n||info.nlink!==1n)throw Error('Le fichier de destination a changé. Choisissez un autre nom et réessayez.');reserved=snapshot(info);}finally{await handle.close();}
+   await guard();const handle=await fsp.open(save.destination,'wx',0o600);try{const info=await handle.stat({bigint:true});if(info.size!==0n||info.nlink!==1n)throw Error('Le fichier de destination a changé. Choisissez un autre nom et réessayez.');reserved=snapshot(info);}finally{await handle.close();}
    signal.throwIfAborted();if(!sameFile(reserved,await fileSnapshot(save.destination)))throw Error('Le fichier de destination a changé. Choisissez un autre nom et réessayez.');
   }
-  signal.throwIfAborted();await fsp.rename(source,save.destination);committed=true;
+  signal.throwIfAborted();await guard();await fsp.rename(source,save.destination);committed=true;
  }finally{
-  if(!committed&&reserved&&sameFile(reserved,await fileSnapshot(save.destination)))await fsp.unlink(save.destination);
+  if(!committed&&reserved){try{await guard();if(sameFile(reserved,await fileSnapshot(save.destination)))await fsp.unlink(save.destination);}catch{/* Preserve foreign replacements. */}}
  }
 }
-async function transfer({request,directory,outputPath,format='folder',includeVideo=true,overwriteConfirmed=false,fetcher,signal,wait,touch,progress=()=>{}}){
+async function transfer({request,directory,outputPath,format='folder',includeVideo=true,overwriteConfirmed=false,fetcher,signal,wait,touch,progress=()=>{},guard=async()=>{}}){
  if(typeof fetcher!=='function')throw Error('Téléchargement ChorusEncore indisponible.');
  if(!['folder','zip','sng'].includes(format)||typeof includeVideo!=='boolean'||typeof overwriteConfirmed!=='boolean')throw Error('Format ChorusEncore invalide.');
- signal.throwIfAborted();const save=format==='folder'?null:await prepareSavePath(outputPath,format,overwriteConfirmed),root=save?.root||await fsp.realpath(directory);if(!(await fsp.stat(root)).isDirectory())throw Error('Choisissez un dossier.');
+ if(typeof guard!=='function')throw Error('Garde du téléchargement ChorusEncore invalide.');
+ signal.throwIfAborted();await guard();const save=format==='folder'?null:await prepareSavePath(outputPath,format,overwriteConfirmed),root=save?.root||await fsp.realpath(directory),rootStat=await fsp.lstat(root);if(!rootStat.isDirectory()||rootStat.isSymbolicLink())throw Error('Choisissez un dossier.');
+ const directoryIdentity=info=>`${info.dev}:${info.ino}:${info.birthtimeMs}`,rootIdentity=directoryIdentity(rootStat),changed=()=>Object.assign(Error('Le dossier du téléchargement ChorusEncore a changé.'),{code:'DOWNLOAD_PATH'});
+ async function guardRoot(){try{await guard();const current=await fsp.lstat(root);if(!current.isDirectory()||current.isSymbolicLink()||directoryIdentity(current)!==rootIdentity||path.relative(root,await fsp.realpath(root))!=='')throw changed();}catch{throw changed();}}
  const base=songFolderName(request);validateDestination(root,'',[{parts:[base+'.sng']}]);
- const staging=await fsp.mkdtemp(path.join(root,'.chartshub-partial-')),target=path.join(staging,'chart.sng');let response,reserved,committed=false;
+ await guardRoot();const staging=await fsp.mkdtemp(path.join(root,'.chartshub-partial-')),target=path.join(staging,'chart.sng'),partialIdentity=directoryIdentity(await fsp.lstat(staging)),directories=new Map([[staging,partialIdentity]]),files=new Map(),publishedDirectories=new Map(),publishedFiles=new Map();let response,reserved,reservedIdentity,committed=false;
+ async function guardStage(targetPath=staging,ownedInfo){
+  await guardRoot();let partial;try{partial=await fsp.lstat(staging);}catch{throw changed();}if(!partial.isDirectory()||partial.isSymbolicLink()||directoryIdentity(partial)!==partialIdentity||path.relative(staging,await fsp.realpath(staging))!=='')throw changed();
+  if(ownedInfo){const owned=ownedInfo.isDirectory()?directories:files,identity=directoryIdentity(ownedInfo),expected=owned.get(targetPath);if(expected&&expected!==identity)throw changed();if(!expected)owned.set(targetPath,identity);}
+  const relative=path.relative(staging,targetPath);if(relative==='..'||relative.startsWith('..'+path.sep)||path.isAbsolute(relative))throw changed();let current=staging;
+  for(const part of relative.split(path.sep).filter(Boolean)){
+   current=path.join(current,part);let info;try{info=await fsp.lstat(current);}catch(error){if(error.code==='ENOENT')return;throw error;}
+   if(info.isSymbolicLink()||path.relative(current,await fsp.realpath(current))!=='')throw changed();
+   if(info.isDirectory()){if(directories.get(current)!==directoryIdentity(info))throw changed();}
+   else if(!info.isFile()||info.nlink!==1||files.get(current)!==directoryIdentity(info))throw changed();
+  }
+ }
+ async function guardReserved(){await guardRoot();if(!reserved||!reservedIdentity)throw changed();const info=await fsp.lstat(reserved);if(!info.isDirectory()||info.isSymbolicLink()||directoryIdentity(info)!==reservedIdentity||path.relative(reserved,await fsp.realpath(reserved))!=='')throw changed();}
+ async function removeOwnedTree(directory,knownDirectories,knownFiles,check){
+  await check();const info=await fsp.lstat(directory);if(!info.isDirectory()||info.isSymbolicLink()||knownDirectories.get(directory)!==directoryIdentity(info))throw changed();
+  for(const entry of await fsp.readdir(directory,{withFileTypes:true})){
+   const child=path.join(directory,entry.name);await check();const current=await fsp.lstat(child);if(current.isSymbolicLink())throw changed();
+   if(current.isDirectory())await removeOwnedTree(child,knownDirectories,knownFiles,check);
+   else{if(!current.isFile()||current.nlink!==1||knownFiles.get(child)!==directoryIdentity(current))throw changed();await fsp.unlink(child);}
+  }
+  await check();const current=await fsp.lstat(directory);if(!current.isDirectory()||current.isSymbolicLink()||knownDirectories.get(directory)!==directoryIdentity(current))throw changed();
+  // rmdir fails closed if an unowned entry appeared after enumeration. A
+  // recursive rm would delete that entry despite the earlier ownership check.
+  await fsp.rmdir(directory);
+ }
  try{
   const url=CDN+request.md5+'.sng';progress({message:'Préparation du téléchargement ChorusEncore…',percent:0});
   const fetching=Promise.resolve(fetcher(url,{credentials:'omit',redirect:'error',cache:'no-store',signal,headers:{Accept:'application/octet-stream','Accept-Encoding':'identity'}}));
@@ -90,46 +117,49 @@ async function transfer({request,directory,outputPath,format='folder',includeVid
   // idle deadline. Close that late response even though the job already ended.
   fetching.then(reply=>{if(signal.aborted)cancelBody(reply);},()=>{});
   response=await wait(fetching);
+  await guardStage();
   if(response?.status!==200)throw downloadError(Number.isInteger(response?.status)?response.status:503,response?.headers);
   if(response.redirected||(response.url&&response.url!==url)||!response.body)throw Error('Réponse ChorusEncore invalide.');
   const encoding=(response.headers?.get('content-encoding')||'').trim().toLowerCase();if(encoding&&encoding!=='identity')throw Error('Encodage du téléchargement ChorusEncore non pris en charge.');
   const declared=response.headers?.get('content-length');let expected=null;
   if(declared!==null&&declared!==undefined){if(!/^\d+$/.test(declared)||!Number.isSafeInteger(Number(declared))||Number(declared)>MAX_BYTES)throw Error('La chart ChorusEncore dépasse la limite de 4 Go ou sa taille est invalide.');expected=Number(declared);if(expected<50)throw invalid();}
   let bytes=0,last=0;
-  const verify=new Transform({transform(chunk,_encoding,done){touch();bytes+=chunk.length;if(bytes>MAX_BYTES||(expected!==null&&bytes>expected))return done(Error('Taille du téléchargement ChorusEncore invalide ou supérieure à 4 Go.'));if(Date.now()-last>200){last=Date.now();progress({message:'Téléchargement ChorusEncore…',percent:expected?Math.min(99,Math.floor(bytes/expected*100)):0});}done(null,chunk);}});
-  await wait(pipeline(Readable.fromWeb(response.body),verify,fs.createWriteStream(target,{flags:'wx',mode:0o600}),{signal}));
+  const verify=new Transform({transform(chunk,_encoding,done){guardStage().then(()=>{touch();bytes+=chunk.length;if(bytes>MAX_BYTES||(expected!==null&&bytes>expected))return done(Error('Taille du téléchargement ChorusEncore invalide ou supérieure à 4 Go.'));if(Date.now()-last>200){last=Date.now();progress({message:'Téléchargement ChorusEncore…',percent:expected?Math.min(99,Math.floor(bytes/expected*100)):0});}done(null,chunk);},done);}});
+  await guardStage(target);
+  const output=await fsp.open(target,'wx',0o600);
+  try{await guardStage(target,await output.stat());await wait(pipeline(Readable.fromWeb(response.body),verify,fs.createWriteStream(target,{fd:output.fd,autoClose:false}),{signal}));}finally{await output.close().catch(error=>{if(error.code!=='EBADF')throw error;});}
   if(expected!==null&&bytes!==expected)throw Error('Le téléchargement ChorusEncore est incomplet.');
-  signal.throwIfAborted();progress({message:'Vérification du conteneur SNG…',percent:99});const checked=await wait(validateSng(target,bytes,signal,format!=='sng'||!includeVideo));touch();
+  signal.throwIfAborted();await guardStage(target);await progress({message:'Vérification du conteneur SNG…',percent:99});await guardStage(target);const checked=await wait(validateSng(target,bytes,signal,format!=='sng'||!includeVideo));touch();await guardStage(target);
   let prepared=target,result={files:checked.files,format:'sng'};
   if(format==='folder'){
    prepared=path.join(staging,'prepared-folder');validateDestination(root,base,checked.members.map(member=>({parts:member.parts})).concat([{parts:['song.ini']}]));
    progress({message:'Importation des fichiers de la chart…',percent:99});
-   result=await writeFolderFromSng({sourceFile:target,header:checked,outputDirectory:prepared,signal,touch,includeVideo,progress:()=>touch()});
+   result=await writeFolderFromSng({sourceFile:target,header:checked,outputDirectory:prepared,signal,touch,includeVideo,progress:()=>touch(),guard:guardStage});
   }else if(format==='zip'||!includeVideo){
    prepared=path.join(staging,'prepared.'+(format==='zip'?'zip':'sng'));progress({message:format==='zip'?'Préparation du ZIP…':'Préparation du SNG sans vidéo…',percent:99});
    const convert=format==='zip'?writeZipFromSng:writeFilteredSng;
-   result=await convert({sourceFile:target,header:checked,outputFile:prepared,signal,touch,includeVideo,progress:()=>touch()});
+   result=await convert({sourceFile:target,header:checked,outputFile:prepared,signal,touch,includeVideo,progress:()=>touch(),guard:guardStage});
   }
   if(save){
-   await publishSavedFile(prepared,save,signal);committed=true;
+   await guardStage(prepared);await publishSavedFile(prepared,save,signal,guardRoot);committed=true;
    progress({message:'Téléchargement terminé : '+save.filename,percent:100});return {...result,fileName:save.filename,folderName:save.filename,destination:save.destination,output:format};
   }
   let folderName,destination;
   // Reserve a fresh directory, then publish only this operation's fully verified
   // and decoded files. No existing chart is replaced.
   for(let n=1;;n++){
-   signal.throwIfAborted();folderName=base+(n===1?'':` (${n})`);validateDestination(root,folderName,checked.members.map(member=>({parts:member.parts})).concat([{parts:['song.ini']}]));reserved=path.join(root,folderName);
-   try{await fsp.mkdir(reserved,{mode:0o700});break;}catch(error){reserved=null;if(error.code!=='EEXIST')throw error;}
+   signal.throwIfAborted();await guardStage(prepared);folderName=base+(n===1?'':` (${n})`);validateDestination(root,folderName,checked.members.map(member=>({parts:member.parts})).concat([{parts:['song.ini']}]));reserved=path.join(root,folderName);
+   try{await fsp.mkdir(reserved,{mode:0o700});reservedIdentity=directoryIdentity(await fsp.lstat(reserved));publishedDirectories.set(reserved,reservedIdentity);break;}catch(error){reserved=null;if(error.code!=='EEXIST')throw error;}
   }
-  signal.throwIfAborted();destination=reserved;
-  for(const name of await fsp.readdir(prepared)){signal.throwIfAborted();await fsp.rename(path.join(prepared,name),path.join(reserved,name));}
+  signal.throwIfAborted();await guardReserved();destination=reserved;
+  for(const name of await fsp.readdir(prepared)){signal.throwIfAborted();const sourcePath=path.join(prepared,name);await guardStage(sourcePath);await guardReserved();const destinationFile=path.join(reserved,name);if(await fsp.lstat(destinationFile).then(()=>true,error=>{if(error.code==='ENOENT')return false;throw error;}))throw changed();await fsp.rename(sourcePath,destinationFile);for(const [known,destination]of [[directories,publishedDirectories],[files,publishedFiles]])for(const [filename,identity]of known){const relative=path.relative(sourcePath,filename);if(!relative||relative!=='..'&&!relative.startsWith('..'+path.sep)&&!path.isAbsolute(relative))destination.set(path.join(destinationFile,relative),identity);}}
   committed=true;
   progress({message:'Téléchargement terminé : '+folderName,percent:100});return {folderName,destination,files:result.files,format:'folder',output:'folder'};
  }finally{
   cancelBody(response);
   // Remove only this operation's freshly created child of the resolved root.
-  if(path.dirname(staging)===root&&path.basename(staging).startsWith('.chartshub-partial-'))await fsp.rm(staging,{recursive:true,force:true});
-  if(!committed&&reserved&&path.dirname(reserved)===root)await fsp.rm(reserved,{recursive:true,force:true});
+  if(path.dirname(staging)===root&&path.basename(staging).startsWith('.chartshub-partial-')){try{await removeOwnedTree(staging,directories,files,guardStage);}catch{/* Preserve replaced roots/stages/partials and foreign descendants. */}}
+  if(!committed&&reserved&&path.dirname(reserved)===root){try{await removeOwnedTree(reserved,publishedDirectories,publishedFiles,guardReserved);}catch{/* Preserve replaced destinations and foreign descendants. */}}
  }
 }
 module.exports={normalizeEnchorRequest,normalizeEnchorDownloadRequest,enchorIdentity,validateSngHeader,validateSng,downloadEnchor,downloadError,MAX_BYTES,MAX_FILE_BYTES};
