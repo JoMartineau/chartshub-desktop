@@ -104,7 +104,7 @@ const charts = [
 }));
 let fixtureCharts = charts, fixtureDemo = false, fixtureRevision = 0, includeExternal = false;
 const externalMd5 = 'b'.repeat(32), externalChart = { id: 'enchor:' + externalMd5, md5: externalMd5, externalChartId: 732, source: 'chorusencore', sourceUrl: 'https://enchor.us/chart/' + externalMd5,
-  title: 'Encore synthetic chart', artist: '<img src=x onerror="window.__unsafe=true">', charter: 'External creator', instruments: ['Guitar'], instrumentDifficulties: { Guitar: ['Expert'] }, coverUrl: '' };
+  title: 'Encore synthetic chart', artist: 'External synthetic artist <img src=x onerror="window.__unsafe=true">', charter: 'External creator', instruments: ['Guitar'], instrumentDifficulties: { Guitar: ['Expert'] }, coverUrl: '' };
 const cardSelector = id => `article[data-chart-id="${id}"]`;
 const favoriteSelector = id => cardSelector(id) + ' .catalogue-favorite';
 const selectionSelector = id => cardSelector(id) + ' .catalogue-selection-check';
@@ -414,7 +414,7 @@ async function verifyExternalSources() {
     await fillFields({ '#catalogue-widget-source': 'chorusencore', '#catalogue-widget-query': 'Encore' }); await click('#catalogue-widget-search');
     await waitFor(() => evaluate(`document.querySelector('#catalogue-widget-results').getAttribute('aria-busy')==='false'&&document.querySelectorAll('#catalogue-widget-results article').length===1&&!!document.querySelector(${JSON.stringify(cardSelector(externalChart.id))})`), 'external provider result in mini');
     const selector = cardSelector(externalChart.id);
-    assert.equal(await evaluate(`(()=>{const card=document.querySelector(${JSON.stringify(selector)});return card.dataset.source==='chorusencore'&&/Chorus Encore/.test(card.textContent)&&card.querySelector('.catalogue-item-artist').textContent===${JSON.stringify(externalChart.artist)}&&!card.querySelector('.catalogue-favorite,.catalogue-installed-badge,.catalogue-staff-badge,.catalogue-charter-avatar,script,[onerror]')})()`), true);
+    assert.equal(await evaluate(`(()=>{const card=document.querySelector(${JSON.stringify(selector)});return card.dataset.source==='chorusencore'&&/Chorus Encore/.test(card.textContent)&&card.querySelector('.catalogue-item-artist').textContent==='External synthetic artist'&&!card.querySelector('.catalogue-favorite,.catalogue-installed-badge,.catalogue-staff-badge,.catalogue-charter-avatar,script,[onerror]')&&window.__unsafe===undefined})()`), true, 'the host strips provider HTML while the renderer keeps source claims distinct and inert');
     assert.equal(runs.length, before, 'external search never transfers automatically');
     await click(selector + ' .catalogue-open-external'); await waitFor(() => opened !== null, 'external open action in mini');
     assert.equal(opened, externalChart.sourceUrl);
