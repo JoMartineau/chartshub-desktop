@@ -7,6 +7,7 @@ const { captureBundleSnapshot } = require('./chart-bundle.cjs');
 const { chartTracks, midiTracks } = require('./song-request-library.cjs');
 
 const TEXT_LIMIT = 256 * 1024, NOTES_LIMIT = 16 * 1024 * 1024, SNG_SECTION_LIMIT = 1024 * 1024, SNG_COUNT_LIMIT = 4096;
+const DIRECTORY_CONCURRENCY = 4;
 const AUDIO = /\.(?:ogg|opus|mp3|wav|flac|aiff?|m4a)$/i;
 const fields = { name: 'title', title: 'title', artist: 'artist', charter: 'charter', frets: 'charter', album: 'album', year: 'year', genre: 'genre' };
 const missing = error => error?.code === 'ENOENT' || error?.code === 'ENOTDIR';
@@ -26,6 +27,7 @@ function relativeValid(value) {
   return typeof value === 'string' && value.length > 0 && value.length <= 32768 && !value.includes('\\') && !value.startsWith('/') && !value.includes(':') && !value.split('/').some(part => !part || part === '.' || part === '..');
 }
 function isAudio(name) { return AUDIO.test(name) && !/^preview\./i.test(path.posix.basename(name)); }
+function isScanFile(name) { return /^(?:song\.ini|notes\.(?:chart|mid))$/i.test(name) || /\.sng$/i.test(name) || isAudio(name); }
 function digest(value) { return createHash('sha256').update(value).digest('hex'); }
 function decode(bytes) {
   if (bytes[0] === 0xff && bytes[1] === 0xfe) return bytes.subarray(2).toString('utf16le');
@@ -118,8 +120,9 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
   if (path.relative(root, canonicalRoot) !== '' || !rootStat.isDirectory() || rootStat.isSymbolicLink()) throw Error('Le dossier de bibliothèque est indisponible.');
   const previous = new Map();
   for (const item of Array.isArray(previousItems) ? previousItems : []) if (item && relativeValid(item.relativePath)) previous.set(item.relativePath, item);
-  const result = new Map(), preserved = new Set(); let visited = 0, processed = 0, warningCount = 0, skippedCount = 0, lastProgress = 0, ticks = 0;
+  const result = new Map(), preserved = new Set(); let visited = 0, processed = 0, warningCount = 0, skippedCount = 0, lastProgress = 0, ticks = 0, failure = null;
   function progress(force = false) {
+    if (failure || signal?.aborted) return;
     if (!force && Date.now() - lastProgress < 100) return;
     lastProgress = Date.now(); try { onProgress?.({ visited, processed, discovered: result.size }); } catch { /* Progress is observational. */ }
   }
@@ -134,7 +137,7 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
     while (candidate) { if (preserved.has(candidate)) return true; const separator = candidate.lastIndexOf('/'); if (separator < 0) break; candidate = candidate.slice(0, separator); }
     return false;
   }
-  function add(item) { result.set(item.relativePath, item); }
+  function add(item) { if (!failure && !signal?.aborted) result.set(item.relativePath, item); }
   async function inspect(filename) {
     const stat = await fs.lstat(filename); abort(signal);
     if (stat.isSymbolicLink()) return null;
@@ -209,15 +212,14 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
   }
 
   progress(true); abort(signal);
-  const pending = [root];
-  while (pending.length) {
-    await checkpoint(); const folder = pending.pop(), prefix = portable(path.relative(root, folder));
+  async function scanFolder(folder) {
+    await checkpoint(); const prefix = portable(path.relative(root, folder));
     const files = [], children = []; let directory;
     try {
       const stat = await inspect(folder);
-      if (!stat?.isDirectory()) { if (folder === root) throw Error('Library root changed'); skippedCount++; continue; }
+      if (!stat?.isDirectory()) { if (folder === root) throw Error('Library root changed'); skippedCount++; return []; }
       const publishing = async () => fs.lstat(path.join(folder, '.chartshub-companion-installing')).then(() => true, error => { if (missing(error)) return false; throw error; });
-      if (await publishing()) continue;
+      if (await publishing()) return [];
       directory = await fs.opendir(folder);
       for await (const entry of directory) {
         visited++; await checkpoint();
@@ -225,28 +227,49 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
         if (entry.isSymbolicLink()) { skippedCount++; continue; }
         // Download staging can contain notes before the other files are complete.
         if (entry.isDirectory() && /^\.chartshub-companion-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(entry.name)) continue;
+        // Dirent already identifies ordinary unrelated files. Song snapshots
+        // still inspect every asset before and after metadata reads.
+        if (entry.isFile?.() && !isScanFile(entry.name)) continue;
         try {
           const entryStat = await inspect(filename);
           if (!entryStat) { skippedCount++; continue; }
           if (entryStat.isDirectory()) children.push(filename);
-          else if (entryStat.isFile() && (/^(?:song\.ini|notes\.(?:chart|mid))$/i.test(entry.name) || /\.sng$/i.test(entry.name) || isAudio(entry.name))) files.push({ name: entry.name, filename, stat: entryStat });
+          else if (entryStat.isFile() && isScanFile(entry.name)) files.push({ name: entry.name, filename, stat: entryStat });
         } catch (error) {
           if (error?.name === 'AbortError') throw error;
           if (missing(error)) skippedCount++; else preserve(entry.isDirectory() ? portable(path.relative(root, filename)) : prefix);
         }
       }
-      if (await publishing()) continue;
+      if (await publishing()) return [];
     } catch (error) {
       if (error?.name === 'AbortError' || folder === root) throw error;
       if (missing(error)) skippedCount++; else preserve(prefix);
-      continue;
+      return [];
     }
     files.sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
     const chart = files.find(entry => /^notes\.chart$/i.test(entry.name)), midi = files.find(entry => /^notes\.mid$/i.test(entry.name));
     if (chart || midi) { await scanSong(chart || midi, folder, files, chart ? 'chart' : 'midi'); await checkpoint(); }
     for (const entry of files) if (/\.sng$/i.test(entry.name)) { await scanSong(entry, folder, files, 'sng'); await checkpoint(); }
-    for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]);
+    return children;
   }
+  // Each job owns one directory and its metadata reads. The fixed pool overlaps
+  // filesystem latency without opening an unbounded number of handles.
+  const pending = [root], active = new Set();
+  function startFolder(folder) {
+    const task = scanFolder(folder).then(children => {
+      if (!failure && !signal?.aborted) for (let index = children.length - 1; index >= 0; index--) pending.push(children[index]);
+    }, error => { failure ||= error; }).finally(() => active.delete(task));
+    active.add(task);
+  }
+  while (pending.length || active.size) {
+    if (!failure && !signal?.aborted) while (pending.length && active.size < DIRECTORY_CONCURRENCY) startFolder(pending.pop());
+    // Cancellation/failure stops scheduling. Wait for all existing jobs so that
+    // directory iterators and checked file handles close before rejecting.
+    if (active.size) await Promise.race(active);
+    else break;
+  }
+  if (failure) throw failure;
+  abort(signal);
   for (const old of previous.values()) {
     await checkpoint();
     if (!result.has(old.relativePath) && hasPreservedPrefix(old.relativePath)) add({ ...old });
