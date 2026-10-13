@@ -17,13 +17,14 @@ const accountEnd=source.indexOf('  async function requireCatalogueAuthorization(
 assert.ok(accountStart>=0&&accountEnd>accountStart,'The account access lifecycle must remain identifiable');
 function deferred(){let resolve,reject;const promise=new Promise((yes,no)=>{resolve=yes;reject=no;});return {promise,resolve,reject};}
 function fixture({status,publish,remove,prepare}={}){
- const calls=[],rules={maxDurationMinutes:null,instrument:'all',difficulty:'all'},scope={rootKey:'a'.repeat(64),revision:1};
+ const calls=[],cancelled=[],rules={maxDurationMinutes:null,instrument:'all',difficulty:'all'},scope={rootKey:'a'.repeat(64),revision:1};
+ const catalogue={cancelSearch:(scope,clear)=>cancelled.push({scope,clear})};
  const sharingClient={capture:async()=>({userId:'opaque-test-owner',generation:1}),status:status??(async()=>({url:null,count:0,updatedAt:null})),
   publish:async(...args)=>{calls.push('PUT');return publish?publish(...args):{url:'https://chartshub.test/new',count:1,updatedAt:'2026-10-10T00:00:00.000Z'};},
   remove:async(...args)=>{calls.push('DELETE');return remove?remove(...args):{url:null,count:0,updatedAt:null};}};
  const library={matchingSnapshot:()=>scope,requestLibraryForSharing:prepare??(async()=>({songs:[{id:'b'.repeat(64),title:'Synthetic song',artist:'Synthetic artist',charter:'Synthetic charter'}],...scope,unavailableCount:0}))};
  const songRequests={snapshot:()=>({rules:structuredClone(rules)})};
- const create=new vm.Script(`(function(sharingClient,library,songRequests){
+ const create=new vm.Script(`(function(sharingClient,library,songRequests,catalogue){
   let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0;
   const publishPanel=()=>{};
   let catalogueAccess=true,catalogueWidgetTicket=0,catalogueWidgetEnabled=false,catalogueWidget=null,catalogueWidgetLoad=null;
@@ -33,7 +34,7 @@ function fixture({status,publish,remove,prepare}={}){
   ${source.slice(accountStart,accountEnd)}
   return {refresh:refreshSongRequestShare,change:changeSongRequestShare,available:setCatalogueAvailable,state:()=>structuredClone(songRequestShare),close:()=>{disposing=true;hostActive=false;lifecycleRevision++;}};
  })`,{filename:'companion/host.cjs share orchestration'}).runInNewContext({structuredClone});
- return {host:create(sharingClient,library,songRequests),calls,scope,rules};
+ return {host:create(sharingClient,library,songRequests,catalogue),calls,cancelled,scope,rules};
 }
 
 test('an old status response cannot overwrite a successful explicit removal',async()=>{
@@ -70,6 +71,7 @@ test('account invalidation removes cached share capabilities and ignores the old
  const f=fixture({status:()=>++reads===1?old.promise:Promise.resolve({url:'https://chartshub.test/new-owner',count:5,updatedAt:'2026-10-10T00:00:00.000Z'})});
  await f.host.change();assert.equal(f.host.state().url,'https://chartshub.test/new');
  const refreshing=f.host.refresh();f.host.available(false);assert.equal(f.host.state().url,null);assert.equal(f.host.state().count,0);
+ assert.deepEqual(f.cancelled,[{scope:'panel',clear:true},{scope:'widget',clear:true}]);
  f.host.available(true);await new Promise(resolve=>setImmediate(resolve));assert.equal(f.host.state().url,'https://chartshub.test/new-owner');
  old.resolve({url:'https://chartshub.test/old-owner',count:9,updatedAt:'2026-10-09T00:00:00.000Z'});await refreshing;
  assert.equal(f.host.state().url,'https://chartshub.test/new-owner');assert.equal(f.host.state().error,null);
@@ -78,6 +80,7 @@ test('account invalidation removes cached share capabilities and ignores the old
 test('an old publishing failure cannot overwrite the revalidated account share state',async()=>{
  const network=deferred(),entered=deferred(),f=fixture({publish:()=>{entered.resolve();return network.promise;},status:async()=>({url:'https://chartshub.test/new-owner',count:5,updatedAt:'2026-10-10T00:00:00.000Z'})});
  const publishing=f.host.change();await entered.promise;f.host.available(false);f.host.available(true);await new Promise(resolve=>setImmediate(resolve));
+ assert.deepEqual(f.cancelled,[{scope:'panel',clear:true},{scope:'widget',clear:true}]);
  network.reject(Error('The old account request failed'));assert.equal((await publishing).ok,false);
  assert.equal(f.host.state().url,'https://chartshub.test/new-owner');assert.equal(f.host.state().error,null);assert.equal(f.host.state().busy,false);
 });
