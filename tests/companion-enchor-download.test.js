@@ -44,7 +44,9 @@ test('invalid external SNGs and unowned staging cannot publish or delete unrelat
   await assert.rejects(worker.discard(f.args), { code: 'DOWNLOAD_PATH' }); assert.equal(await fs.readFile(path.join(stage, 'keep.txt'), 'utf8'), 'keep', 'external cleanup cannot claim a native owner');
 });
 
-test('the validated 1000-member SNG boundary also admits the reconstructed metadata file', async t => {
+// Full extraction and publication retain the security checks for all 1001 files;
+// their filesystem identity checks can exceed the default deadline on CI disks.
+test('the validated 1000-member SNG boundary also admits the reconstructed metadata file', { timeout: 180000 }, async t => {
   const f = await fixture(t), worker = createCatalogueDownloadWorker({ fetcher: async () => new Response(sng(998)) });
   const published = await worker.run(f.args); assert.equal(published.files, 1001); assert.ok((await fs.readFile(path.join(published.destination, 'song.ini'), 'utf8')).includes('name = Song')); await worker.discard(f.args);
 });

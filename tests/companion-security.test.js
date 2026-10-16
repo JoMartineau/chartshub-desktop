@@ -1166,9 +1166,11 @@ test('download host chooses native folders, authorizes catalogue IDs and pauses 
   const fs = require('node:fs/promises');
   const remote = { id: 'drive:rootFolder123:songFolder123', title: 'Download fixture', artist: 'Band', charter: 'Creator', downloadEndpoint: '/api/charts/12345678-1234-4123-8123-123456789abc/songFolder123/download-manifest', viewUrl: 'https://chartshub.ca/index.html?chart=drive%3ArootFolder123%3AsongFolder123&share=2' };
   let demo = false, transfers = 0, discarded = 0, calls = [];
+  const transferStarted = [Promise.withResolvers(), Promise.withResolvers()];
   const worker = {
     run: async options => {
       transfers++; calls.push(options);
+      transferStarted[transfers - 1]?.resolve();
       options.onProgress({ receivedBytes: 5, totalBytes: 10, completedFiles: 0, totalFiles: 1, currentFile: 'notes.chart' });
       await new Promise((_resolve, reject) => {
         const fail = () => reject(Object.assign(Error('Paused'), { name: 'AbortError' }));
@@ -1189,13 +1191,13 @@ test('download host chooses native folders, authorizes catalogue IDs and pauses 
   f.dialog.showOpenDialog = async (_owner, options) => { assert.ok(options.properties.includes('openDirectory')); return { canceled: false, filePaths: [folder] }; };
   const added = await command('downloads.enqueue', { chartId: remote.id });
   assert.equal(added.ok, true); const id = added.result.id;
-  for (let attempts = 0; attempts < 100 && !transfers; attempts++) await new Promise(resolve => setTimeout(resolve, 10));
+  await transferStarted[0].promise;
   assert.equal(transfers, 1); assert.equal(calls[0].endpoint, remote.downloadEndpoint); assert.equal(calls[0].rootPath, folder);
   assert.ok(!JSON.stringify(f.host.snapshot()).includes('download-manifest'), 'private endpoint never reaches renderer snapshots');
   assert.equal((await command('downloads.enqueue', { chartId: remote.id })).result.id, id);
   await command('downloads.pause', { id }); assert.equal(f.host.snapshot().downloads.items[0].state, 'Paused');
   await command('downloads.resume', { id });
-  for (let attempts = 0; attempts < 100 && transfers < 2; attempts++) await new Promise(resolve => setTimeout(resolve, 10));
+  await transferStarted[1].promise;
   assert.equal(transfers, 2);
   await f.host.setOverlay(true);
   assert.equal((await f.handlers.get('companion:command')(f.eventFor(f.host.getOverlay()), 'downloads.cancel', { id })).ok, false);

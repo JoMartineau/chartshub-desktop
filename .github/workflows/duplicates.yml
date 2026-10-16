@@ -36,7 +36,14 @@ jobs:
         run: node node_modules/electron/cli.js tests/desktop-app-electron.cjs . "$env:RUNNER_TEMP/desktop-app"
       - name: Verify Companion and OBS browser widgets in Electron
         shell: pwsh
-        run: node node_modules/electron/cli.js tests/companion-electron.cjs "$env:RUNNER_TEMP/companion"
+        run: |
+          node node_modules/electron/cli.js tests/companion-electron.cjs "$env:RUNNER_TEMP/companion"
+          if ($LASTEXITCODE -ne 0) { throw 'Companion and OBS Electron verification failed' }
+          $reportPath = Join-Path $env:RUNNER_TEMP 'companion/electron-check.txt'
+          if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Companion and OBS verification report missing' }
+          $report = @(Get-Content -LiteralPath $reportPath -Encoding utf8)
+          $checks = @($report | Select-Object -Skip 1)
+          if ($report.Count -ne 72 -or $report[0] -cne 'PASS' -or $checks.Count -ne 71 -or @($checks | Sort-Object -Unique).Count -ne 71 -or @($checks | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -ne 0) { throw 'Companion and OBS verification incomplete' }
       - name: Verify direct Song Request connections and widget in Electron
         if: ${{ !cancelled() }}
         shell: pwsh
