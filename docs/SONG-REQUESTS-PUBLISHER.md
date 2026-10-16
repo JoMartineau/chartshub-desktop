@@ -6,7 +6,7 @@ Les utilisateurs finaux n’ont pas à créer d’application Twitch ni à saisi
 2. Copier uniquement le **Client ID** public dans `companion/song-request-config.cjs` (`twitchClientId`). Aucun Client Secret n’est nécessaire et aucun secret ne doit être distribué dans le binaire ou le dépôt.
 3. Construire et tester l’application. **Connecter Twitch** utilise le Device Code Grant avec `user:read:chat user:write:chat`, ouvre uniquement la page d’activation Twitch, puis valide l’identité retournée. Les jetons sont conservés chiffrés par Electron `safeStorage`, dans le processus principal.
 
-Le Client ID du dépôt reste vide jusqu’à l’inscription réelle de ChartsHub. Dans cet état, le bouton retourne `setup_required` et n’ouvre pas un faux formulaire de connexion. Ne pas remplacer cette valeur par une application d’exemple ou l’identifiant d’un autre logiciel.
+Le Client ID public de ChartsHub est configuré dans le dépôt. En développement, un identifiant absent retourne `setup_required` sans ouvrir de formulaire de connexion ; la création d’une archive de publication refuse cette configuration. Ne pas remplacer cette valeur par une application d’exemple ou l’identifiant d’un autre logiciel.
 
 L’adaptateur n’ouvre EventSub que lorsque l’utilisateur a connecté son compte et activé la réception. Il valide les jetons, renouvelle les jetons publics en sérialisant leur rotation, traite les révocations et annule les requêtes lors de l’arrêt. Les publications de messages ayant un résultat incertain ne sont jamais rejouées automatiquement.
 
