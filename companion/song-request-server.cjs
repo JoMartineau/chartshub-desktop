@@ -78,7 +78,7 @@ function createSongRequestServer({ root, ingestToken, readToken, receive, getSna
       } catch { return finish(400, 'Invalid request'); }
       const result = await receive({ platform: input.platform, eventId: input.eventId, viewerId: input.viewerId, viewerName: input.viewerName, query: input.message });
       if (ctx.closing || ctx !== context) return finish(503, 'Unavailable');
-      return finish(200, { ...result, reply: replyFor(result, getLanguage()).slice(0, 2000) }, true);
+      return finish(200, { ...result, reply: result?.silent === true ? '' : replyFor(result, getLanguage()).slice(0, 2000) }, true);
     }
     if (request.method !== 'GET') return finish(405, 'Method not allowed');
     const read = url.searchParams.getAll('token');

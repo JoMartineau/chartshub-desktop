@@ -549,7 +549,7 @@ async function verifyThemes(panel, host) {
 app.whenReady().then(async () => {
   try {
     await fs.mkdir(data, { recursive: true });
-    host = await createCompanionHost({ dataDirectory: path.join(data, 'settings'), catalogueClient: catalogueFixture.client, downloadWorker: downloadFixture.worker, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }), sharingClient: songRequestSharingFixture.client });
+    host = await createCompanionHost({ dataDirectory: path.join(data, 'settings'), catalogueClient: catalogueFixture.client, downloadWorker: downloadFixture.worker, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }), sharingClient: songRequestSharingFixture.client, songRequestConnectionOptions: songRequestSharingFixture.connectionOptions });
     let panel = await host.open();
     const evaluate = code => panel.webContents.executeJavaScript(code);
     const count = () => evaluate("document.querySelectorAll('#game-preview .companion-widget').length");

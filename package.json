@@ -28,6 +28,8 @@
   "author": "ChartsHub",
   "license": "UNLICENSED",
   "dependencies": {
+    "tiktok-live-api-sdk": "0.4.0-beta1",
+    "tiktok-live-connector": "2.5.0",
     "ws": "8.22.0"
   }
 }

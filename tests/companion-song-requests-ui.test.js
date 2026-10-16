@@ -27,6 +27,9 @@ async function fixture(t) {
   return { document, root, controls, calls, snapshot, get, set, submit, toggle };
 }
 const request = (id, status = 'pending') => ({ id, songId: 'a'.repeat(64), platform: 'twitch', viewerName: 'A viewer', title: 'Installed song', artist: 'Local artist', status, votes: 2 });
+const connections = changes => ({ receiving: false, persistent: true, storageError: null, lastResponse: null,
+  twitch: { state: 'disconnected', displayName: null, error: null, canReply: true },
+  tiktok: { state: 'disconnected', displayName: null, error: null, canReply: false }, ...changes });
 
 test('Song Request reception needs a ready Songs library and only changes on explicit input', async t => {
   const ui = await fixture(t);
@@ -168,4 +171,136 @@ test('sharing support and busy gates also block dispatched actions and failure f
   ui.calls[0].resolve({ ok: false, error: 'C:\\Private\\secret-token' }); await tick();
   assert.match(ui.get('#song-requests-feedback').textContent, /Partage indisponible/); assert.doesNotMatch(ui.root.textContent, /Private|secret-token/);
   assert.equal(ui.get('#song-requests-publish-library').disabled, false);
+});
+
+test('direct account connections are explicit and never enable reception or publish the library', async t => {
+  const ui = await fixture(t); ui.controls.update(ui.snapshot);
+  ui.get('#song-requests-twitch-connect').dispatchEvent(new Event('click')); assert.equal(ui.calls.length, 0);
+  ui.snapshot.songRequests.connections = connections(); ui.controls.update(ui.snapshot);
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  assert.equal(ui.calls.length, 0); assert.equal(ui.get('#song-requests-twitch-connect').textContent, 'Connect Twitch');
+  ui.get('#song-requests-twitch-connect').click();
+  assert.deepEqual(ui.calls[0].payload, { platform: 'twitch' }); assert.equal(ui.calls[0].name, 'songRequests.connect');
+  ui.get('#song-requests-twitch-connect').dispatchEvent(new Event('click')); assert.equal(ui.calls.length, 1);
+  ui.calls[0].resolve({ ok: true }); await tick();
+  assert.equal(ui.get('#song-requests-enabled').checked, false); assert.equal(ui.calls.length, 1);
+});
+
+test('Twitch device authorization displays a bounded user code and cancellation stays available during connect', async t => {
+  const ui = await fixture(t); ui.snapshot.songRequests.connections = connections(); ui.controls.update(ui.snapshot);
+  ui.get('#song-requests-twitch-connect').click();
+  const value = ui.snapshot.songRequests.connections;
+  value.twitch = { state: 'authorizing', displayName: null, error: null, canReply: true, userCode: 'ABCD-EFGH', accessToken: 'private-provider-token', verificationUrl: 'https://private.invalid/auth' };
+  ui.controls.update(ui.snapshot);
+  assert.equal(ui.get('#song-requests-twitch-cancel').hidden, false); assert.equal(ui.get('#song-requests-twitch-cancel').disabled, false);
+  assert.match(ui.get('#song-requests-twitch-user-code').textContent, /ABCD-EFGH/);
+  assert.equal(ui.get('#song-requests-twitch-connect').disabled, true);
+  assert.doesNotMatch(ui.root.textContent, /private-provider-token|private\.invalid/);
+  ui.get('#song-requests-twitch-cancel').click();
+  assert.equal(ui.calls[1].name, 'songRequests.cancelAuth'); assert.deepEqual(ui.calls[1].payload, { platform: 'twitch' });
+  ui.calls[0].resolve({ ok: false, error: 'old private failure' }); await tick();
+  assert.equal(ui.get('#song-requests-twitch-cancel').disabled, true, 'late connect completion cannot clear the pending cancel');
+  ui.calls[1].resolve({ ok: true }); value.twitch.state = 'disconnected'; ui.controls.update(ui.snapshot); await tick();
+  assert.equal(ui.get('#song-requests-twitch-cancel').hidden, true); assert.equal(ui.get('#song-requests-twitch-user-code').hidden, true);
+  assert.equal(ui.get('#song-requests-twitch-connect').disabled, false); assert.doesNotMatch(ui.root.textContent, /old private failure/);
+});
+
+test('TikTok accepts only an explicit bounded username and does not connect from typing or rendering', async t => {
+  const ui = await fixture(t); ui.snapshot.songRequests.connections = connections(); ui.controls.update(ui.snapshot);
+  const input = ui.get('#song-requests-tiktok-username'), form = ui.get('#song-requests-tiktok-form');
+  for (const invalid of ['', 'https://tiktok.com/@fixture', 'bad name', 'bad\nname', '.fixture', 'fixture.', 'fixture..name', 'a'.repeat(25), '@@fixture']) {
+    input.value = invalid; form.dispatchEvent(new Event('submit', { cancelable: true }));
+    assert.equal(ui.calls.length, 0); assert.equal(input.getAttribute('aria-invalid'), 'true');
+  }
+  input.value = ' @fixture.name_1 '; input.dispatchEvent(new Event('input'));
+  ui.controls.update(ui.snapshot); assert.equal(ui.calls.length, 0);
+  assert.equal(input.value, ' @fixture.name_1 ', 'snapshots do not replace the username draft');
+  form.dispatchEvent(new Event('submit', { cancelable: true }));
+  assert.equal(ui.calls[0].name, 'songRequests.connect'); assert.deepEqual(ui.calls[0].payload, { platform: 'tiktok', username: 'fixture.name_1' });
+  form.dispatchEvent(new Event('submit', { cancelable: true })); assert.equal(ui.calls.length, 1);
+  ui.calls[0].resolve({ ok: true }); await tick(); assert.equal(ui.get('#song-requests-enabled').checked, false);
+});
+
+test('connected platforms disconnect independently and connection buttons cannot duplicate an active connection', async t => {
+  const ui = await fixture(t); const value = connections({
+    twitch: { state: 'connected', displayName: 'Twitch fixture', error: null, canReply: true },
+    tiktok: { state: 'connected', displayName: 'TikTok fixture', error: null, canReply: false }
+  });
+  ui.snapshot.songRequests.connections = value; ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-twitch-status').textContent, /Connecté · Twitch fixture/);
+  assert.equal(ui.get('#song-requests-tiktok-username').disabled, true);
+  for (const platform of ['twitch', 'tiktok']) ui.get('#song-requests-' + platform + '-connect').dispatchEvent(new Event('click'));
+  assert.equal(ui.calls.length, 0);
+  ui.get('#song-requests-twitch-disconnect').click(); ui.get('#song-requests-tiktok-disconnect').click();
+  assert.deepEqual(ui.calls.map(call => [call.name, call.payload]), [
+    ['songRequests.disconnect', { platform: 'twitch' }], ['songRequests.disconnect', { platform: 'tiktok' }]
+  ]);
+  ui.calls.forEach(call => call.resolve({ ok: true })); await tick();
+  assert.equal(ui.snapshot.songRequests.enabled, false);
+});
+
+test('a TikTok username prepared before the LIVE can be forgotten without enabling reception', async t => {
+  const ui = await fixture(t);
+  ui.snapshot.songRequests.connections = connections({ tiktok: { state: 'disconnected', displayName: '@fixture', error: null, canReply: false } });
+  ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-tiktok-status').textContent, /Compte prêt · @fixture/);
+  assert.match(ui.get('#song-requests-tiktok-help').textContent, /quand votre LIVE démarre/);
+  assert.equal(ui.get('#song-requests-tiktok-connect').disabled, true);
+  assert.equal(ui.get('#song-requests-tiktok-disconnect').hidden, false);
+  assert.equal(ui.get('#song-requests-tiktok-disconnect').disabled, false);
+  ui.get('#song-requests-tiktok-connect').dispatchEvent(new Event('click'));
+  assert.equal(ui.calls.length, 0);
+  ui.get('#song-requests-tiktok-disconnect').click();
+  assert.equal(ui.calls[0].name, 'songRequests.disconnect'); assert.deepEqual(ui.calls[0].payload, { platform: 'tiktok' });
+  ui.calls[0].resolve({ ok: true }); await tick();
+  assert.equal(ui.get('#song-requests-enabled').checked, false);
+});
+
+test('TikTok limitations, offline status and locally displayed replies are honest, plain text and bilingual', async t => {
+  const ui = await fixture(t); const value = connections({
+    tiktok: { state: 'offline', displayName: '<img src=x onerror=unsafe()>', error: 'not_live', canReply: false },
+    lastResponse: { platform: 'tiktok', message: '<script>local response</script>' }
+  });
+  ui.snapshot.songRequests.connections = value; ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-tiktok-help').textContent, /prochain direct/);
+  assert.equal(ui.get('#song-requests-last-response').hidden, false);
+  assert.equal(ui.get('#song-requests-last-response-message').textContent, '<script>local response</script>');
+  assert.equal(ui.root.querySelectorAll('img').length, 0); assert.equal(ui.root.querySelectorAll('script').length, 0);
+  value.tiktok.error = null; ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-tiktok-provider-help').textContent, /non officiel/);
+  assert.match(ui.get('#song-requests-tiktok-provider-help').textContent, /Euler Stream/);
+  assert.match(ui.get('#song-requests-tiktok-provider-help').textContent, /chat LIVE public/);
+  assert.match(ui.get('#song-requests-tiktok-provider-help').textContent, /aucun message n’est envoyé/);
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  assert.match(ui.get('#song-requests-tiktok-provider-help').textContent, /unofficial connector/);
+  assert.match(ui.get('#song-requests-tiktok-provider-help').textContent, /Euler Stream/);
+  assert.match(ui.get('#song-requests-tiktok-provider-help').textContent, /no messages are sent to TikTok chat/);
+  assert.equal(ui.get('#song-requests-last-response-label').textContent, 'Last TikTok response — shown here');
+  assert.equal(ui.calls.length, 0);
+  value.lastResponse = { platform: 'twitch', message: 'not a TikTok response' }; ui.controls.update(ui.snapshot);
+  assert.equal(ui.get('#song-requests-last-response').hidden, true); assert.equal(ui.get('#song-requests-last-response-message').textContent, '');
+});
+
+test('connection errors never display raw provider details or ask users for application developer credentials', async t => {
+  const ui = await fixture(t); const value = connections({ persistent: false, storageError: 'encryption_unavailable',
+    twitch: { state: 'error', displayName: null, error: 'setup_required', canReply: true, userCode: 'PRIVATE TOKEN NOT A CODE' } });
+  ui.snapshot.songRequests.connections = value; ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-twitch-help').textContent, /prochaine mise à jour/);
+  assert.match(ui.get('#song-requests-connection-storage').textContent, /uniquement pour cette session/);
+  assert.equal(ui.get('#song-requests-twitch-user-code').hidden, true);
+  value.twitch.error = 'C:\\Private\\access-token'; value.storageError = 'private path'; ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-twitch-help').textContent, /Réessayez plus tard/);
+  assert.match(ui.get('#song-requests-connection-storage').textContent, /données existantes sont conservées/);
+  assert.doesNotMatch(ui.root.textContent, /Private|access-token|private path|PRIVATE TOKEN/);
+  assert.equal(ui.calls.length, 0);
+});
+
+test('direct receiving status is independent of bridge availability and control disposal blocks late connection callbacks', async t => {
+  const ui = await fixture(t); ui.snapshot.songRequests.enabled = true; ui.snapshot.songRequests.connections = connections({ receiving: true });
+  ui.controls.update(ui.snapshot); assert.equal(ui.get('#song-requests-status').textContent, 'Réception active');
+  assert.equal(ui.snapshot.songRequests.bridge.enabled, false);
+  ui.get('#song-requests-twitch-connect').click(); ui.controls.dispose();
+  const writes = ui.document.writes; ui.calls[0].resolve({ ok: false, error: 'late secret' }); await tick();
+  ui.get('#song-requests-twitch-connect').dispatchEvent(new Event('click'));
+  assert.equal(ui.calls.length, 1); assert.equal(ui.document.writes, writes);
 });

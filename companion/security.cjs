@@ -90,6 +90,14 @@ function validCommand(command, payload, widgetIds) {
     && Object.keys(payload).length === 2 && Number.isSafeInteger(payload.revision) && payload.revision >= 0
     && Array.isArray(payload.bands) && payload.bands.length === 32 && payload.bands.every(n => Number.isFinite(n) && n >= 0 && n <= 1);
   if (['songRequests.copyBridgeConfiguration', 'songRequests.copyOverlayUrl', 'songRequests.resetOrder', 'songRequests.publishLibrary', 'songRequests.removeLibrary', 'songRequests.copyLibraryUrl'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (['songRequests.connect', 'songRequests.disconnect', 'songRequests.cancelAuth'].includes(command)) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !['twitch', 'tiktok'].includes(payload.platform)) return false;
+    const username = command === 'songRequests.connect' && payload.platform === 'tiktok';
+    return Object.keys(payload).length === (username ? 2 : 1)
+      && Object.keys(payload).every(key => ['platform', ...(username ? ['username'] : [])].includes(key))
+      && (!username || (typeof payload.username === 'string' && /^@?[A-Za-z0-9_][A-Za-z0-9_.]{0,23}$/.test(payload.username)))
+      && (command !== 'songRequests.cancelAuth' || payload.platform === 'twitch');
+  }
   if (command === 'songRequests.configure') {
     const { INSTRUMENTS, DIFFICULTIES } = require('./song-requests.cjs');
     const rules = payload?.rules;
