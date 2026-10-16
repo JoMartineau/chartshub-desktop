@@ -1,3 +1,37 @@
+ChartsHub Desktop 0.14.22 - Catalogue et Companion
+
+NOUVEAUTES 0.14.22 - SONG REQUEST DANS CHARTSHUB
+
+1. Dans Companion, choisissez et scannez votre dossier Songs.
+2. Dans Song Request, cliquez sur Connecter Twitch et autorisez ChartsHub dans
+   le navigateur avec le compte de votre chaine.
+3. Pour TikTok LIVE, saisissez votre pseudo puis cliquez sur Connecter TikTok LIVE.
+   Le chat se connecte quand la reception est active et le compte est en LIVE.
+4. Activez Recevoir les demandes du chat. Les spectateurs utilisent
+   !sr artiste titre pour demander un morceau et !vote artiste titre pour voter.
+   Vous acceptez, refusez, deplacez ou marquez les demandes comme jouees.
+5. Pour OBS, cliquez sur Copier le lien du widget OBS, ajoutez une source
+   Navigateur et collez le lien. Le fond est transparent : prochaine demande
+   mise en evidence, puis quatre morceaux, avec votes et plateformes.
+
+Twitch utilise l'autorisation et les API officielles. L'autorisation est
+chiffree par le systeme, ou limitee a la session si ce stockage est indisponible.
+TikTok utilise le connecteur tiers non officiel TikTok-Live-Connector et Euler
+Stream. Aucun mot de passe ni cookie TikTok n'est demande. Ce mode recoit les
+commandes uniquement : les resultats s'affichent dans ChartsHub, sans reponse
+automatique dans le chat TikTok. Si le compte est hors LIVE ou le service
+indisponible, reessayez manuellement plus tard.
+
+Les demandes concernent uniquement votre bibliotheque locale scannee. Aucun
+telechargement ni lancement automatique du jeu ou d'un morceau. La reception
+reste arretee au demarrage ; la file est limitee a la session. Gardez ChartsHub
+ouvert pour utiliser le widget OBS. Les regles et le pont manuel Streamer.bot
+restent disponibles dans les reglages facultatifs et les options avancees.
+La publication de la liste publique reste une action manuelle distincte.
+Guide complet : docs/SONG-REQUESTS.md dans les sources.
+
+HISTORIQUE - Les procedures ci-dessous decrivent les versions precedentes.
+
 ChartsHub Desktop 0.14.12 — Catalogue et Companion
 
 NOUVEAUTES 0.14.12

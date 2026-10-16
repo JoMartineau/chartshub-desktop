@@ -18,8 +18,13 @@ const data = path.resolve(process.argv[2] || path.join(__dirname, '../../compani
 app.setPath('userData', path.join(data, 'profile'));
 app.disableHardwareAcceleration();
 registerCompanionScheme();
+// Keep the fixture alive while closing its final window and writing the report.
+app.on('window-all-closed', () => {});
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const passed = [];
+// Core/builder/theme 28 + stream 9 + library 7 + catalogue 6 + downloads 3
+// + Clone Hero 7 + profiles 3 + Song Request 7; Windows CI also enumerates captures.
+const expectedChecks = 70 + Number(process.platform === 'win32' && process.env.CI === 'true');
 let host;
 async function waitFor(check, label) {
   const start = Date.now();
@@ -549,7 +554,7 @@ async function verifyThemes(panel, host) {
 app.whenReady().then(async () => {
   try {
     await fs.mkdir(data, { recursive: true });
-    host = await createCompanionHost({ dataDirectory: path.join(data, 'settings'), catalogueClient: catalogueFixture.client, downloadWorker: downloadFixture.worker, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }), sharingClient: songRequestSharingFixture.client });
+    host = await createCompanionHost({ dataDirectory: path.join(data, 'settings'), catalogueClient: catalogueFixture.client, downloadWorker: downloadFixture.worker, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }), sharingClient: songRequestSharingFixture.client, songRequestConnectionOptions: songRequestSharingFixture.connectionOptions });
     let panel = await host.open();
     const evaluate = code => panel.webContents.executeJavaScript(code);
     const count = () => evaluate("document.querySelectorAll('#game-preview .companion-widget').length");
@@ -626,6 +631,7 @@ app.whenReady().then(async () => {
     await verifyCloneHero({ host, panel, data, passed, waitFor });
     await verifyProfiles({ host, panel, data, passed, waitFor });
     await verifySongRequests(panel, host, data, passed, songRequestSharingFixture);
+    assert.equal(passed.length, expectedChecks, 'every Companion and OBS fixture stage must finish');
     await host.dispose(); host = null;
     await fs.writeFile(path.join(data, 'electron-check.txt'), 'PASS\n' + passed.join('\n') + '\n');
     console.log('PASS companion Electron: ' + passed.length + ' integration checks');

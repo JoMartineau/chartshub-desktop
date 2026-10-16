@@ -1,5 +1,5 @@
 'use strict';
-const { clipboard } = require('electron');
+const { clipboard, BrowserWindow } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const http = require('node:http');
@@ -31,8 +31,39 @@ function createSongRequestSharingFixture() {
   let current = { url: null, count: 0, updatedAt: null }, removed = 0;
   const publications = [], publicUrl = 'https://chartshub.ca/song-requests.html?library=' + 'a'.repeat(64);
   const context = Object.freeze({ generation: 0, userId: 'song-request-fixture' });
+  const connections = { providers: {}, connects: [], stops: [], replies: [] };
+  const provider = platform => options => {
+    let value = { state: 'disconnected', displayName: null, error: null, canReply: platform === 'twitch' };
+    let receiving = false, authorize = null;
+    const publish = () => options.onStatus?.(structuredClone(value));
+    const adapter = {
+      status: () => structuredClone(value),
+      connect: async input => {
+        connections.connects.push({ platform, ...(platform === 'tiktok' ? { username: input.username } : {}) });
+        if (platform === 'twitch') {
+          value = { ...value, state: 'authorizing', userCode: 'FIXT-1234' }; publish();
+          await new Promise(resolve => { authorize = resolve; }); return adapter.status();
+        }
+        value = { ...value, state: receiving ? 'connected' : 'disconnected', displayName: '@' + input.username }; publish(); return adapter.status();
+      },
+      setReceiving: async enabled => {
+        receiving = enabled === true;
+        if (platform === 'tiktok' && value.displayName) value.state = receiving ? 'connected' : 'disconnected';
+        publish(); return adapter.status();
+      },
+      stop: async () => {
+        connections.stops.push(platform); receiving = false; value = { ...value, state: 'disconnected', userCode: undefined };
+        authorize?.(); authorize = null; publish(); return adapter.status();
+      },
+      disconnect: async () => { await adapter.stop(); value.displayName = null; publish(); return adapter.status(); },
+      sendReply: async message => { connections.replies.push({ platform, message }); return { ok: true }; },
+      message: (query, eventId = randomUUID()) => options.onMessage({ platform, query, eventId, viewerId: '742', viewerName: 'Native fixture viewer' })
+    };
+    connections.providers[platform] = adapter; return adapter;
+  };
   return {
-    publicUrl, publications, removals: () => removed,
+    publicUrl, publications, removals: () => removed, connections,
+    connectionOptions: { createTwitch: provider('twitch'), createTikTok: provider('tiktok') },
     client: {
       capture: async () => context,
       status: async () => ({ ...current }),
@@ -92,8 +123,38 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
   const byTitle = title => state().requests.find(item => item.title === title);
   const selector = (request, action) => `#song-requests-items [data-request-id="${request.id}"] [data-action="${action}"]`;
   const shot = async name => { await delay(80); await fs.writeFile(path.join(data, name), (await panel.webContents.capturePage()).toPNG()); };
-  let configuration;
+  let configuration, obsWindow = null;
   try {
+    assert.ok(sharingFixture?.connections.providers.twitch && sharingFixture.connections.providers.tiktok, 'native provider fixtures must be injected before testing connection controls');
+    const connectionFixture = sharingFixture.connections;
+    assert.equal(connectionFixture.connects.length, 0, 'opening the panel never connects a chat account');
+    for (const id of ['advanced', 'rules-details', 'sharing']) assert.equal(await evaluate(`document.querySelector('#song-requests-${id}').open`), false, id + ' starts collapsed');
+    await evaluate("document.querySelector('#song-requests-panel').scrollIntoView({block:'start'})");
+    assert.equal(await evaluate("document.querySelector('#song-requests-twitch-connect').getBoundingClientRect().width>0 && document.querySelector('#song-requests-tiktok-username').getBoundingClientRect().width>0"), true);
+    await click('#song-requests-twitch-connect');
+    await waitFor(() => state().connections.twitch.state === 'authorizing', 'mock Twitch authorization');
+    await waitFor(() => evaluate("!document.querySelector('#song-requests-twitch-cancel').disabled && !document.querySelector('#song-requests-twitch-cancel').hidden"), 'authorization cancellation remains usable');
+    assert.equal(await evaluate("document.querySelector('#song-requests-twitch-user-code').textContent.includes('FIXT-1234')"), true);
+    assert.equal(state().enabled, false);
+    await shot('song-requests-direct-twitch-authorization.png');
+    await click('#song-requests-twitch-cancel');
+    await waitFor(() => state().connections.twitch.state === 'disconnected', 'mock Twitch consent cancelled');
+    await waitFor(() => evaluate("!document.querySelector('#song-requests-twitch-connect').disabled"), 'Twitch reconnect available after cancellation');
+    assert.equal(connectionFixture.connects.filter(item => item.platform === 'twitch').length, 1);
+    await type('#song-requests-tiktok-username', '@fixture_streamer');
+    assert.equal(connectionFixture.connects.filter(item => item.platform === 'tiktok').length, 0, 'typing is not a connection');
+    assert.match(await evaluate("document.querySelector('#song-requests-tiktok-provider-help').textContent"), /Euler Stream/);
+    await click('#song-requests-tiktok-connect');
+    await waitFor(() => state().connections.tiktok.displayName === '@fixture_streamer', 'mock TikTok username prepared');
+    await waitFor(() => evaluate("document.querySelector('#song-requests-tiktok-status').textContent.includes('prêt') && !document.querySelector('#song-requests-tiktok-disconnect').hidden"), 'TikTok prepared account can be disconnected');
+    assert.equal(state().enabled, false, 'preparing TikTok does not require a live stream or enable reception');
+    assert.equal(sharingFixture.publications.length, 0, 'connecting accounts never publishes the Songs library');
+    await shot('song-requests-direct-tiktok-prepared.png');
+    await click('#song-requests-tiktok-disconnect');
+    await waitFor(() => !state().connections.tiktok.displayName, 'prepared TikTok username forgotten');
+    await waitFor(() => evaluate("!document.querySelector('#song-requests-tiktok-username').disabled"), 'TikTok username editable after disconnect');
+    passed.push('Song Requests direct: account buttons visible before advanced setup, cancellable Twitch consent and TikTok preparation without LIVE or automatic reception');
+
     for (const [index, title] of ['SR Fixture Alpha', 'SR Fixture Beta', 'SR Fixture Changed'].entries()) {
       const folder = path.join(fixtureRoot, String(index)); await fs.mkdir(folder, { recursive: true });
       await fs.writeFile(path.join(folder, 'song.ini'), `[song]\nname = ${title}\nartist = Fixture Artist\ncharter = Fixture Creator\nsong_length = 180000\ndiff_guitar = 4\n`);
@@ -106,12 +167,23 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     assert.ok(sharingFixture, 'the real host must use the isolated sharing fixture');
     assert.equal(sharingFixture.publications.length, 0, 'opening the panel and scanning never publish');
     assert.equal(state().sharing.supported, true); assert.equal(state().sharing.url, null);
+    await click('#song-requests-sharing-title');
     await click('#song-requests-publish-library'); await waitFor(() => state().sharing.count === 3 && !state().sharing.busy, 'explicit public snapshot');
     assert.equal(sharingFixture.publications.length, 1); assert.equal(state().enabled, false, 'publishing leaves reception stopped');
     await click('#song-requests-copy-library'); await waitFor(() => copiedText === sharingFixture.publicUrl, 'public link copied locally');
+    await click('#song-requests-advanced-summary'); await click('#song-requests-rules-summary');
     const port = await unusedPort(); await type('#song-requests-port', port); await click('#song-requests-apply');
     await waitFor(() => state().bridge.port === port, 'saved port'); assert.equal(state().enabled, false, 'applying settings never starts reception');
     await click('#song-requests-enabled'); await waitFor(() => state().bridge.enabled, 'loopback reception');
+    await type('#song-requests-tiktok-username', '@fixture_streamer'); await click('#song-requests-tiktok-connect');
+    await waitFor(() => state().connections.tiktok.state === 'connected', 'mock native TikTok reception');
+    connectionFixture.providers.tiktok.message('!queue');
+    await waitFor(() => evaluate("!document.querySelector('#song-requests-last-response').hidden && document.querySelector('#song-requests-last-response-message').textContent.length>0"), 'native TikTok response shown locally');
+    assert.equal(connectionFixture.replies.length, 0, 'receive-only TikTok never sends a chat response');
+    assert.equal(state().requests.length, 0, 'queue query does not create a request');
+    await evaluate("document.querySelector('#song-requests-last-response').scrollIntoView({block:'center'})"); await shot('song-requests-direct-tiktok-local-response.png');
+    await click('#song-requests-tiktok-disconnect'); await waitFor(() => !state().connections.tiktok.displayName, 'native TikTok disconnected before bridge tests');
+    passed.push('Song Requests direct: native TikTok command enters the same queue, gives visible local feedback and never posts to TikTok chat');
     await click('#song-requests-copy-bridge'); await waitFor(() => copiedText.startsWith('{'), 'private configuration copied to fixture'); configuration = JSON.parse(copiedText);
     assert.equal(configuration.url, `http://127.0.0.1:${port}/song-requests`); assert.match(configuration.token, /^[a-f0-9]{64}$/i);
     const send = (message, platform, viewerId, viewerName = 'Fixture viewer') => post(configuration.url, configuration.token, { platform, eventId: randomUUID(), viewerId, viewerName, message });
@@ -133,6 +205,31 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     const privateData = await evaluate("document.querySelector('#song-requests-panel').textContent");
     assert.equal(privateData.includes(configuration.token), false); assert.equal(privateData.includes(fixtureRoot), false);
     passed.push('Song Requests: three platforms via authenticated local POST, votes, queue, plain text and no remote downloads');
+
+    obsWindow = new BrowserWindow({ show: false, width: 480, height: 680, frame: false, transparent: true, backgroundColor: '#00000000',
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    await obsWindow.loadURL(state().bridge.overlayUrl);
+    const obs = code => obsWindow.webContents.executeJavaScript(code);
+    await waitFor(() => obs("document.querySelectorAll('#request-queue > li').length===3 && document.querySelector('#request-count').textContent==='3'"), 'real readonly OBS widget renders the queue');
+    assert.equal(await obs("typeof window.require"), 'undefined');
+    assert.equal(await obs("document.querySelector('#request-queue > li .request-title').textContent"), 'SR Fixture Alpha');
+    const widgetText = await obs("document.querySelector('main').textContent");
+    assert.equal(widgetText.includes(configuration.token), false); assert.equal(widgetText.includes(new URL(state().bridge.overlayUrl).searchParams.get('token')), false);
+    assert.equal(widgetText.includes(fixtureRoot), false); assert.match(widgetText, /<img src=x onerror=unsafe\(\)>/);
+    assert.equal(await obs("document.querySelectorAll('main img,main script,main iframe').length"), 0);
+    for (const language of ['fr', 'en']) {
+      host.setLanguage(language);
+      await waitFor(() => obs(`document.documentElement.lang===${JSON.stringify(language)} && document.querySelector('.request-next-label').textContent===${JSON.stringify(language === 'fr' ? 'À jouer ensuite' : 'Up next')}`), 'OBS widget language ' + language);
+      for (const width of [480, 320]) {
+        obsWindow.setSize(width, 680); await delay(100);
+        const geometry = await obs("({width:innerWidth,scroll:document.documentElement.scrollWidth,background:getComputedStyle(document.body).backgroundColor,rows:document.querySelectorAll('#request-queue>li').length})");
+        assert.ok(geometry.scroll <= geometry.width + 1, language + ' readonly OBS widget has no horizontal overflow at ' + width);
+        assert.equal(geometry.background, 'rgba(0, 0, 0, 0)'); assert.equal(geometry.rows, 3);
+        await fs.writeFile(path.join(data, `song-requests-obs-${language}-${width}.png`), (await obsWindow.webContents.capturePage()).toPNG());
+      }
+    }
+    obsWindow.destroy(); obsWindow = null; host.setLanguage(initialLanguage);
+    passed.push('Song Requests OBS: real sandboxed browser source, featured next request, plain text, private read capability and transparent bilingual 480px/320px captures');
 
     await click(selector(byTitle('SR Fixture Beta'), 'move-up')); await waitFor(() => state().requests.filter(item => ['pending', 'accepted'].includes(item.status))[0].title === 'SR Fixture Beta', 'manual queue order');
     await click(selector(byTitle('SR Fixture Alpha'), 'accept')); await waitFor(() => byTitle('SR Fixture Alpha').status === 'accepted', 'explicit acceptance');
@@ -160,7 +257,7 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     for (const language of ['fr', 'en']) {
       host.setLanguage(language); await waitFor(() => evaluate(`document.documentElement.lang===${JSON.stringify(language)} && document.querySelector('#song-requests-copy-bridge').textContent===${JSON.stringify(language === 'fr' ? 'Copier la configuration du pont' : 'Copy bridge configuration')}`), 'language ' + language);
       panel.setSize(960, 920); await evaluate("document.querySelector('#song-requests-panel').scrollIntoView({block:'start'})");
-      const layout = await evaluate("(()=>{const p=document.querySelector('#song-requests-panel');return {width:p.clientWidth,scroll:p.scrollWidth,buttons:[...p.querySelectorAll('button')].filter(n=>!n.hidden).map(n=>({label:n.getAttribute('aria-label')||n.textContent,width:n.getBoundingClientRect().width}))}})()");
+      const layout = await evaluate("(()=>{const p=document.querySelector('#song-requests-panel');return {width:p.clientWidth,scroll:p.scrollWidth,buttons:[...p.querySelectorAll('button')].filter(n=>n.getClientRects().length>0).map(n=>({label:n.getAttribute('aria-label')||n.textContent,width:n.getBoundingClientRect().width}))}})()");
       assert.ok(layout.scroll <= layout.width + 1, language + ' Song Request section overflow'); assert.ok(layout.buttons.every(button => !!button.label.trim() && button.width > 0));
       await shot('song-requests-' + language + '.png');
       assert.equal(await evaluate("document.querySelector('#song-requests-publish-library').textContent"), language === 'fr' ? 'Actualiser la liste' : 'Update song list');
@@ -175,6 +272,7 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     await click('#song-requests-enabled'); await waitFor(() => !state().enabled && !state().bridge.enabled, 'explicit stop');
   } finally {
     try {
+      if (obsWindow && !obsWindow.isDestroyed()) obsWindow.destroy();
       if (host.snapshot().songRequests?.enabled) await command('songRequests.configure', { enabled: false, port: state().bridge.port, rules: state().rules });
     } finally {
       clipboard.writeText = originalWriteText; host.setLanguage(initialLanguage); if (!panel.isDestroyed()) panel.setSize(...initialSize);

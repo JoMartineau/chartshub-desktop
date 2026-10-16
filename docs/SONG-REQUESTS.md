@@ -8,7 +8,21 @@ L’organisation pratique du tableau de bord et de la file s’inspire de [Clone
 
 [Ouvert](https://ouvert.dev/About/Features) sert également de référence pour la bibliothèque destinée aux spectateurs et la gestion des demandes, sans connexion à son service ni reprise de son code.
 
-## Dans ChartsHub
+## Connexion directe dans ChartsHub
+
+1. Choisir et scanner le dossier **Songs** dans la bibliothèque locale.
+2. Dans **Song Request**, cliquer **Connecter Twitch**, puis autoriser ChartsHub dans le navigateur Twitch. Le compte connecté correspond à la chaîne qui reçoit les commandes. Aucun script ni compte de bot séparé n’est nécessaire. L’application ChartsHub doit avoir été configurée une fois par son éditeur ; voir [la configuration éditeur](SONG-REQUESTS-PUBLISHER.md).
+3. Pour TikTok, saisir le pseudo du LIVE et cliquer **Connecter TikTok**. Le pseudo peut être préparé avant le LIVE. La connexion au chat démarre quand la réception est activée ; si le compte n’est pas en LIVE, un état explicite s’affiche et le bouton permet de réessayer plus tard.
+4. Activer **Recevoir les demandes du chat**. Les spectateurs écrivent `!sr artiste titre` dans Twitch ou TikTok. Les demandes arrivent dans la même file ; le streamer les accepte, refuse ou marque comme jouées. Les règles facultatives se trouvent dans **Règles des demandes**.
+5. Pour OBS, cliquer **Copier le lien du widget OBS** et ajouter une source Navigateur. Le widget transparent met la prochaine demande en évidence, affiche jusqu’à cinq morceaux avec plateforme et votes, puis indique la commande pour participer.
+
+Twitch utilise le [flux pour chatbot installé](https://dev.twitch.tv/docs/chat/authenticating), EventSub WebSocket pour la réception et l’API Twitch pour les réponses. L’autorisation est mémorisée avec le stockage chiffré du système. Si ce stockage est indisponible, l’écran indique que la connexion reste limitée à la session. Ouvrir l’application, consulter l’écran ou changer de langue ne connecte aucun chat automatiquement. Le bouton de connexion permet de réutiliser un compte mémorisé.
+
+TikTok utilise le connecteur tiers non officiel [TikTok-Live-Connector](https://github.com/zerodytrash/TikTok-Live-Connector), intégré à l’application. Son service de signature **Euler Stream** reçoit le pseudo public du LIVE et les informations nécessaires à la connexion. Aucun mot de passe, cookie de session ou jeton TikTok n’est demandé ou transmis. Ce mode **reçoit uniquement les commandes** : ChartsHub affiche leur résultat localement et dans la file, sans réponse automatique dans le chat TikTok. Le service tiers peut être indisponible ou limiter les connexions ; ChartsHub ne réessaie pas en boucle. Il n’est pas nécessaire d’installer TikFinity ou Streamer.bot pour cette réception directe.
+
+Pour interrompre le chat, désactiver la réception. **Déconnecter** oublie le compte ou le pseudo choisi. La publication de la bibliothèque reste une action distincte et manuelle. Si une ancienne action Streamer.bot Twitch reste configurée, ses commandes sont ignorées sans réponse pendant que la connexion Twitch directe fonctionne, pour éviter les doublons.
+
+## Options avancées : pont local existant
 
 1. Choisir le dossier Songs dans la bibliothèque locale, puis le scanner.
 2. Dans **Song Request**, définir éventuellement une durée maximale, un instrument et une difficulté, puis appliquer. Une métadonnée inconnue ne satisfait pas une règle active.

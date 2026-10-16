@@ -1,3 +1,16 @@
 <!doctype html>
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>ChartsHub — Song Requests</title><link rel="stylesheet" href="/ui/song-requests-overlay.css"></head>
-<body><main><header><strong>ChartsHub · Song Requests</strong><span id="request-status" role="status"></span></header><ol id="request-queue"></ol></main><script type="module" src="/ui/song-requests-overlay.js"></script></body></html>
+<body>
+  <main class="request-widget" aria-labelledby="request-heading">
+    <header class="request-header">
+      <div><p class="request-brand">ChartsHub <span>· Song Request</span></p><h1 id="request-heading">Prochaines demandes</h1></div>
+      <div class="request-total"><strong id="request-count">0</strong><span id="request-count-label">en attente</span></div>
+    </header>
+    <p id="request-status" class="request-status" role="status">Connexion…</p>
+    <ol id="request-queue" aria-live="polite" aria-relevant="additions"></ol>
+    <section id="request-empty" class="request-empty" hidden><span class="request-empty-icon" aria-hidden="true">♫</span><strong id="request-empty-title">Choisissez le prochain morceau</strong><p id="request-empty-help">Demandez un morceau dans le chat.</p></section>
+    <p id="request-remaining" class="request-remaining" hidden></p>
+    <footer class="request-footer"><span id="request-footer-prompt">Dans le chat</span><code id="request-command">!sr artiste titre</code></footer>
+  </main>
+  <script type="module" src="/ui/song-requests-overlay.js"></script>
+</body></html>

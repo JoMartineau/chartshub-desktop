@@ -2,7 +2,10 @@ import {packager} from '@electron/packager';
 import path from 'node:path';
 import {readFileSync,writeFileSync,copyFileSync,existsSync,mkdirSync} from 'node:fs';
 import {createHash} from 'node:crypto';
+import {createRequire} from 'node:module';
 const version=JSON.parse(readFileSync(new URL('./package.json',import.meta.url),'utf8')).version;
+const {twitchClientId}=createRequire(import.meta.url)('./companion/song-request-config.cjs');
+if(typeof twitchClientId!=='string'||!/^[a-zA-Z0-9]{1,128}$/.test(twitchClientId))throw Error('Configure the public ChartsHub Twitch Client ID before packaging. See docs/SONG-REQUESTS-PUBLISHER.md.');
 const platform=process.argv[2]||process.platform,arch=process.argv[3]||process.arch;
 if(!['win32','darwin','linux'].includes(platform)||!['x64','arm64'].includes(arch))throw Error('Unsupported platform');
 if(platform==='win32'&&arch==='x64'&&!existsSync(new URL('./native-filters/bin/dxgi.dll',import.meta.url)))throw Error('Compile the native filter engine with native-filters/build.ps1 before packaging Windows x64. See native-filters/README.md.');
@@ -21,6 +24,9 @@ for(const output of outputs){
  copyFileSync(new URL('./COMPANION-README.txt',import.meta.url),path.join(output,'Lisez-moi.txt'));
  mkdirSync(path.join(output,'Song Request'),{recursive:true});
  copyFileSync(new URL('./docs/SONG-REQUESTS.md',import.meta.url),path.join(output,'Song Request','Configuration.md'));
+ for(const notice of ['SONG-REQUESTS-PUBLISHER.md','SONG-REQUESTS-THIRD-PARTY.md'])copyFileSync(new URL('./docs/'+notice,import.meta.url),path.join(output,'Song Request',notice));
+ mkdirSync(path.join(output,'Song Request','docs','licenses'),{recursive:true});
+ for(const notice of ['TikTok-Live-Connector-LICENSE.txt','TikTok-Live-Proto-LICENSE.txt'])copyFileSync(new URL('./docs/licenses/'+notice,import.meta.url),path.join(output,'Song Request','docs','licenses',notice));
  copyFileSync(new URL('./docs/song-requests/ChartsHub-SongRequest.cs',import.meta.url),path.join(output,'Song Request','ChartsHub-SongRequest.cs'));
  if(platform==='win32')writeFileSync(path.join(output,'Lancer Companion.cmd'),[
   '@echo off','setlocal','set "ELECTRON_RUN_AS_NODE="',

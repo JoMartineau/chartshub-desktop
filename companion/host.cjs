@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, protocol, session, net, screen, clipboard, dialog, shell, globalShortcut } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, protocol, session, net, screen, clipboard, dialog, shell, globalShortcut, safeStorage } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs/promises');
@@ -25,6 +25,9 @@ const { createFloatingPanels } = require('./floating-panels.cjs');
 const { createSongRequests } = require('./song-requests.cjs');
 const { createSongRequestServer } = require('./song-request-server.cjs');
 const { createSongRequestPreferences } = require('./song-request-preferences.cjs');
+const { createSongRequestAccountStore } = require('./song-request-account-store.cjs');
+const { createSongRequestConnections } = require('./song-request-connections.cjs');
+const { twitchClientId: publishedTwitchClientId } = require('./song-request-config.cjs');
 const { createMusicPlayer } = require('./music-player.cjs');
 const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs');
 const { changeMusicPlaylist } = require('./music-playlists.cjs');
@@ -33,7 +36,7 @@ const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Cat
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
   const [{ ServiceContainer }, { MockCloneHeroIntegration }, { createDefaultRegistry, createDefaultWidgets }, { WidgetRenderer }, { SettingsRepository, validateSettings }, { SnapshotHistory }, { ThemeService, createDefaultTheme }, { validateWidgetStyle }, { createDefaultStream, validateStream }] = await Promise.all([
@@ -52,11 +55,13 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let playerPreferencesTask = Promise.resolve();
   const playerPreferences = createMusicPlayerPreferences({ dataDirectory });
   await playerPreferences.load();
-  let songRequests = null, songRequestServer = null, songRequestBusy = false;
+  let songRequests = null, songRequestServer = null, songRequestConnections = null, songRequestBusy = false;
   let songRequestShare = { supported: !!sharingClient, url: null, count: 0, updatedAt: null, busy: false, error: null, unavailableCount: 0 };
   let songRequestShareRevision = 0;
   const songRequestPreferences = createSongRequestPreferences({ dataDirectory });
   await songRequestPreferences.load();
+  const songRequestAccounts = createSongRequestAccountStore({ dataDirectory, safeStorage });
+  await songRequestAccounts.load();
   let cleanupDialogOpen = false, cleanupTask = null, cleanupApproval = null;
   let catalogue = null, libraryIndexRevision = -1;
   let downloads = null, downloadPickerOpen = false;
@@ -153,7 +158,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     filters: { canOpen: !disposing && !stopTask && (filters?.status()?.supported === true || reshade?.status()?.supported === true), title: CAPTURE_WINDOW_TITLES.filters },
     player: { canOpen: hostActive && !disposing && !stopTask && panelAlive(), title: CAPTURE_WINDOW_TITLES.player }
   });
-  const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), sharing: { ...songRequestShare }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
+  const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
   const snapshot = () => ({ language, buttonMotion: { ...buttonMotion }, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
@@ -224,6 +229,11 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     await shell.trashItem(target);
   }, onChange: () => {
     musicPlayer?.libraryChanged();
+    if (songRequests?.snapshot().enabled && (library?.status().status !== 'ready' || library?.status().count < 1)) {
+      songRequests.configure({ enabled: false });
+      void songRequestConnections?.setReceiving(false);
+      void songRequestServer?.stop();
+    }
     const revision = library?.status().revision ?? -1;
     if (revision !== libraryIndexRevision) { libraryIndexRevision = revision; catalogue?.libraryChanged(); }
     if (!disposing) publishPanel();
@@ -251,11 +261,24 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   });
   const requestPreferences = songRequestPreferences.status();
   songRequests.configure({ rules: requestPreferences.rules, enabled: false });
+  songRequestConnections = createSongRequestConnections({
+    ...songRequestConnectionOptions,
+    twitchClientId: songRequestConnectionOptions.twitchClientId ?? publishedTwitchClientId,
+    accountStore: songRequestAccounts, openExternal: url => shell.openExternal(url),
+    receive: input => songRequests.receive(input),
+    canReceive: () => hostActive && !disposing && !stopTask && songRequests.snapshot().enabled && library.status().status === 'ready' && library.status().count > 0,
+    getLanguage: () => language, onChange: () => { if (!disposing) publishPanel(); }
+  });
   if (requestPreferences.ingestToken && requestPreferences.readToken && !requestPreferences.error) {
     songRequestServer = createSongRequestServer({ root: __dirname, ingestToken: requestPreferences.ingestToken, readToken: requestPreferences.readToken,
-      receive: input => !hostActive || disposing || stopTask ? { ok: false, code: 'disabled' } : songRequests.receive(input),
+      receive: input => {
+        if (!hostActive || disposing || stopTask) return { ok: false, code: 'disabled' };
+        // An existing Streamer.bot action can stay installed without replying twice.
+        if (input.platform === 'twitch' && songRequestConnections.handlesBridge('twitch')) return { ok: true, silent: true };
+        return songRequests.receive(input);
+      },
       getSnapshot: () => songRequests.snapshot(), getLanguage: () => language,
-      onStatus: status => { if (!status.enabled && songRequests.snapshot().enabled) songRequests.configure({ enabled: false }); if (!disposing) publishPanel(); }
+      onStatus: () => { if (!disposing) publishPanel(); }
     });
     songRequestServer.setPort(requestPreferences.port);
   }
@@ -264,19 +287,24 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const lifecycle = lifecycleRevision;
     songRequestBusy = true;
     try {
-      if (!payload.enabled) { songRequests.configure({ enabled: false }); await songRequestServer?.stop(); }
+      if (!payload.enabled) { songRequests.configure({ enabled: false }); await songRequestConnections.setReceiving(false); await songRequestServer?.stop(); }
       if (disposing || stopTask || !hostActive || lifecycle !== lifecycleRevision) return { ok: false, error: 'Le panneau a été fermé.' };
-      if (payload.enabled && (!songRequestServer || library.status().status !== 'ready' || library.status().count < 1)) return { ok: false, error: 'Scannez votre dossier Songs avant d’activer les demandes.' };
+      if (payload.enabled && (library.status().status !== 'ready' || library.status().count < 1)) return { ok: false, error: 'Scannez votre dossier Songs avant d’activer les demandes.' };
       if (songRequestServer?.status().enabled && songRequestServer.status().port !== payload.port) return { ok: false, error: 'Arrêtez la réception avant de changer le port.' };
       await songRequestPreferences.save({ port: payload.port, rules: payload.rules });
       if (disposing || stopTask || !hostActive || lifecycle !== lifecycleRevision) return { ok: false, error: 'Le panneau a été fermé.' };
       songRequests.configure({ rules: payload.rules });
       if (!songRequestServer?.status().enabled) songRequestServer?.setPort(payload.port);
       if (payload.enabled) {
-        await songRequestServer.start(payload.port);
-        if (disposing || stopTask || !hostActive || lifecycle !== lifecycleRevision) { await songRequestServer.stop(); return { ok: false, error: 'Le panneau a été fermé.' }; }
-        if (!songRequestServer.status().enabled) return { ok: false, error: songRequestServer.status().error };
+        await songRequestServer?.start(payload.port);
+        if (disposing || stopTask || !hostActive || lifecycle !== lifecycleRevision) { await songRequestServer?.stop(); return { ok: false, error: 'Le panneau a été fermé.' }; }
+        if (library.status().status !== 'ready' || library.status().count < 1) {
+          songRequests.configure({ enabled: false });
+          await songRequestConnections.setReceiving(false); await songRequestServer?.stop();
+          return { ok: false, error: 'Scannez votre dossier Songs avant d’activer les demandes.' };
+        }
         songRequests.configure({ enabled: true });
+        void songRequestConnections.setReceiving(true);
       }
       publishPanel(); return { ok: true };
     } finally { songRequestBusy = false; }
@@ -704,6 +732,14 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         return { ...result, playlistId };
       }
       if (command === 'songRequests.configure') return await configureSongRequests(payload);
+      if (['songRequests.connect', 'songRequests.disconnect', 'songRequests.cancelAuth'].includes(command) && !hostActive) return { ok: false };
+      if (command === 'songRequests.connect') {
+        // Consent and LIVE connection run in the background so Cancel/Stop remain usable.
+        void songRequestConnections.connect(payload.platform, payload).catch(() => {});
+        return { ok: true };
+      }
+      if (command === 'songRequests.disconnect') return await songRequestConnections.disconnect(payload.platform);
+      if (command === 'songRequests.cancelAuth') return await songRequestConnections.cancelAuth(payload.platform);
       if (command === 'songRequests.publishLibrary' || command === 'songRequests.removeLibrary') return await changeSongRequestShare(command.endsWith('removeLibrary'));
       if (command === 'songRequests.copyLibraryUrl') {
         if (!songRequestShare.url || songRequestShare.busy) return { ok: false };
@@ -1019,6 +1055,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     songRequestShare.busy = false;
     songRequests.configure({ enabled: false });
     const songRequestStop = songRequestServer?.stop();
+    const songRequestConnectionsStop = songRequestConnections?.stop();
     hostActive = false; catalogueWidgetTicket++; catalogueWidgetEnabled = false;
     musicPlayer?.stop();
     if (playerWindow && !playerWindow.isDestroyed()) playerWindow.destroy();
@@ -1045,7 +1082,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         ? Promise.resolve().then(() => reshadeSetup.whenIdle()).catch(() => { logger.warn('ReShade installation ended with an error'); })
       : Promise.resolve();
     if (saveTimer) void saveSettings();
-    const task = (async () => { await songRequestStop; await songRequestPreferences.flush(); await playerPreferencesTask; await playerPreferences.flush(); await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
+    const task = (async () => { await songRequestStop; await songRequestConnectionsStop; await songRequestPreferences.flush(); await playerPreferencesTask; await playerPreferences.flush(); await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
     const done = task.finally(() => { if (stopTask === done) stopTask = null; });
     stopTask = done;
     return done;
