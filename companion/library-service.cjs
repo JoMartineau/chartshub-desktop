@@ -14,6 +14,7 @@ const { resolveInstalledSong } = require('./song-request-library.cjs');
 const { preparePlaybackMedia } = require('./library-media.cjs');
 const { captureBundleSnapshot } = require('./chart-bundle.cjs');
 const { INSTRUMENTS, DIFFICULTIES } = require('./song-requests.cjs');
+const { MAX_SONGS, MAX_BYTES, shareError } = require('./song-request-share-contract.cjs');
 
 const VERSION = 1;
 const TEXT_FIELDS = ['title', 'artist', 'charter', 'album', 'year'];
@@ -71,6 +72,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   let watcher = null, watcherState = 'off', debounce = null;
   let duplicateVerification = null, verifiedDuplicateGroups = null;
   let matchingCache = null, matchingRoot = null;
+  let requestItemsSource = null, requestItemsById = null, sharingPreparation = null;
   const duplicates = createLibraryDuplicates({ dataDirectory, getDocument: () => document });
   const queryIndex = createLibraryQuery({ textFields: TEXT_FIELDS, publicFields: PUBLIC_FIELDS,
     isGroupKept: duplicates.isKeptGroup, preferenceToken: duplicates.preferenceToken });
@@ -106,6 +108,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     return { settings: { ...document.settings }, status: phase, mode, progress: { ...progress }, count: document.items.length,
       lastScanAt: document.lastScanAt, changes: { ...document.changes }, warningCount: document.warningCount, skippedCount: document.skippedCount,
       error, watcher: watcherState, revision: document.revision, cleanupRefreshPending: document.cleanupRefreshPending === true,
+      sharingPreparation: sharingPreparation ? { ...sharingPreparation.progress } : null,
       badSongsBusy: badSongs.busy(), bulkCleanup: bulkCleanup.status(),
       duplicateVerification: duplicateVerification ? { running: true, stopping: duplicateVerification.controller.signal.aborted, processed: duplicateVerification.processed, total: duplicateVerification.total } : null };
   }
@@ -478,7 +481,11 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   async function resolveRequestSong(id, context) {
     const index = matchingSnapshot();
     if (!context || context.rootKey !== index.rootKey || context.revision !== index.revision) throw safeError('La bibliothèque a changé. Réessayez votre demande.');
-    const item = document.items.find(value => value.id === id), root = document.settings.rootPath;
+    if (requestItemsSource !== document.items) {
+      requestItemsSource = document.items;
+      requestItemsById = new Map(document.items.map(item => [item.id, item]));
+    }
+    const item = requestItemsById.get(id), root = document.settings.rootPath;
     if (!item || !root || phase === 'scanning' || phase === 'error') throw safeError('Cette chanson n’est pas disponible dans la bibliothèque actuelle.');
     const options = { rootPath: root, relativePath: item.relativePath, format: item.format };
     if (!item.cleanupSnapshot || await captureBundleSnapshot(options) !== item.cleanupSnapshot) throw safeError('Cette chanson a changé depuis le scan. Actualisez la bibliothèque.');
@@ -489,15 +496,35 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   }
   async function requestLibraryForSharing() {
     const index = matchingSnapshot(), requestedEpoch = epoch;
-    if (!index.rootKey || !index.items.length || index.items.length > 10000 || run || stopTask || phase !== 'ready') throw safeError('Scannez une bibliothèque de 1 à 10 000 chansons avant de la partager.');
-    const songs = []; let unavailableCount = 0;
-    for (const item of index.items) {
-      if (requestedEpoch !== epoch || run || stopTask || phase !== 'ready' || matchingSnapshot().rootKey !== index.rootKey || matchingSnapshot().revision !== index.revision) throw safeError('La bibliothèque a changé. Relancez le partage après le scan.');
-      try { songs.push(await resolveRequestSong(item.id, index)); } catch { unavailableCount++; }
-      if (requestedEpoch !== epoch) throw safeError('Le partage de la bibliothèque a été arrêté.');
+    if (index.items.length > MAX_SONGS) throw shareError('SHARE_LIBRARY_LIMIT');
+    if (!index.rootKey || !index.items.length || run || stopTask || phase !== 'ready' || sharingPreparation) throw shareError('SHARE_LIBRARY_NOT_READY');
+    const operation = { progress: { phase: 'preparing', processed: 0, total: index.items.length, available: 0, unavailable: 0 } };
+    sharingPreparation = operation; notify();
+    const songs = []; let unavailableCount = 0, bytes = 2, notifiedAt = Date.now();
+    const current = () => !operation.cancelled && requestedEpoch === epoch && !run && !stopTask && phase === 'ready'
+      && matchingSnapshot().rootKey === index.rootKey && matchingSnapshot().revision === index.revision;
+    try {
+      for (const item of index.items) {
+        if (!current()) throw shareError('SHARE_LIBRARY_CHANGED');
+        let song;
+        try { song = await resolveRequestSong(item.id, index); } catch { unavailableCount++; }
+        if (!current()) throw shareError('SHARE_LIBRARY_CHANGED');
+        if (song) {
+          bytes += Buffer.byteLength(JSON.stringify(song), 'utf8') + (songs.length ? 1 : 0);
+          if (bytes > MAX_BYTES) throw shareError('SHARE_METADATA_LIMIT');
+          songs.push(song);
+        }
+        operation.progress = { ...operation.progress, processed: operation.progress.processed + 1, available: songs.length, unavailable: unavailableCount };
+        if (operation.progress.processed % 100 === 0 || Date.now() - notifiedAt >= 250 || operation.progress.processed === index.items.length) { notifiedAt = Date.now(); notify(); }
+        // Even synthetic fast metadata must allow stop/root changes to run.
+        if (operation.progress.processed % 100 === 0) await new Promise(resolve => setImmediate(resolve));
+      }
+      if (!current()) throw shareError('SHARE_LIBRARY_CHANGED');
+      if (!songs.length) throw shareError('SHARE_LIBRARY_EMPTY');
+      return { songs, unavailableCount, revision: index.revision, rootKey: index.rootKey };
+    } finally {
+      if (sharingPreparation === operation) { sharingPreparation = null; notify(); }
     }
-    if (requestedEpoch !== epoch || run || stopTask || phase !== 'ready' || matchingSnapshot().rootKey !== index.rootKey || matchingSnapshot().revision !== index.revision || !songs.length) throw safeError('La bibliothèque n’est plus disponible.');
-    return { songs, unavailableCount, revision: index.revision, rootKey: index.rootKey };
   }
   async function resolvePlaybackSong(id) {
     const index = matchingSnapshot(), requestedEpoch = epoch;
@@ -528,6 +555,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     resolvePlaybackSong,
     queryPlayback,
     requestLibraryForSharing,
+    cancelLibrarySharing: () => { if (sharingPreparation) sharingPreparation.cancelled = true; },
     cleanupHistory: (options = {}) => history.list({ ...options, rootPath: document.settings.rootPath }),
     prepareBadSongs: filename => badSongsOperation('prepare', filename),
     badSongsReview: options => badSongsOperation('review', options),

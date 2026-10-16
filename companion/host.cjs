@@ -28,6 +28,7 @@ const { createSongRequestPreferences } = require('./song-request-preferences.cjs
 const { createSongRequestAccountStore } = require('./song-request-account-store.cjs');
 const { createSongRequestConnections } = require('./song-request-connections.cjs');
 const { twitchClientId: publishedTwitchClientId } = require('./song-request-config.cjs');
+const { shareErrorCode } = require('./song-request-share-contract.cjs');
 const { createMusicPlayer } = require('./music-player.cjs');
 const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs');
 const { changeMusicPlaylist } = require('./music-playlists.cjs');
@@ -56,8 +57,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   const playerPreferences = createMusicPlayerPreferences({ dataDirectory });
   await playerPreferences.load();
   let songRequests = null, songRequestServer = null, songRequestConnections = null, songRequestBusy = false;
-  let songRequestShare = { supported: !!sharingClient, url: null, count: 0, updatedAt: null, busy: false, error: null, unavailableCount: 0 };
+  let songRequestShare = { supported: !!sharingClient, url: null, count: 0, updatedAt: null, busy: false, error: null, unavailableCount: 0, progress: null };
   let songRequestShareRevision = 0;
+  let songRequestShareController = null;
   const songRequestPreferences = createSongRequestPreferences({ dataDirectory });
   await songRequestPreferences.load();
   const songRequestAccounts = createSongRequestAccountStore({ dataDirectory, safeStorage });
@@ -158,7 +160,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     filters: { canOpen: !disposing && !stopTask && (filters?.status()?.supported === true || reshade?.status()?.supported === true), title: CAPTURE_WINDOW_TITLES.filters },
     player: { canOpen: hostActive && !disposing && !stopTask && panelAlive(), title: CAPTURE_WINDOW_TITLES.player }
   });
-  const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
+  const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare,
+    progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
   const snapshot = () => ({ language, buttonMotion: { ...buttonMotion }, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
@@ -314,28 +317,33 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const lifecycle = lifecycleRevision, revision = ++songRequestShareRevision;
     const valid = () => !disposing && !stopTask && hostActive && lifecycle === lifecycleRevision && revision === songRequestShareRevision;
     try { const status = await sharingClient.status(); if (valid()) songRequestShare = { ...songRequestShare, ...status, error: null }; }
-    catch { if (valid()) songRequestShare = { ...songRequestShare, url: null, count: 0, updatedAt: null, error: 'Le partage ChartsHub est indisponible. Vérifiez votre compte et la version du site.' }; }
+    catch (failure) { if (valid()) songRequestShare = { ...songRequestShare, error: shareErrorCode(failure) }; }
     if (valid()) publishPanel();
   }
   async function changeSongRequestShare(remove = false) {
     if (!sharingClient || songRequestShare.busy || disposing || stopTask || !hostActive) return { ok: false };
     const lifecycle = lifecycleRevision, revision = ++songRequestShareRevision;
     const valid = () => !disposing && !stopTask && hostActive && lifecycle === lifecycleRevision && revision === songRequestShareRevision;
-    songRequestShare.busy = true; songRequestShare.error = null; publishPanel();
+    const controller = new AbortController(); songRequestShareController = controller;
+    songRequestShare.busy = true; songRequestShare.error = null;
+    songRequestShare.progress = { phase: remove ? 'removing' : 'preparing', processed: 0, total: library.status?.().count ?? 0 }; publishPanel();
     try {
       const account = await sharingClient.capture?.();
       if (!valid()) return { ok: false };
       let result, unavailableCount = 0;
-      if (remove) result = await sharingClient.remove(account);
+      if (remove) result = await sharingClient.remove(account, { signal: controller.signal, isCurrent: valid });
       else {
         const rules = songRequests.snapshot().rules, prepared = await library.requestLibraryForSharing();
-        if (!valid() || library.matchingSnapshot().rootKey !== prepared.rootKey || library.matchingSnapshot().revision !== prepared.revision || JSON.stringify(rules) !== JSON.stringify(songRequests.snapshot().rules)) return { ok: false };
-        result = await sharingClient.publish({ songs: prepared.songs, rules }, account); unavailableCount = prepared.unavailableCount;
+        const current = () => valid() && library.status().status === 'ready' && library.matchingSnapshot().rootKey === prepared.rootKey && library.matchingSnapshot().revision === prepared.revision && JSON.stringify(rules) === JSON.stringify(songRequests.snapshot().rules);
+        if (!current()) { if (valid()) songRequestShare.error = 'SHARE_LIBRARY_CHANGED'; return { ok: false }; }
+        result = await sharingClient.publish({ songs: prepared.songs, rules }, account, { signal: controller.signal, isCurrent: current,
+          onProgress: progress => { if (valid()) { songRequestShare.progress = { ...progress }; publishPanel(); } } }); unavailableCount = prepared.unavailableCount;
       }
       if (!valid()) return { ok: false };
       songRequestShare = { ...songRequestShare, ...result, unavailableCount, error: null }; return { ok: true };
-    } catch { if (valid()) songRequestShare.error = 'Le partage n’a pas pu être modifié. Vérifiez votre compte et relancez le scan.'; return { ok: false }; }
-    finally { if (revision === songRequestShareRevision) { songRequestShare.busy = false; if (!disposing) publishPanel(); } }
+    } catch (failure) { if (valid()) songRequestShare.error = shareErrorCode(failure); return { ok: false }; }
+    finally { if (songRequestShareController === controller) songRequestShareController = null;
+      if (revision === songRequestShareRevision) { songRequestShare.busy = false; songRequestShare.progress = null; if (!disposing) publishPanel(); } }
   }
   catalogue = createCatalogueService({ dataDirectory, client: catalogueClient ?? createChartsHubClient({ fetcher: (url, options) => net.fetch(url, options) }), getLibrary: () => library.matchingSnapshot(), onChange: () => {
     if (!disposing) publishPanel();
@@ -586,7 +594,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!enabled) {
       catalogue?.cancelSearch('panel', true); catalogue?.cancelSearch('widget', true);
       songRequestShareRevision++;
-      songRequestShare = { ...songRequestShare, url: null, count: 0, updatedAt: null, busy: false, error: null, unavailableCount: 0 };
+      songRequestShareController?.abort(); songRequestShareController = null;
+      if (typeof library?.cancelLibrarySharing === 'function') void library.cancelLibrarySharing().catch(() => {});
+      songRequestShare = { ...songRequestShare, url: null, count: 0, updatedAt: null, busy: false, error: null, unavailableCount: 0, progress: null };
       catalogueWidgetTicket++; catalogueWidgetEnabled = false;
       unregisterCatalogueShortcut();
       if (catalogueWidget && !catalogueWidget.isDestroyed()) catalogueWidget.destroy();
@@ -1052,7 +1062,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (stopTask) return stopTask;
     lifecycleRevision++;
     songRequestShareRevision++;
-    songRequestShare.busy = false;
+    songRequestShareController?.abort(); songRequestShareController = null;
+    songRequestShare.busy = false; songRequestShare.progress = null;
     songRequests.configure({ enabled: false });
     const songRequestStop = songRequestServer?.stop();
     const songRequestConnectionsStop = songRequestConnections?.stop();

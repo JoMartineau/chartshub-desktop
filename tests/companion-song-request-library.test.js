@@ -278,7 +278,8 @@ test('sharing refuses an unscanned/empty library and the actual worker preserves
   await idle.load(); await assert.rejects(idle.requestLibraryForSharing());
   await idle.selectRoot(f.outside); await settled(idle); await assert.rejects(idle.requestLibraryForSharing());
   const value = createBackgroundLibraryService({ dataDirectory: path.join(f.base, 'WorkerProfile') }); f.services.push(value);
-  await value.load(); await value.selectRoot(f.root); await settled(value);
+  await value.load(); await assert.rejects(value.requestLibraryForSharing(), { code: 'SHARE_LIBRARY_NOT_READY' });
+  await value.selectRoot(f.root); await settled(value);
   const result = await value.requestLibraryForSharing();assert.equal(result.songs.length, 1);assert.equal(result.unavailableCount, 0);
   assert.equal(result.songs[0].title, 'Installed');assert.equal(Object.hasOwn(result.songs[0], 'relativePath'), false);
   assert.equal(JSON.stringify(result.songs).includes(f.root), false);

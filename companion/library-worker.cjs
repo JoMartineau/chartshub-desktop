@@ -2,6 +2,7 @@
 const { parentPort, workerData } = require('node:worker_threads');
 const { AsyncLocalStorage } = require('node:async_hooks');
 const { createInstalledLibraryService } = require('./library-service.cjs');
+const { SHARE_ERRORS } = require('./song-request-share-contract.cjs');
 
 const METHODS = new Set(['load', 'start', 'stop', 'selectRoot', 'configure', 'requestScan', 'cancel', 'query', 'verifyAllDuplicates', 'compareDuplicates', 'chooseDuplicate', 'resolveSongFolder', 'prepareCleanup', 'cleanupReview', 'cleanupForceReview', 'recycleDuplicates', 'forceRecycleDuplicate']);
 let lastRoot, lastRevision, stopping = false;
@@ -13,6 +14,7 @@ METHODS.add('resolveRequestSong');
 METHODS.add('resolvePlaybackSong');
 METHODS.add('queryPlayback');
 METHODS.add('requestLibraryForSharing');
+METHODS.add('cancelLibrarySharing');
 for (const method of ['prepareBulkCleanup', 'bulkCleanupReview', 'recycleBulkDifferences', 'cancelBulkCleanup']) METHODS.add(method);
 const pending = new Set();
 const requests = new AsyncLocalStorage(), recycleRequests = new Map();
@@ -62,7 +64,7 @@ parentPort.on('message', message => {
     parentPort.postMessage({ type: 'reply', id: message.id, ok: true, result, state: snapshot() });
   }, failure => {
     parentPort.postMessage({ type: 'reply', id: message.id, ok: false,
-      ...(['LIBRARY_COMPARISON_SAFE', 'LIBRARY_BAD_SONGS_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED'].includes(failure?.code) ? { code: failure.code } : {}),
+      ...(['LIBRARY_COMPARISON_SAFE', 'LIBRARY_BAD_SONGS_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED', ...SHARE_ERRORS].includes(failure?.code) ? { code: failure.code } : {}),
       error: typeof failure?.message === 'string' ? failure.message : 'Requête de bibliothèque invalide.', state: snapshot() });
   }).finally(() => pending.delete(task));
 });
