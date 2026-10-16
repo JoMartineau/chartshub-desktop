@@ -1,12 +1,49 @@
-:root { color-scheme: dark; font: 18px/1.45 system-ui,sans-serif; color: #eef4ff; }
+:root { color-scheme: dark; font: 16px/1.45 system-ui,sans-serif; color: #f1f6ff; }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: transparent; }
-main { padding: 16px; }
-header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 12px 16px; border: 1px solid #2d4059; border-radius: 12px; background: #111c2ee6; }
-header strong { color: #48c7fa; }
-header span { font-size: .8em; color: #9db2d0; }
-ol { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 10px; }
-li { padding: 12px 16px; border: 1px solid #2d4059; border-radius: 12px; background: #111c2ee6; box-shadow: 0 0 12px #aa88ff18; overflow-wrap: anywhere; }
-.request-title { display: block; }
-.request-artist { font-size: .9em; color: #9db2d0; }
-.request-viewer { display: block; margin-top: 5px; font-size: .85em; color: #aa88ff; }
+body { padding: 16px; }
+[hidden] { display: none !important; }
+.request-widget { width: 100%; max-width: 680px; padding: 22px; overflow: hidden; border: 1px solid #80c6ff32; border-radius: 22px; background: linear-gradient(145deg,#101b2ef0,#111425ed); box-shadow: 0 12px 35px #0003, inset 0 1px #ffffff08; }
+.request-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.request-header > div:first-child { min-width: 0; }
+.request-brand { margin: 0 0 7px; color: #62d6ff; font-size: 12px; font-weight: 750; letter-spacing: .06em; }
+.request-brand span { color: #93a4c5; font-weight: 500; }
+h1 { margin: 0; font-size: 24px; line-height: 1.2; letter-spacing: -.025em; overflow-wrap: anywhere; }
+.request-total { flex: 0 0 auto; display: grid; justify-items: center; gap: 1px; min-width: 78px; padding: 8px 13px; border: 1px solid #9d8af64a; border-radius: 13px; background: #a18aff12; }
+.request-total strong { color: #c9bbff; font-size: 28px; line-height: 1.15; }
+.request-total span { color: #b4bddd; font-size: 11px; }
+.request-status { display: flex; align-items: center; gap: 7px; margin: 17px 0 13px; color: #a7b7d0; font-size: 11px; }
+.request-status::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: #8392ac; }
+.request-status[data-state="open"]::before { background: #6ad9ff; box-shadow: 0 0 8px #6ad9ff55; }
+.request-status[data-state="unavailable"] { color: #e0b3c0; }
+.request-status[data-state="unavailable"]::before { background: #d298ac; }
+.request-widget ol { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.request-card { display: grid; grid-template-columns: 28px minmax(0,1fr) auto; gap: 11px; align-items: center; padding: 12px 13px; border: 1px solid #839fc523; border-radius: 12px; background: #ffffff04; overflow-wrap: anywhere; }
+.request-rank { color: #8c9dbb; font-size: 12px; font-variant-numeric: tabular-nums; font-weight: 650; }
+.request-content { min-width: 0; }
+.request-next-label { margin: 0 0 7px; color: #82e1ff; font-size: 10px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.request-title { margin: 0; color: #f1f6ff; font-size: 15px; font-weight: 700; line-height: 1.25; }
+.request-artist { margin: 3px 0 0; color: #a8b7d2; font-size: 12px; }
+.request-viewer { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin: 7px 0 0; color: #adb7cf; font-size: 10px; }
+.request-platform { display: inline-block; padding: 2px 6px; border: 1px solid #ae96ff45; border-radius: 5px; color: #c9b5ff; background: #ae96ff10; font-size: 9px; font-weight: 700; }
+.request-platform[data-platform="tiktok"] { color: #7ee4ec; border-color: #7ee4ec45; background: #7ee4ec0a; }
+.request-platform[data-platform="youtube"] { color: #efbecb; border-color: #efbecb45; background: #efbecb0a; }
+.request-viewer-name { color: #d8e1f2; }
+.request-votes { min-width: 42px; text-align: right; color: #a6b8d5; font-size: 11px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.request-card.is-next { align-items: start; padding: 17px 15px; border-color: #71d4ff63; background: linear-gradient(115deg,#3bc6ed13,#a184f016); box-shadow: inset 3px 0 #6bdaff, 0 0 20px #5bc6ff06; }
+.is-next .request-rank { display: flex; align-items: center; justify-content: center; width: 27px; height: 27px; border-radius: 8px; background: #69d7ff1b; color: #8ee6ff; }
+.is-next .request-title { font-size: 25px; letter-spacing: -.025em; }
+.is-next .request-artist { margin-top: 5px; color: #c1cde3; font-size: 16px; }
+.is-next .request-viewer { margin-top: 12px; font-size: 11px; }
+.is-next .request-votes { padding-top: 3px; color: #beadf6; }
+.request-empty { display: grid; justify-items: center; gap: 9px; padding: 31px 16px; border: 1px dashed #8ba1ca37; border-radius: 14px; text-align: center; background: #ffffff03; }
+.request-empty-icon { color: #9bbdfa; font-size: 32px; line-height: 1; }
+.request-empty strong { font-size: 16px; }
+.request-empty p { margin: 0; color: #9eafcd; font-size: 12px; }
+.request-remaining { margin: 11px 0 0; color: #a9b4cf; font-size: 11px; text-align: center; }
+.request-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 9px; margin-top: 17px; padding-top: 14px; border-top: 1px solid #8ba1ca25; color: #91a3c2; font-size: 11px; }
+.request-footer code { color: #b8e8ff; font-size: 12px; letter-spacing: .015em; overflow-wrap: anywhere; }
+.request-card.is-new { animation: request-arrives .38s ease-out both; }
+@keyframes request-arrives { from { opacity: .45; transform: translateY(7px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .request-card.is-new { animation: none; } }
+@media (max-width: 420px) { body { padding: 8px; } .request-widget { padding: 16px; border-radius: 17px; } h1 { font-size: 20px; } .request-brand { font-size: 10px; } .request-total { min-width: 66px; padding: 8px 9px; } .request-total strong { font-size: 25px; } .request-card { grid-template-columns: 22px minmax(0,1fr); gap: 8px; padding: 11px; } .request-card.is-next { padding: 14px 12px; } .request-votes { grid-column: 2; text-align: left; margin-top: -3px; } .is-next .request-title { font-size: 23px; } .is-next .request-rank { width: 22px; height: 24px; } }

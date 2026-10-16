@@ -21,6 +21,9 @@ for(const output of outputs){
  copyFileSync(new URL('./COMPANION-README.txt',import.meta.url),path.join(output,'Lisez-moi.txt'));
  mkdirSync(path.join(output,'Song Request'),{recursive:true});
  copyFileSync(new URL('./docs/SONG-REQUESTS.md',import.meta.url),path.join(output,'Song Request','Configuration.md'));
+ for(const notice of ['SONG-REQUESTS-PUBLISHER.md','SONG-REQUESTS-THIRD-PARTY.md'])copyFileSync(new URL('./docs/'+notice,import.meta.url),path.join(output,'Song Request',notice));
+ mkdirSync(path.join(output,'Song Request','docs','licenses'),{recursive:true});
+ for(const notice of ['TikTok-Live-Connector-LICENSE.txt','TikTok-Live-Proto-LICENSE.txt'])copyFileSync(new URL('./docs/licenses/'+notice,import.meta.url),path.join(output,'Song Request','docs','licenses',notice));
  copyFileSync(new URL('./docs/song-requests/ChartsHub-SongRequest.cs',import.meta.url),path.join(output,'Song Request','ChartsHub-SongRequest.cs'));
  if(platform==='win32')writeFileSync(path.join(output,'Lancer Companion.cmd'),[
   '@echo off','setlocal','set "ELECTRON_RUN_AS_NODE="',

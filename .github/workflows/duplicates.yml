@@ -37,6 +37,16 @@ jobs:
       - name: Verify Companion and OBS browser widgets in Electron
         shell: pwsh
         run: node node_modules/electron/cli.js tests/companion-electron.cjs "$env:RUNNER_TEMP/companion"
+      - name: Verify direct Song Request connections and widget in Electron
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          node node_modules/electron/cli.js tests/companion-song-requests-direct-electron.cjs "$env:RUNNER_TEMP/song-request-direct"
+          if ($LASTEXITCODE -ne 0) { throw 'Direct Song Request Electron verification failed' }
+          $reportPath = Join-Path $env:RUNNER_TEMP 'song-request-direct/song-request-direct-electron-check.json'
+          if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Direct Song Request verification report missing' }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.ok -ne $true -or @($report.passed).Count -lt 6) { throw 'Direct Song Request verification incomplete' }
       - name: Verify ReShade optional pack review in Electron
         shell: pwsh
         run: node node_modules/electron/cli.js tests/companion-reshade-setup-electron.cjs "$env:RUNNER_TEMP/reshade-setup"
@@ -111,6 +121,14 @@ jobs:
           name: reshade-setup-verification
           path: ${{ runner.temp }}/reshade-setup/verification.json
           if-no-files-found: ignore
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: song-request-direct-verification
+          path: |
+            ${{ runner.temp }}/song-request-direct/song-request-direct-electron-check.json
+            ${{ runner.temp }}/song-request-direct/*.png
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:

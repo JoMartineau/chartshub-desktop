@@ -1,5 +1,5 @@
 'use strict';
-const { clipboard } = require('electron');
+const { clipboard, BrowserWindow } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const http = require('node:http');
@@ -123,7 +123,7 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
   const byTitle = title => state().requests.find(item => item.title === title);
   const selector = (request, action) => `#song-requests-items [data-request-id="${request.id}"] [data-action="${action}"]`;
   const shot = async name => { await delay(80); await fs.writeFile(path.join(data, name), (await panel.webContents.capturePage()).toPNG()); };
-  let configuration;
+  let configuration, obsWindow = null;
   try {
     assert.ok(sharingFixture?.connections.providers.twitch && sharingFixture.connections.providers.tiktok, 'native provider fixtures must be injected before testing connection controls');
     const connectionFixture = sharingFixture.connections;
@@ -206,6 +206,31 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     assert.equal(privateData.includes(configuration.token), false); assert.equal(privateData.includes(fixtureRoot), false);
     passed.push('Song Requests: three platforms via authenticated local POST, votes, queue, plain text and no remote downloads');
 
+    obsWindow = new BrowserWindow({ show: false, width: 480, height: 680, frame: false, transparent: true, backgroundColor: '#00000000',
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    await obsWindow.loadURL(state().bridge.overlayUrl);
+    const obs = code => obsWindow.webContents.executeJavaScript(code);
+    await waitFor(() => obs("document.querySelectorAll('#request-queue > li').length===3 && document.querySelector('#request-count').textContent==='3'"), 'real readonly OBS widget renders the queue');
+    assert.equal(await obs("typeof window.require"), 'undefined');
+    assert.equal(await obs("document.querySelector('#request-queue > li .request-title').textContent"), 'SR Fixture Alpha');
+    const widgetText = await obs("document.querySelector('main').textContent");
+    assert.equal(widgetText.includes(configuration.token), false); assert.equal(widgetText.includes(new URL(state().bridge.overlayUrl).searchParams.get('token')), false);
+    assert.equal(widgetText.includes(fixtureRoot), false); assert.match(widgetText, /<img src=x onerror=unsafe\(\)>/);
+    assert.equal(await obs("document.querySelectorAll('main img,main script,main iframe').length"), 0);
+    for (const language of ['fr', 'en']) {
+      host.setLanguage(language);
+      await waitFor(() => obs(`document.documentElement.lang===${JSON.stringify(language)} && document.querySelector('.request-next-label').textContent===${JSON.stringify(language === 'fr' ? 'À jouer ensuite' : 'Up next')}`), 'OBS widget language ' + language);
+      for (const width of [480, 320]) {
+        obsWindow.setSize(width, 680); await delay(100);
+        const geometry = await obs("({width:innerWidth,scroll:document.documentElement.scrollWidth,background:getComputedStyle(document.body).backgroundColor,rows:document.querySelectorAll('#request-queue>li').length})");
+        assert.ok(geometry.scroll <= geometry.width + 1, language + ' readonly OBS widget has no horizontal overflow at ' + width);
+        assert.equal(geometry.background, 'rgba(0, 0, 0, 0)'); assert.equal(geometry.rows, 3);
+        await fs.writeFile(path.join(data, `song-requests-obs-${language}-${width}.png`), (await obsWindow.webContents.capturePage()).toPNG());
+      }
+    }
+    obsWindow.destroy(); obsWindow = null; host.setLanguage(initialLanguage);
+    passed.push('Song Requests OBS: real sandboxed browser source, featured next request, plain text, private read capability and transparent bilingual 480px/320px captures');
+
     await click(selector(byTitle('SR Fixture Beta'), 'move-up')); await waitFor(() => state().requests.filter(item => ['pending', 'accepted'].includes(item.status))[0].title === 'SR Fixture Beta', 'manual queue order');
     await click(selector(byTitle('SR Fixture Alpha'), 'accept')); await waitFor(() => byTitle('SR Fixture Alpha').status === 'accepted', 'explicit acceptance');
     await fs.rename(path.join(fixtureRoot, '2', 'notes.chart'), path.join(fixtureRoot, '2', 'notes.saved-for-test'));
@@ -247,6 +272,7 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     await click('#song-requests-enabled'); await waitFor(() => !state().enabled && !state().bridge.enabled, 'explicit stop');
   } finally {
     try {
+      if (obsWindow && !obsWindow.isDestroyed()) obsWindow.destroy();
       if (host.snapshot().songRequests?.enabled) await command('songRequests.configure', { enabled: false, port: state().bridge.port, rules: state().rules });
     } finally {
       clipboard.writeText = originalWriteText; host.setLanguage(initialLanguage); if (!panel.isDestroyed()) panel.setSize(...initialSize);
