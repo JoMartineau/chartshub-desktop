@@ -114,7 +114,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
     let playerWindow=null,playerWindowLoad=null,catalogueWidget=null,catalogueWidgetLoad=null,catalogueWidgetEnabled=false,catalogueWidgetTicket=0;
     let filtersTimer=null,filtersWidget=null,filtersWidgetLoad=null,filtersWidgetEnabled=false,overlay=null,overlayLoad=null,overlayEnabled=false;
     const unregisterCatalogueShortcut=()=>{},setStream=async()=>{},reshadeSetup={status:()=>({state:'idle'})};
-    let saveTimer=null,songRequestShareRevision=0,songRequestShare={busy:false},playerPreferencesTask=Promise.resolve(),pendingSave=Promise.resolve(),cleanupTask=null,filtersRefresh=null,reshadeRefresh=null,logTail=Promise.resolve();
+    let saveTimer=null,songRequestShareRevision=0,songRequestShareController=null,songRequestShare={busy:false},playerPreferencesTask=Promise.resolve(),pendingSave=Promise.resolve(),cleanupTask=null,filtersRefresh=null,reshadeRefresh=null,logTail=Promise.resolve();
     const playerPreferences={flush:async()=>{}},floatingPanels={flush:async()=>{}},profileWrites=[];
     const panelFrame={url:'chartshub-companion://app/ui/index.html'},panelContents={mainFrame:panelFrame,isDestroyed:()=>false},panel={isDestroyed:()=>false};
     ${panelAlive}
