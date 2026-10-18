@@ -18,7 +18,8 @@ interface Snapshot {
   songRequests?: {
     enabled: boolean; revision: number; order?: 'votes' | 'manual'; rules: SongRequestRules; requests: SongRequest[];
     bridge: { enabled: boolean; port?: number; url: string | null; overlayUrl: string | null; error: string | null; platforms: string[] };
-    sharing?: { supported: boolean; url: string | null; count: number; updatedAt: string | null; busy: boolean; error: string | null; unavailableCount?: number };
+    sharing?: { supported: boolean; url: string | null; count: number; updatedAt: string | null; busy: boolean; error: string | null; unavailableCount?: number;
+      progress?: { phase: string; processed: number; total: number; available?: number; unavailable?: number } | null };
     connections?: { receiving: boolean; persistent: boolean; storageError: string | null;
       lastResponse: { platform: string; message: string } | null; twitch: ChatConnection; tiktok: ChatConnection };
   };
@@ -167,7 +168,7 @@ export class SongRequestControls {
         else if (command === 'songRequests.removeLibrary') this.feedback('Partage retiré. Le lien public ne donne plus accès à cette liste.', 'Sharing removed. The public link no longer opens this list.');
         else this.feedback(command.includes('.copy') ? 'Copié dans le presse-papiers.' : 'Modification enregistrée.', command.includes('.copy') ? 'Copied to clipboard.' : 'Change saved.');
       } else if (['songRequests.publishLibrary', 'songRequests.copyLibraryUrl', 'songRequests.removeLibrary'].includes(command)) {
-        this.feedback('Partage indisponible. Vérifiez votre connexion ChartsHub et la bibliothèque, puis réessayez.', 'Sharing unavailable. Check your ChartsHub connection and library, then try again.', true);
+        this.feedback('Partage indisponible. Consultez le détail dans la liste publique ci-dessous.', 'Sharing unavailable. See the details in the public list section below.', true);
       } else this.feedback('Action impossible. Le morceau ou la file a peut-être changé. Actualisez la bibliothèque et réessayez.', 'Action unavailable. The song or queue may have changed. Refresh the library and try again.', true);
     } catch {
       if (!this.disposed) this.feedback('Song Request ne répond pas. Réessayez dans un instant.', 'Song Request is not responding. Try again shortly.', true);
@@ -260,16 +261,16 @@ export class SongRequestControls {
     const current = this.snapshot?.songRequests;
     this.renderConnections();
     const sharing = current?.sharing;
-    const count = sharing && Number.isSafeInteger(sharing.count) && sharing.count >= 0 && sharing.count <= 10000 ? sharing.count : 0;
+    const count = sharing && Number.isSafeInteger(sharing.count) && sharing.count >= 0 && sharing.count <= 200000 ? sharing.count : 0;
     const omitted = sharing && Number.isSafeInteger(sharing.unavailableCount) && (sharing.unavailableCount ?? 0) > 0 ? sharing.unavailableCount! : 0;
     const updatedAt = sharing?.updatedAt && Number.isFinite(Date.parse(sharing.updatedAt)) ? new Date(sharing.updatedAt).toLocaleString(this.tr('fr-CA', 'en-CA'), { dateStyle: 'short', timeStyle: 'short' }) : '';
     this.element('#song-requests-sharing-status').textContent = !sharing?.supported
       ? this.tr('Connectez votre compte ChartsHub pour partager la liste.', 'Connect your ChartsHub account to share the list.')
-      : sharing.busy ? this.tr('Mise à jour du partage…', 'Updating sharing…')
+      : sharing.busy ? this.sharingProgress(sharing.progress)
       : sharing.url ? this.tr(`Instantané publié : ${count} morceau${count === 1 ? '' : 'x'}.`, `Published snapshot: ${count} song${count === 1 ? '' : 's'}.`) + (updatedAt ? ` · ${updatedAt}` : '') + (omitted ? this.tr(` ${omitted} morceau${omitted === 1 ? '' : 'x'} indisponible${omitted === 1 ? '' : 's'} exclu${omitted === 1 ? '' : 's'}.`, ` ${omitted} unavailable song${omitted === 1 ? '' : 's'} excluded.`) : '')
       : this.tr('Aucune liste publiée. La publication démarre uniquement avec votre bouton.', 'No list published. Publishing starts only when you press the button.');
     const sharingError = this.element('#song-requests-sharing-error'); sharingError.hidden = !sharing?.error;
-    sharingError.textContent = sharing?.error ? this.tr('Le partage est indisponible. Vérifiez votre connexion ChartsHub, puis réessayez.', 'Sharing is unavailable. Check your ChartsHub connection, then try again.') : '';
+    sharingError.textContent = sharing?.error ? this.sharingError(sharing.error) + (sharing.url ? this.tr(' La liste publiée précédemment reste disponible.', ' Your previously published list remains available.') : '') : '';
     const requests = current?.requests ?? [];
     const playing = this.snapshot?.state?.nowPlaying;
     const source = this.snapshot?.cloneHero?.mode;
@@ -293,6 +294,38 @@ export class SongRequestControls {
       this.element<HTMLSelectElement>('#song-requests-difficulty').value = current.rules.difficulty;
     }
     this.renderRequests(current?.requests ?? []); this.renderFeedback(); this.availability();
+  }
+  private sharingProgress(progress: { phase: string; processed: number; total: number } | null | undefined): string {
+    if (!progress || !Number.isSafeInteger(progress.total) || progress.total < 0 || progress.total > 200000
+      || !Number.isSafeInteger(progress.processed) || progress.processed < 0 || progress.processed > progress.total) return this.tr('Mise à jour du partage…', 'Updating sharing…');
+    const counters = `${progress.processed.toLocaleString(this.tr('fr-CA', 'en-CA'))} / ${progress.total.toLocaleString(this.tr('fr-CA', 'en-CA'))}`;
+    if (progress.phase === 'preparing') return this.tr(`Vérification des morceaux : ${counters}…`, `Checking songs: ${counters}…`);
+    if (progress.phase === 'uploading') return this.tr(`Envoi de la liste : ${counters} morceaux…`, `Uploading list: ${counters} songs…`);
+    if (progress.phase === 'committing') return this.tr('Publication de la liste complète…', 'Publishing the complete list…');
+    if (progress.phase === 'removing') return this.tr('Retrait du partage…', 'Removing sharing…');
+    return this.tr('Mise à jour du partage…', 'Updating sharing…');
+  }
+  private sharingError(code: string): string {
+    const messages: Record<string, [string, string]> = {
+      SHARE_ACCOUNT_REQUIRED: ['Connectez votre compte ChartsHub avant de publier.', 'Sign in to ChartsHub before publishing.'],
+      SHARE_ACCOUNT_UNVERIFIED: ['Vérifiez l’adresse courriel de votre compte ChartsHub avant de publier.', 'Verify your ChartsHub email address before publishing.'],
+      SHARE_ACCESS_DENIED: ['ChartsHub a refusé l’autorisation de partage. Reconnectez votre compte puis réessayez.', 'ChartsHub denied permission to share. Sign in again, then retry.'],
+      SHARE_ACCOUNT_CHANGED: ['Le compte ChartsHub a changé. Relancez la publication avec le compte souhaité.', 'Your ChartsHub account changed. Publish again with the account you want.'],
+      SHARE_LIBRARY_NOT_READY: ['Attendez la fin du scan de Songs avant de publier.', 'Wait for the Songs scan to finish before publishing.'],
+      SHARE_LIBRARY_EMPTY: ['Aucun morceau disponible à publier. Actualisez la bibliothèque Songs.', 'No available songs to publish. Refresh your Songs library.'],
+      SHARE_LIBRARY_CHANGED: ['La bibliothèque ou les règles ont changé. Relancez la publication après le scan.', 'Your library or rules changed. Publish again after the scan.'],
+      SHARE_LIBRARY_LIMIT: ['Le partage accepte jusqu’à 200 000 morceaux. Votre bibliothèque dépasse cette limite.', 'Sharing supports up to 200,000 songs. Your library exceeds this limit.'],
+      SHARE_METADATA_LIMIT: ['Les informations des morceaux dépassent la limite de 128 Mio. Aucune liste partielle n’a été publiée.', 'Song metadata exceeds the 128 MiB limit. No partial list was published.'],
+      SHARE_METADATA_INVALID: ['Certaines informations des morceaux sont invalides. Actualisez la bibliothèque avant de réessayer.', 'Some song metadata is invalid. Refresh the library before trying again.'],
+      SHARE_SERVER_UPDATE_REQUIRED: ['Le site ChartsHub doit être mis à jour pour recevoir cette liste. Réessayez après sa mise à jour.', 'The ChartsHub site needs an update to receive this list. Try again after it is updated.'],
+      SHARE_UPLOAD_CONFLICT: ['La préparation du partage a expiré ou a été remplacée. Relancez la publication.', 'The upload expired or was replaced. Publish the list again.'],
+      SHARE_RATE_LIMIT: ['Le service est occupé. Attendez un moment avant de relancer la publication.', 'The service is busy. Wait a moment before publishing again.'],
+      SHARE_NETWORK: ['L’envoi a été interrompu. Vérifiez votre connexion Internet, puis relancez la publication.', 'The upload was interrupted. Check your Internet connection, then publish again.'],
+      SHARE_RESPONSE_INVALID: ['La réponse du site ChartsHub est invalide. Réessayez plus tard.', 'The ChartsHub site returned an invalid response. Try again later.'],
+      SHARE_CANCELLED: ['La publication a été arrêtée. Relancez-la lorsque vous êtes prêt.', 'Publishing stopped. Start it again when you are ready.']
+    };
+    const message = messages[code];
+    return message ? this.tr(...message) : this.tr('Le partage est temporairement indisponible. Réessayez plus tard.', 'Sharing is temporarily unavailable. Try again later.');
   }
   private renderConnections(): void {
     const connections = this.snapshot?.songRequests?.connections;

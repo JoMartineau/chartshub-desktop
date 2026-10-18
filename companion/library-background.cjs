@@ -1,6 +1,7 @@
 'use strict';
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
+const { SHARE_ERRORS } = require('./song-request-share-contract.cjs');
 
 const FAILED = 'Le service de bibliothèque est indisponible. Rouvrez le Companion pour recharger l’index.';
 const STOPPED = 'Le service de bibliothèque est arrêté.';
@@ -8,6 +9,7 @@ const initialStatus = () => ({ settings: { rootPath: null, watch: false, refresh
   progress: { visited: 0, processed: 0, discovered: 0 }, count: 0, lastScanAt: null, changes: { added: 0, removed: 0, modified: 0 },
   warningCount: 0, skippedCount: 0, error: null, watcher: 'off', revision: 0, cleanupRefreshPending: false, bulkCleanup: null });
 const copyStatus = value => ({ ...value, settings: { ...value.settings }, progress: { ...value.progress }, changes: { ...value.changes },
+  sharingPreparation: value.sharingPreparation ? { ...value.sharingPreparation } : null,
   bulkCleanup: value.bulkCleanup ? { ...value.bulkCleanup } : null });
 function freezeMatching(value) {
   for (const item of value.items) Object.freeze(item);
@@ -71,7 +73,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
         connection.pending.delete(message.id);
         if (!connection.pending.size && !connection.stopping) worker.unref();
         if (message.ok) pending.resolve(message.result);
-        else pending.reject(Object.assign(Error(message.error), ['LIBRARY_COMPARISON_SAFE', 'LIBRARY_BAD_SONGS_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED'].includes(message.code) ? { code: message.code } : {}));
+        else pending.reject(Object.assign(Error(message.error), ['LIBRARY_COMPARISON_SAFE', 'LIBRARY_BAD_SONGS_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED', ...SHARE_ERRORS].includes(message.code) ? { code: message.code } : {}));
       });
       worker.on('error', () => fail(connection));
       worker.on('exit', () => { if (current === connection) fail(connection); });
@@ -149,7 +151,8 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     resolveRequestSong: (id, context) => call('resolveRequestSong', [id, context]),
     resolvePlaybackSong: id => call('resolvePlaybackSong', [id]),
     queryPlayback: options => call('queryPlayback', [options]),
-    requestLibraryForSharing: () => call('requestLibraryForSharing', [])
+    requestLibraryForSharing: () => call('requestLibraryForSharing', []),
+    cancelLibrarySharing: () => call('cancelLibrarySharing', [])
   };
 }
 

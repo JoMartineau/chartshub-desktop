@@ -22,7 +22,7 @@ function fixture({status,publish,remove,prepare}={}){
  const sharingClient={capture:async()=>({userId:'opaque-test-owner',generation:1}),status:status??(async()=>({url:null,count:0,updatedAt:null})),
   publish:async(...args)=>{calls.push('PUT');return publish?publish(...args):{url:'https://chartshub.test/new',count:1,updatedAt:'2026-10-10T00:00:00.000Z'};},
   remove:async(...args)=>{calls.push('DELETE');return remove?remove(...args):{url:null,count:0,updatedAt:null};}};
- const library={matchingSnapshot:()=>scope,requestLibraryForSharing:prepare??(async()=>({songs:[{id:'b'.repeat(64),title:'Synthetic song',artist:'Synthetic artist',charter:'Synthetic charter'}],...scope,unavailableCount:0}))};
+ const library={status:()=>({status:'ready',count:1}),matchingSnapshot:()=>scope,requestLibraryForSharing:prepare??(async()=>({songs:[{id:'b'.repeat(64),title:'Synthetic song',artist:'Synthetic artist',charter:'Synthetic charter'}],...scope,unavailableCount:0}))};
  const songRequests={snapshot:()=>({rules:structuredClone(rules)})};
  const create=new vm.Script(`(function(sharingClient,library,songRequests,catalogue){
   let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0;
@@ -33,7 +33,7 @@ function fixture({status,publish,remove,prepare}={}){
   ${source.slice(start,end)}
   ${source.slice(accountStart,accountEnd)}
   return {refresh:refreshSongRequestShare,change:changeSongRequestShare,available:setCatalogueAvailable,state:()=>structuredClone(songRequestShare),close:()=>{disposing=true;hostActive=false;lifecycleRevision++;}};
- })`,{filename:'companion/host.cjs share orchestration'}).runInNewContext({structuredClone});
+ })`,{filename:'companion/host.cjs share orchestration'}).runInNewContext({structuredClone,AbortController,shareErrorCode:require('../companion/song-request-share-contract.cjs').shareErrorCode});
  return {host:create(sharingClient,library,songRequests,catalogue),calls,cancelled,scope,rules};
 }
 
@@ -83,4 +83,19 @@ test('an old publishing failure cannot overwrite the revalidated account share s
  assert.deepEqual(f.cancelled,[{scope:'panel',clear:true},{scope:'widget',clear:true}]);
  network.reject(Error('The old account request failed'));assert.equal((await publishing).ok,false);
  assert.equal(f.host.state().url,'https://chartshub.test/new-owner');assert.equal(f.host.state().error,null);assert.equal(f.host.state().busy,false);
+});
+
+test('failed replacement keeps the published link and exposes only the safe actionable reason',async()=>{
+ let failed=false;
+ const f=fixture({publish:async()=>{if(failed)throw Object.assign(Error('private account path'),{code:'SHARE_METADATA_LIMIT'});return {url:'https://chartshub.test/previous',count:83401,updatedAt:'2026-10-10T00:00:00Z'};}});
+ await f.host.change();failed=true;
+ assert.equal((await f.host.change()).ok,false);assert.equal(f.host.state().url,'https://chartshub.test/previous');assert.equal(f.host.state().count,83401);
+ assert.equal(f.host.state().error,'SHARE_METADATA_LIMIT');assert.equal(f.host.state().busy,false);assert.equal(f.host.state().progress,null);
+});
+
+test('account invalidation aborts an active upload signal and ignores its late completion',async()=>{
+ const entered=deferred(),done=deferred();let signal;
+ const f=fixture({publish:async(_payload,_account,options)=>{signal=options.signal;entered.resolve();await done.promise;return {url:'https://chartshub.test/stale',count:1,updatedAt:'2026-10-10T00:00:00Z'};}});
+ const publishing=f.host.change();await entered.promise;f.host.available(false);assert.equal(signal.aborted,true);
+ done.resolve();assert.equal((await publishing).ok,false);assert.equal(f.host.state().url,null);assert.equal(f.host.state().error,null);
 });

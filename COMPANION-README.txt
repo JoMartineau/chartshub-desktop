@@ -1,4 +1,16 @@
-ChartsHub Desktop 0.14.22 - Catalogue et Companion
+ChartsHub Desktop 0.14.23 - Catalogue et Companion
+
+NOUVEAUTES 0.14.23 - PARTAGE DES GRANDES BIBLIOTHEQUES
+
+Le bouton Publier la liste accepte les bibliotheques de plus de 10 000 morceaux,
+jusqu'a 200 000 morceaux selon la taille des metadonnees. Une progression indique
+la preparation puis l'envoi. La liste precedente reste disponible jusqu'a la fin
+de la nouvelle publication ; un envoi incomplet ne remplace pas votre liste.
+
+La page des spectateurs charge les resultats par pages et recherche dans toute
+la liste publiee. Les demandes utilisent toujours les morceaux de votre dossier
+Songs scanne. Le partage necessite le site ChartsHub 1.8.17 ou plus recent.
+
 
 NOUVEAUTES 0.14.22 - SONG REQUEST DANS CHARTSHUB
 

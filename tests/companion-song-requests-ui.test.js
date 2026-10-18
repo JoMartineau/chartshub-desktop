@@ -173,6 +173,29 @@ test('sharing support and busy gates also block dispatched actions and failure f
   assert.equal(ui.get('#song-requests-publish-library').disabled, false);
 });
 
+test('large-library sharing displays preparation and upload counts with actionable fixed bilingual errors', async t => {
+  const ui = await fixture(t);
+  ui.snapshot.songRequests.sharing = { supported: true, url: 'https://chartshub.ca/song-requests.html?library=' + 'a'.repeat(64), count: 83401, updatedAt: null, busy: true, error: null,
+    progress: { phase: 'preparing', processed: 10000, total: 83401 } };
+  ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-sharing-status').textContent, /Vérification des morceaux/);
+  assert.match(ui.get('#song-requests-sharing-status').textContent.replace(/\D/g, ''), /1000083401/);
+  ui.snapshot.songRequests.sharing.progress = { phase: 'uploading', processed: 500, total: 83401 };
+  ui.controls.update(ui.snapshot); assert.match(ui.get('#song-requests-sharing-status').textContent, /Envoi de la liste/);
+  ui.snapshot.songRequests.sharing.busy = false; ui.snapshot.songRequests.sharing.error = 'SHARE_LIBRARY_LIMIT';
+  ui.controls.update(ui.snapshot); assert.match(ui.get('#song-requests-sharing-status').textContent, /83401/);
+  assert.match(ui.get('#song-requests-sharing-error').textContent, /200 000 morceaux/);
+  assert.match(ui.get('#song-requests-sharing-error').textContent, /précédemment reste disponible/);
+  ui.snapshot.songRequests.sharing.error = 'SHARE_SERVER_UPDATE_REQUIRED';
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  assert.match(ui.get('#song-requests-sharing-error').textContent, /site needs an update/);
+  assert.doesNotMatch(ui.get('#song-requests-sharing-error').textContent, /Internet/);
+  ui.snapshot.songRequests.sharing.error = 'SHARE_ACCESS_DENIED'; ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-sharing-error').textContent, /denied permission/);
+  assert.doesNotMatch(ui.get('#song-requests-sharing-error').textContent, /Verify.*email/);
+  assert.equal(ui.calls.length, 0);
+});
+
 test('direct account connections are explicit and never enable reception or publish the library', async t => {
   const ui = await fixture(t); ui.controls.update(ui.snapshot);
   ui.get('#song-requests-twitch-connect').dispatchEvent(new Event('click')); assert.equal(ui.calls.length, 0);
