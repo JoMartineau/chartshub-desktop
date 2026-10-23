@@ -167,7 +167,7 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
   const { EventEmitter } = require('node:events');
   const Module = require('node:module');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'chartshub-host-test-'));
-  const windows = [], views = [], attached = [], handlers = new Map(), copied = [], opened = [], openedUrls = [];
+  const windows = [], views = [], attached = [], handlers = new Map(), copied = [], opened = [], openedUrls = [], menus = [];
   let activations = 0;
   let localProtocol;
   const dialog = { showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showMessageBox: async () => ({ response: 0 }) };
@@ -176,7 +176,7 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
       super(); this.options = options; this.destroyed = false; this.visible = false;
       this.webContents = new EventEmitter();
       Object.assign(this.webContents, {
-        mainFrame: { url: '' }, isLoading: () => false, messages: [], send(channel, value) { this.messages.push({ channel, value: structuredClone(value) }); }, setWindowOpenHandler() {}
+        mainFrame: { url: '' }, isLoading: () => false, isDestroyed: () => this.destroyed, getURL() { return this.mainFrame.url; }, messages: [], send(channel, value) { this.messages.push({ channel, value: structuredClone(value) }); }, setWindowOpenHandler() {}
       });
       windows.push(this);
     }
@@ -199,7 +199,7 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
       const contents = this.webContents = new EventEmitter();
       let destroyed = false;
       Object.assign(contents, {
-        mainFrame: { url: '' }, isLoading: () => false, isDestroyed: () => destroyed, send() {}, setWindowOpenHandler() {},
+        mainFrame: { url: '' }, isLoading: () => false, isDestroyed: () => destroyed, getURL() { return this.mainFrame.url; }, send() {}, setWindowOpenHandler() {},
         async loadURL(url) { contents.mainFrame.url = url; },
         close() { if (!destroyed) { destroyed = true; contents.emit('destroyed'); } }
       });
@@ -219,7 +219,7 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
   const electron = {
     app, BrowserWindow: Window, WebContentsView: ContentsView,
     clipboard: { writeText(value) { copied.push(value); } },
-    dialog, shell,
+    dialog, shell, Menu: { buildFromTemplate(template) { return { popup(options) { menus.push({ template, options }); }, closePopup() {} }; } },
     ipcMain: { handle(name, handler) { handlers.set(name, handler); }, removeHandler(name) { handlers.delete(name); } },
     protocol: { registerSchemesAsPrivileged() {} },
     session: { fromPartition(name) { assert.equal(name, 'companion-local'); return localSession; } },
@@ -248,8 +248,25 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
     await fs.rm(directory, { recursive: true, force: true });
   });
   const eventFor = window => ({ sender: window.webContents, senderFrame: window.webContents.mainFrame });
-  return { host, windows, views, owner, attached, activations: () => activations, app, handlers, eventFor, directory, copied, dialog, shell, opened, openedUrls, protocolRequest: (url, method = 'GET') => localProtocol({ url, method }) };
+  return { host, windows, views, owner, attached, activations: () => activations, app, handlers, eventFor, directory, copied, dialog, shell, opened, openedUrls, menus, protocolRequest: (url, method = 'GET') => localProtocol({ url, method }) };
 }
+
+test('right-click editing stays in the exact local Companion contents in tabbed and separate windows', async t => {
+  for (const embedded of [false, true]) {
+    const f = await hostFixture(t, { embedded }); await f.host.open();
+    const contents = f.host.getPanelContents(), commands = [];
+    contents.paste = () => commands.push('paste');
+    contents.emit('context-menu', {}, { frame: contents.mainFrame, isEditable: true, menuSourceType: 'mouse', editFlags: { canPaste: true } });
+    const menu = f.menus.at(-1); assert.ok(menu);
+    assert.equal(menu.options.window, f.host.getPanel()); assert.equal(menu.options.frame, contents.mainFrame);
+    menu.template.find(item => item.label === 'Coller').click(); assert.deepEqual(commands, ['paste']);
+    contents.mainFrame.url = 'chartshub-companion://app/ui/overlay.html';
+    menu.template.find(item => item.label === 'Coller').click(); assert.deepEqual(commands, ['paste']);
+    contents.emit('context-menu', {}, { frame: contents.mainFrame, isEditable: true, editFlags: { canPaste: true } });
+    assert.equal(f.menus.length, 1, 'another local page cannot reuse this view menu');
+    await f.host.dispose(); assert.equal(contents.listenerCount('context-menu'), 0);
+  }
+});
 
 test('OBS opens three isolated native targets and player appearance is restricted to its live frame and the main panel', async t => {
   const f = await hostFixture(t, { filtersService: fakeFiltersService() }), panel = await f.host.open();

@@ -12,13 +12,14 @@ interface ChatConnection {
   state: string; displayName: string | null; error: string | null; canReply: boolean; userCode?: string | null;
 }
 interface Snapshot {
-  library?: { status: string; count: number };
+  library?: { status: string; count: number; settings?: { watch: boolean }; watcher?: string };
   state?: { gameplay?: { state: string }; nowPlaying?: { title?: string; artist?: string } | null };
   cloneHero?: { mode: string };
   songRequests?: {
     enabled: boolean; revision: number; order?: 'votes' | 'manual'; rules: SongRequestRules; requests: SongRequest[];
     bridge: { enabled: boolean; port?: number; url: string | null; overlayUrl: string | null; error: string | null; platforms: string[] };
     sharing?: { supported: boolean; url: string | null; count: number; updatedAt: string | null; busy: boolean; error: string | null; unavailableCount?: number;
+      autoSync?: { enabled: boolean; pending: boolean; updating: boolean; retrying: boolean };
       progress?: { phase: string; processed: number; total: number; available?: number; unavailable?: number } | null };
     connections?: { receiving: boolean; persistent: boolean; storageError: string | null;
       lastResponse: { platform: string; message: string } | null; twitch: ChatConnection; tiktok: ChatConnection };
@@ -68,7 +69,7 @@ export class SongRequestControls {
     for (const [id, command] of [['publish-library', 'publishLibrary'], ['copy-library', 'copyLibraryUrl'], ['remove-library', 'removeLibrary']] as const) {
       this.element('#song-requests-' + id).addEventListener('click', () => {
         const sharing = this.snapshot?.songRequests?.sharing;
-        if (!sharing?.supported || sharing.busy || (command === 'publishLibrary' ? !this.libraryReady : !sharing.url)) return;
+        if (!sharing?.supported || (sharing.busy && !(command === 'removeLibrary' && sharing.autoSync?.updating)) || (command === 'publishLibrary' ? !this.libraryReady : !sharing.url)) return;
         void this.send('songRequests.' + command, {});
       }, { signal });
     }
@@ -199,7 +200,7 @@ export class SongRequestControls {
     const sharing = current?.sharing, sharingUnavailable = unavailable || !sharing?.supported || sharing.busy;
     this.element<HTMLButtonElement>('#song-requests-publish-library').disabled = sharingUnavailable || !this.libraryReady;
     this.element<HTMLButtonElement>('#song-requests-copy-library').disabled = sharingUnavailable || !sharing?.url;
-    this.element<HTMLButtonElement>('#song-requests-remove-library').disabled = sharingUnavailable || !sharing?.url;
+    this.element<HTMLButtonElement>('#song-requests-remove-library').disabled = unavailable || !sharing?.supported || !sharing.url || (sharing.busy && !sharing.autoSync?.updating);
     for (const button of Array.from(this.element('#song-requests-items').querySelectorAll<HTMLButtonElement>('button'))) {
       button.disabled = unavailable || button.dataset.unavailable === 'true' || (button.dataset.action === 'accept' && !this.libraryReady);
     }
@@ -245,7 +246,7 @@ export class SongRequestControls {
       'commands-help': this.tr('Chat : !sr artiste titre · !vote artiste titre · !queue · !song. Une demande pour un morceau déjà en attente ajoute un vote, une seule fois par spectateur. Les flèches choisissent l’ordre manuel.', 'Chat: !sr artist title · !vote artist title · !queue · !song. Requesting a song already waiting adds a vote, once per viewer. The arrows switch to manual order.'),
       'overlay-help': this.tr('Dans OBS, ajoutez une source Navigateur et collez le lien du widget. Il affiche les prochaines demandes sans permettre de gérer la file. Les demandes ne téléchargent aucun fichier et ne lancent pas le jeu.', 'In OBS, add a Browser Source and paste the widget link. It shows upcoming requests without queue management. Requests never download files or launch the game.'),
       'sharing-title': this.tr('Liste publique pour les spectateurs', 'Public song list for viewers'),
-      'sharing-help': this.tr('Publier envoie uniquement les informations des morceaux disponibles et les règles sur ChartsHub : aucun audio, aucune note ni aucun chemin local. Les spectateurs consultent cette liste sans compte et copient une commande !sr dans le chat. La liste reste un instantané : actualisez-la manuellement après un changement dans Songs. La file et les pseudos ne sont pas publiés.', 'Publishing uploads only available song metadata and rules to ChartsHub: no audio, notes or local paths. Viewers browse without an account and copy an !sr command into chat. This is a snapshot: update it manually after changes in Songs. The queue and viewer names are not published.'),
+      'sharing-help': this.tr('Publier envoie uniquement les informations des morceaux disponibles et les règles sur ChartsHub : aucun audio, aucune note ni aucun chemin local. Après publication, chaque changement détecté dans Songs ou dans les règles actualise automatiquement le même lien. La publication active la détection du dossier ; gardez ChartsHub ouvert. Pour les ajouts hors de l’application, conservez « Détecter les changements du dossier » activé. Les spectateurs consultent la liste sans compte et copient une commande !sr dans le chat. La file et les pseudos ne sont pas publiés.', 'Publishing uploads only available song metadata and rules to ChartsHub: no audio, notes or local paths. After publication, detected Songs changes and rule changes update the same link automatically. Publishing enables folder detection; keep ChartsHub open. For additions outside the app, keep “Detect folder changes” enabled. Viewers browse without an account and copy an !sr command into chat. The queue and viewer names are not published.'),
       'publish-library': this.snapshot?.songRequests?.sharing?.url ? this.tr('Actualiser la liste', 'Update song list') : this.tr('Publier la liste', 'Publish song list'),
       'copy-library': this.tr('Copier le lien public', 'Copy public link'),
       'remove-library': this.tr('Retirer le partage', 'Remove sharing'),
@@ -267,7 +268,7 @@ export class SongRequestControls {
     this.element('#song-requests-sharing-status').textContent = !sharing?.supported
       ? this.tr('Connectez votre compte ChartsHub pour partager la liste.', 'Connect your ChartsHub account to share the list.')
       : sharing.busy ? this.sharingProgress(sharing.progress)
-      : sharing.url ? this.tr(`Instantané publié : ${count} morceau${count === 1 ? '' : 'x'}.`, `Published snapshot: ${count} song${count === 1 ? '' : 's'}.`) + (updatedAt ? ` · ${updatedAt}` : '') + (omitted ? this.tr(` ${omitted} morceau${omitted === 1 ? '' : 'x'} indisponible${omitted === 1 ? '' : 's'} exclu${omitted === 1 ? '' : 's'}.`, ` ${omitted} unavailable song${omitted === 1 ? '' : 's'} excluded.`) : '')
+      : sharing.url ? this.tr(`Liste publiée : ${count} morceau${count === 1 ? '' : 'x'}.`, `Published list: ${count} song${count === 1 ? '' : 's'}.`) + (updatedAt ? ` · ${updatedAt}` : '') + (omitted ? this.tr(` ${omitted} morceau${omitted === 1 ? '' : 'x'} indisponible${omitted === 1 ? '' : 's'} exclu${omitted === 1 ? '' : 's'}.`, ` ${omitted} unavailable song${omitted === 1 ? '' : 's'} excluded.`) : '') + this.sharingSyncStatus(sharing.autoSync)
       : this.tr('Aucune liste publiée. La publication démarre uniquement avec votre bouton.', 'No list published. Publishing starts only when you press the button.');
     const sharingError = this.element('#song-requests-sharing-error'); sharingError.hidden = !sharing?.error;
     sharingError.textContent = sharing?.error ? this.sharingError(sharing.error) + (sharing.url ? this.tr(' La liste publiée précédemment reste disponible.', ' Your previously published list remains available.') : '') : '';
@@ -294,6 +295,16 @@ export class SongRequestControls {
       this.element<HTMLSelectElement>('#song-requests-difficulty').value = current.rules.difficulty;
     }
     this.renderRequests(current?.requests ?? []); this.renderFeedback(); this.availability();
+  }
+  private sharingSyncStatus(sync: { enabled: boolean; pending: boolean; retrying: boolean } | undefined): string {
+    if (!sync?.enabled) return '';
+    if (sync.retrying) return this.tr(' Nouvelle tentative automatique prévue.', ' An automatic retry is scheduled.');
+    if (sync.pending) return this.libraryReady
+      ? this.tr(' Mise à jour automatique en attente.', ' Automatic update pending.')
+      : this.tr(' Mise à jour automatique après la prochaine analyse réussie.', ' Automatic update follows the next successful scan.');
+    if (this.snapshot?.library?.watcher === 'unavailable') return this.tr(' Détection indisponible : actualisez Songs pour repérer les ajouts.', ' Folder detection unavailable: refresh Songs to detect additions.');
+    if (this.snapshot?.library?.settings?.watch === false) return this.tr(' Détection désactivée : actualisez Songs pour repérer les ajouts.', ' Folder detection is off: refresh Songs to detect additions.');
+    return this.tr(' Mise à jour après chaque changement détecté.', ' Updates after each detected change.');
   }
   private sharingProgress(progress: { phase: string; processed: number; total: number } | null | undefined): string {
     if (!progress || !Number.isSafeInteger(progress.total) || progress.total < 0 || progress.total > 200000

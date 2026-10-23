@@ -10,7 +10,7 @@ app.setPath('userData',path.join(directory,'profile'));
 app.disableHardwareAcceleration();
 if(process.env.CHARTSHUB_TEST_NO_SANDBOX==='1')app.commandLine.appendSwitch('no-sandbox');
 let desktop,host,user=null,finished=false;
-const passed=[],errors=[],buttonMotionRelays=[],delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+const passed=[],errors=[],buttonMotionRelays=[],editMenus=[],delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const fail=error=>{console.error(error.stack||error);fs.writeFileSync(path.join(directory,'failure.txt'),String(error.stack||error));app.exit(1);};
 process.on('unhandledRejection',fail);
 process.on('uncaughtException',fail);
@@ -28,7 +28,14 @@ const originalLoad=Module._load;
 Module._load=function(name,parent,isMain){
  const result=originalLoad.apply(this,arguments);
  if(!parent?.filename.startsWith(root))return result;
- if(name==='electron')return {...result,BrowserWindow:HiddenWindow};
+ if(name==='electron')return {...result,BrowserWindow:HiddenWindow,Menu:{
+  setApplicationMenu:(...args)=>result.Menu.setApplicationMenu(...args),
+  buildFromTemplate(template){
+   const menu=result.Menu.buildFromTemplate(template),popup=menu.popup.bind(menu);
+   menu.popup=options=>{if(template.some(item=>['Paste','Coller'].includes(item.label)))editMenus.push({menu,options});return popup(options);};
+   return menu;
+  }
+ }};
  if(name==='./desktop/controller.cjs')return {...result,createDesktopShell(options){desktop=result.createDesktopShell(options);return desktop;}};
  if(name==='./companion/host.cjs')return {...result,async createCompanionHost(options){
   host=await result.createCompanionHost({...options,cloneHeroCandidates:[],cloneHeroProcessProbe:async()=>({running:false,startedAt:null}),catalogueClient:{load:async()=>({items:[],demo:false,warning:null,revision:'test'}),artwork:async()=>null}});
@@ -68,6 +75,22 @@ app.whenReady().then(async()=>{
  await waitFor(()=>frame.executeJavaScript('!document.querySelector("#companion-tab").hidden'),'member tab visible');
  assert.equal(await web.executeJavaScript('window.ChartsHubDesktop.version'),require(path.join(root,'package.json')).version);
  assert.equal(await web.executeJavaScript('document.querySelectorAll("[style*=drag]").length'),0,'only the shell creates the title bar');
+ const {verifyNativeEditContextMenu}=require('./edit-context-menu-electron.cjs');
+ let editingWindowState=null;
+ async function verifyEditInput(contents,selector){
+  // Windows may discard trusted context-menu input for a hidden HWND. Show
+  // only this isolated fixture off screen, without relying on HiddenWindow's
+  // intentionally neutralized show/focus methods. Keep it rendering until
+  // closing: hiding midway can suspend native dialog-close animation frames.
+  const window=desktop.window;
+  if(!editingWindowState)editingWindowState={bounds:window.getBounds(),visible:window.isVisible()};
+  window.setBounds({...editingWindowState.bounds,x:-20000,y:-20000});
+  electron.BrowserWindow.prototype.showInactive.call(window);
+  electron.BrowserWindow.prototype.focus.call(window);
+  await delay(100);
+  await verifyNativeEditContextMenu({contents,ownerWindow:window,selector,menus:editMenus,clipboard:electron.clipboard,waitFor,delay});
+ }
+ await verifyEditInput(web,'#search');
  await web.executeJavaScript('document.querySelector("#search").value="Valeur conservée";window.scrollTo({top:200,behavior:"instant"});true');
  const scroll=await web.executeJavaScript('scrollY');
  await select('companion');
@@ -86,8 +109,13 @@ app.whenReady().then(async()=>{
  assert.equal(await frame.executeJavaScript('typeof window.ChartsHubCompanion'),'undefined');
  assert.equal(await frame.executeJavaScript('typeof window.ChartsHubDesktop'),'undefined');
  passed.push('ordinary account opens the real local Companion in the existing window with isolated preloads');
- // Exercise the actual native preload, ESM/CSP, disk store and saved-state restore.
+ // Wait for the native controls and their initial snapshot before positioning a
+ // right-click in the full tab view.
  await waitFor(()=>local.executeJavaScript('Boolean(window.ChartshubBloom && document.querySelector("#ch-bloom-open") && !document.querySelector("#ch-bloom-open").disabled)'),'native bloom module ready');
+ await verifyEditInput(local,'#catalogue-query');
+ passed.push('real right-click menus copy and paste into Companion and remote Catalogue search views');
+ fs.writeFileSync(path.join(directory,'edit-menu-verification.json'),JSON.stringify({version:require(path.join(root,'package.json')).version,ok:true,fixtureOnly:true,sourceFields:['#search','#catalogue-query'],nativePopups:editMenus.length,realChromiumContextEvents:true,clipboardContainsOnlyFixtureText:true},null,2));
+ // Exercise the actual native preload, ESM/CSP, disk store and saved-state restore.
  const {verifyButtonMotion}=require('./button-motion-electron.cjs');
  for(const [contents,selector] of [[frame,'#catalogue-tab'],[local,'#ch-bloom-open']]) assert.equal((await verifyButtonMotion(contents,selector)).length,13);
  passed.push('real shell and Companion buttons respect hover, press, disabled, economy and OS motion preferences');
@@ -185,6 +213,7 @@ app.whenReady().then(async()=>{
  desktop.window.once('closed',()=>{
   try{assert.deepEqual(errors,[]);assert.equal(local.isDestroyed(),true);assert.equal(web.isDestroyed(),true);passed.push('closing the app disposes both renderers after Companion persistence');finished=true;fs.writeFileSync(path.join(directory,'verification.json'),JSON.stringify({version:require(path.join(root,'package.json')).version,passed},null,2));console.log(JSON.stringify({passed}));}catch(error){fail(error);}
  });
+ if(editingWindowState){if(!editingWindowState.visible)desktop.window.hide();desktop.window.setBounds(editingWindowState.bounds);}
  desktop.window.close();
 }).catch(fail);
 setTimeout(()=>{if(!finished)fail(Error('Application integration verification timeout'));},45000).unref();

@@ -96,7 +96,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
       snapshot: () => structuredClone(state),
       async receive(input) { received.push(input); return receive ? receive(input) : { ok: true, command: 'queue', items: [] }; }
     },
-    library: { status: () => ({ ...libraryState }), stop: async () => {} },
+    library: { status: () => ({ ...libraryState }), matchingSnapshot:()=>({rootKey:libraryState.rootKey??'synthetic-root'}), stop: async () => {} },
     songRequestAccounts: { status: () => ({ persistent: true, error: null }), flush: async () => { stopped.flush++; } },
     songRequestPreferences: { save: save ?? (async () => {}), flush: async () => {} },
     songRequestConnectionOptions: { createTwitch: provider('twitch'), createTikTok: provider('tiktok') },
@@ -109,12 +109,12 @@ function fixture({ save, start, consent = false, receive } = {}) {
     const publishedTwitchClientId='syntheticclient',shell={openExternal:async()=>{}},language='fr',publishPanel=()=>{};
     const requestPreferences={ingestToken:'a'.repeat(64),readToken:'b'.repeat(64),error:null,port:38474};
     const services={stop:async()=>{},store:{getState:()=>({widgets:{instances:[]}})}};
-    let libraryIndexRevision=1;
+    let libraryIndexRevision=1,libraryRequestRoot='synthetic-root',libraryDownloadRefresh=null,songRequestShareManualBusy=null;
     const catalogue={libraryChanged:()=>{},stop:async()=>{}},downloads={stop:async()=>{}},musicPlayer=null;
     let playerWindow=null,playerWindowLoad=null,catalogueWidget=null,catalogueWidgetLoad=null,catalogueWidgetEnabled=false,catalogueWidgetTicket=0;
     let filtersTimer=null,filtersWidget=null,filtersWidgetLoad=null,filtersWidgetEnabled=false,overlay=null,overlayLoad=null,overlayEnabled=false;
     const unregisterCatalogueShortcut=()=>{},setStream=async()=>{},reshadeSetup={status:()=>({state:'idle'})};
-    let saveTimer=null,songRequestShareRevision=0,songRequestShareController=null,songRequestShare={busy:false},playerPreferencesTask=Promise.resolve(),pendingSave=Promise.resolve(),cleanupTask=null,filtersRefresh=null,reshadeRefresh=null,logTail=Promise.resolve();
+    let saveTimer=null,songRequestShareRevision=0,songRequestShareController=null,songRequestShareSync=null,songRequestShare={busy:false},playerPreferencesTask=Promise.resolve(),pendingSave=Promise.resolve(),cleanupTask=null,filtersRefresh=null,reshadeRefresh=null,logTail=Promise.resolve();
     const playerPreferences={flush:async()=>{}},floatingPanels={flush:async()=>{}},profileWrites=[];
     const panelFrame={url:'chartshub-companion://app/ui/index.html'},panelContents={mainFrame:panelFrame,isDestroyed:()=>false},panel={isDestroyed:()=>false};
     ${panelAlive}
@@ -182,6 +182,23 @@ test('an active library becoming unavailable fences incoming events before async
   f.providers.twitch.message(); await idle();
   assert.equal(f.received.length, 0); assert.equal(f.sent.length, 0); assert.ok(f.stopped.bridge > 0);
   await f.host.stop();
+});
+
+test('a background scan keeps reception selected, fences commands while scanning and resumes without reconnecting',async()=>{
+  const f=fixture();await f.host.invoke('songRequests.connect',{platform:'twitch'});await idle();await f.host.configure(enable());await idle();
+  f.libraryState.status='scanning';f.host.libraryChange();
+  assert.equal(f.state.enabled,true);assert.equal(f.providers.twitch.receiving(),true);
+  f.providers.twitch.message();await idle();assert.equal(f.received.length,0);
+  f.libraryState.status='ready';f.libraryState.revision++;f.host.libraryChange();f.providers.twitch.message();await idle();
+  assert.equal(f.state.enabled,true);assert.equal(f.received.length,1);assert.equal(f.stopped.twitch,0);
+  f.libraryState.status='scanning';f.host.libraryChange();await f.host.configure({...enable(),enabled:false});
+  f.libraryState.status='ready';f.host.libraryChange();assert.equal(f.state.enabled,false);assert.equal(f.providers.twitch.receiving(),false);
+  await f.host.stop();
+});
+
+test('a scan in a changed Songs root never preserves reception from the previous root',async()=>{
+  const f=fixture();await f.host.configure(enable());await idle();f.libraryState.rootKey='different-root';f.libraryState.status='scanning';f.host.libraryChange();
+  assert.equal(f.state.enabled,false);f.libraryState.status='ready';f.host.libraryChange();assert.equal(f.state.enabled,false);await f.host.stop();
 });
 
 test('Twitch consent never holds the IPC handler open and closes with the host', async () => {

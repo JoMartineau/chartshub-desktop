@@ -17,9 +17,9 @@ const turn = () => new Promise(resolve => setImmediate(resolve));
 
 // An entirely virtual filesystem keeps performance/cancellation assertions
 // independent of disk speed and never scans or changes a real Songs folder.
-async function fixture({ songs = 16, beforeRead, beforeDirectoryEntry, failRoot = false } = {}) {
+async function fixture({ songs = 16, beforeRead, beforeDirectoryEntry, beforeInspect, failRoot = false } = {}) {
   const root = path.resolve('virtual-library-performance'), directories = new Set([root]);
-  const files = new Map(), identities = new Map(), calls = [];
+  const files = new Map(), identities = new Map(), calls = [], links = new Set();
   const counts = { directories: 0, files: 0, maxDirectories: 0, maxFiles: 0, snapshots: 0, activeSnapshots: 0, maxSnapshots: 0, metadataReads: 0 };
   const rootNames = [];
   for (let index = 0; index < songs; index++) {
@@ -39,10 +39,10 @@ async function fixture({ songs = 16, beforeRead, beforeDirectoryEntry, failRoot 
     if (!directory && !files.has(filename)) throw Object.assign(Error('Absent'), { code: 'ENOENT' });
     return { dev: convert(1), ino: convert(identities.get(filename)), size: convert(directory ? 0 : files.get(filename).length),
       mtimeMs: 1, mtimeNs: convert(1), ctimeNs: convert(1), nlink: convert(1), mode: convert(directory ? 16877 : 33188),
-      isDirectory: () => directory, isFile: () => !directory, isSymbolicLink: () => false };
+      isDirectory: () => directory, isFile: () => !directory, isSymbolicLink: () => links.has(filename) };
   }
   const virtual = {
-    lstat: async (filename, options) => { calls.push(['lstat', filename]); return stat(filename, options?.bigint); },
+    lstat: async (filename, options) => { calls.push(['lstat', filename]); await beforeInspect?.({ filename, root, links }); return stat(filename, options?.bigint); },
     realpath: async filename => { calls.push(['realpath', filename]); return filename; },
     readdir: async folder => { calls.push(['readdir', folder]); return names(folder); },
     opendir: async folder => {
@@ -89,13 +89,13 @@ async function fixture({ songs = 16, beforeRead, beforeDirectoryEntry, failRoot 
   return { root, files, calls, counts, scan: options => scanner.scanLibrary({ rootPath: root, ...options }) };
 }
 
-test('four directory jobs overlap while snapshots, metadata handles and stable output remain bounded', async () => {
+test('eight directory jobs overlap while snapshots, metadata handles and stable output remain bounded', async () => {
   const f = await fixture({ songs: 20 }), progress = [];
   const full = await f.scan({ onProgress: value => progress.push(value) });
   assert.equal(full.items.length, 20); assert.equal(full.warningCount, 0); assert.equal(full.skippedCount, 0);
-  assert.equal(f.counts.maxDirectories, 4, 'overlap directory enumeration, with no fifth directory handle');
-  assert.ok(f.counts.maxSnapshots > 1 && f.counts.maxSnapshots <= 4, 'snapshots overlap within the same fixed pool');
-  assert.ok(f.counts.maxFiles > 1 && f.counts.maxFiles <= 4, 'metadata reads overlap within the same fixed pool');
+  assert.equal(f.counts.maxDirectories, 8, 'overlap directory enumeration, with no ninth directory handle');
+  assert.ok(f.counts.maxSnapshots > 1 && f.counts.maxSnapshots <= 8, 'snapshots overlap within the same fixed pool');
+  assert.ok(f.counts.maxFiles > 1 && f.counts.maxFiles <= 8, 'metadata reads overlap within the same fixed pool');
   assert.equal(f.counts.snapshots, 40, 'every full scan song keeps its before and after snapshot');
   assert.equal(f.counts.metadataReads, 40); assert.equal(f.counts.directories, 0); assert.equal(f.counts.files, 0); assert.equal(f.counts.activeSnapshots, 0);
   assert.ok(full.items.every(item => /^[a-f0-9]{64}$/.test(item.cleanupSnapshot)));
@@ -123,17 +123,17 @@ test('unrelated regular files avoid traversal stats while song artwork and video
   }
 });
 
-test('cancel stops scheduling, waits for all four active metadata handles and remains quiescent after rejection', async () => {
+test('cancel stops scheduling, waits for all eight active metadata handles and remains quiescent after rejection', async () => {
   const readsHeld = deferred(), allReading = deferred(), controller = new AbortController(); let arrived = 0, postCancelProgress = 0;
-  const f = await fixture({ songs: 20, beforeRead: async () => { if (++arrived === 4) allReading.resolve(); await readsHeld.promise; } });
+  const f = await fixture({ songs: 20, beforeRead: async () => { if (++arrived === 8) allReading.resolve(); await readsHeld.promise; } });
   let settled = false;
   const running = f.scan({ signal: controller.signal, onProgress: () => { if (controller.signal.aborted) postCancelProgress++; } });
   running.then(() => { settled = true; }, () => { settled = true; });
   await allReading.promise;
-  assert.equal(f.counts.files, 4); controller.abort(); await turn();
+  assert.equal(f.counts.files, 8); controller.abort(); await turn();
   assert.equal(settled, false, 'scan cannot reject while metadata handles are still in flight');
   const scheduled = f.calls.filter(([operation]) => operation === 'opendir').length;
-  assert.equal(scheduled, 5, 'only the root and first four songs are scheduled');
+  assert.equal(scheduled, 9, 'only the root and first eight songs are scheduled');
   readsHeld.resolve(); await assert.rejects(running, { name: 'AbortError' });
   assert.equal(f.counts.files, 0); assert.equal(f.counts.directories, 0); assert.equal(f.counts.activeSnapshots, 0);
   assert.equal(f.calls.filter(([operation]) => operation === 'opendir').length, scheduled);
@@ -150,18 +150,42 @@ test('fatal root enumeration failure never schedules descendants or leaves resou
   const finalCalls = f.calls.length; await turn(); assert.equal(f.calls.length, finalCalls);
 });
 
-test('cancel during enumeration drains all four directory iterators before rejecting', async () => {
+test('cancel during enumeration drains all eight directory iterators before rejecting', async () => {
   const entriesHeld = deferred(), allEnumerating = deferred(), controller = new AbortController(); let arrived = 0;
   const f = await fixture({ songs: 20, beforeDirectoryEntry: async ({ folder, root }) => {
     if (folder === root) return;
-    if (++arrived === 4) allEnumerating.resolve(); await entriesHeld.promise;
+    if (++arrived === 8) allEnumerating.resolve(); await entriesHeld.promise;
   } });
   let settled = false;
   const running = f.scan({ signal: controller.signal }); running.then(() => { settled = true; }, () => { settled = true; });
-  await allEnumerating.promise; assert.equal(f.counts.directories, 4);
+  await allEnumerating.promise; assert.equal(f.counts.directories, 8);
   controller.abort(); await turn(); assert.equal(settled, false);
   entriesHeld.resolve(); await assert.rejects(running, { name: 'AbortError' });
   assert.equal(f.counts.directories, 0); assert.equal(f.counts.files, 0); assert.equal(f.counts.snapshots, 0);
-  assert.equal(f.calls.filter(([operation]) => operation === 'opendir').length, 5);
+  assert.equal(f.calls.filter(([operation]) => operation === 'opendir').length, 9);
   const finalCalls = f.calls.length; await turn(); await turn(); assert.equal(f.calls.length, finalCalls);
+});
+
+test('a listed directory replaced by a link is rejected by its job before enumeration or metadata reads', async () => {
+  const f = await fixture({ songs: 2, beforeInspect: ({ filename, root, links }) => {
+    if (filename === path.join(root, 'Song-000')) links.add(filename);
+  } });
+  const result = await f.scan();
+  assert.equal(result.items.length, 1); assert.equal(result.items[0].relativePath, 'Song-001/notes.chart');
+  assert.equal(result.skippedCount, 1); assert.equal(result.warningCount, 0);
+  assert.equal(f.calls.some(([operation, filename]) => operation === 'opendir' && filename === path.join(f.root, 'Song-000')), false);
+  assert.equal(f.calls.some(([operation, filename]) => operation === 'open' && filename.startsWith(path.join(f.root, 'Song-000') + path.sep)), false);
+  assert.equal(f.counts.directories, 0); assert.equal(f.counts.files, 0);
+});
+
+test('a child directory that becomes unreadable retains its previous committed songs', async () => {
+  let deny = false;
+  const f = await fixture({ songs: 2, beforeInspect: ({ filename, root }) => {
+    if (deny && filename === path.join(root, 'Song-000')) throw Object.assign(Error('Denied'), { code: 'EACCES' });
+  } });
+  const baseline = await f.scan(); deny = true;
+  const result = await f.scan({ mode: 'quick', previousItems: baseline.items });
+  assert.deepEqual(result.items, baseline.items);
+  assert.deepEqual(result.preservedPrefixes, ['Song-000']); assert.equal(result.warningCount, 1); assert.equal(result.skippedCount, 0);
+  assert.equal(f.counts.directories, 0); assert.equal(f.counts.files, 0); assert.equal(f.counts.activeSnapshots, 0);
 });

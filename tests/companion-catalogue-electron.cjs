@@ -101,6 +101,7 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
     assert.equal(fixture.state.loads, 0, 'opening the Companion and scanning the library never loads the public catalogue');
     assert.equal(host.snapshot().catalogue.status, 'idle');
     assert.equal(await evaluate("document.querySelectorAll('#catalogue-items [data-catalogue-id]').length"), 0);
+    await waitFor(() => evaluate(`document.querySelector('#library-count').textContent.startsWith('${host.snapshot().library.count} ')`), 'committed library snapshot reaches the catalogue renderer');
 
     await click('#catalogue-search'); await rows(20);
     assert.equal(fixture.state.loads, 1);
@@ -109,6 +110,7 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
     await evaluate(`document.querySelector(${JSON.stringify(first)}).scrollIntoView({block:'center'})`);
     await waitFor(() => evaluate(`(()=>{const image=document.querySelector(${JSON.stringify(first + ' img')});return !!image&&image.complete&&image.naturalWidth>0})()`), 'catalogue artwork renders through the local protocol');
     assert.ok(fixture.state.artworks > 0);
+    await require('./catalogue-hover-electron.cjs').verifyCatalogueHover(panel.webContents, first + ' [data-catalogue-action="download"]');
     await click('#catalogue-next'); await rows(6);
     await click('#catalogue-prev'); await rows(20);
     passed.push('catalogue stays offline until explicit search; paging, local artwork and true-only verified badges render');
@@ -176,6 +178,7 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
     await select('#catalogue-source', 'chorusencore'); await text('#catalogue-query', 'Encore'); await click('#catalogue-search'); await rows(1);
     const external = '[data-catalogue-id="enchor:' + 'a'.repeat(32) + '"]';
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(external)}).dataset.source`), 'chorusencore');
+    await require('./catalogue-hover-electron.cjs').verifyCatalogueHover(panel.webContents, external + ' [data-catalogue-action="download"]');
     assert.equal(await evaluate(`(()=>{const card=document.querySelector(${JSON.stringify(external)});return /Chorus Encore/.test(card.textContent)&&!card.querySelector('[data-catalogue-verified],.catalogue-staff-badge,.catalogue-installed-badge,.catalogue-favorite,[data-catalogue-action="link"],[data-catalogue-action="unlink"]')})()`), true);
     await click(external + ' [data-catalogue-action="open"]'); await waitFor(() => opened !== null, 'safe external provider browser action');
     assert.equal(opened, 'https://enchor.us/chart/' + 'a'.repeat(32));
