@@ -1,4 +1,22 @@
-ChartsHub Desktop 0.14.23 - Catalogue et Companion
+ChartsHub Desktop 0.14.24 - Catalogue et Companion
+
+NOUVEAUTES 0.14.24 - INTERACTIONS ET BIBLIOTHEQUE
+
+Les boutons du catalogue restent stables sous le curseur. Le clic droit dans les
+champs de recherche propose Copier, Coller et les autres commandes de texte.
+
+Apres Publier la liste, la liste publique Song Request suit automatiquement les
+ajouts et modifications detectes dans Songs, sans changer le lien des spectateurs.
+La publication active la detection du dossier. Gardez ChartsHub ouvert ; un choix
+ulterieur de desactiver cette detection reste respecte au redemarrage. Les ajouts
+depuis le Companion dans Songs declenchent aussi une actualisation. Le premier
+partage reste volontaire, et une erreur conserve la derniere liste publiee.
+
+Le scan et Actualiser evitent les lectures et verifications disque repetitives,
+tout en conservant les controles des fichiers et les metadonnees du catalogue.
+Les analyses en arriere-plan ne decochent plus la reception du chat lorsque la
+racine Songs reste la meme. Les demandes sont validees a nouveau apres le scan.
+
 
 NOUVEAUTES 0.14.23 - PARTAGE DES GRANDES BIBLIOTHEQUES
 
@@ -39,7 +57,7 @@ telechargement ni lancement automatique du jeu ou d'un morceau. La reception
 reste arretee au demarrage ; la file est limitee a la session. Gardez ChartsHub
 ouvert pour utiliser le widget OBS. Les regles et le pont manuel Streamer.bot
 restent disponibles dans les reglages facultatifs et les options avancees.
-La publication de la liste publique reste une action manuelle distincte.
+La premiere publication de la liste publique reste une action manuelle distincte.
 Guide complet : docs/SONG-REQUESTS.md dans les sources.
 
 HISTORIQUE - Les procedures ci-dessous decrivent les versions precedentes.

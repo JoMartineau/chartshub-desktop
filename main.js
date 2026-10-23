@@ -3,6 +3,7 @@ const {app,BrowserWindow,ipcMain,dialog,Menu,shell,session,nativeTheme,Notificat
 const path=require('node:path');
 const {registerCompanionScheme,createCompanionHost}=require('./companion/host.cjs');
 const {createDesktopShell}=require('./desktop/controller.cjs');
+const {attachEditContextMenu}=require('./desktop/edit-context-menu.cjs');
 const {createDownloadNotifications}=require('./desktop/download-notifications.cjs');
 const {createCloneHeroProcessProbe}=require('./companion/clonehero-process.cjs');
 registerCompanionScheme();
@@ -63,6 +64,7 @@ else{
   ses.on('will-download',(event)=>event.preventDefault());
   desktop=createDesktopShell({cataloguePreferences:{session:ses,preload:path.join(__dirname,'preload.js'),additionalArguments:['--chartshub-tabbed'],contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,backgroundThrottling:false},onSelectTab:selectTab,onButtonMotion:value=>{buttonMotion={...value};if(companionHostPromise&&!closing)void companionHostPromise.then(host=>host.setButtonMotion?.(buttonMotion)).catch(()=>{});}});
   win=desktop.window;web=desktop.catalogueView.webContents;
+  attachEditContextMenu({contents:web,ownerWindow:win,buildMenu:template=>Menu.buildFromTemplate(template),language:()=>companionLanguage,isAllowed:()=>!closing&&trusted(web.getURL())});
   if(process.platform==='win32')app.setAppUserModelId?.('ca.chartshub.desktop');
   notificationBroker=createDownloadNotifications({fetcher:(url,options)=>ses.fetch(url,options),probeGame:createCloneHeroProcessProbe(),language:()=>companionLanguage,
    showNative:(options,onClick)=>{if(process.platform!=='win32'||!Notification?.isSupported())return;const notice=new Notification({...options,icon:path.join(__dirname,'icon.ico')});notice.on('click',onClick);notice.on('failed',()=>{});notice.show();},
@@ -166,6 +168,8 @@ else{
    guestSession.on('will-download',event=>event.preventDefault());
    guest=new BrowserWindow({width:1400,height:950,minWidth:720,minHeight:560,title:'ChartsHub — Visiteur',icon:path.join(__dirname,process.platform==='win32'?'icon.ico':'icon.png'),webPreferences:{session:guestSession,preload:path.join(__dirname,'guest-preload.js'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,webviewTag:false}});
    guest.setMenuBarVisibility(false);
+   const guestWindow=guest;
+   attachEditContextMenu({contents:guestWindow.webContents,ownerWindow:guestWindow,buildMenu:template=>Menu.buildFromTemplate(template),language:()=>companionLanguage,isAllowed:()=>!closing&&trusted(guestWindow.webContents.getURL())});
    guest.webContents.setWindowOpenHandler(()=>({action:'deny'}));
    guest.webContents.on('will-navigate',(event,url)=>{if(!trusted(url))event.preventDefault();});
    guest.webContents.on('will-redirect',(event,url)=>{if(!trusted(url))event.preventDefault();});

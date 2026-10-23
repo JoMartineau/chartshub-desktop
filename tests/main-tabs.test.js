@@ -22,7 +22,9 @@ async function fixture({ user: initialUser = member, argv = [], hostInitializati
     fetch: (...args) => { requests.push(args); return fetchAccount(...args); }
   });
   class Contents extends EventEmitter {
-    constructor(url = '') { super(); this.mainFrame = { url }; this.destroyed = false; this.sent = []; this.loads = []; }
+    constructor(url = '') { super(); this.mainFrame = { url }; this.destroyed = false; this.sent = []; this.loads = []; this.edits = []; }
+    copy() { this.edits.push('copy'); }
+    paste() { this.edits.push('paste'); }
     isDestroyed() { return this.destroyed; }
     getURL() { if (this.destroyed) throw Error('Contents destroyed'); return this.mainFrame.url; }
     send(name, data) { if (this.destroyed) throw Error('Contents destroyed'); this.sent.push({ name, data }); }
@@ -155,6 +157,20 @@ test('main IPC accepts only the exact catalogue main frame even when another ren
   assert.ok(await f.invoke('download-state'));
   f.web.mainFrame.url = 'https://other.test/';
   assert.equal(await f.invoke('download-state'), null);
+});
+
+test('right-click editing targets the remote catalogue view and stops after navigation or shutdown', async () => {
+  const f = await fixture(); await until(() => f.web.loads.length > 0, 'catalogue loaded');
+  const params = { frame: f.web.mainFrame, isEditable: true, selectionText: 'chart', menuSourceType: 'mouse', editFlags: { canCopy: true, canPaste: true } };
+  f.web.emit('context-menu', {}, params);
+  const menu = f.menus.at(-1); assert.ok(menu);
+  menu.find(item => item.label === 'Copy').click(); menu.find(item => item.label === 'Paste').click();
+  assert.deepEqual(f.web.edits, ['copy', 'paste']); assert.deepEqual(f.shell.window.webContents.edits, []);
+  f.web.emit('did-start-navigation', {}, ORIGIN + '/next', false, true);
+  menu.find(item => item.label === 'Paste').click(); assert.deepEqual(f.web.edits, ['copy', 'paste']);
+  f.web.mainFrame.url = 'https://other.test/'; f.web.emit('context-menu', {}, params); assert.equal(f.menus.length, 1);
+  f.shell.window.close(); await until(() => f.shell.window.isDestroyed(), 'window closed');
+  assert.equal(f.web.listenerCount('context-menu'), 0);
 });
 
 test('returning to Catalogue during Companion initialization prevents late activation and permits later reuse', async () => {

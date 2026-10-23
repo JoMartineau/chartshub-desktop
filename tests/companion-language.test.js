@@ -13,6 +13,20 @@ test('Companion localization loads before panel code and protects user-content s
  for(const selector of ['.library-relative-path','.catalogue-item h3','.catalogue-item-artist','.download-item h3','.profile-item-name'])assert.ok(locale.includes(selector),selector);
  assert.match(locale,/initialLanguage/);assert.match(locale,/chartshub:languagechange/);
 });
+
+test('repeated snapshot languages preserve controls while real language changes notify them',()=>{
+ const {runInNewContext}=require('node:vm'),events=[];
+ const window={ChartsHubCompanion:{initialLanguage:'fr'},dispatchEvent(event){events.push(event);}},document={readyState:'loading',documentElement:{},addEventListener(){}};
+ class CustomEvent {constructor(type,options){this.type=type;this.detail=options.detail;}}
+ runInNewContext(read('companion/ui/localization.js'),{window,document,CustomEvent});
+ const language=window.ChartshubCompanionLanguage;
+ for(let tick=0;tick<3;tick++)assert.equal(language.apply('fr'),'fr');
+ assert.equal(events.length,0,'unchanged language does not tell controls to rebuild');
+ assert.equal(language.apply('en'),'en');assert.equal(document.documentElement.lang,'en');
+ language.apply('en');assert.equal(events.length,1);
+ assert.equal(events[0].type,'chartshub:languagechange');assert.equal(events[0].detail.language,'en');
+ language.apply('fr');assert.equal(events.length,2);assert.equal(events[1].detail.language,'fr');
+});
 test('native Companion dialogs use the synchronized language helper',()=>{
  const host=read('companion/host.cjs');
  for(const phrase of ['Choose Clone Hero Songs folder','Choose ChartsHub download folder','Choose Clone Hero currentsong.txt','Send copies to Windows Recycle Bin','Delete this copy anyway?','Connect ReShade effects'])assert.ok(host.includes(phrase),phrase);

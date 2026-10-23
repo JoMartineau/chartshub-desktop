@@ -196,6 +196,33 @@ test('large-library sharing displays preparation and upload counts with actionab
   assert.equal(ui.calls.length, 0);
 });
 
+test('automatic public-list status distinguishes pending, retries and disabled detection without triggering commands',async t=>{
+  const ui=await fixture(t),sharing={supported:true,url:'https://chartshub.ca/song-requests.html?library='+'a'.repeat(64),count:3,updatedAt:null,busy:false,error:null,
+    autoSync:{enabled:true,pending:true,updating:false,retrying:false}};
+  ui.snapshot.songRequests.sharing=sharing;ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-sharing-status').textContent,/Mise à jour automatique en attente/);
+  assert.match(ui.get('#song-requests-sharing-help').textContent,/même lien/);
+  sharing.autoSync.retrying=true;ui.controls.update(ui.snapshot);assert.match(ui.get('#song-requests-sharing-status').textContent,/Nouvelle tentative/);
+  sharing.autoSync.retrying=false;ui.controls.update({...ui.snapshot,library:{status:'scanning',count:3}});
+  assert.match(ui.get('#song-requests-sharing-status').textContent,/prochaine analyse réussie/);
+  sharing.autoSync.pending=false;ui.controls.update({...ui.snapshot,library:{status:'ready',count:3,settings:{watch:false}}});
+  assert.match(ui.get('#song-requests-sharing-status').textContent,/Détection désactivée/);
+  ui.document.documentElement.lang='en';ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
+  assert.match(ui.get('#song-requests-sharing-status').textContent,/Folder detection is off/);assert.equal(ui.calls.length,0);
+});
+
+test('an automatic upload keeps withdrawal available and failures preserve the previous public-list explanation',async t=>{
+  const ui=await fixture(t),sharing={supported:true,url:'https://chartshub.ca/song-requests.html?library='+'a'.repeat(64),count:3,updatedAt:null,busy:true,error:null,
+    autoSync:{enabled:true,pending:true,updating:true,retrying:false},progress:{phase:'uploading',processed:1,total:4}};
+  ui.snapshot.songRequests.sharing=sharing;ui.controls.update(ui.snapshot);
+  assert.equal(ui.get('#song-requests-publish-library').disabled,true);assert.equal(ui.get('#song-requests-remove-library').disabled,false);
+  ui.get('#song-requests-remove-library').click();assert.equal(ui.calls[0].name,'songRequests.removeLibrary');
+  ui.get('#song-requests-remove-library').dispatchEvent(new Event('click'));assert.equal(ui.calls.length,1);
+  ui.calls[0].resolve({ok:false});await tick();sharing.busy=false;sharing.error='SHARE_NETWORK';sharing.autoSync.updating=false;ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-sharing-error').textContent,/précédemment reste disponible/);
+  assert.equal(sharing.url.includes('library='),true);
+});
+
 test('direct account connections are explicit and never enable reception or publish the library', async t => {
   const ui = await fixture(t); ui.controls.update(ui.snapshot);
   ui.get('#song-requests-twitch-connect').dispatchEvent(new Event('click')); assert.equal(ui.calls.length, 0);

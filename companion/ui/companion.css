@@ -660,7 +660,7 @@ select { min-width: 122px; min-height: 35px; background: var(--surface); color: 
 
 /* ChartsHub interface accents; widget appearance and bloom remain independent. */
 .eyebrow, .game-filters .eyebrow, .library-panel .eyebrow, .catalogue-panel .eyebrow, .downloads-panel .eyebrow { color: var(--accent); }
-.primary { background: linear-gradient(110deg, var(--accent), var(--accent-violet)); color: var(--background); }
+.primary { background: var(--accent) linear-gradient(110deg, var(--accent), var(--accent-violet)); color: var(--background); }
 .primary:hover { background: var(--accent-hover); }
 .preview-tabs button[aria-selected="true"], .library-variant.is-preferred { border-color: var(--accent-violet); }
 

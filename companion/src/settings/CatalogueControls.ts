@@ -250,6 +250,8 @@ export class CatalogueControls {
       const actions = document.createElement('div'); actions.className = 'catalogue-item-actions';
       const button = (action: 'open' | 'link' | 'unlink' | 'download', label: string): void => {
         const node = document.createElement('button'); node.type = 'button'; node.className = `button ${action === 'link' || action === 'download' ? 'primary' : 'secondary'}`; node.textContent = label; node.dataset.catalogueAction = action;
+        // Keep the hit target still when the pointer is near an action's edge.
+        node.dataset.buttonMotion = 'off';
         node.dataset.external = String(external);
         if (action === 'download') { node.dataset.downloadable = String(item.downloadable === true); node.title = item.downloadable ? 'Ajouter cette chart à la file de téléchargements' : 'Cette chart ne propose pas de téléchargement disponible.'; }
         node.addEventListener('click', () => { void this.action(action, item); }, { signal: this.abort.signal }); actions.append(node);

@@ -7,7 +7,7 @@ const { captureBundleSnapshot } = require('./chart-bundle.cjs');
 const { chartTracks, midiTracks } = require('./song-request-library.cjs');
 
 const TEXT_LIMIT = 256 * 1024, NOTES_LIMIT = 16 * 1024 * 1024, SNG_SECTION_LIMIT = 1024 * 1024, SNG_COUNT_LIMIT = 4096;
-const DIRECTORY_CONCURRENCY = 4;
+const DIRECTORY_CONCURRENCY = 8;
 const AUDIO = /\.(?:ogg|opus|mp3|wav|flac|aiff?|m4a)$/i;
 const fields = { name: 'title', title: 'title', artist: 'artist', charter: 'charter', frets: 'charter', album: 'album', year: 'year', genre: 'genre' };
 const missing = error => error?.code === 'ENOENT' || error?.code === 'ENOTDIR';
@@ -121,6 +121,7 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
   const previous = new Map();
   for (const item of Array.isArray(previousItems) ? previousItems : []) if (item && relativeValid(item.relativePath)) previous.set(item.relativePath, item);
   const result = new Map(), preserved = new Set(); let visited = 0, processed = 0, warningCount = 0, skippedCount = 0, lastProgress = 0, ticks = 0, failure = null;
+  let yieldTask = null;
   function progress(force = false) {
     if (failure || signal?.aborted) return;
     if (!force && Date.now() - lastProgress < 100) return;
@@ -128,7 +129,10 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
   }
   async function checkpoint() {
     abort(signal); progress();
-    if (++ticks % 32 === 0) { await new Promise(resolve => setImmediate(resolve)); abort(signal); }
+    // Yield the whole pool together: otherwise only the job at this tick waits
+    // while the other seven continue consuming entries through microtasks.
+    if (++ticks % 32 === 0 && !yieldTask) yieldTask = new Promise(resolve => setImmediate(() => { yieldTask = null; resolve(); }));
+    if (yieldTask) { await yieldTask; abort(signal); }
   }
   function preserve(prefix) { preserved.add(prefix); warningCount++; }
   function hasPreservedPrefix(relativePath) {
@@ -227,6 +231,9 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
         if (entry.isSymbolicLink()) { skippedCount++; continue; }
         // Download staging can contain notes before the other files are complete.
         if (entry.isDirectory() && /^\.chartshub-companion-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(entry.name)) continue;
+        // The directory job validates its own path immediately before opening
+        // it. Do not repeat the same lstat/realpath while listing its parent.
+        if (entry.isDirectory()) { children.push(filename); continue; }
         // Dirent already identifies ordinary unrelated files. Song snapshots
         // still inspect every asset before and after metadata reads.
         if (entry.isFile?.() && !isScanFile(entry.name)) continue;
