@@ -121,6 +121,7 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
   const previous = new Map();
   for (const item of Array.isArray(previousItems) ? previousItems : []) if (item && relativeValid(item.relativePath)) previous.set(item.relativePath, item);
   const result = new Map(), preserved = new Set(); let visited = 0, processed = 0, warningCount = 0, skippedCount = 0, lastProgress = 0, ticks = 0, failure = null;
+  let yieldTask = null;
   function progress(force = false) {
     if (failure || signal?.aborted) return;
     if (!force && Date.now() - lastProgress < 100) return;
@@ -128,7 +129,10 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
   }
   async function checkpoint() {
     abort(signal); progress();
-    if (++ticks % 32 === 0) { await new Promise(resolve => setImmediate(resolve)); abort(signal); }
+    // Yield the whole pool together: otherwise only the job at this tick waits
+    // while the other seven continue consuming entries through microtasks.
+    if (++ticks % 32 === 0 && !yieldTask) yieldTask = new Promise(resolve => setImmediate(() => { yieldTask = null; resolve(); }));
+    if (yieldTask) { await yieldTask; abort(signal); }
   }
   function preserve(prefix) { preserved.add(prefix); warningCount++; }
   function hasPreservedPrefix(relativePath) {

@@ -61,9 +61,39 @@ test('published long names and deep safe paths follow the server manifest contra
  try{const result=await downloadChart({endpoint,directory:root,signal:new AbortController().signal,fetcher:async url=>url.endsWith('download-manifest')?Response.json({title:'T'.repeat(140),files:[entry(name,'data')]}):new Response('data')});assert.equal(fs.readFileSync(path.join(result.destination,name),'utf8'),'data');}finally{fs.rmSync(root,{recursive:true,force:true});}
 });
 
-test('stalled manifest and file body time out, cancel streams and clean partial directories',async()=>{
- for(const phase of ['manifest','body']){const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-stall-'));let cancelled=false;
-  try{await assert.rejects(downloadChart({endpoint,directory:root,idleTimeoutMs:30,signal:new AbortController().signal,fetcher:async url=>phase==='manifest'?new Promise(()=>{}):url.endsWith('download-manifest')?Response.json({title:'Test',files:[entry()]}):new Response(new ReadableStream({cancel(){cancelled=true;}}))}),/aucune donnée/);assert.deepEqual(fs.readdirSync(root),[]);if(phase==='body')assert.equal(cancelled,true);}finally{fs.rmSync(root,{recursive:true,force:true});}
+test('stalled manifest and file body time out, cancel streams and clean partial directories',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ for(const phase of ['manifest','body']){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-stall-'));
+  fs.writeFileSync(path.join(root,'keep.txt'),'Existing chart');
+  let cancelled=false,requestSignal,markReading,markWriting,outputClosed;
+  const reading=new Promise(resolve=>{markReading=resolve;}),writing=new Promise(resolve=>{markWriting=resolve;});
+  const createWriteStream=fs.createWriteStream;
+  const observeOutput=t.mock.method(fs,'createWriteStream',function(...args){
+   const output=createWriteStream.apply(this,args);
+   output.once('ready',markWriting);outputClosed=new Promise(resolve=>output.once('close',resolve));
+   return output;
+  });
+  try{
+   const download=downloadChart({endpoint,directory:root,idleTimeoutMs:30,signal:new AbortController().signal,fetcher:async(url,options)=>{
+    requestSignal=options.signal;
+    if(phase==='manifest'){markReading();return new Promise(()=>{});}
+    if(url.endsWith('download-manifest'))return Response.json({title:'Test',files:[entry()]});
+    // HWM zero makes pull evidence of an actual consumer, not stream prefill.
+    return new Response(new ReadableStream({pull(){markReading();},cancel(){cancelled=true;}},{highWaterMark:0}));
+   }});
+   const rejected=assert.rejects(download,/aucune donnée/);
+   // Keep real filesystem work out of the idle-clock race. The body case must
+   // be read by the pipeline, with its real output descriptor already open.
+   await Promise.race([phase==='body'?Promise.all([reading,writing]):reading,download]);
+   assert.equal(requestSignal.aborted,false);
+   if(phase==='body')assert.equal(fs.readdirSync(root).some(name=>name.startsWith('.chartshub-partial-')),true);
+   t.mock.timers.tick(29);assert.equal(requestSignal.aborted,false);
+   t.mock.timers.tick(1);await rejected;
+   if(phase==='body'){await outputClosed;assert.equal(cancelled,true);}
+   assert.equal(requestSignal.aborted,true);
+   assert.deepEqual(fs.readdirSync(root),['keep.txt']);assert.equal(fs.readFileSync(path.join(root,'keep.txt'),'utf8'),'Existing chart');
+  }finally{observeOutput.mock.restore();fs.rmSync(root,{recursive:true,force:true});}
  }
 });
 

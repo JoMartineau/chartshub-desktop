@@ -135,7 +135,12 @@ async function syntheticScanner({ songCount = 10001, onEntry } = {}) {
       })();
     }
   };
-  const module = await injected('../companion/library-scanner.cjs', { 'node:fs/promises': fakeFs });
+  const module = await injected('../companion/library-scanner.cjs', { 'node:fs/promises': fakeFs,
+    // This inventory has no physical bundles. Avoid real failed filesystem
+    // requests that accidentally yield and conceal concurrent checkpoint bugs.
+    // The scanner performance suite exercises actual bundle snapshot checks.
+    './chart-bundle.cjs': { captureBundleSnapshot: async () => null }
+  });
   return { root, counts, scan: options => module.scanLibrary({ rootPath: root, ...options }) };
 }
 
@@ -167,7 +172,8 @@ test('scanner remains cancellable after 100,000 entries and closes its active di
   });
   await assert.rejects(fixture.scan({ signal: controller.signal }), { name: 'AbortError' });
   assert.equal(cancellationScheduled, true, 'reach the former cap before cancelling');
-  assert.ok(fixture.counts.entries >= 100001 && fixture.counts.entries <= 100040, 'cancellation is observed at a bounded yield');
+  // One shared 32-checkpoint batch plus at most eight prefetched entries.
+  assert.ok(fixture.counts.entries >= 100001 && fixture.counts.entries <= 100040, `cancellation is observed at a bounded yield (${fixture.counts.entries} entries)`);
   assert.equal(fixture.counts.closed, fixture.counts.opened);
   assert.equal(fixture.counts.reads, 0);
 });
