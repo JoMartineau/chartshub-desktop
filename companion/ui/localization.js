@@ -360,8 +360,11 @@
   function refresh() { scan(document.body); }
   function apply(value) {
     const next = value === 'fr' ? 'fr' : 'en';
+    const changed = next !== language;
     language = next; document.documentElement.lang = next; refresh();
-    window.dispatchEvent(new CustomEvent('chartshub:languagechange', { detail: { language: next } }));
+    // State snapshots repeat the current language. Rebuilding localized controls
+    // for those snapshots would replace focused or hovered buttons on each tick.
+    if (changed) window.dispatchEvent(new CustomEvent('chartshub:languagechange', { detail: { language: next } }));
     return language;
   }
   function mount() {

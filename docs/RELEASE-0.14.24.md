@@ -3,6 +3,8 @@
 Les actions du catalogue Companion, dont « Ajouter à la file », gardent leur
 position au survol. Leur fond reste opaque pendant le changement de couleur,
 ce qui évite le scintillement près du curseur.
+Les actualisations d’état conservent aussi les cartes et le focus du clavier
+tant que la langue ne change pas.
 
 Un menu natif au clic droit permet de couper, copier, coller, annuler et tout
 sélectionner dans les champs du Catalogue et de Companion. Les commandes

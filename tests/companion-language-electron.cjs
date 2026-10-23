@@ -40,7 +40,7 @@ app.whenReady().then(async()=>{
  assert.equal(await run("document.querySelector('#source-mode-label').textContent"),'DIRECT CLONE HERO');
  assert.equal(await run("document.querySelector('#profiles-title').textContent"),'Overlay profiles');
  assert.equal(await run("document.querySelector('#library-verify-all-duplicates').textContent"),'Verify audio for all duplicates');
- assert.equal(await run("document.querySelector('#catalogue-title').textContent"),'ChartsHub Catalogue');
+ assert.equal(await run("document.querySelector('#catalogue-title').textContent"),'ChartsHub and Chorus Encore');
  assert.equal(await run("document.querySelector('#downloads-title').textContent"),'Downloads');
  assert.equal(await run("document.querySelector('#clonehero-status').textContent"),'Waiting for a song');
  assert.equal(await run("document.querySelector('#clonehero-message').textContent"),'Clone Hero is closed. Waiting for a new session.');
@@ -71,6 +71,14 @@ app.whenReady().then(async()=>{
  })()`);
  assert.deepEqual(preserved,{song:'Artiste',profile:'Créateur'});
 
+ // New interface content still translates through the observer when snapshots
+ // repeat the same language and therefore do not rebuild localized controls.
+ await run(`(()=>{
+  const label=document.createElement('button');label.id='language-dynamic-fixture';label.textContent='Rechercher';label.title='Ajouter à la file';document.body.append(label);
+  const input=document.createElement('input');input.id='language-dynamic-input';input.placeholder='Rechercher une chart…';document.body.append(input);
+ })()`);
+ await waitFor(()=>run("document.querySelector('#language-dynamic-fixture').textContent==='Search'&&document.querySelector('#language-dynamic-fixture').title==='Add to queue'&&document.querySelector('#language-dynamic-input').placeholder==='Search for a chart…'"),'new English text and attributes translate without a language change');
+
  const originalOpen=dialog.showOpenDialog;let chooserTitle='';
  dialog.showOpenDialog=async(_owner,options)=>{chooserTitle=options.title;return {canceled:true,filePaths:[]};};
  try{
@@ -83,9 +91,12 @@ app.whenReady().then(async()=>{
  assert.equal(await run("document.querySelector('#source-mode-label').textContent"),'DIRECT CLONE HERO');
  assert.equal(await run("document.querySelector('#profiles-title').textContent"),'Profils d’overlay');
  assert.equal(await run("document.querySelector('#library-verify-all-duplicates').textContent"),"Vérifier l’audio de tous les doublons");
+ assert.equal(await run("document.querySelector('#language-dynamic-fixture').textContent"),'Rechercher');
+ assert.equal(await run("document.querySelector('#language-dynamic-input').placeholder"),'Rechercher une chart…');
 
  host.setLanguage('en');
  await waitFor(()=>run("document.documentElement.lang==='en'&&document.querySelector('#library-title')?.textContent==='Local library'"),'English switch again');
+ assert.equal(await run("document.querySelector('#language-dynamic-fixture').textContent"),'Search');
  assert.deepEqual(await run("({song:document.querySelector('.catalogue-user-fixture').textContent,profile:document.querySelector('.profile-item-name').textContent})"),{song:'Artiste',profile:'Créateur'});
 
  console.log(JSON.stringify({result:'COMPANION_LANGUAGE_SYNC_VERIFIED',switches:['en','fr','en'],userContentPreserved:true,chooserTitle}));
