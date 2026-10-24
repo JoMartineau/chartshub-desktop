@@ -8,6 +8,13 @@ const samePath = (a, b) => path.relative(a, b) === '';
 const sameIdentity = (a, b) => a.dev === b.dev && a.ino === b.ino;
 const sameFile = (a, b) => sameIdentity(a, b) && a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs;
 const failure = () => Error('Cette chanson installée est indisponible ou son chemin a changé.');
+function publicText(value) {
+  if (typeof value !== 'string' || value.length > 512) throw failure();
+  // Older indexes may retain invisible formatting. Normalize the public DTO
+  // without rewriting the indexed metadata or the installed song files.
+  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/[\u202a-\u202e\u2066-\u2069]/g, '').trim();
+}
+const uniqueTracks = tracks => [...new Map(tracks.map(track => [track.instrument + ':' + track.difficulty, track])).values()];
 
 async function inspect(root, relative, previous) {
   const names = [root];
@@ -59,7 +66,7 @@ function chartTracks(bytes) {
     tracks.push({ instrument, difficulty });
     if (instrument === 'drums' && /^\s*\d+\s*=\s*N\s+6[678]\s+\d+/m.test(section[3])) tracks.push({ instrument: 'pro-drums', difficulty });
   }
-  return tracks;
+  return uniqueTracks(tracks);
 }
 function midiTracks(bytes) {
   if (bytes.length < 14 || bytes.toString('ascii', 0, 4) !== 'MThd' || bytes.readUInt32BE(4) !== 6) throw failure();
@@ -111,7 +118,7 @@ function midiTracks(bytes) {
       if (instrument === 'drums' && cymbals) tracks.push({ instrument: 'pro-drums', difficulty: level });
     }
   }
-  return tracks;
+  return uniqueTracks(tracks);
 }
 
 /** Main/worker only: callers supply an indexed item, never a path from a viewer. */
@@ -123,6 +130,7 @@ async function resolveInstalledSong(rootPath, item) {
   const root = path.resolve(rootPath);
   const expectedExtension = { chart: '.chart', midi: '.mid', sng: '.sng' }[item.format];
   if (!expectedExtension || path.posix.extname(relative).toLowerCase() !== expectedExtension) throw failure();
+  const title = publicText(item.title), artist = publicText(item.artist), charter = publicText(item.charter);
   const bytes = await readSafe(root, relative, item.format === 'sng' ? 26 : 16 * 1024 * 1024, item.format === 'sng');
   if (!bytes || !bytes.length) throw failure();
   if (item.format === 'sng') {
@@ -153,6 +161,6 @@ async function resolveInstalledSong(rootPath, item) {
       if (!conflict && length && /^\d+$/.test(length) && Number.isSafeInteger(Number(length)) && Number(length) > 0) durationMs = Number(length);
     }
   } catch (error) { if (error.code !== 'ENOENT') throw failure(); }
-  return { id: item.id, title: item.title, artist: item.artist, charter: item.charter, ...(durationMs ? { durationMs } : {}), ...(tracks ? { tracks } : {}) };
+  return { id: item.id, title, artist, charter, ...(durationMs ? { durationMs } : {}), ...(tracks ? { tracks } : {}) };
 }
 module.exports = { resolveInstalledSong, chartTracks, midiTracks };
