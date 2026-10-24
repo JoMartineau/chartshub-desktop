@@ -63,15 +63,16 @@ async function fixture({ user: initialUser = member, argv = [], hostInitializati
     getPath: () => path.join(__dirname, 'unused-main-profile'), setPath() {}, quit() {}
   });
   const electron = {
-    app, BrowserWindow: Window, ipcMain: { handle: (name, handler) => ipc.set(name, handler) },
+    app, BrowserWindow: Window, ipcMain: { handle: (name, handler) => ipc.set(name, handler), removeHandler: name => ipc.delete(name) },
     session: { fromPartition: name => { assert.equal(name, 'persist:chartshub'); return session; } },
     Menu: { setApplicationMenu() {}, buildFromTemplate: template => ({ popup() { menus.push(template); } }) },
-    dialog: { showErrorBox: (...args) => errors.push(args), showMessageBox: async () => ({ response: 0 }) },
+    dialog: { showErrorBox: (...args) => errors.push(args), showMessageBox: async () => ({ response: 0 }), showSaveDialog: async () => ({canceled:true}), showOpenDialog: async () => ({canceled:true,filePaths:[]}) },
     shell: {}, nativeTheme: {}
   };
   const host = {
     async open() { hostOpens++; if (hostOpening) await hostOpening.promise; await hostOptions.embedded.activate(); },
-    async dispose() { hostDisposes++; if (hostDisposal) await hostDisposal.promise; }
+    async dispose() { hostDisposes++; if (hostDisposal) await hostDisposal.promise; },
+    maintenanceStatus: () => ({busyReasons:[]}), setMaintenanceLocked() {}, async flushPortableConfiguration() {}, getPanelContents: () => null
   };
   const createDesktopShell = options => {
     const catalogueView = { webContents: new Contents() };
@@ -79,7 +80,7 @@ async function fixture({ user: initialUser = member, argv = [], hostInitializati
       window: new Window(), catalogueView, ready: Promise.resolve(), activeTab: 'catalogue', available: false, disposed: false,
       select: name => options.onSelectTab(name),
       showTab(name) { if (this.disposed) throw Error('Shell disposed'); if (name === 'companion' && !this.available) return; this.activeTab = name; tabs.push(name); },
-      attachCompanion() {}, setTheme() {},
+      attachCompanion() {}, setTheme() {}, async flushPortableConfiguration() {},
       setCompanionAvailable(value) {
         if (this.disposed) throw Error('Shell disposed'); this.available = value; availability.push(value);
         if (!value && this.activeTab === 'companion') { this.activeTab = 'catalogue'; void options.onSelectTab('catalogue'); }
@@ -94,6 +95,11 @@ async function fixture({ user: initialUser = member, argv = [], hostInitializati
     if (name === 'electron') return electron;
     if (name === './desktop/controller.cjs') return { createDesktopShell };
     if (name === './companion/host.cjs') return { registerCompanionScheme() {}, async createCompanionHost(options) { hostCreates++; hostOptions = options; if (hostInitialization) await hostInitialization.promise; return host; } };
+    // These persistence/network engines are covered by their own synthetic and
+    // native suites. Main lifecycle tests must not open any actual profile or
+    // update endpoint just by constructing the application.
+    if (name === './desktop/config-backup.cjs') return {async createConfigBackup(options){assert.equal(options.directory,path.join(__dirname,'unused-main-profile','companion'));return {status:()=>({busy:false,preview:null}),assertPreview(){throw Error('No import permitted in main lifecycle fixture');},apply(){throw Error('No configuration writes permitted');}};}};
+    if (name === './desktop/update-service.cjs') return {createUpdateService(options){assert.equal(options.dataDirectory,path.join(__dirname,'unused-main-profile'));return {snapshot:()=>({status:'idle',canInstall:false,canRollback:false,busyReasons:[]}),async loadPreviousResult(){},dispose(){}};}};
     if (name === './download') return { ORIGIN, endpointValid: () => false, downloadChart: () => { throw Error('No download permitted'); } };
     if (name === './download-folder') return { folderPreferences: () => ({ get: async () => null }) };
     return require(name.startsWith('./') ? path.join(__dirname, '..', name) : name);

@@ -1,4 +1,6 @@
 'use strict';
+const {revealWorkspace,registerFixtureMaintenance}=require('./workspace-input.cjs');
+registerFixtureMaintenance();
 const { shell } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
@@ -68,6 +70,7 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
   const first = '[data-catalogue-id="native-catalogue-000"]';
   const second = '[data-catalogue-id="native-catalogue-001"]';
   const click = async selector => {
+    await revealWorkspace(panel, selector);
     await waitFor(() => evaluate(`(()=>{const node=document.querySelector(${JSON.stringify(selector)});return !!node&&!node.disabled&&!node.hidden})()`), 'catalogue control enabled: ' + selector);
     const point = await evaluate(`(()=>{
       const node=document.querySelector(${JSON.stringify(selector)});node.scrollIntoView({block:'center',inline:'nearest'});
@@ -150,6 +153,7 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
     const matchingFile = path.join(data, 'settings', 'matching.json');
     const linked = JSON.parse(await fs.readFile(matchingFile, 'utf8'));
     assert.equal(linked.links.length, 1); assert.equal(linked.links[0].chartId, 'native-catalogue-000');
+    await revealWorkspace(panel,"#catalogue-local-context");
     await evaluate("document.querySelector('#catalogue-local-context').scrollIntoView({block:'start'})");
     await fs.writeFile(path.join(data, 'companion-catalogue-linked.png'), (await panel.webContents.capturePage()).toPNG());
     await click(first + ' [data-catalogue-action="unlink"]'); await waitFor(readyToLink, 'association removed');
@@ -177,6 +181,7 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
     assert.deepEqual(host.snapshot().state, originalGame);
     assert.equal(host.snapshot().editor.revision, originalEditorRevision);
     panel.setSize(900, 660);
+    await revealWorkspace(panel,"#catalogue-panel");
     await evaluate("document.querySelector('#catalogue-panel').scrollIntoView({block:'start'})");
     await delay(120);
     assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true);

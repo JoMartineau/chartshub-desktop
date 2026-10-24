@@ -310,7 +310,9 @@ export class DuplicateComparisonControls {
     const status = this.element('#library-cleanup-result');
     if (status.hidden) return;
     status.focus({ preventScroll: true });
-    status.scrollIntoView?.({ block: 'nearest' });
+    // Keep the completed outcome inside the viewport, rather than flush with
+    // an edge where fractional layout/scroll rounding can clip its last line.
+    status.scrollIntoView?.({ block: 'center' });
   }
 
   private cleanupAvailable(): boolean {

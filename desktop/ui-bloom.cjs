@@ -94,6 +94,7 @@ function createUIBloomIpc({ ipcMain, getContents, isAvailable, getDirectory, cre
   ipcMain.handle(READ, (event, payload) => run(event, 'read', payload));
   ipcMain.handle(SAVE, (event, payload) => run(event, 'save', payload));
   return {
+    flush() { return pending.then(() => undefined); },
     notifyReady(contents) {
       try {
         if (trusted({ sender: contents, senderFrame: contents.mainFrame })) contents.send(READY);

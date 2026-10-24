@@ -8,17 +8,20 @@
   <link rel="stylesheet" href="./companion.css">
   <link rel="stylesheet" href="./floating-panels-controls.css">
   <link rel="stylesheet" href="./music-player.css">
-  <link rel="stylesheet" href="./button-motion.css">
+  <link rel="stylesheet" href="./workspace-navigation.css">
+<link rel="stylesheet" href="./button-motion.css">
+  
   <script src="./localization.js"></script>
 </head>
 <body>
   <main id="companion-app" class="companion-app">
     <header class="app-header">
+      <nav id="companion-workspace-nav" class="companion-workspace-nav" aria-label="Rubriques du Companion" translate="no"><button type="button" data-companion-workspace="library" aria-current="page">Bibliothèque</button><button type="button" data-companion-workspace="catalogue">Catalogue</button><button type="button" data-companion-workspace="player">Lecteur</button><button type="button" data-companion-workspace="stream">Stream / OBS</button><button type="button" data-companion-workspace="requests">Demandes</button><button type="button" data-companion-workspace="settings">Réglages</button></nav>
       <span id="source-mode-badge" class="demo-badge"><span aria-hidden="true"></span><span id="source-mode-label">MODE DÉMO</span></span>
     </header>
 
     <section class="page-heading" aria-labelledby="page-title">
-      <div><p class="eyebrow">CLONE HERO COMPANION</p><h1 id="page-title">Now Playing</h1><p class="subtitle">Les informations du morceau, visibles au bon moment.</p></div>
+      <div><p class="eyebrow">CLONE HERO COMPANION</p><h1 id="page-title" translate="no">Bibliothèque</h1><p class="subtitle" translate="no">Vos morceaux, leurs fichiers et leur état.</p></div>
       <label class="overlay-switch"><input id="overlay-enabled" type="checkbox"><span>Activer l’overlay du jeu</span></label>
     </section>
 
@@ -356,6 +359,8 @@
     </details>
     </div>
 
+    <section id="config-backup-panel" class="card maintenance-panel" aria-label="Configuration backup"><div id="config-backup-controls" translate="no"></div></section>
+    <section id="updates-panel" class="card maintenance-panel" aria-label="Application updates"><div id="updates-controls" translate="no"></div></section>
     <footer class="integration-note"><span class="integration-icon" aria-hidden="true">i</span><div><strong id="integration-note-title">Source Clone Hero simulée</strong><p id="integration-note-description">La démonstration utilise un scénario local. Choisissez Direct Clone Hero pour lire les informations exportées par le jeu.</p></div></footer>
     <p id="connection-status" class="connection-status" role="status">Connexion au Companion…</p>
   </main>
