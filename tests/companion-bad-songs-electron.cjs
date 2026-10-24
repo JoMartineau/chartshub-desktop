@@ -15,8 +15,9 @@ async function waitFor(check,label,timeout=20000){lastWait=label;const end=Date.
 async function click(selector){
     await revealWorkspace(panel, selector);
   await waitFor(()=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return !!n&&!n.disabled&&!n.hidden})()`),selector);
-  const point=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect(),p={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)},hit=document.elementFromPoint(p.x,p.y);if(!r.width||!r.height||!(hit===n||n.contains(hit)))throw Error('Bad songs control covered');return p})()`);
-  panel.focus();panel.webContents.focus();for(const type of ['mouseMove','mouseDown','mouseUp'])panel.webContents.sendInputEvent({type,...point,...(type==='mouseMove'?{}:{button:'left',clickCount:1})});await delay(45);
+  panel.focus();panel.webContents.focus();
+  const point=await evaluate(`(async()=>{const n=document.querySelector(${JSON.stringify(selector)});n.scrollIntoView({block:'center',behavior:'instant'});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));const r=n.getBoundingClientRect(),p={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)},hit=document.elementFromPoint(p.x,p.y);if(!r.width||!r.height||!(hit===n||n.contains(hit)))throw Error('Bad songs control covered');return p})()`);
+  for(const type of ['mouseMove','mouseDown','mouseUp'])panel.webContents.sendInputEvent({type,...point,...(type==='mouseMove'?{}:{button:'left',clickCount:1})});await delay(45);
 }
 async function capture(name){await fs.writeFile(path.join(directory,name+'.png'),(await panel.webContents.capturePage()).toPNG());}
 async function importReport(){await click('#library-bad-songs-import');await waitFor(()=>evaluate(`document.querySelector('#library-bad-songs').getAttribute('aria-busy')==='false'&&!document.querySelector('#library-bad-songs-plan').hidden&&document.querySelectorAll('.library-bad-song-check').length>=2`),'reported charts ready');}
@@ -38,15 +39,19 @@ app.whenReady().then(async()=>{
   await click('#library-bad-songs > summary');await importReport();
   assert.equal(await evaluate(`document.querySelectorAll('.library-bad-song-check:checked').length`),0);assert.equal(await evaluate(`document.querySelectorAll('.library-bad-song-check:not(:disabled)').length`),2);assert.equal(await evaluate(`document.querySelector('#library-bad-songs-recycle').disabled`),true);
   assert.match(await evaluate(`document.querySelector('#library-bad-songs-status').textContent`),/Report from|Rapport du/);passed.push('real report import renders raw corrupt notes, timestamp and reasons, excludes warnings and starts with no selection');
-  await evaluate(`(async()=>{const n=document.querySelector('#library-bad-songs-list');n.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
+  // Native focus restoration can move the page. Complete it before framing
+  // the report list and recording the coordinates used for the real wheel.
+  panel.focus();panel.webContents.focus();
+  await evaluate(`(async()=>{const n=document.querySelector('#library-bad-songs-list');n.focus({preventScroll:true});n.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});
     // Native wheel hit-testing must use the compositor's committed scroll.
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     window.__badSongsWheels=[];window.__badSongsWheelListener=event=>window.__badSongsWheels.push({trusted:event.isTrusted,inside:n.contains(event.target),deltaY:event.deltaY});
     document.addEventListener('wheel',window.__badSongsWheelListener,{capture:true,passive:true});
   })()`);
-  const layout=scrollLayout=await evaluate(`(()=>{const n=document.querySelector('#library-bad-songs-list'),r=n.getBoundingClientRect(),x=Math.round(r.left+r.width/2),y=Math.round(r.top+r.height/2),hit=document.elementFromPoint(x,y);return{x,y,inside:!!hit&&n.contains(hit),scrollTop:n.scrollTop,scrollHeight:n.scrollHeight,clientHeight:n.clientHeight,page:document.scrollingElement.scrollTop,contain:getComputedStyle(n).overscrollBehaviorY}})()`);
+  const layout=scrollLayout=await evaluate(`(()=>{const n=document.querySelector('#library-bad-songs-list'),r=n.getBoundingClientRect(),x=Math.round(r.left+r.width/2),y=Math.round(r.top+r.height/2),hit=document.elementFromPoint(x,y);return{x,y,inside:!!hit&&n.contains(hit),focused:document.activeElement===n,viewport:{width:innerWidth,height:innerHeight},navBottom:document.querySelector('.app-header').getBoundingClientRect().bottom,rect:{top:r.top,bottom:r.bottom},scrollTop:n.scrollTop,scrollHeight:n.scrollHeight,clientHeight:n.clientHeight,page:document.scrollingElement.scrollTop,contain:getComputedStyle(n).overscrollBehaviorY}})()`);
   assert.equal(layout.contain,'contain');assert.equal(layout.inside,true,'native wheel point hits the report list');assert.ok(layout.clientHeight>0&&layout.scrollHeight>layout.clientHeight,'the report list is scrollable');
-  panel.focus();panel.webContents.focus();panel.webContents.sendInputEvent({type:'mouseMove',x:layout.x,y:layout.y});
+  assert.equal(layout.focused,true,'native report list owns keyboard focus before framing the wheel');assert.ok(layout.x>=0&&layout.x<layout.viewport.width&&layout.y>=layout.navBottom&&layout.y<layout.viewport.height,'wheel point is inside the viewport below sticky navigation');
+  panel.webContents.sendInputEvent({type:'mouseMove',x:layout.x,y:layout.y});
   panel.webContents.sendInputEvent({type:'mouseWheel',x:layout.x,y:layout.y,deltaY:-350,deltaX:0,hasPreciseScrollingDeltas:true,canScroll:true});
   await waitFor(()=>evaluate(`document.querySelector('#library-bad-songs-list').scrollTop>${layout.scrollTop}`),'internal report scrolling');
   assert.equal(await evaluate(`window.__badSongsWheels.some(event=>event.trusted&&event.inside&&event.deltaY>0)`),true,'a real downward wheel reaches the report list');
