@@ -2,6 +2,20 @@
 // Test input adapter: reveal existing Companion content through its real navigation.
 // Floating widgets have no workspace navigation and are left untouched.
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+// Standalone Host fixtures do not construct main.js's maintenance module.
+// Install an explicit inert state before their renderer loads; any unexpected
+// update/restore action still fails instead of accessing disk or the network.
+function registerFixtureMaintenance(){
+ const {app,ipcMain}=require('electron');
+ const state=()=>({updater:{status:'idle',currentVersion:require('../package.json').version,latestVersion:null,notes:'',releaseUrl:null,progress:null,installSupported:false,canCheck:false,canDownload:false,canInstall:false,canRollback:false,previousVersion:null,busyReasons:[],error:null,lastResult:null},backup:{busy:false,preview:null,error:null}});
+ ipcMain.handle('chartshub-maintenance:state',event=>{
+  if(event.senderFrame!==event.sender.mainFrame||event.sender.getURL()!=='chartshub-companion://app/ui/index.html')throw Error('Fixture maintenance requires the main Companion frame');
+  return state();
+ });
+ ipcMain.handle('chartshub-maintenance:command',()=>{throw Error('Unexpected maintenance action in a standalone Host fixture');});
+ const dispose=()=>{ipcMain.removeHandler('chartshub-maintenance:state');ipcMain.removeHandler('chartshub-maintenance:command');};
+ app.once('will-quit',dispose);return dispose;
+}
 async function revealWorkspace(target,selector,{timeoutMs=10000}={}){
  if(!target?.webContents||typeof selector!=='string'||!selector)throw Error('Workspace input requires a window and selector');
  const web=target.webContents,start=Date.now();let state;
@@ -35,4 +49,4 @@ async function revealWorkspace(target,selector,{timeoutMs=10000}={}){
  }while(Date.now()-start<timeoutMs);
  throw Error('Workspace navigation did not reveal '+selector);
 }
-module.exports={revealWorkspace};
+module.exports={revealWorkspace,registerFixtureMaintenance};

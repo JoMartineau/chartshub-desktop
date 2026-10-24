@@ -1,5 +1,6 @@
 'use strict';
-const {revealWorkspace}=require('./workspace-input.cjs');
+const {revealWorkspace,registerFixtureMaintenance}=require('./workspace-input.cjs');
+registerFixtureMaintenance();
 const { BrowserWindow, desktopCapturer } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');

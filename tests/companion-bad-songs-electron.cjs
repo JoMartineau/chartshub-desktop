@@ -1,5 +1,6 @@
 'use strict';
-const {revealWorkspace}=require('./workspace-input.cjs');
+const {revealWorkspace,registerFixtureMaintenance}=require('./workspace-input.cjs');
+registerFixtureMaintenance();
 // Real renderer, IPC and worker; only disposable fixture pickers/dialogs/bin are mocked.
 const {app,dialog,shell}=require('electron');
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),{randomUUID}=require('node:crypto');

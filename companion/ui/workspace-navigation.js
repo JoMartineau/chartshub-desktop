@@ -17,7 +17,7 @@ export class WorkspaceNavigation{
   for(const [node,allowed]of this.nodes)node.dataset.companionWorkspaces=[...allowed].join(' ');
   this.nav=root.querySelector('#companion-workspace-nav');
   this.click=event=>{const button=event.target.closest?.('[data-companion-workspace]');if(button&&this.nav?.contains(button))this.select(button.dataset.companionWorkspace,{scroll:true});};
-  this.keys=event=>{const button=event.target.closest?.('[data-companion-workspace]');if(!button||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const list=[...this.nav.querySelectorAll('[data-companion-workspace]')],at=list.indexOf(button);const next=event.key==='Home'?0:event.key==='End'?list.length-1:(at+(event.key==='ArrowRight'?1:list.length-1))%list.length;list[next].focus();this.select(list[next].dataset.companionWorkspace);};
+  this.keys=event=>{const button=event.target.closest?.('[data-companion-workspace]');if(!button||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const list=[...this.nav.querySelectorAll('[data-companion-workspace]')],at=list.indexOf(button);const next=event.key==='Home'?0:event.key==='End'?list.length-1:(at+(event.key==='ArrowRight'?1:list.length-1))%list.length;list[next].focus();this.select(list[next].dataset.companionWorkspace,{scroll:true});};
   this.nav?.addEventListener('click',this.click);this.nav?.addEventListener('keydown',this.keys);
   this.select(this.active);this.update(language);
  }
@@ -29,7 +29,7 @@ export class WorkspaceNavigation{
   for(const button of this.nav?.querySelectorAll('[data-companion-workspace]')||[]){const selected=button.dataset.companionWorkspace===id;button.classList.toggle('is-active',selected);if(selected)button.setAttribute('aria-current','page');else button.removeAttribute('aria-current');}
   try{this.storage?.setItem(key,id);}catch{}
   this.update(this.language);
-  if(scroll)this.root.querySelector('.page-heading')?.scrollIntoView({block:'start',behavior:'instant'});
+  if(scroll)this.window.scrollTo({top:0,behavior:'instant'});
   this.window.dispatchEvent(new CustomEvent('companion:workspace-change',{detail:{workspace:id}}));
   this.window.requestAnimationFrame?.(()=>this.window.dispatchEvent(new Event('resize')));
   return true;

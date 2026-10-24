@@ -1,5 +1,6 @@
 'use strict';
-const {revealWorkspace}=require('./workspace-input.cjs');
+const {revealWorkspace,registerFixtureMaintenance}=require('./workspace-input.cjs');
+registerFixtureMaintenance();
 // Real Electron renderer, IPC, host, catalogue, queue and appearance persistence.
 // Catalogue/network, native folder picker and transfer worker are synthetic.
 // This script never accesses a real chart folder or starts a network transfer.

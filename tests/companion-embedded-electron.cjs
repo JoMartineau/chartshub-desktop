@@ -1,5 +1,6 @@
 'use strict';
-const {revealWorkspace}=require('./workspace-input.cjs');
+const {revealWorkspace,registerFixtureMaintenance}=require('./workspace-input.cjs');
+registerFixtureMaintenance();
 
 // Real renderer/IPC regression for the embedded Companion. All game and
 // download services below are fixtures; nothing is installed or downloaded.

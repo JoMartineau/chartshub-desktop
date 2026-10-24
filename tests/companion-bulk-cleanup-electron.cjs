@@ -1,5 +1,6 @@
 'use strict';
-const {revealWorkspace}=require('./workspace-input.cjs');
+const {revealWorkspace,registerFixtureMaintenance}=require('./workspace-input.cjs');
+registerFixtureMaintenance();
 // Real renderer/IPC/worker; only synthetic fixture dialogs and trash are intercepted.
 const { app, dialog, shell } = require('electron');
 const assert = require('node:assert/strict'), fs = require('node:fs/promises'), path = require('node:path');
