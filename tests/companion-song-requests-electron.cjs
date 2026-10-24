@@ -128,8 +128,11 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     assert.ok(sharingFixture?.connections.providers.twitch && sharingFixture.connections.providers.tiktok, 'native provider fixtures must be injected before testing connection controls');
     const connectionFixture = sharingFixture.connections;
     assert.equal(connectionFixture.connects.length, 0, 'opening the panel never connects a chat account');
-    for (const id of ['advanced', 'rules-details', 'sharing']) assert.equal(await evaluate(`document.querySelector('#song-requests-${id}').open`), false, id + ' starts collapsed');
+    for (const id of ['connections-details', 'advanced', 'rules-details', 'widget-details', 'sharing']) assert.equal(await evaluate(`document.querySelector('#song-requests-${id}').open`), false, id + ' starts collapsed');
     await evaluate("document.querySelector('#song-requests-panel').scrollIntoView({block:'start'})");
+    await click('#song-requests-resolve-chat');
+    await waitFor(() => evaluate("document.querySelector('#song-requests-connections-details').open"), 'chat resolution opens connection controls');
+    assert.equal(connectionFixture.connects.length, 0, 'opening connection settings never connects an account');
     assert.equal(await evaluate("document.querySelector('#song-requests-twitch-connect').getBoundingClientRect().width>0 && document.querySelector('#song-requests-tiktok-username').getBoundingClientRect().width>0"), true);
     await click('#song-requests-twitch-connect');
     await waitFor(() => state().connections.twitch.state === 'authorizing', 'mock Twitch authorization');
