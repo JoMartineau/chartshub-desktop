@@ -65,6 +65,16 @@ jobs:
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
           if ($report.result -ne 'COMPANION_WORKSPACES_OK' -or @($report.passed).Count -ne 10 -or @($report.captures).Count -ne 17 -or $report.fixtureOnly -ne $true -or $report.functionalOnly -eq $true -or @($report.runtimeErrors).Count -ne 0 -or @($report.consoleErrors).Count -ne 0 -or @($report.cspErrors).Count -ne 0 -or @($report.externalRequests).Count -ne 0) { throw 'Companion workspace verification incomplete' }
           if (@(Get-ChildItem -LiteralPath (Split-Path -Parent $reportPath) -Filter '*.png' -File).Count -ne 17) { throw 'Workspace screenshots missing' }
+      - name: Verify Windows updater helper survives Electron exit
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          node tests/updater-launcher-electron.cjs "$env:RUNNER_TEMP/updater-launcher"
+          if ($LASTEXITCODE -ne 0) { throw 'Updater launcher native verification failed' }
+          $reportPath = Join-Path $env:RUNNER_TEMP 'updater-launcher/report.json'
+          if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Updater launcher report missing' }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.result -ne 'UPDATER_LAUNCHER_ELECTRON_OK' -or $report.count -ne 10 -or @($report.passed).Count -ne 10 -or @($report.passed | Sort-Object -Unique).Count -ne 10 -or $report.defaultProductionLauncher -ne $true -or $report.loadedFromAsar -ne $true -or $report.readyHandshakeVerified -ne $true -or $report.helperExecuted -ne $true -or $report.helperSurvivedControllerExit -ne $true -or $report.controllerExitCode -ne 0 -or $report.timedOut -ne $false -or $report.windows -ne 0 -or $report.webContents -ne 0 -or $report.externalRequests -ne 0 -or $report.fixtureOnly -ne $true -or $report.realApplicationTouched -ne $false -or $report.realProfileTouched -ne $false -or $report.installerExecuted -ne $false) { throw 'Updater launcher evidence incomplete' }
       - name: Verify packaged updater ASAR planning without a window or installation
         if: ${{ !cancelled() }}
         shell: pwsh
@@ -106,6 +116,14 @@ jobs:
           if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Music player verification report missing' }
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
           if ($report.ok -ne $true -or @($report.passed).Count -ne 9) { throw 'Music player verification did not finish every required stage' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: updater-launcher-verification
+          path: |
+            ${{ runner.temp }}/updater-launcher/report.json
+            ${{ runner.temp }}/updater-launcher/electron-stderr.txt
+          if-no-files-found: error
       - uses: actions/upload-artifact@v4
         if: always()
         with:
