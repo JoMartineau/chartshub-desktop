@@ -11,7 +11,7 @@ foreach ($name in @('readyPath','releasedAfterControllerExitPath','completedPath
     $resolved = [IO.Path]::GetFullPath([string]$data.$name)
     if (!$resolved.StartsWith($root,[StringComparison]::OrdinalIgnoreCase)) { throw 'Fixture path escaped its job' }
 }
-$ready = @{planSha256=$PlanSha256; helperPid=$PID; marker='ACTUAL_POWERSHELL_SCRIPT_STARTED'} | ConvertTo-Json -Compress
+$ready = @{planSha256=$PlanSha256; helperPid=$PID; marker='ACTUAL_POWERSHELL_SCRIPT_STARTED'; executionPolicy=[Environment]::GetEnvironmentVariable('PSExecutionPolicyPreference')} | ConvertTo-Json -Compress
 [IO.File]::WriteAllText([string]$data.readyPath,$ready)
 $controller = Get-Process -Id ([int]$data.controllerPid) -ErrorAction SilentlyContinue
 if ($null -ne $controller -and !$controller.WaitForExit(15000)) { throw 'Fixture controller did not exit normally' }
