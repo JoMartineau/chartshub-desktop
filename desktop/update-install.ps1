@@ -285,7 +285,8 @@ try {
     $result.format='chartshub-update-result';$result.schema=2;$result.jobId=$config.id;$result.kind=$config.kind;$result.planSha256=$PlanSha256
     Write-NewJson $receipt $result
     # The user requested install/restart. The application itself is interactive.
-    Start-Process -FilePath (Join-Path $config.applicationDirectory 'ChartsHub.exe') -WorkingDirectory $config.applicationDirectory | Out-Null
+    $profileArgument='"'+(Full-Path $config.dataDirectory)+'"'
+    Start-Process -FilePath (Join-Path $config.applicationDirectory 'ChartsHub.exe') -ArgumentList @('--companion-profile',$profileArgument) -WorkingDirectory $config.applicationDirectory | Out-Null
 } catch {
     $message=$_.Exception.Message
     $outcome=if($message.StartsWith('rolled-back:')){'rolled-back'}elseif($message.StartsWith('recovery-required:')){'recovery-required'}else{'failed'}
@@ -298,7 +299,8 @@ try {
             $previous=Read-AsarPackage (Join-Path $config.applicationDirectory 'resources/app.asar')
             if($previous.name -cne 'chartshub-desktop' -or $previous.version -cne $config.currentVersion){throw 'Previous version changed'}
             Assert-NoChartsHub
-            Start-Process -FilePath (Join-Path $config.applicationDirectory 'ChartsHub.exe') -WorkingDirectory $config.applicationDirectory | Out-Null
+            $profileArgument='"'+(Full-Path $config.dataDirectory)+'"'
+            Start-Process -FilePath (Join-Path $config.applicationDirectory 'ChartsHub.exe') -ArgumentList @('--companion-profile',$profileArgument) -WorkingDirectory $config.applicationDirectory | Out-Null
         }catch{}
     }
 }
