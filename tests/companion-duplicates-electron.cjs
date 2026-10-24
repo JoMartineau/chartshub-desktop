@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 // Run with Electron after build:companion. Every file is synthetic and contained
 // in this run's fixture. Native dialog/bin boundaries are intercepted; the real
 // renderer, IPC, worker, scanner, verification and persistence all run normally.
@@ -29,6 +30,7 @@ async function waitFor(check, label, timeout = 15000) {
 const evaluate = code => panel.webContents.executeJavaScript(code);
 const command = (name, payload) => evaluate(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`);
 async function click(selector) {
+    await revealWorkspace(panel, selector);
   await waitFor(() => evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return !!n&&!n.disabled&&!n.hidden})()`), 'enabled control ' + selector);
   const point = await evaluate(`(()=>{
     const n=document.querySelector(${JSON.stringify(selector)});n.scrollIntoView({block:'center',inline:'nearest'});

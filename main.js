@@ -13,23 +13,27 @@ let desktop,web,companionHostPromise,closing=false,allowClose=false,companionAva
 let loadCatalogue=()=>{},canOpenCompanion=async()=>false;
 let notificationBroker=null;
 let songRequestSharing=null;
+let activeCompanionHost=null,maintenance=null,updater=null,maintenanceLocked=false,pendingUpdate=false;
+let backupModule=null,backupEngine=null,backupReady=Promise.resolve(),pendingBackupId=null;
 let buttonMotion={economy:false};
 let requestedTab=process.argv.includes('--companion')?'companion':'catalogue';
 const focusWindow=()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
 const openCompanion=async()=>{
  if(!desktop||closing)return;
  await desktop.ready;
+ await backupReady;
  if(closing)return;
  if(!await canOpenCompanion()){if(!closing&&requestedTab==='companion')await selectTab('catalogue');return;}
  if(closing||requestedTab!=='companion')return;
  if(!companionHostPromise)companionHostPromise=createCompanionHost({sharingClient:songRequestSharing,isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
  const host=await companionHostPromise;
+ activeCompanionHost=host;
  host.setLanguage?.(companionLanguage);
  host.setButtonMotion?.(buttonMotion);
  if(closing||!companionAvailable||requestedTab!=='companion')return;
  return host.open();
 };
-const showCompanion=()=>void selectTab('companion').catch(()=>dialog.showErrorBox('ChartsHub Companion','Le Companion ne peut pas démarrer. Vérifiez que la distribution est complète.'));
+const showCompanion=()=>void selectTab('companion').catch(error=>dialog.showErrorBox('ChartsHub Companion',error?.code==='BACKUP_RECOVERY_REQUIRED'?'Une restauration interrompue demande une vérification manuelle. Les fichiers et leurs sauvegardes ont été conservés.':'Le Companion ne peut pas démarrer. Vérifiez que la distribution est complète.'));
 async function selectTab(tab){
  if(closing||!['catalogue','companion'].includes(tab))return;
  requestedTab=tab;
@@ -48,7 +52,7 @@ const {windowTheme}=require('./window-theme');
 const {createAccountBoundDownloads}=require('./download-state');
 let win,job=null,guest=null;
 function trusted(url){try{const u=new URL(url);return u.origin===ORIGIN&&!u.username&&!u.password;}catch{return false;}}
-function allowedSender(event){return !closing&&win&&!win.isDestroyed()&&web&&!web.isDestroyed()&&event.sender===web&&event.senderFrame===web.mainFrame&&trusted(event.senderFrame.url);}
+function allowedSender(event){return !closing&&!maintenanceLocked&&win&&!win.isDestroyed()&&web&&!web.isDestroyed()&&event.sender===web&&event.senderFrame===web.mainFrame&&trusted(event.senderFrame.url);}
 async function external(url){
  try{const u=new URL(url);if(u.protocol!=='https:'||u.username||u.password)return;
  const {response}=await dialog.showMessageBox(win,{type:'question',buttons:['Annuler','Ouvrir dans le navigateur'],defaultId:0,cancelId:0,message:'Ouvrir ce lien externe ?',detail:u.href});if(response===1)await shell.openExternal(u.href);
@@ -62,7 +66,7 @@ else{
   ses.setPermissionRequestHandler((_web,permission,callback)=>callback(false));
   ses.setPermissionCheckHandler(()=>false);
   ses.on('will-download',(event)=>event.preventDefault());
-  desktop=createDesktopShell({cataloguePreferences:{session:ses,preload:path.join(__dirname,'preload.js'),additionalArguments:['--chartshub-tabbed'],contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,backgroundThrottling:false},onSelectTab:selectTab,onButtonMotion:value=>{buttonMotion={...value};if(companionHostPromise&&!closing)void companionHostPromise.then(host=>host.setButtonMotion?.(buttonMotion)).catch(()=>{});}});
+  desktop=createDesktopShell({cataloguePreferences:{session:ses,preload:path.join(__dirname,'preload.js'),additionalArguments:['--chartshub-tabbed'],contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,backgroundThrottling:false},onSelectTab:selectTab,isMaintenanceLocked:()=>maintenanceLocked,onButtonMotion:value=>{buttonMotion={...value};if(companionHostPromise&&!closing)void companionHostPromise.then(host=>host.setButtonMotion?.(buttonMotion)).catch(()=>{});}});
   win=desktop.window;web=desktop.catalogueView.webContents;
   attachEditContextMenu({contents:web,ownerWindow:win,buildMenu:template=>Menu.buildFromTemplate(template),language:()=>companionLanguage,isAllowed:()=>!closing&&trusted(web.getURL())});
   if(process.platform==='win32')app.setAppUserModelId?.('ca.chartshub.desktop');
@@ -89,6 +93,44 @@ else{
   const downloads=createAccountBoundDownloads({readAccount,cancel:()=>job?.abort(),publish:snapshot=>{if(catalogueAlive()&&trusted(web.getURL()))web.send('chartshub:download-state',snapshot);}});
   let accountRevision=0;
   songRequestSharing=require('./desktop/song-request-sharing.cjs').createSongRequestSharing({fetcher:(url,options)=>ses.fetch(url,options),readAccount,generation:()=>accountRevision});
+  updater=require('./desktop/update-service.cjs').createUpdateService({currentVersion:require('./package.json').version,platform:process.platform,arch:process.arch,packaged:app.isPackaged===true,
+   applicationDirectory:path.dirname(process.execPath),dataDirectory:app.getPath('userData'),
+   busyReasons:()=>[...(job?['chart_downloads']:[]),...(backupModule?.getState().busy?['configuration_busy']:[]),...(activeCompanionHost?.maintenanceStatus?.().busyReasons??[])],
+   openExternal:url=>shell.openExternal(url),launchHelper:require('./desktop/update-launcher.cjs').launchWindowsHelper,
+   onChange:()=>maintenance?.publish()
+  });
+  maintenance=require('./desktop/maintenance-ipc.cjs').createMaintenanceIpc({ipcMain,updater,dialog,
+   getContents:()=>activeCompanionHost?.getPanelContents(),getOwner:()=>win,isAvailable:()=>companionAvailable&&!closing&&!win.isDestroyed(),language:()=>companionLanguage,
+   beginInstall:async(isCurrent,kind='update')=>{
+    if(maintenanceLocked||closing||job||!(kind==='rollback'?updater.snapshot().canRollback:updater.snapshot().canInstall))throw Object.assign(Error('Busy'),{code:'UPDATE_OPERATIONS_ACTIVE'});
+    maintenanceLocked=true;activeCompanionHost?.setMaintenanceLocked(true);
+    try{
+     if(kind==='rollback')await updater.stageRollback();else await updater.stageInstallation();
+     if(closing||!companionAvailable||!isCurrent()||job||activeCompanionHost?.maintenanceStatus().busyReasons.length)throw Object.assign(Error('Busy'),{code:'UPDATE_OPERATIONS_ACTIVE'});
+     pendingUpdate=true;win.close();
+    }catch(error){await updater.cancelInstallation();maintenanceLocked=false;activeCompanionHost?.setMaintenanceLocked(false);throw error;}
+   }
+  });
+  void updater.loadPreviousResult();
+  const profileDirectory=path.join(app.getPath('userData'),'companion');
+  backupReady=require('./desktop/config-backup.cjs').createConfigBackup({directory:profileDirectory,version:require('./package.json').version,onChange:()=>maintenance?.publish()}).then(engine=>{
+   backupEngine=engine;
+   backupModule=require('./desktop/config-backup-ipc.cjs').createConfigBackupIpc({engine,getPanel:()=>win,dialog,protectedDirectories:[app.getPath('userData'),path.dirname(process.execPath)],language:()=>companionLanguage,publish:()=>maintenance?.publish(),
+    beforeExport:async()=>{
+     if(maintenanceLocked||closing||!companionAvailable)throw Object.assign(Error('Unavailable'),{code:'BACKUP_BUSY'});
+     maintenanceLocked=true;activeCompanionHost?.setMaintenanceLocked(true);
+     const release=()=>{maintenanceLocked=false;activeCompanionHost?.setMaintenanceLocked(false);};
+     try{await activeCompanionHost?.flushPortableConfiguration();await desktop.flushPortableConfiguration();return release;}catch(error){release();throw error;}
+    },
+    beginApply:async id=>{
+     backupEngine.assertPreview(id);
+     if(maintenanceLocked||closing||!companionAvailable||job||activeCompanionHost?.maintenanceStatus().busyReasons.length||['checking','downloading','staging'].includes(updater.snapshot().status))throw Object.assign(Error('Busy'),{code:'BACKUP_BUSY'});
+     maintenanceLocked=true;activeCompanionHost?.setMaintenanceLocked(true);pendingBackupId=id;win.close();return {ok:true};
+    }
+   });
+   maintenance.setBackupModule(backupModule);return engine;
+  });
+  void backupReady.catch(()=>{});
   const syncCatalogueAccess=()=>{if(companionHostPromise)void companionHostPromise.then(host=>host.setCatalogueAvailable(companionAvailable&&!closing)).catch(()=>{});};
   const refreshAccount=async()=>{
    const revision=accountRevision,result=await downloads.refresh();
@@ -263,9 +305,19 @@ else{
   const finishClose=async()=>{
    closing=true;
    notificationBroker?.invalidate();
+   let shutdownSucceeded=true;
    try{if(companionHostPromise)await (await companionHostPromise).dispose();}
-   catch(error){console.error('Companion shutdown:',error.message);}
-   finally{await notificationBroker?.dispose();await desktop.dispose();allowClose=true;if(!win.isDestroyed())win.close();}
+   catch(error){shutdownSucceeded=false;console.error('Companion shutdown:',error.message);}
+   finally{
+    try{await notificationBroker?.dispose();await desktop.dispose();}catch(error){shutdownSucceeded=false;console.error('Desktop shutdown:',error.message);}
+    if(pendingUpdate){try{if(!shutdownSucceeded)throw Error('Normal shutdown failed');await updater.authorizeInstallation();}catch{await updater.cancelInstallation();}}
+    if(pendingBackupId){
+     try{if(!shutdownSucceeded)throw Error('Normal shutdown failed');await backupEngine.apply(pendingBackupId,{quiesced:true});}
+     catch{dialog.showErrorBox('ChartsHub',companionLanguage==='fr'?'La restauration n’a pas pu être terminée. Les fichiers et leurs sauvegardes ont été conservés.':'The restore could not finish. Files and their backups have been preserved.');}
+     app.relaunch();
+    }
+    maintenance?.dispose();updater?.dispose();allowClose=true;if(!win.isDestroyed())win.close();
+   }
   };
   let closePrompt=false;
   win.on('close',event=>{

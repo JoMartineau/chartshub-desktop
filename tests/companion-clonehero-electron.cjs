@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -90,6 +91,7 @@ async function verifyCloneHero({ host, panel, data, passed, waitFor = defaultWai
     await command('widget.fontSize', { revision: revision(), id: 'song-charter', fontSize: oldFontSize });
     passed.push('widget font controls enlarge and shrink native charter text while preserving the original colored segments');
     await waitFor(() => evaluate(`document.querySelector('#clonehero-file-path').textContent.includes(${JSON.stringify('currentsong.txt')})&&document.querySelector('#clonehero-status').textContent.length>0`), 'selected file and live status are visible in source controls');
+    await revealWorkspace(panel,"#clonehero-mode");
     await evaluate("document.querySelector('#clonehero-mode').scrollIntoView({block:'center',inline:'nearest'})");
     await delay(180);
     await fs.writeFile(path.join(data, 'companion-clonehero-live.png'), (await panel.webContents.capturePage()).toPNG());

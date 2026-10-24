@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 // Real Electron renderer, IPC, host, catalogue, queue and appearance persistence.
 // Catalogue/network, native folder picker and transfer worker are synthetic.
 // This script never accesses a real chart folder or starts a network transfer.
@@ -26,6 +27,7 @@ async function waitFor(check, label, timeout = 15000) {
 const evaluate = code => mini.webContents.executeJavaScript(code);
 const command = (name, payload) => evaluate(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`);
 async function click(selector, target = mini) {
+    await revealWorkspace(target, selector);
   const evaluateControl = code => target.webContents.executeJavaScript(code);
   let point;
   await waitFor(async () => {
@@ -393,6 +395,7 @@ async function captureCompanionTheme() {
   for (const language of ['fr', 'en']) {
     host.setLanguage(language);
     await waitFor(() => panel.webContents.executeJavaScript(`document.documentElement.lang===${JSON.stringify(language)}&&!!document.querySelector('h1')`), 'Companion theme language ' + language);
+    await revealWorkspace(panel,'#clonehero-source');
     await panel.webContents.executeJavaScript("window.scrollTo({top:0,behavior:'instant'})");
     const layout = await panel.webContents.executeJavaScript("({width:innerWidth,height:innerHeight,pageWidth:document.documentElement.scrollWidth,background:getComputedStyle(document.documentElement).backgroundColor,text:getComputedStyle(document.body).color,accent:getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),surface:getComputedStyle(document.querySelector('#clonehero-source')).backgroundColor})");
     assert.ok(layout.pageWidth <= layout.width + 2, 'full Companion has no horizontal overflow');

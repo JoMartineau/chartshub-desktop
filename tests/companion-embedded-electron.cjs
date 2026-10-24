@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 
 // Real renderer/IPC regression for the embedded Companion. All game and
 // download services below are fixtures; nothing is installed or downloaded.
@@ -150,6 +151,7 @@ app.whenReady().then(async () => {
   assert.equal(dialogCount, 4);
   passed.push('four native directory pickers use the containing BrowserWindow as parent');
 
+  await revealWorkspace({webContents:contents},'#reshade-search');
   await evaluate("window.__embeddedMarker={stable:true};window.__embeddedNode=document.querySelector('#reshade-search');window.__embeddedNode.value='bloom';window.__embeddedNode.dispatchEvent(new Event('input',{bubbles:true}));void window.ChartsHubCompanion.command('reshade.setupPrepare',{includeStarterEffects:false})");
   await waitFor(() => setup.state === 'preparing', 'fixture setup starts');
   const refreshes = calls.refresh;

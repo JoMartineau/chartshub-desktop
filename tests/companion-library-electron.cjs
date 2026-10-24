@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 const { dialog, shell } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
@@ -35,6 +36,7 @@ async function verifyLibrary(panel, host, data, passed) {
     await fs.writeFile(path.join(directory, 'song.ini'), '[song]\nname = ' + title + '\nartist = ' + artist + '\ncharter = ' + charter + '\n');
   };
   const click = async selector => {
+    await revealWorkspace(panel, selector);
     await waitFor(() => evaluate(`(()=>{const node=document.querySelector(${JSON.stringify(selector)});return !!node&&!node.disabled&&!node.hidden})()`), 'library control enabled: ' + selector);
     const point = await evaluate(`(()=>{
       const node=document.querySelector(${JSON.stringify(selector)});node.scrollIntoView({block:'center',inline:'nearest'});
@@ -250,6 +252,7 @@ async function verifyLibrary(panel, host, data, passed) {
     assert.equal(await evaluate("document.querySelector('#library-refresh-on-start').checked"), false);
     assert.deepEqual(host.snapshot().state, originalGame, 'local library actions must not replace simulated gameplay or overlay data');
     assert.equal(host.snapshot().editor.revision, originalEditorRevision);
+    await revealWorkspace(panel,"#library-panel");
     await evaluate("document.querySelector('#library-panel').scrollIntoView({block:'start',inline:'nearest'})");
     await delay(120);
     await fs.writeFile(path.join(data, 'companion-library.png'), (await panel.webContents.capturePage()).toPNG());

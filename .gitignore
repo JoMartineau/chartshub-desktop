@@ -12,3 +12,4 @@ reshade-bridge/.zig-cache/
 reshade-bridge/zig-cache/
 reshade-bridge/*.o
 reshade-bridge/test-run/
+outputs/

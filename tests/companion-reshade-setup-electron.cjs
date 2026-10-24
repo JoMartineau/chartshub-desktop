@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 const { app, dialog } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -33,6 +34,7 @@ app.whenReady().then(async () => {
   await fs.mkdir(directory, { recursive: true });
   host = await createCompanionHost({ dataDirectory: directory, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }), reshadeService, reshadeSetupService });
   const panel = await host.open(), evaluate = code => panel.webContents.executeJavaScript(code);
+  await revealWorkspace(panel,'#game-filters');
   await waitFor(() => evaluate("!document.querySelector('#reshade-setup').hidden&&!document.querySelector('#reshade-setup-prepare').disabled"), 'assistant appears before connection');
   assert.equal(await evaluate("document.querySelector('#reshade-setup-effects').checked"), false);
   assert.match(await evaluate("document.querySelector('.reshade-setup-option').textContent"), /Ajouter le pack Curves, MagicHDR et Technicolor2/);
@@ -66,6 +68,7 @@ app.whenReady().then(async () => {
   assert.equal(await evaluate("window.__preparedFile===document.querySelector('#reshade-setup-files li')"), true, 'unchanged snapshots preserve the reviewed file nodes');
   source.running = false; publish();
   await waitFor(() => evaluate("!document.querySelector('#reshade-setup-install').disabled"), 'installation becomes available only after game closure');
+  await revealWorkspace(panel,"#reshade-setup");
   await evaluate("document.querySelector('#reshade-setup').scrollIntoView({block:'start'})"); await delay(100);
   await fs.writeFile(path.join(directory, 'reshade-setup-ready.png'), (await panel.webContents.capturePage()).toPNG());
   await evaluate("document.querySelector('#reshade-setup-effects').click()");

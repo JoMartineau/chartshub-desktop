@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 const { app } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -63,6 +64,7 @@ app.whenReady().then(async () => {
   });
   host = await createCompanionHost({ dataDirectory: directory, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }), reshadeService: service });
   const panel = await host.open(); const evaluate = code => panel.webContents.executeJavaScript(code);
+  await revealWorkspace(panel,'#game-filters');
   await evaluate("window.ChartsHubCompanion.command('reshade.command',{action:'selectEffect',effect:'Bloom.fx'})");
   await waitFor(() => evaluate("!!document.querySelector('[data-uniform-id=\"1:u:1\"] input[type=number]')"), 'selected parameter rendered');
   await host.setFiltersWidget(true); const widget = host.getFiltersWidget(); const mini = code => widget.webContents.executeJavaScript(code);

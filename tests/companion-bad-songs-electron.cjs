@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 // Real renderer, IPC and worker; only disposable fixture pickers/dialogs/bin are mocked.
 const {app,dialog,shell}=require('electron');
 const assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),{randomUUID}=require('node:crypto');
@@ -11,6 +12,7 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms)),evaluate=code=>pane
 const command=(name,payload)=>evaluate(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`);
 async function waitFor(check,label,timeout=20000){lastWait=label;const end=Date.now()+timeout;while(Date.now()<end){if(await check())return;await delay(35);}throw Error('Timed out: '+label);}
 async function click(selector){
+    await revealWorkspace(panel, selector);
   await waitFor(()=>evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return !!n&&!n.disabled&&!n.hidden})()`),selector);
   const point=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect(),p={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)},hit=document.elementFromPoint(p.x,p.y);if(!r.width||!r.height||!(hit===n||n.contains(hit)))throw Error('Bad songs control covered');return p})()`);
   panel.focus();panel.webContents.focus();for(const type of ['mouseMove','mouseDown','mouseUp'])panel.webContents.sendInputEvent({type,...point,...(type==='mouseMove'?{}:{button:'left',clickCount:1})});await delay(45);

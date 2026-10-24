@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 const { clipboard, BrowserWindow } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
@@ -92,6 +93,7 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
   clipboard.writeText = text => { copiedText = String(text); };
   const initialSize = panel.getSize(), fixtureRoot = path.join(data, 'song-requests-Songs-' + randomUUID());
   const click = async selector => {
+    await revealWorkspace(panel, selector);
     await waitFor(() => evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return n&&!n.disabled&&!n.hidden})()`), 'enabled ' + selector);
     panel.focus(); panel.webContents.focus();
     const point = await evaluate(`(async()=>{
@@ -129,6 +131,7 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     const connectionFixture = sharingFixture.connections;
     assert.equal(connectionFixture.connects.length, 0, 'opening the panel never connects a chat account');
     for (const id of ['connections-details', 'advanced', 'rules-details', 'widget-details', 'sharing']) assert.equal(await evaluate(`document.querySelector('#song-requests-${id}').open`), false, id + ' starts collapsed');
+    await revealWorkspace(panel,"#song-requests-panel");
     await evaluate("document.querySelector('#song-requests-panel').scrollIntoView({block:'start'})");
     await click('#song-requests-resolve-chat');
     await waitFor(() => evaluate("document.querySelector('#song-requests-connections-details').open"), 'chat resolution opens connection controls');
@@ -184,6 +187,7 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     await waitFor(() => evaluate("!document.querySelector('#song-requests-last-response').hidden && document.querySelector('#song-requests-last-response-message').textContent.length>0"), 'native TikTok response shown locally');
     assert.equal(connectionFixture.replies.length, 0, 'receive-only TikTok never sends a chat response');
     assert.equal(state().requests.length, 0, 'queue query does not create a request');
+    await revealWorkspace(panel,"#song-requests-last-response");
     await evaluate("document.querySelector('#song-requests-last-response').scrollIntoView({block:'center'})"); await shot('song-requests-direct-tiktok-local-response.png');
     await click('#song-requests-tiktok-disconnect'); await waitFor(() => !state().connections.tiktok.displayName, 'native TikTok disconnected before bridge tests');
     passed.push('Song Requests direct: native TikTok command enters the same queue, gives visible local feedback and never posts to TikTok chat');
@@ -274,7 +278,9 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
       assert.ok(layout.scroll <= layout.width + 1, language + ' Song Request section overflow'); assert.ok(layout.buttons.every(button => !!button.label.trim() && button.width > 0));
       await shot('song-requests-' + language + '.png');
       assert.equal(await evaluate("document.querySelector('#song-requests-publish-library').textContent"), language === 'fr' ? 'Actualiser la liste' : 'Update song list');
+      await revealWorkspace(panel,"#song-requests-sharing");
       await evaluate("document.querySelector('#song-requests-sharing').scrollIntoView({block:'center'})"); await shot('song-requests-sharing-' + language + '.png');
+      await revealWorkspace(panel,"#song-requests-items");
       await evaluate("document.querySelector('#song-requests-items').scrollIntoView({block:'center'})"); await shot('song-requests-queue-' + language + '.png');
     }
     passed.push('Song Requests: OBS read capability cannot enqueue, bilingual real panel and queue captures');

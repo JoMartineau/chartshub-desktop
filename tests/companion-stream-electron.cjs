@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 const { BrowserWindow, desktopCapturer } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
@@ -58,6 +59,7 @@ async function verifyStream(panel, host, data, passed) {
     assert.ok(result?.ok, 'Stream verification command failed: ' + name);
   };
   const click = async selector => {
+    await revealWorkspace(panel, selector);
     await waitFor(() => evaluate(`(()=>{const node=document.querySelector(${JSON.stringify(selector)});return !!node&&!node.disabled})()`), 'stream control enabled: ' + selector);
     const point = await evaluate(`(()=>{
       const node=document.querySelector(${JSON.stringify(selector)});node.scrollIntoView({block:'center',inline:'nearest'});
@@ -163,6 +165,7 @@ async function verifyStream(panel, host, data, passed) {
         const feedback = language === 'fr' ? 'Fenêtre ouverte. Sélectionnez son titre dans OBS.' : 'Window opened. Select its title in OBS.';
         await waitFor(() => evaluate(`document.querySelector('#stream-feedback').textContent===${JSON.stringify(feedback)}`), 'existing OBS opening confirmation follows language ' + language);
       }
+      await revealWorkspace(panel,".stream-native-windows");
       await evaluate("document.querySelector('.stream-native-windows').scrollIntoView({block:'center',inline:'nearest'})");
       await fs.writeFile(path.join(data, 'obs-window-instructions-' + language + '.png'), (await panel.webContents.capturePage()).toPNG());
     }
@@ -260,6 +263,7 @@ async function verifyStream(panel, host, data, passed) {
     assert.deepEqual(saved.stream, configured);
     assert.deepEqual(geometry(saved.widgets), originalGameGeometry);
     await sameRender('resolution settings retain the same logical composition');
+    await revealWorkspace(panel,"#stream-preview");
     await evaluate("document.querySelector('#stream-preview').scrollIntoView({block:'center',inline:'nearest'})");
     await delay(150);
     await fs.writeFile(path.join(data, 'stream-panel.png'), (await panel.webContents.capturePage()).toPNG());

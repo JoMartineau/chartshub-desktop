@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 const { app } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -41,6 +42,7 @@ app.whenReady().then(async () => {
   const panel = await host.open();
   panel.webContents.on('console-message', (...args) => { const message = typeof args[1] === 'object' ? args[1].message : args[2]; if (/Uncaught|Refused/.test(message || '')) errors.push(message); });
   const evaluate = code => panel.webContents.executeJavaScript(code);
+  await revealWorkspace(panel,'#game-filters');
   await waitFor(() => evaluate("document.querySelector('#reshade-status').textContent.includes('attente')"), 'installed bridge remains unconfirmed');
   assert.equal(await evaluate("document.querySelector('#reshade-enabled').disabled"), true);
   assert.equal(await evaluate("document.querySelector('#filters-classic-details').open"), false);
@@ -74,6 +76,7 @@ app.whenReady().then(async () => {
   assert.equal(calls[saveIndex - 1].action, 'uniform');
   await waitFor(() => evaluate("document.querySelector('#reshade-feedback').textContent.includes('Demande')"), 'save acknowledgment is candid');
   passed.push('float, vector, boolean, enum controls send native values; saving flushes pending slider changes before requesting preset save');
+  await revealWorkspace(panel,"#game-filters");
   await evaluate("document.querySelector('#game-filters').scrollIntoView({block:'start'})");
   await delay(100);
   await fs.writeFile(path.join(directory, 'reshade-panel-connected.png'), (await panel.webContents.capturePage()).toPNG());

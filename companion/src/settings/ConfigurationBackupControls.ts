@@ -1,0 +1,41 @@
+interface BackupPreview { id: string; createdAt: string; sourceVersion: string; groups: {key: string; count: number}[]; }
+interface BackupBridge {
+ getState(): Promise<{backup?: {preview?: BackupPreview|null; busy?: boolean; error?: string|null}; updater?: {status?: string; busyReasons?: string[]}}|null>;
+ subscribe(listener: (state: {backup?: {preview?: BackupPreview|null; busy?: boolean; error?: string|null}; updater?: {status?: string; busyReasons?: string[]}}) => void): () => void;
+ invoke(action: string, payload?: {id: string}): Promise<{ok: boolean; cancelled?: boolean; exported?: boolean; restarting?: boolean; preview?: BackupPreview; error?: string}>;
+}
+const groupLabels: Record<string,[string,string]>={overlay:['Widgets, thème et dispositions','Widgets, theme and layouts'],profiles:['Profils d’overlay','Overlay profiles'],panels:['Apparence des panneaux flottants','Floating panel appearance'],bloom:['Apparence de l’application','Application appearance'],requests:['Widget des demandes','Request widget'],requestWidget:['Widget des demandes','Request widget']};
+function validPreview(value: unknown): value is BackupPreview {
+ const p=value as BackupPreview;
+ return !!p&&typeof p.id==='string'&&p.id.length>0&&p.id.length<=128&&typeof p.createdAt==='string'&&Number.isFinite(Date.parse(p.createdAt))&&typeof p.sourceVersion==='string'&&/^\d+\.\d+\.\d+$/.test(p.sourceVersion)&&Array.isArray(p.groups)&&p.groups.length>0&&p.groups.length<=8&&new Set(p.groups.map(g=>g.key)).size===p.groups.length&&p.groups.every(g=>g&&Object.hasOwn(groupLabels,g.key)&&Number.isSafeInteger(g.count)&&g.count>=0&&g.count<=10000);
+}
+/** A preview contains category counts only; file paths never cross the bridge. */
+export class ConfigurationBackupControls {
+ private readonly abort=new AbortController();private readonly unsubscribe:()=>void;
+ private readonly heading:HTMLElement;private readonly description:HTMLElement;private readonly feedback:HTMLElement;private readonly previewBox:HTMLElement;private readonly previewTitle:HTMLElement;private readonly list:HTMLElement;private readonly buttons=new Map<string,HTMLButtonElement>();
+ private preview:BackupPreview|null=null;private language='en';private busy=false;private locked=false;private disposed=false;private result:''|'exported'|'restarting'|'error'='';private errorCode='';
+ constructor(private readonly options:{root:HTMLElement;bridge:BackupBridge}){
+  const d=options.root.ownerDocument;this.heading=d.createElement('h2');this.description=d.createElement('p');this.description.className='helper-text';const actions=d.createElement('div');actions.className='configuration-backup-actions';
+  for(const action of ['export','preview','apply','cancel']){const b=d.createElement('button');b.type='button';b.className='button '+(action==='apply'?'primary':'secondary');b.dataset.backupAction=action;b.addEventListener('click',()=>{void this.send(action);},{signal:this.abort.signal});this.buttons.set(action,b);actions.append(b);}
+  this.previewBox=d.createElement('div');this.previewBox.className='configuration-backup-preview';this.previewBox.hidden=true;this.previewTitle=d.createElement('strong');this.list=d.createElement('ul');this.previewBox.append(this.previewTitle,this.list);
+  this.feedback=d.createElement('p');this.feedback.setAttribute('role','status');this.feedback.className='helper-text';this.feedback.dataset.backupFeedback='';options.root.replaceChildren(this.heading,this.description,actions,this.previewBox,this.feedback);
+  this.unsubscribe=options.bridge.subscribe(state=>this.receive(state));this.render();void this.read();
+ }
+ update(value:{language?:string}):void{if(this.disposed)return;this.language=value.language==='fr'?'fr':'en';this.render();}
+ dispose():void{this.disposed=true;this.abort.abort();this.unsubscribe();}
+ private tr(fr:string,en:string):string{return this.language==='fr'?fr:en;}
+ private receive(state:Awaited<ReturnType<BackupBridge['getState']>>):void{if(this.disposed||!state)return;this.locked=!!state.backup?.busy||['downloading','staging'].includes(state.updater?.status||'')||!!state.updater?.busyReasons?.length;if(state.backup?.preview&&validPreview(state.backup.preview))this.preview=state.backup.preview;else if(state.backup&&Object.hasOwn(state.backup,'preview')&&state.backup.preview===null)this.preview=null;if(state.backup?.error){this.errorCode=state.backup.error;this.result='error';}this.render();}
+ private async read():Promise<void>{try{this.receive(await this.options.bridge.getState());}catch{if(!this.disposed){this.result='error';this.render();}}}
+ private async send(action:string):Promise<void>{const b=this.buttons.get(action);if(this.disposed||this.busy||!b||b.disabled||b.hidden)return;this.busy=true;this.result='';this.errorCode='';this.render();
+  try{const result=await this.options.bridge.invoke('backup.'+action,this.preview&&['apply','cancel'].includes(action)?{id:this.preview.id}:undefined);if(this.disposed)return;if(!result?.ok){if(!result?.cancelled){this.errorCode=result?.error||'';this.result='error';}}
+   else if(action==='preview'){if(result.preview&&validPreview(result.preview))this.preview=result.preview;else if(!result.cancelled)this.result='error';}
+   else if(action==='export'&&result.exported)this.result='exported';else if(action==='cancel')this.preview=null;else if(action==='apply'&&result.restarting)this.result='restarting';
+  }catch{if(!this.disposed)this.result='error';}finally{this.busy=false;if(!this.disposed){await this.read();this.render();}}
+ }
+ private render():void{if(this.disposed)return;this.heading.textContent=this.tr('Ma configuration visuelle','My visual configuration');this.description.textContent=this.tr('Enregistrez une copie des thèmes, widgets et panneaux pour les retrouver après une réinstallation ou sur un autre PC.','Save a copy of themes, widgets and panels to restore them after reinstalling or on another PC.');
+  const labels:Record<string,string>={export:this.tr('Enregistrer une copie','Save a copy'),preview:this.tr('Choisir une sauvegarde','Choose a backup'),apply:this.tr('Restaurer puis redémarrer','Restore and restart'),cancel:this.tr('Annuler','Cancel')};
+  for(const [key,b]of this.buttons){b.textContent=labels[key]||key;b.hidden=['apply','cancel'].includes(key)&&!this.preview;b.disabled=this.busy||(key==='apply'&&this.locked);}
+  this.previewBox.hidden=!this.preview;if(this.preview){const date=new Date(this.preview.createdAt).toLocaleString(this.language==='fr'?'fr-CA':'en-CA');this.previewTitle.textContent=this.tr('Configuration du ','Configuration from ')+date+' · '+this.preview.sourceVersion;this.list.replaceChildren(...this.preview.groups.map(g=>{const li=this.options.root.ownerDocument.createElement('li');li.textContent=(groupLabels[g.key]?.[this.language==='fr'?0:1]||g.key)+' · '+g.count;return li;}));}
+  this.feedback.textContent=this.result==='exported'?this.tr('Copie de configuration enregistrée.','Configuration copy saved.'):this.result==='restarting'?this.tr('Restauration et redémarrage en cours…','Restoring and restarting…'):this.result==='error'?this.errorCode==='BACKUP_FILE_EXISTS'?this.tr('Une copie existe déjà sous ce nom. Choisissez un nouveau nom.','A copy already exists with this name. Choose a new name.'):this.errorCode==='BACKUP_PROTECTED_LOCATION'?this.tr('Choisissez un dossier en dehors de l’application et de son profil.','Choose a folder outside the application and its profile.'):['BACKUP_PREVIEW_EXPIRED','BACKUP_CHANGED','BACKUP_STALE'].includes(this.errorCode)?this.tr('La sauvegarde ou la configuration a changé. Choisissez à nouveau le fichier.','The backup or configuration changed. Choose the file again.'):this.tr('L’opération n’a pas été terminée. Vérifiez la sauvegarde ou réessayez.','The operation did not finish. Check the backup or try again.'):this.busy?this.tr('Préparation…','Preparing…'):this.preview&&this.locked?this.tr('Terminez les opérations actives avant de restaurer la configuration.','Finish active operations before restoring the configuration.'):this.preview?this.tr('Vérifiez les catégories ci-dessus. La restauration remplacera leurs réglages actuels.','Review the categories above. Restoring replaces their current settings.'):'';
+ }
+}

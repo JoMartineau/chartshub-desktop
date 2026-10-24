@@ -1,4 +1,5 @@
 'use strict';
+const {revealWorkspace}=require('./workspace-input.cjs');
 const { app, BrowserWindow, session } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -47,6 +48,7 @@ async function videoFixture() {
 }
 const evaluate = (window, code) => window.webContents.executeJavaScript(code);
 async function click(window, selector) {
+    await revealWorkspace(window, selector);
   await waitFor(() => evaluate(window, `(()=>{const node=document.querySelector(${JSON.stringify(selector)});return !!node&&!node.disabled&&!node.hidden})()`), 'enabled control ' + selector);
   window.focus(); window.webContents.focus();
   const point = await evaluate(window, `(async()=>{const selector=${JSON.stringify(selector)},node=document.querySelector(selector);if(!node||node.disabled)throw Error('Unavailable control '+selector);node.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'});await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));const current=document.querySelector(selector),r=current.getBoundingClientRect(),point={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)},hit=document.elementFromPoint(point.x,point.y);if(!r.width||!r.height||!hit||!(hit===current||current.contains(hit)))throw Error('Covered control '+selector);return point})()`);
@@ -105,6 +107,7 @@ app.whenReady().then(async () => {
     }
     host = await createCompanionHost({ dataDirectory: path.join(data, 'settings'), cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: false, sessions: [] }) });
     const panel = await host.open(); panel.setSize(1000, 900);
+    await revealWorkspace(panel,'#local-music-player-panel');
     await host.library.selectRoot(root); await waitFor(() => host.library.status().status === 'ready' && host.library.status().count === 53, 'scan');
     await waitFor(() => evaluate(panel, "document.querySelectorAll('.local-player-listen').length===50"), 'installed list');
     assert.equal(host.snapshot().player.playing, false); assert.equal(host.snapshot().player.selection, null);
@@ -143,6 +146,7 @@ app.whenReady().then(async () => {
     await click(panel, '.local-player-song:nth-of-type(2) .local-player-add-playlist'); await waitFor(() => host.snapshot().player.playlists.find(item => item.id === playlist.id).songIds.length === 2, 'second playlist song');
     assert.equal(host.snapshot().player.selection, null, 'creating and filling a playlist never starts playback');
     await waitFor(() => evaluate(panel, "document.querySelector('#local-player-playlist-items').children.length===2"), 'playlist members displayed');
+    await revealWorkspace(panel,'#local-player-playlists');
     await evaluate(panel, "document.querySelector('#local-player-playlists').scrollIntoView({block:'center',behavior:'instant'})");
     await shot(panel, 'player-playlists');
     passed.push('Native playlist creation and two individual additions persist opaque local IDs without autoplay');
@@ -237,6 +241,7 @@ app.whenReady().then(async () => {
     await waitFor(() => !host.snapshot().player.playing && host.snapshot().player.selection?.title === 'Beta Fixture', 'playlist exhaustion stops without repeating');
     passed.push('Real PCM master completion advances to the remaining playlist song once; exhausted queue stops');
 
+    await revealWorkspace(panel,'#local-music-player-panel');
     await evaluate(panel, "document.querySelector('#local-music-player-panel').scrollIntoView({block:'start',behavior:'instant'})"); await shot(panel, 'player-main');
     const other = path.join(data, 'OtherSongs'); await fs.mkdir(other, { recursive: true }); await host.library.selectRoot(other);
     await waitFor(() => !host.snapshot().player.selection && !host.snapshot().player.playing, 'library replacement stops old audio');
