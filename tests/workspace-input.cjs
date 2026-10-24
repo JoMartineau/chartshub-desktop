@@ -5,7 +5,9 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 // Standalone Host fixtures do not construct main.js's maintenance module.
 // Install an explicit inert state before their renderer loads; any unexpected
 // update/restore action still fails instead of accessing disk or the network.
+let fixtureMaintenanceDispose=null;
 function registerFixtureMaintenance(){
+ if(fixtureMaintenanceDispose)return fixtureMaintenanceDispose;
  const {app,ipcMain}=require('electron');
  const state=()=>({updater:{status:'idle',currentVersion:require('../package.json').version,latestVersion:null,notes:'',releaseUrl:null,progress:null,installSupported:false,canCheck:false,canDownload:false,canInstall:false,canRollback:false,previousVersion:null,busyReasons:[],error:null,lastResult:null},backup:{busy:false,preview:null,error:null}});
  ipcMain.handle('chartshub-maintenance:state',event=>{
@@ -13,8 +15,12 @@ function registerFixtureMaintenance(){
   return state();
  });
  ipcMain.handle('chartshub-maintenance:command',()=>{throw Error('Unexpected maintenance action in a standalone Host fixture');});
- const dispose=()=>{ipcMain.removeHandler('chartshub-maintenance:state');ipcMain.removeHandler('chartshub-maintenance:command');};
- app.once('will-quit',dispose);return dispose;
+ const dispose=()=>{
+  if(fixtureMaintenanceDispose!==dispose)return;
+  fixtureMaintenanceDispose=null;app.removeListener('will-quit',dispose);
+  ipcMain.removeHandler('chartshub-maintenance:state');ipcMain.removeHandler('chartshub-maintenance:command');
+ };
+ fixtureMaintenanceDispose=dispose;app.once('will-quit',dispose);return dispose;
 }
 async function revealWorkspace(target,selector,{timeoutMs=10000}={}){
  if(!target?.webContents||typeof selector!=='string'||!selector)throw Error('Workspace input requires a window and selector');
