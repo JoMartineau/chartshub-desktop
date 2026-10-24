@@ -507,7 +507,12 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
       for (const item of index.items) {
         if (!current()) throw shareError('SHARE_LIBRARY_CHANGED');
         let song;
-        try { song = await resolveRequestSong(item.id, index); } catch { unavailableCount++; }
+        try {
+          song = await resolveRequestSong(item.id, index);
+          // A title containing only invisible formatting cannot be published.
+          // Keep this check here so otherwise valid audio remains playable.
+          if (!song?.title) throw shareError('SHARE_METADATA_INVALID');
+        } catch { unavailableCount++; song = null; }
         if (!current()) throw shareError('SHARE_LIBRARY_CHANGED');
         if (song) {
           bytes += Buffer.byteLength(JSON.stringify(song), 'utf8') + (songs.length ? 1 : 0);

@@ -361,3 +361,70 @@ test('actual worker RPC resolves only current indexed IDs and returns no filesys
   await fs.unlink(path.join(f.folder, 'notes.chart'));
   await assert.rejects(value.resolveRequestSong(f.item.id, context));
 });
+
+test('repeated chart sections produce unique public pairs while keeping distinct difficulties and pro drums', () => {
+  const easy = '[EasySingle]\n{\n 0 = N 0 0\n}\n';
+  const expert = '[ExpertSingle]\n{\n 0 = N 1 0\n}\n';
+  const drums = '[HardDrums]\n{\n 0 = N 2 0\n 0 = N 66 0\n}\n';
+  assert.deepEqual(chartTracks(Buffer.from(easy + expert + drums.repeat(40) + easy)), [
+    { instrument: 'guitar', difficulty: 'easy' }, { instrument: 'guitar', difficulty: 'expert' },
+    { instrument: 'drums', difficulty: 'hard' }, { instrument: 'pro-drums', difficulty: 'hard' }
+  ]);
+});
+
+test('repeated MIDI parts merge public pairs without losing distinct difficulty or cymbal evidence', () => {
+  const bytes = midi([
+    { name: 'PART GUITAR', events: [[0, 144, 60, 100]] },
+    { name: 'PART GUITAR', events: [[0, 144, 60, 100], [0, 144, 96, 100]] },
+    { name: 'PART DRUMS', events: [[0, 144, 96, 100]] },
+    { name: 'PART DRUMS', events: [[0, 144, 96, 100], [0, 144, 110, 100]] },
+    { name: 'PART DRUMS', events: [[0, 144, 84, 100], [0, 144, 110, 100]] }
+  ]);
+  assert.deepEqual(midiTracks(bytes), [
+    { instrument: 'guitar', difficulty: 'easy' }, { instrument: 'guitar', difficulty: 'expert' },
+    { instrument: 'drums', difficulty: 'expert' }, { instrument: 'pro-drums', difficulty: 'expert' },
+    { instrument: 'drums', difficulty: 'hard' }, { instrument: 'pro-drums', difficulty: 'hard' }
+  ]);
+});
+
+test('cached local metadata and repeated parts publish through the strict client without changing indexed or song data', async t => {
+  const { createSongRequestSharing } = require('../desktop/song-request-sharing.cjs');
+  const f = await fixture(t);
+  await fs.appendFile(path.join(f.folder, 'notes.chart'), '[ExpertSingle]\n{\n 0 = N 1 0\n}\n'.repeat(70));
+  const names = ['notes.chart', 'song.ini'];
+  const before = await Promise.all(names.map(name => fs.readFile(path.join(f.folder, name))));
+  const item = Object.freeze({ ...f.item, title: '\u202eÉté 🎸\u2069', artist: '日本語\tArtist', charter: 'Map\u2066per\u2069' });
+  const originalItem = JSON.stringify(item), song = await resolveInstalledSong(f.root, item);
+  assert.equal(song.title, 'Été 🎸'); assert.equal(song.artist, '日本語 Artist'); assert.equal(song.charter, 'Mapper');
+  assert.equal(song.tracks.length, 3);
+  const calls = [], uploadId = '11111111-1111-4111-8111-111111111111';
+  const upload = { id: uploadId, count: 1, received: 0, batches: 0, batchSize: 500, maxBatchBytes: 786432, expiresAt: new Date(Date.now() + 60000).toISOString() };
+  const client = createSongRequestSharing({ readAccount: async () => ({ id: 'synthetic-publisher', emailVerified: true }), fetcher: async (url, options) => {
+    const body = JSON.parse(options.body); calls.push({ url, method: options.method, body });
+    if (url.endsWith('/uploads')) return { ok: true, json: async () => ({ upload: { ...upload } }) };
+    if (url.endsWith('/batches/0')) { upload.received = body.songs.length; upload.batches = 1; return { ok: true, json: async () => ({ upload: { ...upload } }) }; }
+    assert.ok(url.endsWith('/commit'));
+    return { ok: true, json: async () => ({ library: { token: 'a'.repeat(64), count: 1, updatedAt: new Date().toISOString(), revision: uploadId } }) };
+  } });
+  const result = await client.publish({ songs: [song], rules: { maxDurationMinutes: null, instrument: 'all', difficulty: 'all' } });
+  assert.equal(result.count, 1); assert.deepEqual(calls.map(call => call.method), ['POST', 'PUT', 'POST']);
+  assert.deepEqual(calls[1].body.songs, [song]);
+  assert.equal(JSON.stringify(calls).includes(f.root), false); assert.equal(Object.hasOwn(song, 'relativePath'), false);
+  assert.equal(JSON.stringify(item), originalItem);
+  for (const [index, name] of names.entries()) assert.deepEqual(await fs.readFile(path.join(f.folder, name)), before[index]);
+});
+
+test('sharing excludes a title made only of invisible formatting and keeps the other prepared songs', async t => {
+  const f = await fixture(t), unusable = path.join(f.root, 'Invisible');
+  await fs.mkdir(unusable); await fs.writeFile(path.join(unusable, 'notes.chart'), chart);
+  await fs.writeFile(path.join(unusable, 'song.ini'), '[Song]\nname=\u202e\u2069\nartist=Band\ncharter=Mapper\n');
+  await fs.writeFile(path.join(unusable, 'song.wav'), Buffer.from('synthetic audio fixture'));
+  const value = await service(f), revision = value.status().revision;
+  assert.equal(value.query().items.find(item => item.title === '\u202e\u2069')?.artist, 'Band');
+  const prepared = await value.requestLibraryForSharing();
+  assert.equal(prepared.unavailableCount, 1); assert.equal(prepared.songs.length, 1); assert.equal(prepared.songs[0].title, 'Installed');
+  const playback = await value.resolvePlaybackSong(hash('Invisible/notes.chart'));
+  assert.equal(playback.title, ''); assert.equal(playback.media.length, 1, 'invisible title does not block otherwise valid audio playback');
+  assert.equal(value.status().revision, revision, 'preparation does not rescan or rewrite the local index');
+  assert.equal(value.query().items.find(item => item.title === '\u202e\u2069')?.artist, 'Band');
+});
