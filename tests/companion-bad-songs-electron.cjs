@@ -48,14 +48,21 @@ app.whenReady().then(async()=>{
     window.__badSongsWheels=[];window.__badSongsWheelListener=event=>window.__badSongsWheels.push({trusted:event.isTrusted,inside:n.contains(event.target),deltaY:event.deltaY});
     document.addEventListener('wheel',window.__badSongsWheelListener,{capture:true,passive:true});
   })()`);
+  // Flush the compositor before measuring the native wheel target. Route the
+  // event directly to this renderer, as the real edit-menu fixture does.
+  await panel.webContents.capturePage();
   const layout=scrollLayout=await evaluate(`(()=>{const n=document.querySelector('#library-bad-songs-list'),r=n.getBoundingClientRect(),x=Math.round(r.left+r.width/2),y=Math.round(r.top+r.height/2),hit=document.elementFromPoint(x,y);return{x,y,inside:!!hit&&n.contains(hit),focused:document.activeElement===n,viewport:{width:innerWidth,height:innerHeight},navBottom:document.querySelector('.app-header').getBoundingClientRect().bottom,rect:{top:r.top,bottom:r.bottom},scrollTop:n.scrollTop,scrollHeight:n.scrollHeight,clientHeight:n.clientHeight,page:document.scrollingElement.scrollTop,contain:getComputedStyle(n).overscrollBehaviorY}})()`);
   assert.equal(layout.contain,'contain');assert.equal(layout.inside,true,'native wheel point hits the report list');assert.ok(layout.clientHeight>0&&layout.scrollHeight>layout.clientHeight,'the report list is scrollable');
   assert.equal(layout.focused,true,'native report list owns keyboard focus before framing the wheel');assert.ok(layout.x>=0&&layout.x<layout.viewport.width&&layout.y>=layout.navBottom&&layout.y<layout.viewport.height,'wheel point is inside the viewport below sticky navigation');
-  panel.webContents.sendInputEvent({type:'mouseMove',x:layout.x,y:layout.y});
-  panel.webContents.sendInputEvent({type:'mouseWheel',x:layout.x,y:layout.y,deltaY:-350,deltaX:0,hasPreciseScrollingDeltas:true,canScroll:true});
-  await waitFor(()=>evaluate(`document.querySelector('#library-bad-songs-list').scrollTop>${layout.scrollTop}`),'internal report scrolling');
-  assert.equal(await evaluate(`window.__badSongsWheels.some(event=>event.trusted&&event.inside&&event.deltaY>0)`),true,'a real downward wheel reaches the report list');
-  assert.equal(await evaluate('document.scrollingElement.scrollTop'),layout.page);await evaluate(`document.removeEventListener('wheel',window.__badSongsWheelListener,{capture:true})`);passed.push('native wheel scrolling moves the report list without moving the complete page');
+  assert.equal(panel.webContents.debugger.isAttached(),false,'the wheel fixture owns its isolated debugger');panel.webContents.debugger.attach('1.3');
+  try{
+    await panel.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseMoved',x:layout.x,y:layout.y});
+    await panel.webContents.debugger.sendCommand('Input.dispatchMouseEvent',{type:'mouseWheel',x:layout.x,y:layout.y,deltaY:350,deltaX:0});
+    await waitFor(()=>evaluate(`document.querySelector('#library-bad-songs-list').scrollTop>${layout.scrollTop}`),'internal report scrolling');
+    assert.equal(await evaluate(`window.__badSongsWheels.some(event=>event.trusted&&event.inside&&event.deltaY>0)`),true,'a real downward wheel reaches the report list');
+    assert.equal(await evaluate('document.scrollingElement.scrollTop'),layout.page);
+  }finally{if(panel.webContents.debugger.isAttached())panel.webContents.debugger.detach();}
+  await evaluate(`document.removeEventListener('wheel',window.__badSongsWheelListener,{capture:true})`);passed.push('native wheel scrolling moves the report list without moving the complete page');
   await evaluate(`document.querySelector('#library-bad-songs-list').scrollTop=0`);const firstSelector='.library-bad-song[data-severity="error"] .library-bad-song-check';await click(firstSelector);await capture('selected-error');
   await click('#library-bad-songs-recycle');await waitFor(()=>confirmations===1&&evaluate(`document.querySelector('#library-bad-songs').getAttribute('aria-busy')==='false'`),'cancelled confirmation');assert.deepEqual(recycled,[]);assert.equal(host.snapshot().library.revision,revision);passed.push('native confirmation defaults to Cancel, names the selected full path and cancellation keeps every fixture file');
   action='change-report';await click('#library-bad-songs-recycle');await waitFor(()=>confirmations===2&&evaluate(`document.querySelector('#library-bad-songs').getAttribute('aria-busy')==='false'`),'changed report blocked');assert.deepEqual(recycled,[]);for(const [file,bytes]of originalFiles)assert.equal(await fs.readFile(file,'utf8'),bytes);passed.push('a report modified during the native dialog prevents all recycling');
