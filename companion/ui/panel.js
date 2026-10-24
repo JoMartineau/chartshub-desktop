@@ -59,6 +59,12 @@ const stream = new StreamControls({ root: query('#companion-app'), command: (nam
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const badSongs = new BadSongsCleanupControls({ root: query('#library-bad-songs'), command: (name, payload) => command(name, payload) });
 const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
+window.addEventListener('companion:library-focus', () => {
+  const panel = query('#library-panel'); panel?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  const target = currentSnapshot?.library?.settings?.rootPath ? query('#library-refresh') : query('#library-choose-root');
+  if (target && !target.disabled) target.focus({ preventScroll: true });
+  else if (panel) { panel.setAttribute('tabindex', '-1'); panel.focus({ preventScroll: true }); }
+});
 const musicPlayer = new LocalMusicPlayerControls({ root: query('#local-music-player-panel'), appearanceRoot: query('#theme-player-colors'), command: (name, payload) => command(name, payload) });
 const unsubscribeSpectrum = api?.player?.subscribeSpectrum?.(state => musicPlayer.spectrum(state)) ?? (() => {});
 const cleanupHistory = new CleanupHistoryControls({ root: query('#library-history-container'), command: (name, payload) => command(name, payload) });

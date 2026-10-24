@@ -107,6 +107,10 @@ function validCommand(command, payload, widgetIds) {
       && (rules.maxDurationMinutes === null || (Number.isInteger(rules.maxDurationMinutes) && rules.maxDurationMinutes >= 1 && rules.maxDurationMinutes <= 60))
       && INSTRUMENTS.includes(rules.instrument) && DIFFICULTIES.includes(rules.difficulty);
   }
+  if (command === 'songRequests.widget') {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).length !== 1 || !Object.hasOwn(payload, 'settings')) return false;
+    try { require('./song-request-widget.cjs').validateWidget(payload.settings); return true; } catch { return false; }
+  }
   if (['songRequests.accept', 'songRequests.reject', 'songRequests.played', 'songRequests.move'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(payload.id)
     && Object.keys(payload).length === (command === 'songRequests.move' ? 2 : 1)

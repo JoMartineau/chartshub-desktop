@@ -12,7 +12,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 const song = (id, changes = {}) => ({ id, title: 'Song ' + id, artist: 'Fixture artist', viewerName: 'Fixture viewer', platform: 'twitch', votes: 2, status: 'pending', ...changes });
 
 function fixture(t, { state = { enabled: true, language: 'fr', requests: [] }, fetcher, token = TOKEN } = {}) {
-  const document = { documentElement: { lang: 'fr' }, writes: 0 };
+  const styles = new Map();
+  const document = { documentElement: { lang: 'fr', style: { setProperty: (name, value) => styles.set(name, value) } }, writes: 0 };
   class Element {
     constructor(tag) { this.tagName = tag; this.children = []; this.parent = null; this.text = ''; this.className = ''; this.dataset = {}; this.hidden = false; this.events = new Map(); }
     set textContent(value) { document.writes++; this.text = String(value); this.children = []; }
@@ -47,27 +48,68 @@ function fixture(t, { state = { enabled: true, language: 'fr', requests: [] }, f
   };
   const close = () => events.get('pagehide')();
   t.after(close);
-  return { document, root, elements, requests, timers, poll, close,
+  return { document, root, elements, requests, timers, poll, close, styles,
     get: name => elements.get('request-' + name),
     rows: () => elements.get('request-queue').children,
     timeout: () => { const scheduled = [...timers].find(([, value]) => value.delay === 4000); assert.ok(scheduled); timers.delete(scheduled[0]); scheduled[1].callback(); } };
 }
 
-test('OBS shows the first five active requests in exact queue order, a featured next song, waiting total and remaining count', async t => {
+test('OBS defaults to three active requests in exact queue order, a featured next song, waiting total and remaining count', async t => {
   const requests = [song('one', { title: 'One', artist: 'Metallica', viewerName: 'Jo', votes: 8, status: 'accepted' }),
     ...Array.from({ length: 7 }, (_, index) => song('following-' + index, { platform: index % 2 ? 'tiktok' : 'youtube' }))];
   const ui = fixture(t, { state: { enabled: true, language: 'fr', requests: [...requests, song('done', { status: 'played' })], token: 'never-render-private-field' } });
   await tick();
-  assert.equal(ui.rows().length, 5); assert.equal(ui.get('count').textContent, '8');
+  assert.equal(ui.rows().length, 3); assert.equal(ui.get('count').textContent, '8');
   assert.match(ui.rows()[0].textContent, /À jouer ensuiteOneMetallicaTwitchDemandé parJo8 votes/);
   assert.match(ui.rows()[0].className, /is-next/); assert.doesNotMatch(ui.rows()[1].className, /is-next/);
   assert.equal(ui.rows()[0].children[1].children[0].hidden, false);
   assert.equal(ui.rows()[1].children[1].children[0].hidden, true);
   assert.equal(ui.rows()[1].children[1].children[1].textContent, 'Song following-0');
-  assert.match(ui.get('remaining').textContent, /3 autres demandes/);
+  assert.match(ui.get('remaining').textContent, /5 autres demandes/);
   assert.equal(ui.get('command').textContent, '!sr artiste titre');
   assert.doesNotMatch(ui.root.textContent, /En cours|Now playing|never-render-private-field|aaaaaaaaaaaaaaaa/);
   assert.ok(ui.rows().every(row => !row.className.includes('is-new')), 'opening OBS does not animate the entire queue');
+});
+
+test('OBS applies saved count, text size and accent; changing settings rerenders even an unchanged queue', async t => {
+  const requests = Array.from({ length: 12 }, (_, index) => song('synthetic-' + index));
+  const ui = fixture(t, { state: { enabled: true, language: 'fr', requests } }); await tick();
+  assert.equal(ui.rows().length, 3); assert.equal(ui.styles.get('--request-accent'), '#38bdf8'); assert.equal(ui.styles.get('--request-font-size'), '24px');
+  const widget = { accentColor: '#AABBCC', fontSize: 48, upcomingCount: 10, showNowPlaying: true, showViewerNames: true };
+  await ui.poll({ enabled: true, language: 'en', requests, widget });
+  assert.equal(ui.rows().length, 10); assert.equal(ui.styles.get('--request-accent'), '#aabbcc'); assert.equal(ui.styles.get('--request-font-size'), '48px');
+  assert.equal(ui.get('count').textContent, '12'); assert.match(ui.get('remaining').textContent, /2 more requests/);
+  await ui.poll({ enabled: true, requests, widget: { ...widget, fontSize: 16, upcomingCount: 1, showViewerNames: false } });
+  assert.equal(ui.rows().length, 1); assert.equal(ui.styles.get('--request-font-size'), '16px');
+  assert.equal(ui.rows()[0].children[1].children[3].hidden, true); assert.doesNotMatch(ui.rows()[0].textContent, /Fixture viewer/);
+  assert.match(css, /font-size:\s*var\(--request-font-size\)/); assert.match(css, /border-color:\s*var\(--request-accent\)/);
+});
+
+test('OBS shows only reported playing or exported metadata and labels anonymous website requests distinctly in both languages', async t => {
+  const widget = { accentColor: '#38bdf8', fontSize: 24, upcomingCount: 3, showNowPlaying: true, showViewerNames: true };
+  const nowPlaying = { title: '<img src=x>', artist: 'Synthetic artist', viewerName: 'Real fixture requester', state: 'playing' };
+  const requests = [song('web', { platform: 'website', viewerName: 'Spectateur web' })];
+  const ui = fixture(t, { state: { enabled: true, language: 'fr', requests, widget, nowPlaying } }); await tick();
+  assert.equal(ui.get('current').hidden, false); assert.equal(ui.get('current-label').textContent, 'En cours');
+  assert.equal(ui.get('current-title').textContent, '<img src=x>'); assert.equal(ui.get('current-viewer').textContent, 'Demandé par Real fixture requester');
+  assert.match(ui.rows()[0].textContent, /Site webDemandé parSpectateur web/); assert.doesNotMatch(ui.rows()[0].textContent, /Twitch/);
+  await ui.poll({ enabled: true, language: 'en', requests, widget, nowPlaying: { ...nowPlaying, state: 'exported' } });
+  assert.equal(ui.get('current-label').textContent, 'Last exported song'); assert.match(ui.rows()[0].textContent, /WebsiteRequested byWeb viewer/);
+  await ui.poll({ enabled: true, language: 'en', requests, widget: { ...widget, showViewerNames: false }, nowPlaying });
+  assert.equal(ui.get('current-viewer').hidden, true); assert.equal(ui.get('current-viewer').textContent, ''); assert.doesNotMatch(ui.root.textContent, /Real fixture requester|Spectateur web/);
+  await ui.poll({ enabled: true, requests, widget: { ...widget, showNowPlaying: false }, nowPlaying });
+  assert.equal(ui.get('current').hidden, true); assert.equal(ui.get('current-title').textContent, '');
+  await ui.poll({ enabled: true, requests, widget, nowPlaying: null }); assert.equal(ui.get('current').hidden, true);
+});
+
+test('invalid style settings and invented current-playing states fail closed without CSS or HTML injection', async t => {
+  const widget = { accentColor: '#38bdf8', fontSize: 24, upcomingCount: 3, showNowPlaying: true, showViewerNames: true };
+  for (const changes of [{ accentColor: 'red;display:none' }, { fontSize: 999 }, { upcomingCount: 11 }, { showViewerNames: 'yes' }, { url: 'https://example.invalid' }]) {
+    const ui = fixture(t, { state: { enabled: true, requests: [song('test')], widget: { ...widget, ...changes } } }); await tick();
+    assert.equal(ui.rows().length, 0); assert.equal(ui.get('status').dataset.state, 'unavailable'); assert.equal(ui.styles.size, 0);
+  }
+  const stale = fixture(t, { state: { enabled: true, requests: [song('test')], widget, nowPlaying: { title: 'Unverified title', artist: 'Synthetic artist', state: 'idle' } } }); await tick();
+  assert.equal(stale.get('current').hidden, true); assert.equal(stale.get('current-title').textContent, '');
 });
 
 test('unchanged polls do not rerender; only new IDs animate and votes, language changes or reorders do not animate existing songs', async t => {

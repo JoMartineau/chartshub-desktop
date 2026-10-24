@@ -128,8 +128,11 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     assert.ok(sharingFixture?.connections.providers.twitch && sharingFixture.connections.providers.tiktok, 'native provider fixtures must be injected before testing connection controls');
     const connectionFixture = sharingFixture.connections;
     assert.equal(connectionFixture.connects.length, 0, 'opening the panel never connects a chat account');
-    for (const id of ['advanced', 'rules-details', 'sharing']) assert.equal(await evaluate(`document.querySelector('#song-requests-${id}').open`), false, id + ' starts collapsed');
+    for (const id of ['connections-details', 'advanced', 'rules-details', 'widget-details', 'sharing']) assert.equal(await evaluate(`document.querySelector('#song-requests-${id}').open`), false, id + ' starts collapsed');
     await evaluate("document.querySelector('#song-requests-panel').scrollIntoView({block:'start'})");
+    await click('#song-requests-resolve-chat');
+    await waitFor(() => evaluate("document.querySelector('#song-requests-connections-details').open"), 'chat resolution opens connection controls');
+    assert.equal(connectionFixture.connects.length, 0, 'opening connection settings never connects an account');
     assert.equal(await evaluate("document.querySelector('#song-requests-twitch-connect').getBoundingClientRect().width>0 && document.querySelector('#song-requests-tiktok-username').getBoundingClientRect().width>0"), true);
     await click('#song-requests-twitch-connect');
     await waitFor(() => state().connections.twitch.state === 'authorizing', 'mock Twitch authorization');
@@ -217,9 +220,19 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     assert.equal(widgetText.includes(configuration.token), false); assert.equal(widgetText.includes(new URL(state().bridge.overlayUrl).searchParams.get('token')), false);
     assert.equal(widgetText.includes(fixtureRoot), false); assert.match(widgetText, /<img src=x onerror=unsafe\(\)>/);
     assert.equal(await obs("document.querySelectorAll('main img,main script,main iframe').length"), 0);
+    const defaultWidget = { ...state().widget };
+    assert.equal(defaultWidget.upcomingCount, 3);
+    assert.equal((await command('songRequests.widget', { settings: { ...defaultWidget, accentColor: '#f59e0b', fontSize: 32, upcomingCount: 1, showViewerNames: false, showNowPlaying: false } })).ok, true);
+    await waitFor(() => obs("document.querySelectorAll('#request-queue > li').length===1 && getComputedStyle(document.querySelector('main')).fontSize==='32px' && getComputedStyle(document.documentElement).getPropertyValue('--request-accent').trim()==='#f59e0b'"), 'OBS applies saved count, size and accent');
+    assert.equal(await obs("getComputedStyle(document.querySelector('.request-viewer')).display"), 'none');
+    assert.equal(await obs("document.querySelector('#request-current').hidden"), true);
+    assert.equal(await obs("[...document.querySelectorAll('.request-viewer-name')].every(node=>node.textContent==='')"), true);
+    await fs.writeFile(path.join(data, 'song-requests-obs-customized.png'), (await obsWindow.webContents.capturePage()).toPNG());
+    assert.equal((await command('songRequests.widget', { settings: defaultWidget })).ok, true);
+    await waitFor(() => obs("document.querySelectorAll('#request-queue > li').length===3 && getComputedStyle(document.querySelector('main')).fontSize==='24px'"), 'OBS restores default three requests');
     for (const language of ['fr', 'en']) {
       host.setLanguage(language);
-      await waitFor(() => obs(`document.documentElement.lang===${JSON.stringify(language)} && document.querySelector('.request-next-label').textContent===${JSON.stringify(language === 'fr' ? 'À jouer ensuite' : 'Up next')}`), 'OBS widget language ' + language);
+      await waitFor(() => obs(`document.documentElement.lang===${JSON.stringify(language)} && document.querySelector('#request-queue .request-next-label').textContent===${JSON.stringify(language === 'fr' ? 'À jouer ensuite' : 'Up next')}`), 'OBS widget language ' + language);
       for (const width of [480, 320]) {
         obsWindow.setSize(width, 680); await delay(100);
         const geometry = await obs("({width:innerWidth,scroll:document.documentElement.scrollWidth,background:getComputedStyle(document.body).backgroundColor,rows:document.querySelectorAll('#request-queue>li').length})");
@@ -229,7 +242,7 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
       }
     }
     obsWindow.destroy(); obsWindow = null; host.setLanguage(initialLanguage);
-    passed.push('Song Requests OBS: real sandboxed browser source, featured next request, plain text, private read capability and transparent bilingual 480px/320px captures');
+    passed.push('Song Requests OBS: real sandboxed browser source, saved color/text-size/row-count/privacy options, default three requests, plain text and transparent bilingual 480px/320px captures');
 
     await click(selector(byTitle('SR Fixture Beta'), 'move-up')); await waitFor(() => state().requests.filter(item => ['pending', 'accepted'].includes(item.status))[0].title === 'SR Fixture Beta', 'manual queue order');
     await click(selector(byTitle('SR Fixture Alpha'), 'accept')); await waitFor(() => byTitle('SR Fixture Alpha').status === 'accepted', 'explicit acceptance');

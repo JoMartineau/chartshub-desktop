@@ -75,7 +75,7 @@ test('Song Request moderation acts only on eligible explicit cards and never on 
   buttons(1)[0].dispatchEvent(new Event('click')); assert.equal(ui.calls.length, 1, 'only one moderation command in flight');
   ui.snapshot.songRequests.requests[0].status = 'rejected'; ui.controls.update(ui.snapshot); ui.calls[0].resolve({ ok: false }); await tick();
   oldAccept.dispatchEvent(new Event('click')); assert.equal(ui.calls.length, 1, 'removed card listeners cannot act on stale status');
-  ui.get('#song-requests-items').children[1].querySelectorAll('button')[0].click(); assert.equal(ui.calls[1].name, 'songRequests.played'); assert.deepEqual(ui.calls[1].payload, { id: 'two' });
+  ui.get('#song-requests-items').children.find(card => card.dataset.requestId === 'two').querySelectorAll('button')[0].click(); assert.equal(ui.calls[1].name, 'songRequests.played'); assert.deepEqual(ui.calls[1].payload, { id: 'two' });
 });
 
 test('Song Request order buttons preserve boundary protection and target only the selected active song', async t => {
@@ -353,4 +353,44 @@ test('direct receiving status is independent of bridge availability and control 
   const writes = ui.document.writes; ui.calls[0].resolve({ ok: false, error: 'late secret' }); await tick();
   ui.get('#song-requests-twitch-connect').dispatchEvent(new Event('click'));
   assert.equal(ui.calls.length, 1); assert.equal(ui.document.writes, writes);
+});
+
+
+test('request readiness overview distinguishes chat, library and public sharing and opens existing resolution controls', async t => {
+  const ui = await fixture(t); ui.snapshot.songRequests.connections = connections({ twitch: { state: 'connected', displayName: 'Fixture channel', error: null, canReply: true } });
+  ui.snapshot.songRequests.sharing = { supported: true, url: 'https://example.invalid/list', count: 3, updatedAt: null, busy: false, error: null };
+  ui.controls.update(ui.snapshot); assert.match(ui.get('#song-requests-health-chat').textContent, /Chat connecté/); assert.match(ui.get('#song-requests-health-chat-help').textContent, /quand vous êtes prêt/); assert.match(ui.get('#song-requests-health-library').textContent, /3 morceaux prêts/); assert.equal(ui.get('#song-requests-health-sharing').textContent, 'Liste publiée');
+  assert.equal(ui.calls.length, 0); ui.get('#song-requests-resolve-chat').click(); assert.equal(ui.get('#song-requests-connections-details').open, true); ui.get('#song-requests-resolve-sharing').click(); assert.equal(ui.get('#song-requests-sharing').open, true); assert.equal(ui.calls.length, 0);
+  let openedLibrary = false; ui.document.defaultView.addEventListener('companion:library-focus', () => { openedLibrary = true; }); ui.get('#song-requests-resolve-library').click(); assert.equal(openedLibrary, true);
+  ui.controls.update({ ...ui.snapshot, library: { status: 'scanning', count: 3 }, songRequests: { ...ui.snapshot.songRequests, publicRequests: { supported: true, active: true, connected: true, error: null, pendingAcknowledgements: 0 }, sharing: { ...ui.snapshot.songRequests.sharing, error: 'PRIVATE TOKEN C:\\secret' } } });
+  assert.match(ui.get('#song-requests-health-library').textContent, /Analyse/); assert.equal(ui.get('#song-requests-health-sharing').textContent, 'Partage à vérifier'); assert.equal(ui.get('#song-requests-health-web').textContent, 'Site web : réception active'); assert.doesNotMatch(ui.root.textContent, /PRIVATE TOKEN|secret/);
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange')); assert.equal(ui.get('#song-requests-health-library').textContent, 'Scan in progress…'); assert.equal(ui.get('#song-requests-health-web').textContent, 'Website: receiving requests');
+});
+
+test('compact request queue keeps active songs first, hides history until requested and skips with one explicit command', async t => {
+  const ui = await fixture(t); ui.snapshot.songRequests.requests = [request('history', 'played'), request('first'), request('next', 'accepted')]; ui.controls.update(ui.snapshot);
+  const cards = ui.get('#song-requests-items').children; assert.deepEqual(cards.map(card => card.dataset.requestId), ['first', 'next', 'history']); assert.equal(cards[2].hidden, true); assert.equal(cards[0].querySelector('.song-request-position').textContent, '1'); assert.equal(cards[1].querySelector('.song-request-position').textContent, '2');
+  ui.get('#song-requests-toggle-history').click(); assert.equal(ui.get('#song-requests-toggle-history').getAttribute('aria-expanded'), 'true'); assert.equal(ui.get('#song-requests-items').children[2].hidden, false);
+  const skip = ui.get('#song-requests-items').children[1].querySelectorAll('button').find(button => button.dataset.action === 'reject'); assert.equal(skip.textContent, 'Passer'); skip.click(); assert.deepEqual(ui.calls[0].payload, { id: 'next' }); assert.equal(ui.calls[0].name, 'songRequests.reject'); skip.click(); assert.equal(ui.calls.length, 1);
+});
+
+test('OBS widget settings preserve independent drafts and validate bounds before one explicit settings command', async t => {
+  const ui = await fixture(t), settings = { accentColor: '#38bdf8', fontSize: 24, upcomingCount: 3, showNowPlaying: true, showViewerNames: true };
+  ui.snapshot.songRequests.widget = settings; ui.controls.update(ui.snapshot); assert.equal(ui.get('#song-requests-widget-count').value, '3'); assert.equal(ui.get('#song-requests-widget-apply').disabled, true); assert.equal(ui.calls.length, 0);
+  ui.set('max-duration', '8'); ui.set('widget-size', '30'); ui.set('widget-count', '4'); ui.set('widget-color', '#AABBCC'); ui.get('#song-requests-widget-viewers').checked = false;
+  ui.controls.update({ ...ui.snapshot, songRequests: { ...ui.snapshot.songRequests, revision: 17 } }); assert.equal(ui.get('#song-requests-widget-size').value, '30'); assert.equal(ui.get('#song-requests-max-duration').value, '8'); assert.equal(ui.calls.length, 0);
+  for (const [name, value] of [['widget-size', '15'], ['widget-size', '49'], ['widget-size', '18.5'], ['widget-count', '0'], ['widget-count', '11'], ['widget-color', 'invalid']]) {
+    ui.set('widget-size', '30'); ui.set('widget-count', '4'); ui.set('widget-color', '#AABBCC'); ui.set(name, value); ui.get('#song-requests-widget-form').dispatchEvent(new Event('submit', { cancelable: true })); assert.equal(ui.calls.length, 0);
+  }
+  ui.set('widget-size', '30'); ui.set('widget-count', '4'); ui.set('widget-color', '#AABBCC'); ui.get('#song-requests-widget-form').dispatchEvent(new Event('submit', { cancelable: true }));
+  assert.equal(ui.calls[0].name, 'songRequests.widget'); assert.deepEqual(ui.calls[0].payload, { settings: { accentColor: '#aabbcc', fontSize: 30, upcomingCount: 4, showNowPlaying: true, showViewerNames: false } });
+  ui.calls[0].resolve({ ok: false }); await tick(); assert.equal(ui.get('#song-requests-widget-size').value, '30'); assert.equal(ui.get('#song-requests-max-duration').value, '8'); assert.equal(ui.get('#song-requests-widget-apply').disabled, false);
+  ui.get('#song-requests-widget-form').dispatchEvent(new Event('submit', { cancelable: true })); ui.snapshot.songRequests.widget = ui.calls[1].payload.settings; ui.controls.update(ui.snapshot); ui.calls[1].resolve({ ok: true }); await tick(); assert.equal(ui.get('#song-requests-widget-apply').disabled, true); assert.equal(ui.get('#song-requests-apply').disabled, false, 'saving widget keeps the rules draft');
+});
+
+
+test('anonymous website requests use clear bilingual platform and viewer labels', async t => {
+  const ui = await fixture(t); ui.snapshot.songRequests.requests = [{ ...request('website'), platform: 'website', viewerName: 'Spectateur web' }]; ui.controls.update(ui.snapshot);
+  assert.match(ui.get('#song-requests-items').textContent, /Spectateur web · Site web/);
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange')); assert.match(ui.get('#song-requests-items').textContent, /Website visitor · Website/);
 });

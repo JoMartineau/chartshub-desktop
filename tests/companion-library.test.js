@@ -337,7 +337,10 @@ test('full and quick scans include more than 10000 songs and 100000 filesystem e
     const result = await module.scanLibrary({ rootPath: root, previousItems, mode, onProgress: value => { progress = value; } });
     assert.equal(result.items.length, songCount); assert.equal(result.warningCount, 0); assert.equal(result.skippedCount, 0);
     assert.equal(result.items.at(-1).relativePath, 'Track 10000/notes.mid');
-    assert.deepEqual(progress, { visited: extraFiles + songCount * 2, processed: songCount, discovered: songCount });
+    assert.deepEqual({ visited: progress.visited, processed: progress.processed, discovered: progress.discovered }, { visited: extraFiles + songCount * 2, processed: songCount, discovered: songCount });
+    assert.equal(progress.added, mode === 'full' ? songCount : 0); assert.equal(progress.skipped, 0);
+    assert.ok(Number.isSafeInteger(progress.elapsedMs) && progress.elapsedMs >= 0);
+    assert.equal(progress.estimatedRemainingMs, null, 'no invented ETA for full scans or an exhausted baseline');
     if (mode === 'quick') assert.deepEqual(result.items, previousItems);
     previousItems = result.items;
   }

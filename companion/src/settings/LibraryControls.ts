@@ -5,7 +5,7 @@ interface LibrarySummary {
   settings: { rootPath: string | null; watch: boolean; refreshOnStart: boolean };
   status: 'idle' | 'scanning' | 'ready' | 'cancelled' | 'error';
   mode: 'full' | 'quick' | null;
-  progress: { visited: number; processed: number; discovered: number };
+  progress: { visited: number; processed: number; discovered: number; added?: number; skipped?: number; elapsedMs?: number; estimatedRemainingMs?: number | null };
   count: number;
   lastScanAt: string | number | null;
   changes: { added: number; removed: number; modified: number };
@@ -375,6 +375,14 @@ export class LibraryControls {
     this.element('#library-progress-label').textContent = summary.status === 'cancelled' ? 'Analyse interrompue' : summary.mode === 'quick' ? 'Actualisation de la bibliothèque…' : 'Analyse complète de la bibliothèque…';
     this.element('#library-progress-meter').hidden = !scanning;
     for (const key of ['visited', 'processed', 'discovered'] as const) this.element(`#library-progress-${key}`).textContent = count(summary.progress[key]);
+    const progress = summary.progress, validCounter = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+    const detail = this.element('#library-progress-details'), timing = this.element('#library-progress-time');
+    detail.hidden = !validCounter(progress.added) || !validCounter(progress.skipped);
+    detail.textContent = detail.hidden ? '' : '+' + count(progress.added!) + ' nouveau(x) · ' + count(progress.skipped!) + ' ignoré(s)';
+    const duration = (milliseconds: number): string => { const seconds = Math.floor(milliseconds / 1000); return seconds < 60 ? seconds + ' s' : Math.floor(seconds / 60) + ' min ' + (seconds % 60) + ' s'; };
+    timing.hidden = !validCounter(progress.elapsedMs);
+    const estimate = summary.mode === 'quick' && validCounter(progress.estimatedRemainingMs) ? progress.estimatedRemainingMs : null;
+    timing.textContent = timing.hidden ? '' : 'Écoulé : ' + duration(progress.elapsedMs!) + (estimate === null ? ' · Temps restant indéterminé' : ' · Restant estimé : environ ' + duration(Math.ceil(estimate / 1000) * 1000));
     const date = summary.lastScanAt === null ? null : new Date(summary.lastScanAt);
     this.element('#library-last-scan').textContent = date && !Number.isNaN(date.getTime()) ? `Dernière analyse : ${date.toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })}` : 'Aucune analyse effectuée';
     this.element('#library-changes').textContent = `+${count(summary.changes.added)} ajouté${summary.changes.added > 1 ? 's' : ''} · −${count(summary.changes.removed)} supprimé${summary.changes.removed > 1 ? 's' : ''} · ${count(summary.changes.modified)} modifié${summary.changes.modified > 1 ? 's' : ''}`;

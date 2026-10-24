@@ -1282,3 +1282,12 @@ test('late stop responses do not overwrite a restarted verification or write aft
   restarted.resolve({ ok: true, result }); await tick();
   assert.equal(ui.document.writes, writes);
 });
+
+
+test('live scan summary shows new and skipped counts, elapsed time and only a supported quick-scan estimate', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot({ status: 'scanning', mode: 'quick', progress: { visited: 80, processed: 72, discovered: 8, added: 5, skipped: 2, elapsedMs: 65000, estimatedRemainingMs: 30400 } }));
+  assert.equal(ui.get('#library-progress-details').hidden, false); assert.equal(ui.get('#library-progress-details').textContent, '+5 nouveau(x) · 2 ignoré(s)'); assert.equal(ui.get('#library-progress-time').textContent, 'Écoulé : 1 min 5 s · Restant estimé : environ 31 s'); assert.equal(ui.get('#library-progress-meter').getAttribute?.('value'), undefined);
+  ui.controls.update(snapshot({ status: 'scanning', mode: 'full', progress: { visited: 80, processed: 72, discovered: 8, added: 0, skipped: 0, elapsedMs: 9000, estimatedRemainingMs: 1000 } })); assert.equal(ui.get('#library-progress-time').textContent, 'Écoulé : 9 s · Temps restant indéterminé');
+  ui.controls.update(snapshot({ status: 'scanning', mode: 'quick', progress: { visited: 80, processed: 72, discovered: 8, added: 5, skipped: -1, elapsedMs: -1, estimatedRemainingMs: null } })); assert.equal(ui.get('#library-progress-details').hidden, true); assert.equal(ui.get('#library-progress-time').hidden, true);
+  ui.controls.update(snapshot({ status: 'scanning', mode: 'quick', progress: { visited: 80, processed: 72, discovered: 8 } })); assert.equal(ui.get('#library-progress-details').hidden, true); assert.equal(ui.get('#library-progress-time').hidden, true);
+});

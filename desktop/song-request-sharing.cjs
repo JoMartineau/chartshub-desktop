@@ -2,6 +2,7 @@
 const { ORIGIN } = require('../download');
 const { MAX_SONGS, MAX_BYTES, BATCH_SIZE, BATCH_BYTES, shareError } = require('../companion/song-request-share-contract.cjs');
 const { INSTRUMENTS, DIFFICULTIES } = require('../companion/song-requests.cjs');
+const publicRequests = require('../companion/song-request-public-contract.cjs');
 const route = ORIGIN + '/api/account/song-request-library';
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const plain = value => value && typeof value === 'object' && !Array.isArray(value);
@@ -69,7 +70,9 @@ function publicSummary(data) {
   if (!plain(library) || typeof library.token !== 'string' || !/^[a-f0-9]{64}$/.test(library.token)
     || !Number.isInteger(library.count) || library.count < 0 || library.count > MAX_SONGS
     || typeof library.updatedAt !== 'string' || !Number.isFinite(Date.parse(library.updatedAt))) throw shareError('SHARE_RESPONSE_INVALID');
-  return { url: ORIGIN + '/song-requests.html?library=' + library.token, count: library.count, updatedAt: library.updatedAt };
+  if (library.revision !== undefined && (typeof library.revision !== 'string' || !UUID.test(library.revision))) throw shareError('SHARE_RESPONSE_INVALID');
+  return { url: ORIGIN + '/song-requests.html?library=' + library.token, count: library.count, updatedAt: library.updatedAt,
+    ...(library.revision === undefined ? {} : { revision: library.revision }) };
 }
 function createSongRequestSharing({ fetcher, readAccount, generation = () => 0 } = {}) {
   if (typeof fetcher !== 'function' || typeof readAccount !== 'function') throw shareError('SHARE_UNAVAILABLE');
@@ -141,7 +144,18 @@ function createSongRequestSharing({ fetcher, readAccount, generation = () => 0 }
       throw failure;
     }
   }
-  return { capture, status: async () => publicSummary(await request('GET')), publish,
+  const brokerCall = async (kind, payload, captured, options) => {
+    let input;
+    try { input = kind === 'poll' ? publicRequests.pollInput(payload) : publicRequests.ackInput(payload); }
+    catch { throw shareError('SHARE_RESPONSE_INVALID'); }
+    const data = await request('POST', '/requests/' + kind, input, captured, options);
+    try { return kind === 'poll' ? publicRequests.pollOutput(data, input.sessionId, input.receiving) : publicRequests.ackOutput(data, input); }
+    catch { throw shareError('SHARE_RESPONSE_INVALID'); }
+  };
+  return { capture, isCurrentAccount: captured => !!captured && captured.generation === generation(),
+    pollRequests: (input, captured, options) => brokerCall('poll', input, captured, options),
+    ackRequests: (input, captured, options) => brokerCall('ack', input, captured, options),
+    status: async () => publicSummary(await request('GET')), publish,
     remove: async (context, options) => publicSummary(await request('DELETE', '', undefined, context, options)) };
 }
 module.exports = { createSongRequestSharing };

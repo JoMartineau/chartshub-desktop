@@ -1,4 +1,4 @@
-# Song Request — Twitch, YouTube et TikTok
+# Song Request — site public, Twitch, YouTube et TikTok
 
 Le Companion reçoit les demandes du chat pour les morceaux **déjà présents dans le dossier Songs scanné**. Il ne télécharge aucune chart, ne lance pas Clone Hero et ne joue pas automatiquement un morceau. Le streamer accepte, refuse, déplace ou marque les demandes comme jouées. La file vit dans la session : elle est vidée au redémarrage et la réception doit être réactivée.
 
@@ -14,13 +14,21 @@ L’organisation pratique du tableau de bord et de la file s’inspire de [Clone
 2. Dans **Song Request**, cliquer **Connecter Twitch**, puis autoriser ChartsHub dans le navigateur Twitch. Le compte connecté correspond à la chaîne qui reçoit les commandes. Aucun script ni compte de bot séparé n’est nécessaire. L’application ChartsHub doit avoir été configurée une fois par son éditeur ; voir [la configuration éditeur](SONG-REQUESTS-PUBLISHER.md).
 3. Pour TikTok, saisir le pseudo du LIVE et cliquer **Connecter TikTok**. Le pseudo peut être préparé avant le LIVE. La connexion au chat démarre quand la réception est activée ; si le compte n’est pas en LIVE, un état explicite s’affiche et le bouton permet de réessayer plus tard.
 4. Activer **Recevoir les demandes du chat**. Les spectateurs écrivent `!sr artiste titre` dans Twitch ou TikTok. Les demandes arrivent dans la même file ; le streamer les accepte, refuse ou marque comme jouées. Les règles facultatives se trouvent dans **Règles des demandes**.
-5. Pour OBS, cliquer **Copier le lien du widget OBS** et ajouter une source Navigateur. Le widget transparent met la prochaine demande en évidence, affiche jusqu’à cinq morceaux avec plateforme et votes, puis indique la commande pour participer.
+5. Pour OBS, cliquer **Copier le lien du widget OBS** et ajouter une source Navigateur. Le widget transparent affiche trois prochaines demandes par défaut, avec plateforme et votes. Dans les réglages du widget, choisir la couleur, la taille du texte, le nombre de demandes (1 à 10), l’affichage du morceau actuel et des pseudos. Le même lien OBS conserve ces réglages.
 
 Twitch utilise le [flux pour chatbot installé](https://dev.twitch.tv/docs/chat/authenticating), EventSub WebSocket pour la réception et l’API Twitch pour les réponses. L’autorisation est mémorisée avec le stockage chiffré du système. Si ce stockage est indisponible, l’écran indique que la connexion reste limitée à la session. Ouvrir l’application, consulter l’écran ou changer de langue ne connecte aucun chat automatiquement. Le bouton de connexion permet de réutiliser un compte mémorisé.
 
 TikTok utilise le connecteur tiers non officiel [TikTok-Live-Connector](https://github.com/zerodytrash/TikTok-Live-Connector), intégré à l’application. Son service de signature **Euler Stream** reçoit le pseudo public du LIVE et les informations nécessaires à la connexion. Aucun mot de passe, cookie de session ou jeton TikTok n’est demandé ou transmis. Ce mode **reçoit uniquement les commandes** : ChartsHub affiche leur résultat localement et dans la file, sans réponse automatique dans le chat TikTok. Le service tiers peut être indisponible ou limiter les connexions ; ChartsHub ne réessaie pas en boucle. Il n’est pas nécessaire d’installer TikFinity ou Streamer.bot pour cette réception directe.
 
 Pour interrompre le chat, désactiver la réception. **Déconnecter** oublie le compte ou le pseudo choisi. La première publication de la bibliothèque reste une action distincte et manuelle ; ses mises à jour deviennent ensuite automatiques. Si une ancienne action Streamer.bot Twitch reste configurée, ses commandes sont ignorées sans réponse pendant que la connexion Twitch directe fonctionne, pour éviter les doublons.
+
+## Demander directement depuis la liste publique
+
+Publier la liste avec un compte ChartsHub vérifié, puis activer **Recevoir les demandes du chat** dans le Companion. Le résumé **Site web** indique si la réception depuis la liste publique est connectée. Garder ChartsHub ouvert et la bibliothèque prête. Le site affiche « en attente » avant confirmation par l’application ; il ne marque pas une demande reçue uniquement parce que le serveur a accepté son envoi.
+
+Le site conserve temporairement une identité anonyme de spectateur dans la session du navigateur, afin de limiter les répétitions et de regrouper les votes. Les demandes en transit expirent, sont bornées et sont invalidées à la fermeture de la réception ou au retrait du partage. Les délais et limites du site s’ajoutent aux règles locales. Aucun compte spectateur n’est requis. Après une erreur réseau, utiliser **Réessayer l’envoi** pour vérifier le même envoi.
+
+Les nouveaux morceaux, éléments ignorés et temps écoulé s’affichent pendant le scan. Le temps restant est une estimation des scans rapides fondée sur le dernier index ; une première analyse ou un échantillon insuffisant affiche une estimation indisponible.
 
 ## Options avancées : pont local existant
 
@@ -37,7 +45,7 @@ Les spectateurs n’ont pas besoin de compte ChartsHub. La validation des fichie
 La section **Liste publique pour les spectateurs** propose une page ChartsHub consultable sans compte. Le streamer utilise son compte ChartsHub connecté et vérifié pour publier ou retirer sa propre liste.
 
 1. Scanner Songs, puis cliquer **Publier la liste**. Cette action explicite envoie les titres, artistes, charters, durées, instruments/difficultés et identifiants de commande des morceaux vérifiés, ainsi que les règles appliquées. Elle active aussi **Détecter les changements du dossier** pour la racine Songs choisie. Aucun audio, contenu de notes, chemin local, pseudo du chat ni historique de demandes n’est envoyé.
-2. Cliquer **Copier le lien public** et partager ce lien avec les spectateurs. Ils peuvent consulter les morceaux et copier une commande `!sr` dans le chat du direct. La page publique ne commande pas directement le Companion et ne permet pas de gérer la file.
+2. Cliquer **Copier le lien public** et partager ce lien avec les spectateurs. Ils peuvent consulter les morceaux, cliquer **Demander** quand la réception est active, ou copier une commande `!sr` dans le chat du direct. Une demande du site apparaît comme celle d’un spectateur web anonyme, sans prétendre identifier un compte Twitch ou TikTok. La page confirme uniquement après réception par ChartsHub ; le streamer gère ensuite l’approbation et la file.
 3. Garder ChartsHub ouvert : après un ajout, un retrait, un déplacement ou une modification détectés dans Songs, l’analyse terminée actualise automatiquement **le même lien public**. Les changements rapprochés sont regroupés ; une analyse sans changement n’envoie pas la liste à nouveau. Les règles appliquées actualisent aussi le partage. Les morceaux devenus indisponibles sont exclus lors de la publication ; leur nombre est indiqué dans le Companion.
 4. Cliquer **Retirer le partage** pour rendre cette liste inaccessible via son lien. Ce retrait reste disponible si la bibliothèque locale est indisponible et ne supprime aucun morceau ni demande de la session.
 

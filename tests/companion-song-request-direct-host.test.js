@@ -6,6 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const { EventEmitter } = require('node:events');
 const { Readable } = require('node:stream');
+const { createRequire } = require('node:module');
 const security = require('../companion/security.cjs');
 const { createSongRequestConnections } = require('../companion/song-request-connections.cjs');
 const { replyFor } = require('../companion/song-request-server.cjs');
@@ -19,7 +20,8 @@ function section(start, end) {
   return source.slice(from, to);
 }
 const wiring = section('  songRequestConnections = createSongRequestConnections(', '  async function configureSongRequests(');
-const configure = section('  async function configureSongRequests(', '  async function refreshSongRequestShare(');
+const configure = section('  async function configureSongRequests(', '  songRequestShareBroker = createSongRequestPublicBroker(');
+const nowPlaying = section('  const requestNowPlaying = () => {', '  songRequests = createSongRequests(');
 const libraryChanged = section('    musicPlayer?.libraryChanged();', '  } });\n  await library.load();');
 const commands = section("  ipcMain.handle('companion:command',", '  function stop()');
 const stopping = section('  function stop()', '  function open()');
@@ -38,12 +40,13 @@ function inProcessBridge(options) {
     close(callback) { callback(); }
   }
   const module = { exports: {} };
+  const serverRequire = createRequire(path.join(__dirname, '../companion/song-request-server.cjs'));
   // Only the socket transport is synthetic; parsing, authentication, host checks,
   // callback routing and response formatting run the actual server module.
   new vm.Script(fs.readFileSync(path.join(__dirname, '../companion/song-request-server.cjs'), 'utf8'), {
     filename: 'companion/song-request-server.cjs synthetic HTTP transport'
   }).runInNewContext({ module, Buffer, TextDecoder, URL,
-    require: name => name === 'node:http' ? { createServer: (_options, callback) => new HttpServer(callback) } : require(name) });
+    require: name => name === 'node:http' ? { createServer: (_options, callback) => new HttpServer(callback) } : serverRequire(name) });
   const server = module.exports.createSongRequestServer(options);
   return { server, post(input) {
     const body = Buffer.from(JSON.stringify(input));
@@ -105,10 +108,12 @@ function fixture({ save, start, consent = false, receive } = {}) {
   const create = new vm.Script(`(function(adapters) {
     const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer}=adapters;
     let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0,songRequestBusy=false;
-    let songRequestServer=null,songRequestConnections=null;
+    let songRequestServer=null,songRequestConnections=null,songRequestShareBroker=null;
     const publishedTwitchClientId='syntheticclient',shell={openExternal:async()=>{}},language='fr',publishPanel=()=>{};
     const requestPreferences={ingestToken:'a'.repeat(64),readToken:'b'.repeat(64),error:null,port:38474};
-    const services={stop:async()=>{},store:{getState:()=>({widgets:{instances:[]}})}};
+    const services={stop:async()=>{},store:{getState:()=>({widgets:{instances:[]},nowPlaying:null,gameplay:{state:'idle'}})}};
+    const integration={status:()=>({mode:'mock'})};
+    ${nowPlaying}
     let libraryIndexRevision=1,libraryRequestRoot='synthetic-root',libraryDownloadRefresh=null,songRequestShareManualBusy=null;
     const catalogue={libraryChanged:()=>{},stop:async()=>{}},downloads={stop:async()=>{}},musicPlayer=null;
     let playerWindow=null,playerWindowLoad=null,catalogueWidget=null,catalogueWidgetLoad=null,catalogueWidgetEnabled=false,catalogueWidgetTicket=0;

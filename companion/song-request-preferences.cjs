@@ -5,6 +5,7 @@ const { constants } = require('node:fs');
 const path = require('node:path');
 const { createHash, randomBytes } = require('node:crypto');
 const { INSTRUMENTS, DIFFICULTIES, DEFAULT_RULES } = require('./song-requests.cjs');
+const { DEFAULT_WIDGET, validateWidget } = require('./song-request-widget.cjs');
 
 const MAX_BYTES = 8 * 1024;
 const TOKEN = /^[a-f0-9]{64}$/;
@@ -30,10 +31,13 @@ function settings(value) {
   return { port: value.port, rules: { maxDurationMinutes: rules.maxDurationMinutes, instrument: rules.instrument, difficulty: rules.difficulty } };
 }
 function validateDocument(value) {
-  if (!keys(value, ['version', 'port', 'rules', 'ingestToken', 'readToken']) || value.version !== 1
+  if (!((value?.version === 1 && keys(value, ['version', 'port', 'rules', 'ingestToken', 'readToken']))
+      || (value?.version === 2 && keys(value, ['version', 'port', 'rules', 'ingestToken', 'readToken', 'widget'])))
       || typeof value.ingestToken !== 'string' || typeof value.readToken !== 'string'
       || !TOKEN.test(value.ingestToken) || !TOKEN.test(value.readToken) || value.ingestToken === value.readToken) throw safe(INVALID);
-  return { version: 1, ...settings({ port: value.port, rules: value.rules }), ingestToken: value.ingestToken, readToken: value.readToken };
+  let widget;
+  try { widget = value.version === 1 ? { ...DEFAULT_WIDGET } : validateWidget(value.widget); } catch { throw safe(INVALID); }
+  return { version: 2, ...settings({ port: value.port, rules: value.rules }), ingestToken: value.ingestToken, readToken: value.readToken, widget };
 }
 
 /** Persistent local capabilities and preferences only; reception and queue remain session state. */
@@ -41,10 +45,10 @@ function createSongRequestPreferences({ dataDirectory } = {}) {
   if (typeof dataDirectory !== 'string' || !path.isAbsolute(dataDirectory) || dataDirectory.includes('\0')) throw safe(INVALID);
   const directory = path.resolve(dataDirectory), filename = path.join(directory, 'song-request-access.json');
   const lockPath = path.join(directory, '.song-request-access.lock');
-  let document = { version: 1, port: 38474, rules: { ...DEFAULT_RULES }, ingestToken: null, readToken: null };
+  let document = { version: 2, port: 38474, rules: { ...DEFAULT_RULES }, ingestToken: null, readToken: null, widget: { ...DEFAULT_WIDGET } };
   let loaded = false, loadTask = null, protectedFile = false, error = null;
   let diskFingerprint = null, diskIdentity = null, directoryIdentity = null, serial = Promise.resolve();
-  const status = () => ({ port: document.port, rules: { ...document.rules }, ingestToken: document.ingestToken, readToken: document.readToken, error });
+  const status = () => ({ port: document.port, rules: { ...document.rules }, ingestToken: document.ingestToken, readToken: document.readToken, widget: { ...document.widget }, error });
 
   async function checkedDirectory(create = false) {
     const root = path.parse(directory).root; let current = root;
@@ -148,7 +152,7 @@ function createSongRequestPreferences({ dataDirectory } = {}) {
         const source = await read();
         if (source) {
           const value = JSON.parse(source.text);
-          if (object(value) && Number.isFinite(value.version) && value.version > 1) throw protect(FUTURE);
+          if (object(value) && Number.isFinite(value.version) && value.version > 2) throw protect(FUTURE);
           document = validateDocument(value); diskFingerprint = source.fingerprint; diskIdentity = source.identity; directoryIdentity = source.directoryId;
         } else {
           const ingestToken = randomBytes(32).toString('hex');
@@ -174,8 +178,19 @@ function createSongRequestPreferences({ dataDirectory } = {}) {
     });
     serial = task.catch(() => {}); return task;
   }
+  function saveWidget(input) {
+    let widget;
+    try { widget = validateWidget(structuredClone(input)); } catch { return Promise.reject(safe(INVALID)); }
+    const task = serial.then(async () => {
+      await load();
+      if (protectedFile) throw safe(error ?? UNREADABLE);
+      await persist({ ...document, widget });
+      return status();
+    });
+    serial = task.catch(() => {}); return task;
+  }
   async function flush() { await serial; if (loadTask) await loadTask; return status(); }
-  return { load, status, save, flush };
+  return { load, status, save, saveWidget, flush };
 }
 
 module.exports = { createSongRequestPreferences };
