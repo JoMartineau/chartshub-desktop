@@ -159,7 +159,7 @@ test('public state whitelists active safe fields, bounds rows and excludes all p
   const owner = { enabled: true, requests: [requestRow, { ...requestRow, id: 'closed', status: 'played' },
     { ...requestRow, id: 'rejected', status: 'rejected' }], settings: { ingestToken: INGEST }, rootPath: 'PRIVATE_ROOT' };
   const projected = overlayState(owner);
-  assert.deepEqual(Object.keys(projected), ['enabled', 'requests']);
+  assert.deepEqual(Object.keys(projected), ['enabled', 'widget', 'nowPlaying', 'requests']);
   assert.equal(projected.requests.length, 1);
   assert.deepEqual(Object.keys(projected.requests[0]), ['id', 'title', 'artist', 'viewerName', 'platform', 'status', 'votes']);
   assert.ok(!JSON.stringify(projected).includes('PRIVATE'));

@@ -2,11 +2,12 @@
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
 const { SHARE_ERRORS } = require('./song-request-share-contract.cjs');
+const { emptyScanProgress } = require('./library-scan-progress.cjs');
 
 const FAILED = 'Le service de bibliothèque est indisponible. Rouvrez le Companion pour recharger l’index.';
 const STOPPED = 'Le service de bibliothèque est arrêté.';
 const initialStatus = () => ({ settings: { rootPath: null, watch: false, refreshOnStart: true }, status: 'idle', mode: null,
-  progress: { visited: 0, processed: 0, discovered: 0 }, count: 0, lastScanAt: null, changes: { added: 0, removed: 0, modified: 0 },
+  progress: emptyScanProgress(), count: 0, lastScanAt: null, changes: { added: 0, removed: 0, modified: 0 },
   warningCount: 0, skippedCount: 0, error: null, watcher: 'off', revision: 0, cleanupRefreshPending: false, bulkCleanup: null });
 const copyStatus = value => ({ ...value, settings: { ...value.settings }, progress: { ...value.progress }, changes: { ...value.changes },
   sharingPreparation: value.sharingPreparation ? { ...value.sharingPreparation } : null,

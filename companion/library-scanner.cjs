@@ -3,6 +3,8 @@ const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
+const { performance } = require('node:perf_hooks');
+const { estimateScanRemaining } = require('./library-scan-progress.cjs');
 const { captureBundleSnapshot } = require('./chart-bundle.cjs');
 const { chartTracks, midiTracks } = require('./song-request-library.cjs');
 
@@ -121,11 +123,16 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
   const previous = new Map();
   for (const item of Array.isArray(previousItems) ? previousItems : []) if (item && relativeValid(item.relativePath)) previous.set(item.relativePath, item);
   const result = new Map(), preserved = new Set(); let visited = 0, processed = 0, warningCount = 0, skippedCount = 0, lastProgress = 0, ticks = 0, failure = null;
+  const scanStartedAt = performance.now();
+  let added = 0, knownCompleted = 0;
   let yieldTask = null;
   function progress(force = false) {
     if (failure || signal?.aborted) return;
     if (!force && Date.now() - lastProgress < 100) return;
-    lastProgress = Date.now(); try { onProgress?.({ visited, processed, discovered: result.size }); } catch { /* Progress is observational. */ }
+    lastProgress = Date.now();
+    const elapsedMs = Math.max(0, Math.round(performance.now() - scanStartedAt));
+    const estimatedRemainingMs = estimateScanRemaining({ mode, baselineCount: previous.size, knownCompleted, elapsedMs });
+    try { onProgress?.({ visited, processed, discovered: result.size, added, skipped: skippedCount, warningCount, elapsedMs, estimatedRemainingMs }); } catch { /* Progress is observational. */ }
   }
   async function checkpoint() {
     abort(signal); progress();
@@ -141,7 +148,11 @@ async function scanLibrary({ rootPath, previousItems = [], mode = 'full', signal
     while (candidate) { if (preserved.has(candidate)) return true; const separator = candidate.lastIndexOf('/'); if (separator < 0) break; candidate = candidate.slice(0, separator); }
     return false;
   }
-  function add(item) { if (!failure && !signal?.aborted) result.set(item.relativePath, item); }
+  function add(item) {
+    if (failure || signal?.aborted) return;
+    if (!result.has(item.relativePath)) { if (previous.has(item.relativePath)) knownCompleted++; else added++; }
+    result.set(item.relativePath, item);
+  }
   async function inspect(filename) {
     const stat = await fs.lstat(filename); abort(signal);
     if (stat.isSymbolicLink()) return null;

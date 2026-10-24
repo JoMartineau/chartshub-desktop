@@ -31,6 +31,7 @@ const { createSongRequestConnections } = require('./song-request-connections.cjs
 const { twitchClientId: publishedTwitchClientId } = require('./song-request-config.cjs');
 const { shareErrorCode } = require('./song-request-share-contract.cjs');
 const { createSongRequestShareSync, songRequestShareKey } = require('./song-request-share-sync.cjs');
+const { createSongRequestPublicBroker } = require('./song-request-public-broker.cjs');
 const { attachEditContextMenu } = require('../desktop/edit-context-menu.cjs');
 const { createMusicPlayer } = require('./music-player.cjs');
 const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs');
@@ -64,6 +65,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let songRequestShareRevision = 0;
   let songRequestShareController = null;
   let songRequestShareSync = null;
+  let songRequestShareBroker = null;
   let songRequestShareKeyCache = null;
   let songRequestShareManualBusy = null;
   const songRequestPreferences = createSongRequestPreferences({ dataDirectory });
@@ -170,7 +172,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     filters: { canOpen: !disposing && !stopTask && (filters?.status()?.supported === true || reshade?.status()?.supported === true), title: CAPTURE_WINDOW_TITLES.filters },
     player: { canOpen: hostActive && !disposing && !stopTask && panelAlive(), title: CAPTURE_WINDOW_TITLES.player }
   });
-  const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare, autoSync: songRequestShareSync?.status(),
+  const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), widget: songRequestPreferences.status().widget,
+    publicRequests: songRequestShareBroker?.status(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare, autoSync: songRequestShareSync?.status(),
     progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
   const snapshot = () => ({ language, buttonMotion: { ...buttonMotion }, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   const floatingPanelSnapshot = name => {
@@ -255,6 +258,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const revision = library?.status().revision ?? -1;
     if (revision !== libraryIndexRevision) { libraryIndexRevision = revision; catalogue?.libraryChanged(); }
     songRequestShareSync?.update();
+    songRequestShareBroker?.update();
     libraryDownloadRefresh?.update();
     if (!disposing) publishPanel();
   } });
@@ -263,6 +267,11 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (playerWindow && !playerWindow.isDestroyed() && !playerWindow.webContents.isLoading()) playerWindow.webContents.send('companion:player-action', value);
   } });
   const normalizeRequestQuery = value => String(value ?? '').normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().trim().replace(/\s+/g, ' ');
+  const requestNowPlaying = () => {
+    const state = services.store.getState(), live = integration.status().mode === 'live';
+    return state.nowPlaying && (live ? state.gameplay.isChartActive : state.gameplay.state === 'playing')
+      ? { ...state.nowPlaying, state: live ? 'exported' : 'playing' } : null;
+  };
   songRequests = createSongRequests({
     getLibrarySnapshot: () => library.matchingSnapshot(),
     searchSongs: async ({ query, limit }) => {
@@ -272,11 +281,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       return { items: matches.slice(0, limit), total: matches.length, revision: index.revision };
     },
     resolveSong: (id, context) => library.resolveRequestSong(id, context),
-    getNowPlaying: () => {
-      const state = services.store.getState(), live = integration.status().mode === 'live';
-      return state.nowPlaying && (live ? state.gameplay.isChartActive : state.gameplay.state === 'playing')
-        ? { ...state.nowPlaying, state: live ? 'exported' : 'playing' } : null;
-    },
+    getNowPlaying: requestNowPlaying,
     onChange: () => { if (!disposing) publishPanel(); }
   });
   const requestPreferences = songRequestPreferences.status();
@@ -298,6 +303,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         return songRequests.receive(input);
       },
       getSnapshot: () => songRequests.snapshot(), getLanguage: () => language,
+      getWidget: () => songRequestPreferences.status().widget, getNowPlaying: requestNowPlaying,
       onStatus: () => { if (!disposing) publishPanel(); }
     });
     songRequestServer.setPort(requestPreferences.port);
@@ -307,7 +313,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const lifecycle = lifecycleRevision;
     songRequestBusy = true;
     try {
-      if (!payload.enabled) { songRequests.configure({ enabled: false }); await songRequestConnections.setReceiving(false); await songRequestServer?.stop(); }
+      if (!payload.enabled) { songRequests.configure({ enabled: false }); await songRequestShareBroker?.stop(); await songRequestConnections.setReceiving(false); await songRequestServer?.stop(); }
       if (disposing || stopTask || !hostActive || lifecycle !== lifecycleRevision) return { ok: false, error: 'Le panneau a été fermé.' };
       if (payload.enabled && (library.status().status !== 'ready' || library.status().count < 1)) return { ok: false, error: 'Scannez votre dossier Songs avant d’activer les demandes.' };
       if (songRequestServer?.status().enabled && songRequestServer.status().port !== payload.port) return { ok: false, error: 'Arrêtez la réception avant de changer le port.' };
@@ -327,9 +333,19 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         songRequests.configure({ enabled: true });
         void songRequestConnections.setReceiving(true);
       }
+      songRequestShareBroker?.update();
       publishPanel(); return { ok: true };
     } finally { songRequestBusy = false; }
   }
+  songRequestShareBroker = createSongRequestPublicBroker({ client: sharingClient,
+    context: () => {
+      const state = library.status(), index = library.matchingSnapshot();
+      return { active: catalogueAccess && hostActive && !disposing && !stopTask && songRequests.snapshot().enabled
+          && state.status === 'ready' && state.count > 0 && !!songRequestShare.url && !songRequestShare.busy && !songRequestShareManualBusy,
+        revision: songRequestShare.revision,
+        key: JSON.stringify([lifecycleRevision, index.rootKey, index.revision, songRequestShare.revision, songRequests.snapshot().rules]) };
+    }, receive: (input, options) => songRequests.receive(input, options),
+    onChange: () => { if (!disposing) publishPanel(); } });
   function songRequestShareContext() {
     const state = library?.status(), index = library?.matchingSnapshot(), rules = songRequests?.snapshot().rules;
     const serializedRules = JSON.stringify(rules);
@@ -348,7 +364,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (status.url) songRequestShareSync?.resume(); else void songRequestShareSync?.pause({ forget: true });
     } }
     catch (failure) { if (valid()) songRequestShare = { ...songRequestShare, error: shareErrorCode(failure) }; }
-    if (valid()) publishPanel();
+    if (valid()) { songRequestShareBroker?.update(); publishPanel(); }
   }
   async function changeSongRequestShare(remove = false, automatic = false) {
     if (automatic) return performSongRequestShare(remove, true);
@@ -368,6 +384,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (songRequestShareManualBusy === manual) {
         songRequestShareManualBusy = null;
         if (!remove && songRequestShareContext().active && songRequestShare.url) songRequestShareSync?.resume();
+        songRequestShareBroker?.update();
       }
     }
   }
@@ -377,7 +394,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const valid = () => !disposing && !stopTask && hostActive && lifecycle === lifecycleRevision && revision === songRequestShareRevision && !controller.signal.aborted;
     const controller = new AbortController(); songRequestShareController = controller;
     songRequestShare.busy = true; songRequestShare.error = null;
-    songRequestShare.progress = { phase: remove ? 'removing' : 'preparing', processed: 0, total: library.status?.().count ?? 0 }; publishPanel();
+    songRequestShare.progress = { phase: remove ? 'removing' : 'preparing', processed: 0, total: library.status?.().count ?? 0 };
+    songRequestShareBroker?.update(); publishPanel();
     try {
       const account = await sharingClient.capture?.();
       if (!valid()) return { ok: false };
@@ -410,7 +428,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       return { ok: false, error };
     }
     finally { if (songRequestShareController === controller) songRequestShareController = null;
-      if (revision === songRequestShareRevision) { songRequestShare.busy = false; songRequestShare.progress = null; if (!disposing) publishPanel(); } }
+      if (revision === songRequestShareRevision) { songRequestShare.busy = false; songRequestShare.progress = null; songRequestShareBroker?.update(); if (!disposing) publishPanel(); } }
   }
   songRequestShareSync = createSongRequestShareSync({ context: songRequestShareContext,
     publish: () => changeSongRequestShare(false, true),
@@ -672,6 +690,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (typeof enabled !== 'boolean') throw TypeError('Invalid catalogue availability');
     catalogueAccess = enabled;
     if (!enabled) {
+      void songRequestShareBroker?.stop();
       void songRequestShareSync?.pause({ forget: true });
       songRequestShareManualBusy = null;
       catalogue?.cancelSearch('panel', true); catalogue?.cancelSearch('widget', true);
@@ -824,6 +843,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         return { ...result, playlistId };
       }
       if (command === 'songRequests.configure') return await configureSongRequests(payload);
+      if (command === 'songRequests.widget') { await songRequestPreferences.saveWidget(payload.settings); publishPanel(); return { ok: true }; }
       if (['songRequests.connect', 'songRequests.disconnect', 'songRequests.cancelAuth'].includes(command) && !hostActive) return { ok: false };
       if (command === 'songRequests.connect') {
         // Consent and LIVE connection run in the background so Cancel/Stop remain usable.
@@ -1145,6 +1165,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     lifecycleRevision++;
     libraryDownloadRefresh?.stop();
     const songRequestSharingStop = songRequestShareSync?.pause();
+    const songRequestPublicStop = songRequestShareBroker?.stop();
     songRequestShareManualBusy = null;
     songRequestShareRevision++;
     songRequestShareController?.abort(); songRequestShareController = null;
@@ -1178,7 +1199,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         ? Promise.resolve().then(() => reshadeSetup.whenIdle()).catch(() => { logger.warn('ReShade installation ended with an error'); })
       : Promise.resolve();
     if (saveTimer) void saveSettings();
-    const task = (async () => { await songRequestSharingStop; await songRequestStop; await songRequestConnectionsStop; await songRequestPreferences.flush(); await playerPreferencesTask; await playerPreferences.flush(); await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
+    const task = (async () => { await songRequestPublicStop; await songRequestSharingStop; await songRequestStop; await songRequestConnectionsStop; await songRequestPreferences.flush(); await playerPreferencesTask; await playerPreferences.flush(); await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
     const done = task.finally(() => { if (stopTask === done) stopTask = null; });
     stopTask = done;
     return done;

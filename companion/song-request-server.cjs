@@ -3,13 +3,16 @@ const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { timingSafeEqual } = require('node:crypto');
+const { DEFAULT_WIDGET, validateWidget, widgetNowPlaying } = require('./song-request-widget.cjs');
 const TOKENS = /^[a-f0-9]{64}$/;
 const ASSETS = { '/overlay': 'song-requests.html', '/ui/song-requests-overlay.js': 'song-requests-overlay.js', '/ui/song-requests-overlay.css': 'song-requests-overlay.css' };
 const text = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').slice(0, 512) : '';
-function overlayState(snapshot) {
-  return { enabled: snapshot?.enabled === true, requests: (Array.isArray(snapshot?.requests) ? snapshot.requests : []).filter(row => ['pending', 'accepted'].includes(row?.status)).slice(0, 50).map(row => ({
-    id: text(row.id), title: text(row.title), artist: text(row.artist), viewerName: text(row.viewerName),
-    platform: ['twitch', 'tiktok', 'youtube'].includes(row.platform) ? row.platform : '',
+function overlayState(snapshot, settings = DEFAULT_WIDGET, nowPlaying = null) {
+  const widget = validateWidget(settings);
+  return { enabled: snapshot?.enabled === true, widget, nowPlaying: widgetNowPlaying(nowPlaying, snapshot?.requests, widget),
+    requests: (Array.isArray(snapshot?.requests) ? snapshot.requests : []).filter(row => ['pending', 'accepted'].includes(row?.status)).slice(0, 50).map(row => ({
+    id: text(row.id), title: text(row.title), artist: text(row.artist), viewerName: widget.showViewerNames ? text(row.viewerName) : '',
+    platform: ['twitch', 'tiktok', 'youtube', 'website'].includes(row.platform) ? row.platform : '',
     status: row.status, votes: Number.isSafeInteger(row.votes) && row.votes >= 0 ? Math.min(row.votes, 1000) : 0
   })) };
 }
@@ -39,7 +42,7 @@ function replyFor(result, language = 'fr') {
 }
 
 /** The ingestion capability and OBS read capability are different secrets. Admin stays in native IPC. */
-function createSongRequestServer({ root, ingestToken, readToken, receive, getSnapshot, getLanguage = () => 'fr', onStatus } = {}) {
+function createSongRequestServer({ root, ingestToken, readToken, receive, getSnapshot, getLanguage = () => 'fr', getWidget = () => DEFAULT_WIDGET, getNowPlaying = () => null, onStatus } = {}) {
   if (!TOKENS.test(ingestToken) || !TOKENS.test(readToken) || ingestToken === readToken || typeof root !== 'string' || typeof receive !== 'function' || typeof getSnapshot !== 'function') throw Error('Invalid Song Request server configuration');
   let context = null, serial = Promise.resolve(), generation = 0, desired = false, error = null, configuredPort = 38474;
   const directory = path.resolve(root), secret = Buffer.from(ingestToken, 'hex'), readSecret = Buffer.from(readToken, 'hex');
@@ -74,6 +77,7 @@ function createSongRequestServer({ root, ingestToken, readToken, receive, getSna
         input = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks)));
         if (!input || typeof input !== 'object' || Array.isArray(input) || Object.keys(input).length !== 5
           || Object.keys(input).some(key => !['platform', 'eventId', 'viewerId', 'viewerName', 'message'].includes(key))
+          || !['twitch', 'tiktok', 'youtube'].includes(input.platform)
           || typeof input.message !== 'string' || input.message.length > 200) throw Error();
       } catch { return finish(400, 'Invalid request'); }
       const result = await receive({ platform: input.platform, eventId: input.eventId, viewerId: input.viewerId, viewerName: input.viewerName, query: input.message });
@@ -85,7 +89,7 @@ function createSongRequestServer({ root, ingestToken, readToken, receive, getSna
     if (url.pathname === '/state' || url.pathname === '/overlay') {
       if (read.length !== 1 || [...url.searchParams.keys()].some(key => key !== 'token') || !tokenMatches(read[0], readSecret)) return finish(403, 'Forbidden');
     } else if (url.search) return finish(404, 'Not found');
-    if (url.pathname === '/state') return finish(200, { ...overlayState(getSnapshot()), language: getLanguage() === 'en' ? 'en' : 'fr' }, true);
+    if (url.pathname === '/state') return finish(200, { ...overlayState(getSnapshot(), getWidget(), getNowPlaying()), language: getLanguage() === 'en' ? 'en' : 'fr' }, true);
     const asset = ASSETS[url.pathname];
     if (!asset) return finish(404, 'Not found');
     const filename = path.join(directory, 'ui', asset), resolved = await fs.realpath(filename), base = await fs.realpath(path.join(directory, 'ui'));

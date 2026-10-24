@@ -2,7 +2,7 @@
 
 const { randomUUID } = require('node:crypto');
 
-const PLATFORMS = Object.freeze(['twitch', 'tiktok', 'youtube']);
+const PLATFORMS = Object.freeze(['twitch', 'tiktok', 'youtube', 'website']);
 const INSTRUMENTS = Object.freeze(['all', 'guitar', 'bass', 'drums', 'pro-drums', 'keys', 'vocals',
   'rhythm', 'guitar-coop', 'guitar-6fret', 'bass-6fret', 'rhythm-6fret', 'guitar-coop-6fret']);
 const DIFFICULTIES = Object.freeze(['all', 'easy', 'medium', 'hard', 'expert']);
@@ -100,7 +100,8 @@ function publicRequest(item) {
 /**
  * Platform-neutral, in-memory queue. Only a trusted chat adapter may call receive:
  * platform/eventId/viewerId must come from the authenticated provider event, never
- * the command text. This module opens no listener and makes no network/file writes.
+ * the command text. Website identities come from the account-bound public broker,
+ * not a claimed Twitch identity. This module opens no listener or network/file writes.
  *
  * getLibrarySnapshot(): synchronous {rootKey, revision, items}, compatible with
  * library.matchingSnapshot(). rootKey is private; IDs are library opaque hashes.
@@ -184,8 +185,8 @@ function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getN
     serial = result.catch(() => {});
     return result;
   }
-  function guard(capturedGeneration) {
-    return enabled && generation === capturedGeneration;
+  function guard(capturedGeneration, isCurrent = () => true) {
+    try { return enabled && generation === capturedGeneration && isCurrent() === true; } catch { return false; }
   }
   async function find(query, limit, context) {
     const result = await searchSongs({ query, offset: 0, limit });
@@ -253,8 +254,9 @@ function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getN
     if (blocked) throw Error(blocked);
     return resolved.song;
   }
-  function receive(input) {
+  function receive(input, { isCurrent = () => true } = {}) {
     if (!enabled) return Promise.resolve(failure('disabled'));
+    if (typeof isCurrent !== 'function' || !guard(generation, isCurrent)) return Promise.resolve(failure('disabled'));
     const event = source(input);
     if (!event) return Promise.resolve(failure('invalid_request'));
     const command = event.songId ? { type: 'request', songId: event.songId } : parseCommand(event.query);
@@ -263,7 +265,7 @@ function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getN
     if (reservation) return Promise.resolve(failure(reservation));
     // Reserve before awaiting callbacks so simultaneous arrivals cannot bypass limits.
     return enqueue(async () => {
-      if (!guard(capturedGeneration)) return failure('disabled');
+      if (!guard(capturedGeneration, isCurrent)) return failure('disabled');
       if (command.type === 'queue') {
         const queue = ranked(), position = queue.findIndex(item => item.voters.has(event.viewerKey));
         return { ok: true, command: 'queue', items: queue.slice(0, 5).map(publicRequest), position: position < 0 ? null : position + 1 };
@@ -271,7 +273,7 @@ function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getN
       if (command.type === 'song') {
         let value;
         try { value = typeof getNowPlaying === 'function' ? await getNowPlaying() : null; } catch { return failure('not_playing'); }
-        if (!guard(capturedGeneration)) return failure('disabled');
+        if (!guard(capturedGeneration, isCurrent)) return failure('disabled');
         if (!value || !['playing', 'exported'].includes(value.state) || !text(value.title)) return failure('not_playing');
         const song = { title: text(value.title), artist: text(value.artist), charter: text(value.charter) };
         if (value.state === 'exported') song.exported = true;
@@ -283,7 +285,7 @@ function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getN
         context = library();
         if (!songId) {
           const matches = await find(command.query, LIMITS.search, context);
-          if (!guard(capturedGeneration)) return failure('disabled');
+          if (!guard(capturedGeneration, isCurrent)) return failure('disabled');
           if (!matches.songs.length) return failure('not_found');
           if (matches.total !== 1 || matches.songs.length !== 1) return { ...failure('ambiguous'), matches: matches.songs };
           songId = matches.songs[0].id;
@@ -298,7 +300,7 @@ function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getN
           if (requests.filter(active).length >= LIMITS.active) return failure('queue_full');
         }
         const resolved = await resolve(songId, context);
-        if (!guard(capturedGeneration)) return failure('disabled');
+        if (!guard(capturedGeneration, isCurrent)) return failure('disabled');
         const song = finishResolve(resolved, context);
         if (existing) {
           existing.song = song; existing.voters.add(event.viewerKey); existing.votes++;

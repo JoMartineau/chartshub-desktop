@@ -5,7 +5,38 @@ const MAX_RESPONSE_BYTES = 512 * 1024;
 let stopped = false, timer, activeRequest = null, language = 'fr', initialized = false, lastRender = null;
 const tr = (fr, en) => language === 'en' ? en : fr;
 const text = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').slice(0, 512) : '';
-const platforms = { twitch: 'Twitch', tiktok: 'TikTok', youtube: 'YouTube' };
+const platforms = { twitch: 'Twitch', tiktok: 'TikTok', youtube: 'YouTube', website: 'Site web' };
+const defaultWidget = Object.freeze({ accentColor: '#38bdf8', fontSize: 24, upcomingCount: 3, showNowPlaying: true, showViewerNames: true });
+function widgetSettings(value) {
+  if (value === undefined) return { ...defaultWidget };
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).length !== 5 || Object.keys(value).some(key => !Object.hasOwn(defaultWidget, key))
+      || typeof value.accentColor !== 'string' || !/^#[a-f0-9]{6}$/i.test(value.accentColor)
+      || !Number.isSafeInteger(value.fontSize) || value.fontSize < 16 || value.fontSize > 48
+      || !Number.isSafeInteger(value.upcomingCount) || value.upcomingCount < 1 || value.upcomingCount > 10
+      || typeof value.showNowPlaying !== 'boolean' || typeof value.showViewerNames !== 'boolean') throw Error();
+  return { ...value, accentColor: value.accentColor.toLowerCase() };
+}
+function currentSong(value, widget) {
+  if (!widget.showNowPlaying || value === undefined || value === null) return null;
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+      || Object.keys(value).some(key => !['title', 'artist', 'state', 'viewerName'].includes(key))
+      || !['playing', 'exported'].includes(value.state)
+      || typeof value.title !== 'string' || value.title.length > 512 || !text(value.title).trim()
+      || typeof value.artist !== 'string' || value.artist.length > 512
+      || (value.viewerName !== undefined && (typeof value.viewerName !== 'string' || value.viewerName.length > 512))) throw Error();
+  return { title: text(value.title), artist: text(value.artist), state: value.state,
+    viewerName: widget.showViewerNames ? text(value.viewerName) : '' };
+}
+function renderCurrent(song) {
+  element('current').hidden = song === null;
+  element('current-label').textContent = song ? song.state === 'exported'
+    ? tr('Dernier morceau exporté', 'Last exported song') : tr('En cours', 'Now playing') : '';
+  element('current-title').textContent = song?.title ?? '';
+  element('current-artist').textContent = song?.artist ?? '';
+  element('current-viewer').hidden = !song?.viewerName;
+  element('current-viewer').textContent = song?.viewerName ? tr('Demandé par ', 'Requested by ') + song.viewerName : '';
+}
 
 function labels() {
   document.documentElement.lang = language;
@@ -30,23 +61,27 @@ function createRow() {
   platform.className = 'request-platform'; name.className = 'request-viewer-name'; votes.className = 'request-votes';
   viewer.append(platform, by, name); content.append(next, title, artist, viewer); row.append(rank, content, votes);
   row.addEventListener('animationend', () => row.classList.remove('is-new'));
-  return { row, rank, next, title, artist, platform, by, name, votes };
+  return { row, rank, next, title, artist, viewer, platform, by, name, votes };
 }
 function render(state) {
   if (!state || typeof state !== 'object' || !Array.isArray(state.requests) || state.requests.length > 50) throw Error();
   language = state.language === 'en' ? 'en' : 'fr';
+  const widget = widgetSettings(state.widget), playing = currentSong(state.nowPlaying, widget);
   const unique = new Set();
   const requests = state.requests.filter(request => request && ['pending', 'accepted'].includes(request.status)).map(request => ({
     id: text(request.id), title: text(request.title), artist: text(request.artist), viewerName: text(request.viewerName),
     platform: Object.hasOwn(platforms, request.platform) ? request.platform : '',
     votes: Number.isSafeInteger(request.votes) && request.votes >= 0 ? Math.min(request.votes, 1000) : 0
   })).filter(request => request.id && !unique.has(request.id) && unique.add(request.id));
-  const enabled = state.enabled === true, signature = JSON.stringify([language, enabled, requests]);
+  const enabled = state.enabled === true, signature = JSON.stringify([language, enabled, requests, widget, playing]);
   if (signature === lastRender) return;
   lastRender = signature; labels();
+  document.documentElement.style.setProperty('--request-accent', widget.accentColor);
+  document.documentElement.style.setProperty('--request-font-size', widget.fontSize + 'px');
+  renderCurrent(playing);
   status.dataset.state = enabled ? 'open' : 'closed'; status.textContent = tr(enabled ? 'Demandes ouvertes' : 'Demandes fermées', enabled ? 'Requests open' : 'Requests closed');
   element('count').textContent = String(requests.length); element('empty').hidden = requests.length > 0;
-  const visible = requests.slice(0, 5), visibleIds = new Set(visible.map(request => request.id));
+  const visible = requests.slice(0, widget.upcomingCount), visibleIds = new Set(visible.map(request => request.id));
   for (const [id, entry] of nodes) if (!visibleIds.has(id)) { entry.row.remove(); nodes.delete(id); }
   for (const [index, request] of visible.entries()) {
     let entry = nodes.get(request.id);
@@ -56,8 +91,12 @@ function render(state) {
     entry.rank.textContent = String(index + 1).padStart(2, '0'); entry.next.hidden = index !== 0;
     entry.next.textContent = tr('À jouer ensuite', 'Up next');
     entry.title.textContent = request.title || tr('Morceau sans titre', 'Untitled song'); entry.artist.textContent = request.artist;
-    entry.platform.textContent = platforms[request.platform] ?? ''; entry.platform.hidden = !request.platform; entry.platform.dataset.platform = request.platform;
-    entry.by.textContent = tr('Demandé par', 'Requested by'); entry.name.textContent = request.viewerName || tr('Un spectateur', 'A viewer');
+    entry.viewer.hidden = !widget.showViewerNames || !request.viewerName;
+    entry.platform.textContent = request.platform === 'website' ? tr('Site web', 'Website') : platforms[request.platform] ?? '';
+    entry.platform.hidden = !request.platform; entry.platform.dataset.platform = request.platform;
+    entry.by.textContent = tr('Demandé par', 'Requested by');
+    entry.name.textContent = widget.showViewerNames ? request.platform === 'website' && request.viewerName === 'Spectateur web'
+      ? tr('Spectateur web', 'Web viewer') : request.viewerName : '';
     entry.votes.textContent = `${request.votes} vote${request.votes === 1 ? '' : 's'}`;
     if (queue.children[index] !== row) queue.insertBefore(row, queue.children[index] ?? null);
   }
@@ -71,6 +110,7 @@ function render(state) {
 }
 function unavailable() {
   lastRender = null; nodes.clear(); queue.replaceChildren(); labels();
+  renderCurrent(null);
   status.dataset.state = 'unavailable'; status.textContent = tr('Connexion indisponible', 'Connection unavailable');
   element('count').textContent = '—'; element('remaining').hidden = true; element('remaining').textContent = ''; empty(true, false);
 }

@@ -11,12 +11,15 @@ type ChatPlatform = 'twitch' | 'tiktok';
 interface ChatConnection {
   state: string; displayName: string | null; error: string | null; canReply: boolean; userCode?: string | null;
 }
+interface WidgetSettings { accentColor: string; fontSize: number; upcomingCount: number; showNowPlaying: boolean; showViewerNames: boolean; }
 interface Snapshot {
   library?: { status: string; count: number; settings?: { watch: boolean }; watcher?: string };
   state?: { gameplay?: { state: string }; nowPlaying?: { title?: string; artist?: string } | null };
   cloneHero?: { mode: string };
   songRequests?: {
     enabled: boolean; revision: number; order?: 'votes' | 'manual'; rules: SongRequestRules; requests: SongRequest[];
+    widget?: WidgetSettings;
+    publicRequests?: { supported: boolean; active: boolean; connected: boolean; error: string | null; pendingAcknowledgements: number };
     bridge: { enabled: boolean; port?: number; url: string | null; overlayUrl: string | null; error: string | null; platforms: string[] };
     sharing?: { supported: boolean; url: string | null; count: number; updatedAt: string | null; busy: boolean; error: string | null; unavailableCount?: number;
       autoSync?: { enabled: boolean; pending: boolean; updating: boolean; retrying: boolean };
@@ -36,6 +39,8 @@ export class SongRequestControls {
   private snapshot: Snapshot | null = null;
   private busy = false;
   private dirty = false;
+  private widgetDirty = false;
+  private showHistory = false;
   private disposed = false;
   private listKey = '';
   private message: [string, string, boolean] = ['', '', false];
@@ -85,6 +90,22 @@ export class SongRequestControls {
       this.element('#song-requests-tiktok-username').removeAttribute('aria-invalid'); this.availability();
     }, { signal });
     this.options.root.ownerDocument.defaultView?.addEventListener('chartshub:languagechange', () => this.render(), { signal });
+    for (const name of ['color', 'size', 'count', 'now-playing', 'viewers']) {
+      const mark = (): void => { this.widgetDirty = true; this.availability(); };
+      this.element('#song-requests-widget-' + name).addEventListener('input', mark, { signal });
+      this.element('#song-requests-widget-' + name).addEventListener('change', mark, { signal });
+    }
+    this.element('#song-requests-widget-form').addEventListener('submit', event => { event.preventDefault(); void this.applyWidget(); }, { signal });
+    this.element('#song-requests-toggle-history').addEventListener('click', () => { this.showHistory = !this.showHistory; this.render(); }, { signal });
+    for (const [kind, target] of [['chat', 'connections-details'], ['sharing', 'sharing']] as const) {
+      this.element('#song-requests-resolve-' + kind).addEventListener('click', () => {
+        this.element<HTMLDetailsElement>('#song-requests-' + target).open = true;
+        this.element('#song-requests-' + (kind === 'chat' ? 'connections-summary' : 'sharing-title')).focus();
+      }, { signal });
+    }
+    this.element('#song-requests-resolve-library').addEventListener('click', () => {
+      this.options.root.ownerDocument.defaultView?.dispatchEvent(new Event('companion:library-focus'));
+    }, { signal });
     this.render();
   }
   update(snapshot: Snapshot): void { if (!this.disposed) { this.snapshot = snapshot; this.render(); } }
@@ -157,7 +178,17 @@ export class SongRequestControls {
     if (!instruments.includes(instrument as SongRequestRules['instrument']) || !difficulties.includes(difficulty as SongRequestRules['difficulty'])) return;
     await this.send('songRequests.configure', { enabled: current.enabled, port, rules: { maxDurationMinutes, instrument, difficulty } }, true);
   }
-  private async send(command: string, payload: unknown, clearDraft = false): Promise<void> {
+  private async applyWidget(): Promise<void> {
+    if (!this.snapshot?.songRequests?.widget || this.busy || !this.widgetDirty || this.disposed) return;
+    const color = this.element<HTMLInputElement>('#song-requests-widget-color'), size = this.element<HTMLInputElement>('#song-requests-widget-size'), count = this.element<HTMLInputElement>('#song-requests-widget-count');
+    const accentColor = color.value.toLowerCase(), fontSize = Number(size.value), upcomingCount = Number(count.value);
+    const valid = [ /^#[a-f0-9]{6}$/.test(accentColor), Number.isInteger(fontSize) && fontSize >= 16 && fontSize <= 48, Number.isInteger(upcomingCount) && upcomingCount >= 1 && upcomingCount <= 10 ];
+    [color, size, count].forEach((input, index) => input.setAttribute('aria-invalid', String(!valid[index])));
+    if (valid.some(value => !value)) { this.feedback('Widget : couleur valide, texte de 16 à 48 px et 1 à 10 demandes.', 'Widget: choose a valid color, text from 16 to 48 px and 1 to 10 requests.', true); [color, size, count][valid.indexOf(false)]?.focus(); return; }
+    const settings: WidgetSettings = { accentColor, fontSize, upcomingCount, showNowPlaying: this.element<HTMLInputElement>('#song-requests-widget-now-playing').checked, showViewerNames: this.element<HTMLInputElement>('#song-requests-widget-viewers').checked };
+    await this.send('songRequests.widget', { settings }, false, true);
+  }
+  private async send(command: string, payload: unknown, clearDraft = false, clearWidgetDraft = false): Promise<void> {
     if (!this.snapshot?.songRequests || this.busy || this.disposed) return;
     this.busy = true; this.feedback('Mise à jour…', 'Updating…'); this.availability();
     try {
@@ -165,6 +196,7 @@ export class SongRequestControls {
       if (this.disposed) return;
       if (response && typeof response === 'object' && 'ok' in response && response.ok === true) {
         if (clearDraft) this.dirty = false;
+        if (clearWidgetDraft) this.widgetDirty = false;
         if (command === 'songRequests.publishLibrary') this.feedback('Liste publiée. Copiez le lien pour vos spectateurs.', 'List published. Copy the link for your viewers.');
         else if (command === 'songRequests.removeLibrary') this.feedback('Partage retiré. Le lien public ne donne plus accès à cette liste.', 'Sharing removed. The public link no longer opens this list.');
         else this.feedback(command.includes('.copy') ? 'Copié dans le presse-papiers.' : 'Modification enregistrée.', command.includes('.copy') ? 'Copied to clipboard.' : 'Change saved.');
@@ -204,6 +236,14 @@ export class SongRequestControls {
     for (const button of Array.from(this.element('#song-requests-items').querySelectorAll<HTMLButtonElement>('button'))) {
       button.disabled = unavailable || button.dataset.unavailable === 'true' || (button.dataset.action === 'accept' && !this.libraryReady);
     }
+    const widgetUnavailable = unavailable || !current?.widget;
+    for (const name of ['color', 'size', 'count', 'now-playing', 'viewers']) this.element<HTMLInputElement>('#song-requests-widget-' + name).disabled = widgetUnavailable;
+    this.element<HTMLButtonElement>('#song-requests-widget-apply').disabled = widgetUnavailable || !this.widgetDirty;
+    this.element('#song-requests-widget-draft').textContent = this.widgetDirty ? this.tr('Modifications non enregistrées.', 'Unsaved changes.') : this.tr('Réglages enregistrés.', 'Settings saved.');
+    const historyCount = current?.requests.filter(item => ['played', 'rejected'].includes(item.status)).length ?? 0;
+    this.element<HTMLButtonElement>('#song-requests-toggle-history').disabled = !historyCount;
+    this.element('#song-requests-toggle-history').setAttribute('aria-expanded', String(this.showHistory));
+    this.element('#song-requests-toggle-history').textContent = (this.showHistory ? this.tr('Masquer l’historique', 'Hide history') : this.tr('Afficher l’historique', 'Show history')) + ' (' + historyCount + ')';
     this.element('#song-requests-draft-status').textContent = this.dirty ? this.tr('Modifications non enregistrées.', 'Unsaved changes.') : this.tr('Réglages enregistrés.', 'Settings saved.');
     for (const platform of ['twitch', 'tiktok'] as const) {
       const connection = current?.connections?.[platform], pending = this.connectionPending.get(platform);
@@ -222,6 +262,13 @@ export class SongRequestControls {
     if (this.disposed) return;
     const copy: Record<string, string> = {
       title: this.tr('Song Request', 'Song Request'),
+      'connections-summary': this.tr('Connexions du chat', 'Chat connections'),
+      'health-chat-label': this.tr('Chat', 'Chat'), 'health-library-label': this.tr('Bibliothèque Songs', 'Songs library'), 'health-sharing-label': this.tr('Liste publique', 'Public list'),
+      'resolve-chat': this.tr('Configurer le chat', 'Configure chat'), 'resolve-library': this.tr('Voir la bibliothèque', 'Open library'), 'resolve-sharing': this.tr('Gérer le partage', 'Manage sharing'),
+      'queue-title': this.tr('File des demandes', 'Request queue'), 'queue-help': this.tr('Acceptez une demande, puis marquez-la jouée. Passer la retire de la file.', 'Accept a request, then mark it played. Skip removes it from the queue.'),
+      'widget-summary': this.tr('Personnaliser le widget OBS', 'Customize OBS widget'), 'widget-color-label': this.tr('Couleur d’accent', 'Accent color'), 'widget-size-label': this.tr('Taille du texte (px)', 'Text size (px)'), 'widget-count-label': this.tr('Prochaines demandes', 'Upcoming requests'),
+      'widget-now-playing-label': this.tr('Afficher le morceau actuel', 'Show current song'), 'widget-viewers-label': this.tr('Afficher les pseudos', 'Show viewer names'), 'widget-apply': this.tr('Appliquer au widget', 'Apply to widget'),
+      'widget-help': this.tr('Trois prochaines demandes par défaut. Ces réglages s’appliquent au lien OBS existant.', 'Three upcoming requests by default. These settings apply to the existing OBS link.'),
       description: this.tr('Connectez votre chat, puis activez les demandes pour les morceaux de votre dossier Songs.', 'Connect your chat, then enable requests for songs in your Songs folder.'),
       'enabled-label': this.tr('Recevoir les demandes du chat', 'Receive chat requests'),
       'duration-label': this.tr('Durée maximale (minutes)', 'Maximum duration (minutes)'),
@@ -260,7 +307,14 @@ export class SongRequestControls {
       Array.from(select.querySelectorAll('option')).forEach((option, index) => { option.textContent = names[index] ?? ''; });
     }
     const current = this.snapshot?.songRequests;
-    this.renderConnections();
+    this.renderConnections(); this.renderHealth();
+    if (current?.widget && !this.widgetDirty) {
+      this.element<HTMLInputElement>('#song-requests-widget-color').value = current.widget.accentColor;
+      this.element<HTMLInputElement>('#song-requests-widget-size').value = String(current.widget.fontSize);
+      this.element<HTMLInputElement>('#song-requests-widget-count').value = String(current.widget.upcomingCount);
+      this.element<HTMLInputElement>('#song-requests-widget-now-playing').checked = current.widget.showNowPlaying;
+      this.element<HTMLInputElement>('#song-requests-widget-viewers').checked = current.widget.showViewerNames;
+    }
     const sharing = current?.sharing;
     const count = sharing && Number.isSafeInteger(sharing.count) && sharing.count >= 0 && sharing.count <= 200000 ? sharing.count : 0;
     const omitted = sharing && Number.isSafeInteger(sharing.unavailableCount) && (sharing.unavailableCount ?? 0) > 0 ? sharing.unavailableCount! : 0;
@@ -295,6 +349,19 @@ export class SongRequestControls {
       this.element<HTMLSelectElement>('#song-requests-difficulty').value = current.rules.difficulty;
     }
     this.renderRequests(current?.requests ?? []); this.renderFeedback(); this.availability();
+  }
+  private renderHealth(): void {
+    const current = this.snapshot?.songRequests, connections = current?.connections, sharing = current?.sharing, library = this.snapshot?.library;
+    const connected = ['twitch', 'tiktok'].some(platform => connections?.[platform as ChatPlatform]?.state === 'connected');
+    const reconnecting = ['twitch', 'tiktok'].some(platform => ['connecting', 'reconnecting', 'authorizing'].includes(connections?.[platform as ChatPlatform]?.state ?? ''));
+    this.element('#song-requests-health-chat').textContent = connected ? this.tr('Chat connecté', 'Chat connected') : reconnecting ? this.tr('Connexion en cours…', 'Connecting…') : current?.bridge.enabled ? this.tr('Pont local actif', 'Local bridge active') : this.tr('Chat à connecter', 'Connect chat');
+    this.element('#song-requests-health-chat-help').textContent = connected ? current?.enabled ? this.libraryReady ? this.tr('Les demandes du chat sont reçues.', 'Chat requests are being received.') : this.tr('Réception en attente de la bibliothèque Songs.', 'Reception is waiting for the Songs library.') : this.tr('Activez « Recevoir les demandes du chat » quand vous êtes prêt.', 'Enable “Receive chat requests” when you are ready.') : this.tr('Twitch et TikTok se règlent dans Connexions du chat.', 'Set up Twitch and TikTok under Chat connections.');
+    this.element('#song-requests-health-library').textContent = this.libraryReady ? this.tr(library!.count.toLocaleString('fr-CA') + ' morceaux prêts', library!.count.toLocaleString('en-CA') + ' songs ready') : library?.status === 'scanning' ? this.tr('Analyse en cours…', 'Scan in progress…') : this.tr('Bibliothèque à préparer', 'Prepare library');
+    this.element('#song-requests-health-library-help').textContent = this.libraryReady ? this.tr('Votre dossier Songs est disponible.', 'Your Songs folder is available.') : library?.status === 'scanning' ? this.tr('Attendez la fin de l’analyse avant d’accepter une demande.', 'Wait for the scan to finish before accepting a request.') : this.tr('Choisissez Songs puis lancez un scan ou une actualisation.', 'Choose Songs, then scan or refresh the library.');
+    this.element('#song-requests-health-sharing').textContent = sharing?.busy ? this.tr('Liste en cours de mise à jour…', 'Updating list…') : sharing?.error ? this.tr('Partage à vérifier', 'Check sharing') : sharing?.url ? sharing.autoSync?.retrying ? this.tr('Nouvelle tentative prévue', 'Retry scheduled') : sharing.autoSync?.pending ? this.tr('Actualisation en attente', 'Update pending') : this.tr('Liste publiée', 'List published') : this.tr('Liste à publier', 'Publish list');
+    this.element('#song-requests-health-sharing-help').textContent = !sharing?.supported ? this.tr('Connectez votre compte ChartsHub avant de publier.', 'Sign in to ChartsHub before publishing.') : sharing?.error ? this.sharingError(sharing.error) : sharing?.url ? this.tr('Le lien des spectateurs reste le même.', 'The viewer link stays the same.') + this.sharingSyncStatus(sharing.autoSync) : this.tr('Publiez une première fois pour obtenir le lien des spectateurs.', 'Publish once to get your viewer link.');
+    const web = current?.publicRequests, status = this.element('#song-requests-health-web'); status.hidden = !web?.supported;
+    status.textContent = web?.supported ? web.active && web.connected ? this.tr('Site web : réception active', 'Website: receiving requests') : web.error ? this.tr('Site web : connexion à vérifier', 'Website: check connection') : this.tr('Site web : réception arrêtée', 'Website: reception stopped') : '';
   }
   private sharingSyncStatus(sync: { enabled: boolean; pending: boolean; retrying: boolean } | undefined): string {
     if (!sync?.enabled) return '';
@@ -361,7 +428,7 @@ export class SongRequestControls {
       const usernameReady = platform === 'tiktok' && value?.state === 'disconnected' && !!displayName;
       this.element('#song-requests-' + platform + '-status').textContent = (usernameReady ? this.tr('Compte prêt', 'Account ready') : states[value?.state ?? 'disconnected'] ?? this.tr('Connexion indisponible', 'Connection unavailable'))
         + (displayName ? ' · ' + displayName : '');
-      const help = platform === 'twitch'
+      const help = value?.state === 'connected' ? this.tr('Le chat est connecté. Activez la réception quand vous êtes prêt.', 'Chat is connected. Enable reception when you are ready.') : value?.state === 'reconnecting' ? this.tr('La reconnexion est automatique. Consultez cet état si elle persiste.', 'Reconnection is automatic. Check this status if it continues.') : platform === 'twitch'
         ? this.tr('Autorisez ChartsHub dans la page Twitch qui s’ouvre. Les réponses sont envoyées dans votre chat.', 'Authorize ChartsHub in the Twitch page that opens. Replies are sent to your chat.')
         : usernameReady ? this.tr('Activez la réception quand votre LIVE démarre. Vous pouvez attendre votre prochain direct.', 'Enable reception when your LIVE starts. You can wait until your next live stream.')
         : this.tr('Indiquez votre nom TikTok. Vous pourrez tester lors de votre prochain direct.', 'Enter your TikTok username. You can test during your next live stream.');
@@ -385,30 +452,36 @@ export class SongRequestControls {
     this.element('#song-requests-last-response-message').textContent = text;
   }
   private renderRequests(items: SongRequest[]): void {
-    const key = JSON.stringify([this.options.root.ownerDocument.documentElement.lang, items]);
+    const key = JSON.stringify([this.options.root.ownerDocument.documentElement.lang, this.showHistory, items]);
     if (key === this.listKey) return;
     this.listKey = key;
     this.cardsAbort.abort(); this.cardsAbort = new AbortController();
     const list = this.element('#song-requests-items'), document = list.ownerDocument;
-    list.textContent = ''; this.element('#song-requests-empty').hidden = items.length > 0;
+    list.textContent = ''; this.element('#song-requests-empty').hidden = items.some(item => ['pending', 'accepted'].includes(item.status));
     const statuses = { pending: this.tr('À approuver', 'Pending approval'), accepted: this.tr('Acceptée', 'Accepted'), rejected: this.tr('Refusée', 'Rejected'), played: this.tr('Jouée', 'Played') };
     const active = items.filter(item => ['pending', 'accepted'].includes(item.status));
-    for (const item of items) {
+    for (const item of [...active, ...items.filter(item => !active.includes(item))]) {
       const card = document.createElement('article'); card.className = 'song-request-card'; card.dataset.requestId = item.id; card.setAttribute('role', 'listitem');
-      const heading = document.createElement('h3'); heading.className = 'song-request-heading'; heading.textContent = item.title;
+      const position = active.findIndex(value => value.id === item.id);
+      card.hidden = position < 0 && !this.showHistory; card.dataset.status = item.status;
+      card.classList.toggle('is-next', position === 0); card.classList.toggle('is-history', position < 0);
+      const titleRow = document.createElement('div'); titleRow.className = 'song-request-title-row';
+      if (position >= 0) { const rank = document.createElement('span'); rank.className = 'song-request-position'; rank.textContent = String(position + 1); titleRow.append(rank); }
+      const heading = document.createElement('h3'); heading.className = 'song-request-heading'; heading.textContent = item.title; titleRow.append(heading);
       const artist = document.createElement('p'); artist.textContent = item.artist;
       const meta = document.createElement('p'); meta.className = 'song-request-meta';
-      const platform = ({ twitch: 'Twitch', tiktok: 'TikTok', youtube: 'YouTube' } as Record<string, string>)[item.platform] ?? item.platform;
-      meta.textContent = `${item.viewerName} · ${platform} · ${Math.max(0, item.votes)} vote${item.votes === 1 ? '' : 's'} · ${statuses[item.status] ?? ''}`;
+      const platform = ({ twitch: 'Twitch', tiktok: 'TikTok', youtube: 'YouTube', website: this.tr('Site web', 'Website') } as Record<string, string>)[item.platform] ?? item.platform;
+      const viewerName = item.platform === 'website' ? this.tr('Spectateur web', 'Website visitor') : item.viewerName;
+      meta.textContent = `${viewerName} · ${platform} · ${Math.max(0, item.votes)} vote${item.votes === 1 ? '' : 's'} · ${statuses[item.status] ?? ''}`;
       const actions = document.createElement('div'); actions.className = 'song-request-actions';
       const add = (action: 'accept' | 'reject' | 'played', label: string): void => {
-        const button = document.createElement('button'); button.type = 'button'; button.className = 'button secondary'; button.dataset.action = action; button.textContent = label;
+        const button = document.createElement('button'); button.type = 'button'; button.className = action === 'reject' ? 'button secondary' : 'button primary'; button.dataset.action = action; button.textContent = label;
         button.setAttribute('aria-label', `${label} : ${item.title}`);
         button.addEventListener('click', () => { void this.moderate(item.id, action); }, { signal: this.cardsAbort.signal }); actions.append(button);
       };
       if (item.status === 'pending') add('accept', this.tr('Accepter', 'Accept'));
       if (item.status === 'accepted') add('played', this.tr('Marquer jouée', 'Mark played'));
-      if (['pending', 'accepted'].includes(item.status)) add('reject', this.tr('Refuser', 'Reject'));
+      if (['pending', 'accepted'].includes(item.status)) add('reject', this.tr('Passer', 'Skip'));
       if (['pending', 'accepted'].includes(item.status)) {
         for (const direction of ['up', 'down'] as const) {
           const button = document.createElement('button'); button.type = 'button'; button.className = 'button secondary'; button.dataset.action = 'move-' + direction;
@@ -417,7 +490,7 @@ export class SongRequestControls {
           button.addEventListener('click', () => { void this.move(item.id, direction); }, { signal: this.cardsAbort.signal }); actions.append(button);
         }
       }
-      card.append(heading, artist, meta, actions); list.append(card);
+      card.append(titleRow, artist, meta, actions); list.append(card);
     }
   }
 }

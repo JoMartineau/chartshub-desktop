@@ -4,6 +4,7 @@
   let language = initial;
   let writing = false;
   const exact = new Map([
+    ['État des demandes','Request status'],
     ['Charts signalées par Clone Hero','Charts reported by Clone Hero'],['Importer badsongs.txt','Import badsongs.txt'],
     ['Importez badsongs.txt après Scan Songs dans Clone Hero. Les erreurs et leur motif s’affichent ici ; les avertissements restent conservés.','Import badsongs.txt after Scan Songs in Clone Hero. Errors and their reasons are displayed here; warnings are kept.'],
     ['Importez le rapport créé par Scan Songs dans Clone Hero.','Import the report created by Scan Songs in Clone Hero.'],['Charts signalées, défilement indépendant','Reported charts, independent scrolling'],['0 chart cochée.','0 charts selected.'],['Envoyer la sélection à la Corbeille','Send selection to Recycle Bin'],
@@ -241,6 +242,9 @@
   ]);
 
   const rules = [
+    [/^\+(.+) nouveau\(x\) · (.+) ignoré\(s\)$/, m => `+${m[1]} new · ${m[2]} skipped`],
+    [/^Écoulé : (.+) · Temps restant indéterminé$/, m => `Elapsed: ${m[1]} · Remaining time unknown`],
+    [/^Écoulé : (.+) · Restant estimé : environ (.+)$/, m => `Elapsed: ${m[1]} · Estimated remaining: about ${m[2]}`],
     [/^(.+) sur (.+) résultat(?:s)? affiché(?:s)?(?: · (Chargement de la suite…|Suite indisponible))?$/, m => `${m[1]} of ${m[2]} results displayed${m[3] ? m[3] === 'Suite indisponible' ? ' · More results unavailable' : ' · Loading more…' : ''}`],
     [/^Arrêt de la vérification en cours : (.+) \/ (.+) groupes\. Les résultats terminés seront conservés\.$/, m => `Stopping verification: ${m[1]} / ${m[2]} groups. Completed results will be kept.`],
     [/^Vérification interrompue : (.+) \/ (.+) groupe\(s\) vérifié\(s\)\. (.+) Aucun fichier n’a été supprimé\.$/, m => `Verification interrupted: ${m[1]} / ${m[2]} group(s) checked. ${english(m[3])} No files were deleted.`],

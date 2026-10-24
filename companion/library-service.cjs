@@ -5,6 +5,7 @@ const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { createBadSongsCleanup } = require('./library-bad-songs.cjs');
 const { scanLibrary } = require('./library-scanner.cjs');
+const { emptyScanProgress } = require('./library-scan-progress.cjs');
 const { createLibraryQuery } = require('./library-query.cjs');
 const { createLibraryDuplicates } = require('./library-duplicates.cjs');
 const { createLibraryCleanup } = require('./library-cleanup.cjs');
@@ -66,7 +67,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   if (typeof dataDirectory !== 'string' || !path.isAbsolute(dataDirectory)) throw safeError('Dossier de données de bibliothèque invalide.');
   const filename = path.join(dataDirectory, 'library.json');
   let document = { version: VERSION, settings: { rootPath: null, watch: false, refreshOnStart: true }, items: [], lastScanAt: null, revision: 0, changes: { added: 0, removed: 0, modified: 0 }, warningCount: 0, skippedCount: 0 };
-  let phase = 'idle', mode = null, progress = { visited: 0, processed: 0, discovered: 0 }, error = null;
+  let phase = 'idle', mode = null, progress = emptyScanProgress(), error = null;
   let loaded = false, loadTask, blocked = null, active = false, epoch = 0, rootTicket = 0;
   let run = null, queuedMode = null, serial = Promise.resolve(), startTask = null, stopTask = null;
   let watcher = null, watcherState = 'off', debounce = null;
@@ -214,11 +215,11 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   function beginScan(nextMode) {
     cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); duplicates.invalidate(); verifiedDuplicateGroups = null;
     const current = { controller: new AbortController(), epoch, root: document.settings.rootPath, committing: false, promise: null };
-    run = current; phase = 'scanning'; mode = nextMode; error = null; progress = { visited: 0, processed: 0, discovered: 0 }; notify();
+    run = current; phase = 'scanning'; mode = nextMode; error = null; progress = emptyScanProgress(); notify();
     current.promise = (async () => {
       try {
         const result = await scanLibrary({ rootPath: current.root, previousItems: document.items, mode: nextMode, signal: current.controller.signal,
-          onProgress: value => { if (run === current && !current.controller.signal.aborted) { progress = { visited: value.visited, processed: value.processed, discovered: value.discovered }; notify(); } } });
+          onProgress: value => { if (run === current && !current.controller.signal.aborted) { progress = { ...emptyScanProgress(), ...value }; notify(); } } });
         if (current.controller.signal.aborted || current.epoch !== epoch) return;
         await enqueue(async () => {
           if (current.controller.signal.aborted || current.epoch !== epoch || current.root !== document.settings.rootPath) return;
@@ -227,6 +228,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
           if (new Set(items.map(item => item.id)).size !== items.length) throw Error('Invalid scan output');
           const next = { ...document, items, revision: document.revision + 1, lastScanAt: new Date().toISOString(), cleanupRefreshPending: false, changes: changes(items), warningCount: result.warningCount, skippedCount: result.skippedCount };
           await write(next); document = next; deferredCleanupScan = false; duplicates.invalidate(); phase = 'ready'; error = null;
+          progress = { ...progress, added: next.changes.added, skipped: next.skippedCount, warningCount: next.warningCount, estimatedRemainingMs: 0 };
         });
       } catch (failure) {
         if (current.controller.signal.aborted || failure?.name === 'AbortError') { phase = 'cancelled'; error = null; }
@@ -309,7 +311,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
         }
         await write(next);
       } catch { throw safeError('Impossible d’enregistrer le dossier de bibliothèque.'); }
-      document = next; duplicates.invalidate(); verifiedDuplicateGroups = null; blocked = null; phase = 'idle'; error = null; progress = { visited: 0, processed: 0, discovered: 0 }; mode = null;
+      document = next; duplicates.invalidate(); verifiedDuplicateGroups = null; blocked = null; phase = 'idle'; error = null; progress = emptyScanProgress(); mode = null;
     });
     if (requestedEpoch === epoch && ticket === rootTicket) { updateWatcher(); requestScan('full'); }
     notify(); return status();

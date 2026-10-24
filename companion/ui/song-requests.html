@@ -7,6 +7,12 @@
       <div class="request-total"><strong id="request-count">0</strong><span id="request-count-label">en attente</span></div>
     </header>
     <p id="request-status" class="request-status" role="status">Connexion…</p>
+    <section id="request-current" class="request-current" aria-labelledby="request-current-label" hidden>
+      <p id="request-current-label" class="request-next-label"></p>
+      <h2 id="request-current-title" class="request-title"></h2>
+      <p id="request-current-artist" class="request-artist"></p>
+      <p id="request-current-viewer" class="request-viewer" hidden></p>
+    </section>
     <ol id="request-queue" aria-live="polite" aria-relevant="additions"></ol>
     <section id="request-empty" class="request-empty" hidden><span class="request-empty-icon" aria-hidden="true">♫</span><strong id="request-empty-title">Choisissez le prochain morceau</strong><p id="request-empty-help">Demandez un morceau dans le chat.</p></section>
     <p id="request-remaining" class="request-remaining" hidden></p>

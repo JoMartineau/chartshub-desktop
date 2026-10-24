@@ -7,6 +7,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { createSongRequestPreferences } = require('../companion/song-request-preferences.cjs');
 const { INSTRUMENTS, DIFFICULTIES, DEFAULT_RULES } = require('../companion/song-requests.cjs');
+const { DEFAULT_WIDGET } = require('../companion/song-request-widget.cjs');
 
 const settings = (port = 38474, rules = {}) => ({ port, rules: { ...DEFAULT_RULES, ...rules } });
 const document = changes => ({ version: 1, ...settings(), ingestToken: 'a'.repeat(64), readToken: 'b'.repeat(64), ...changes });
@@ -37,8 +38,8 @@ test('first load creates distinct persistent local capabilities and only dedicat
   assert.match(state.ingestToken, /^[a-f0-9]{64}$/); assert.match(state.readToken, /^[a-f0-9]{64}$/);
   assert.notEqual(state.ingestToken, state.readToken);
   const disk = JSON.parse(await fs.readFile(f.file, 'utf8'));
-  assert.deepEqual(Object.keys(disk).sort(), ['ingestToken', 'port', 'readToken', 'rules', 'version']);
-  assert.deepEqual(disk, { version: 1, port: state.port, rules: state.rules, ingestToken: state.ingestToken, readToken: state.readToken });
+  assert.deepEqual(Object.keys(disk).sort(), ['ingestToken', 'port', 'readToken', 'rules', 'version', 'widget']);
+  assert.deepEqual(disk, { version: 2, port: state.port, rules: state.rules, ingestToken: state.ingestToken, readToken: state.readToken, widget: DEFAULT_WIDGET });
   assert.deepEqual(await fs.readdir(f.dataDirectory), ['song-request-access.json']);
   if (process.platform !== 'win32') assert.equal((await fs.stat(f.file)).mode & 0o777, 0o600);
   assert.deepEqual(await f.fresh().load(), state);
@@ -100,7 +101,7 @@ test('simultaneous loads share capabilities and serial saves are drained by flus
 
 test('malformed, future, invalid UTF-8, oversized and invalid-schema originals stay intact with no exposed tokens', async t => {
   const f = await fixture(t);
-  const invalid = ['{ broken Private data', JSON.stringify(document({ version: 2 })), Buffer.from([0xff, 0xfe]), ' '.repeat(8193),
+  const invalid = ['{ broken Private data', JSON.stringify(document({ version: 3 })), JSON.stringify(document({ version: 2 })), Buffer.from([0xff, 0xfe]), ' '.repeat(8193),
     ...[document({ version: 0 }), document({ port: 80 }), document({ readToken: 'a'.repeat(64) }),
       document({ ingestToken: 'A'.repeat(64) }), document({ readToken: 'b'.repeat(63) }), document({ enabled: true }),
       document({ rules: { ...DEFAULT_RULES, maxDurationMinutes: 61 } })].map(value => JSON.stringify(value))];
@@ -110,6 +111,32 @@ test('malformed, future, invalid UTF-8, oversized and invalid-schema originals s
     assert.deepEqual(await fs.readFile(f.file), Buffer.from(original));
     assert.deepEqual(await fs.readdir(f.dataDirectory), ['song-request-access.json']);
   }
+});
+
+test('version-one preferences migrate widget defaults without rotating capabilities or rewriting until saved', async t => {
+  const f = await fixture(t), original = document({ rules: { ...DEFAULT_RULES, maxDurationMinutes: 9 } });
+  await fs.writeFile(f.file, JSON.stringify(original)); const bytes = await fs.readFile(f.file);
+  const state = await f.service.load();
+  assert.equal(state.error, null); assert.deepEqual(state.widget, DEFAULT_WIDGET);
+  assert.equal(state.ingestToken, original.ingestToken); assert.equal(state.readToken, original.readToken);
+  assert.deepEqual(await fs.readFile(f.file), bytes);
+  const widget = { ...DEFAULT_WIDGET, accentColor: '#AABBCC', fontSize: 32, upcomingCount: 7, showViewerNames: false };
+  await Promise.all([f.service.saveWidget(widget), f.service.save(settings(40001, { maxDurationMinutes: 4 }))]);
+  const fresh = await f.fresh().load(); assert.equal(fresh.port, 40001); assert.equal(fresh.rules.maxDurationMinutes, 4);
+  assert.deepEqual(fresh.widget, { ...widget, accentColor: '#aabbcc' });
+  assert.equal(fresh.ingestToken, original.ingestToken); assert.equal(fresh.readToken, original.readToken);
+  assert.equal(JSON.parse(await fs.readFile(f.file, 'utf8')).version, 2);
+  fresh.widget.fontSize = 48; assert.equal(f.service.status().widget.fontSize, 32);
+});
+
+test('invalid widget settings cannot alter safe preferences or rotate capabilities', async t => {
+  const f = await fixture(t); await f.service.load(); const before = await fs.readFile(f.file);
+  for (const value of [null, {}, { ...DEFAULT_WIDGET, accentColor: 'red;display:none' },
+    { ...DEFAULT_WIDGET, fontSize: 49 }, { ...DEFAULT_WIDGET, upcomingCount: 0 },
+    { ...DEFAULT_WIDGET, showViewerNames: 'true' }, { ...DEFAULT_WIDGET, enabled: true }]) {
+    await assert.rejects(f.service.saveWidget(value), safe);
+  }
+  assert.deepEqual(await fs.readFile(f.file), before);
 });
 
 test('the 8 KiB read cap accepts a valid document at the boundary and refuses one extra byte', async t => {
