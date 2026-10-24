@@ -151,7 +151,8 @@ test('scanner crosses 100,000 entries and 10,000 songs while yielding and closin
   const result = await fixture.scan({ onProgress: progress => { lastProgress = progress; } });
   assert.equal(result.items.length, 10001);
   assert.equal(fixture.counts.entries, 110011);
-  assert.deepEqual(lastProgress, { visited: 110011, processed: 10001, discovered: 10001 });
+  assert.ok(Number.isSafeInteger(lastProgress.elapsedMs) && lastProgress.elapsedMs >= 0);
+  assert.deepEqual({ ...lastProgress, elapsedMs: 0 }, { visited: 110011, processed: 10001, discovered: 10001, added: 10001, skipped: 0, warningCount: 0, elapsedMs: 0, estimatedRemainingMs: null });
   assert.equal(heartbeat, true, 'large scans must allow other event-loop work');
   assert.equal(fixture.counts.closed, fixture.counts.opened);
   assert.equal(fixture.counts.reads, 0);

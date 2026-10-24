@@ -100,7 +100,8 @@ test('eight directory jobs overlap while snapshots, metadata handles and stable 
   assert.equal(f.counts.metadataReads, 40); assert.equal(f.counts.directories, 0); assert.equal(f.counts.files, 0); assert.equal(f.counts.activeSnapshots, 0);
   assert.ok(full.items.every(item => /^[a-f0-9]{64}$/.test(item.cleanupSnapshot)));
   assert.deepEqual(full.items.map(item => item.relativePath), [...full.items.map(item => item.relativePath)].sort());
-  assert.deepEqual(progress.at(-1), { visited: 121, processed: 20, discovered: 20 });
+  assert.ok(Number.isSafeInteger(progress.at(-1).elapsedMs) && progress.at(-1).elapsedMs >= 0);
+  assert.deepEqual({ ...progress.at(-1), elapsedMs: 0 }, { visited: 121, processed: 20, discovered: 20, added: 20, skipped: 0, warningCount: 0, elapsedMs: 0, estimatedRemainingMs: null });
 
   const beforeReads = f.counts.metadataReads, beforeSnapshots = f.counts.snapshots;
   const quick = await f.scan({ mode: 'quick', previousItems: full.items });
