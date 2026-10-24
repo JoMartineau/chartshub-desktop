@@ -28,6 +28,17 @@ if (location.protocol === 'chartshub-companion:' && location.hostname === 'app')
 }
 // Only the main Companion panel gets this narrow bridge, never an overlay or catalogue.
 if (location.href === 'chartshub-companion://app/ui/index.html' && process.isMainFrame !== false) {
+  contextBridge.exposeInMainWorld('ChartsHubMaintenance', Object.freeze({
+    getState: () => ipcRenderer.invoke('chartshub-maintenance:state'),
+    invoke: (action,payload) => ['update.check','update.download','update.cancel','update.openRelease','update.install','update.rollback','backup.export','backup.preview','backup.apply','backup.cancel'].includes(action)
+      ? ipcRenderer.invoke('chartshub-maintenance:command', action, payload) : Promise.reject(TypeError('Invalid maintenance action')),
+    subscribe: callback => {
+      if (typeof callback !== 'function') throw TypeError('Listener required');
+      const listener = (_event, state) => callback(state);
+      ipcRenderer.on('chartshub-maintenance:changed', listener);
+      return () => ipcRenderer.removeListener('chartshub-maintenance:changed', listener);
+    }
+  }));
   contextBridge.exposeInMainWorld('ChartsHubUIBloom', Object.freeze({
     read: () => ipcRenderer.invoke('chartshub-ui-bloom:read'),
     save: settings => ipcRenderer.invoke('chartshub-ui-bloom:save', settings)

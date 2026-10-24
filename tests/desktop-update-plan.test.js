@@ -1,0 +1,17 @@
+'use strict';
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
+const {fixture,hash}=require('./update-fixture.cjs'),plan=require('../desktop/update-plan.cjs');
+function asar(version){const pkg=Buffer.from(JSON.stringify({name:'chartshub-desktop',version})),json=Buffer.from(JSON.stringify({files:{'package.json':{size:pkg.length,offset:'0',unpacked:false}}})),payload=Math.ceil((4+json.length)/4)*4,prefix=Buffer.alloc(16);prefix.writeUInt32LE(4,0);prefix.writeUInt32LE(payload+4,4);prefix.writeUInt32LE(payload,8);prefix.writeUInt32LE(json.length,12);return Buffer.concat([prefix,json,Buffer.alloc(payload-4-json.length),pkg]);}
+async function setup(t){const root=await fs.realpath(await fs.mkdtemp(path.join(process.env.CHARTSHUB_UPDATE_TEST_ROOT||os.tmpdir(),'chartshub-update-fixture-'))),app=path.join(root,'application'),data=path.join(root,'profile'),cache=path.join(data,'updates');
+ t.after(async()=>{assert(path.isAbsolute(root)&&path.basename(root).startsWith('chartshub-update-fixture-'));await fs.rm(root,{recursive:true,force:true});});await fs.mkdir(path.join(app,'resources'),{recursive:true});await fs.mkdir(cache,{recursive:true});await fs.writeFile(path.join(app,'ChartsHub.exe'),'synthetic executable only');await fs.writeFile(path.join(app,'resources/app.asar'),asar('0.14.27'));
+ const f=fixture(),archive=path.join(cache,'ChartsHub-win32-x64.zip');await fs.writeFile(archive,f.bytes.get('ChartsHub-win32-x64.zip'));return {app,data,cache,archive,f,options:{applicationDirectory:app,dataDirectory:data,cacheDirectory:cache,archivePath:archive,release:{...require('../desktop/update-release.cjs').validateRelease(f.metadata),tree:f.tree},currentVersion:'0.14.27',pid:42}};
+}
+test('native preparation binds exact original tree, downloaded digest and copied helper outside app',async t=>{
+ const c=await setup(t),result=await plan.createPlan(c.options);assert.equal(result.plan.prior.fileCount,2);assert.equal(result.plan.version,c.f.version);assert(!plan.within(c.app,result.helperPath));assert.equal(await plan.fileHash(result.helperPath),result.plan.helperSha256);assert.equal(hash(await fs.readFile(result.planPath)),result.planSha256);await assert.rejects(()=>fs.stat(result.authorizationPath),{code:'ENOENT'});assert.equal((await plan.readAsarPackage(path.join(c.app,'resources/app.asar'))).version,'0.14.27');
+});
+test('preparation refuses data inside app, changed archive and wrong installed version before a plan exists',async t=>{
+ for(const kind of ['data','archive','version']){const c=await setup(t),options={...c.options};if(kind==='data')options.dataDirectory=c.app;if(kind==='archive')await fs.writeFile(c.archive,'changed');if(kind==='version')options.currentVersion='0.14.26';await assert.rejects(()=>plan.createPlan(options));assert.deepEqual((await fs.readdir(c.cache)).filter(n=>n.startsWith('install-')),[]);}
+});
+test('application manifest refuses embedded Songs by name and validates ASAR bounds',async t=>{
+ const c=await setup(t);await fs.mkdir(path.join(c.app,'Songs'));await assert.rejects(()=>plan.treeManifest(c.app),{code:'UPDATE_SONGS_IN_APPLICATION'});await fs.writeFile(path.join(c.app,'resources/app.asar'),Buffer.from([1,2,3]));await assert.rejects(()=>plan.readAsarPackage(path.join(c.app,'resources/app.asar')),{code:'UPDATE_ASAR_INVALID'});
+});

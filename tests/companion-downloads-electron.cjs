@@ -1,4 +1,6 @@
 'use strict';
+const {revealWorkspace,registerFixtureMaintenance}=require('./workspace-input.cjs');
+registerFixtureMaintenance();
 const { app, shell } = require('electron');
 const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
@@ -65,6 +67,7 @@ async function verifyDownloads(initialPanel, host, data, passed, fixture) {
   const firstChart = 'native-catalogue-000', secondChart = 'native-catalogue-001';
   const selector = (id, action) => `[data-download-id="${id}"] [data-download-action="${action}"]`;
   const click = async target => {
+    await revealWorkspace(panel, target);
     await waitFor(() => evaluate(`(()=>{const node=document.querySelector(${JSON.stringify(target)});return !!node&&!node.disabled&&!node.hidden})()`), 'download control: ' + target);
     const point = await evaluate(`(()=>{
       const node=document.querySelector(${JSON.stringify(target)});node.scrollIntoView({block:'center',inline:'nearest'});
@@ -132,6 +135,7 @@ async function verifyDownloads(initialPanel, host, data, passed, fixture) {
     await click(selector(secondId, 'remove'));
     await waitFor(() => !host.snapshot().downloads.items.some(entry => entry.id === secondId), 'cancelled history removed');
     assert.ok(fixture.state.discarded.some(entry => entry.id === secondId));
+    await revealWorkspace(panel,"#downloads-panel");
     await evaluate("document.querySelector('#downloads-panel').scrollIntoView({block:'start'})");
     await fs.writeFile(path.join(data, 'companion-downloads.png'), (await panel.webContents.capturePage()).toPNG());
     await click(selector(firstId, 'remove'));
@@ -155,6 +159,7 @@ async function verifyDownloads(initialPanel, host, data, passed, fixture) {
     await state(restoredId, 'Paused');
     await delay(160);
     assert.equal(fixture.state.runs.length, runsBeforeOpen, 'reopening the panel never resumes a paused transfer automatically');
+    await revealWorkspace(panel,"#downloads-panel");
     await evaluate("document.querySelector('#downloads-panel').scrollIntoView({block:'start'})");
     await fs.writeFile(path.join(data, 'companion-downloads-restored.png'), (await panel.webContents.capturePage()).toPNG());
     await click(selector(restoredId, 'resume')); await state(restoredId, 'Downloading');

@@ -1,4 +1,6 @@
 'use strict';
+const {revealWorkspace,registerFixtureMaintenance}=require('./workspace-input.cjs');
+registerFixtureMaintenance();
 const { app } = require('electron');
 const fs = require('node:fs/promises');
 const path = require('node:path');
@@ -60,7 +62,7 @@ async function verifyBuilder(panel, host) {
     await delay(100);
     await fs.writeFile(path.join(data, name), (await panel.webContents.capturePage()).toPNG());
   };
-  const point = async selector => evaluate(`(()=>{
+  const point = async selector => {await revealWorkspace(panel,selector);return evaluate(`(()=>{
     const node=document.querySelector(${JSON.stringify(selector)});
     if(!node)throw Error('Missing interaction target: '+${JSON.stringify(selector)});
     node.scrollIntoView({block:'center',inline:'nearest'});
@@ -70,7 +72,7 @@ async function verifyBuilder(panel, host) {
     const hit=document.elementFromPoint(target.x,target.y);
     if(!hit||!(hit===node||node.contains(hit)))throw Error('Covered interaction target: '+${JSON.stringify(selector)}+'; hit '+(hit?.id||hit?.className||hit?.tagName||'outside viewport'));
     return target;
-  })()`);
+  })()`);};
   const mouse = (type, coordinate, modifiers = []) => panel.webContents.sendInputEvent({
     type, ...coordinate, ...(type === 'mouseMove' ? {} : { button: 'left', clickCount: 1 }), modifiers
   });
@@ -230,6 +232,7 @@ async function verifyThemes(panel, host) {
   const settings = () => structuredClone({ widgets: host.snapshot().state.widgets.instances, theme: host.snapshot().state.theme });
   const revision = () => host.snapshot().editor.revision;
   const click = async selector => {
+    await revealWorkspace(panel,selector);
     await waitFor(() => evaluate(`!!document.querySelector(${JSON.stringify(selector)})&&!document.querySelector(${JSON.stringify(selector)}).disabled`), 'theme control enabled: ' + selector);
     const target = await evaluate(`(()=>{
       const node=document.querySelector(${JSON.stringify(selector)});node.scrollIntoView({block:'center',inline:'nearest'});
@@ -558,7 +561,7 @@ app.whenReady().then(async () => {
     let panel = await host.open();
     const evaluate = code => panel.webContents.executeJavaScript(code);
     const count = () => evaluate("document.querySelectorAll('#game-preview .companion-widget').length");
-    const click = selector => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+    const click = async selector => {await revealWorkspace(panel,selector);return evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);};
     const state = async (value, visible) => {
       assert.equal((await evaluate(`window.ChartsHubCompanion.command('mock.state',{state:${JSON.stringify(value)}})`)).ok, true);
       await waitFor(async () => (await count()) === visible, value + ' widget count');

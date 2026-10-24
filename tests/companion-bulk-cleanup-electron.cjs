@@ -1,4 +1,6 @@
 'use strict';
+const {revealWorkspace,registerFixtureMaintenance}=require('./workspace-input.cjs');
+registerFixtureMaintenance();
 // Real renderer/IPC/worker; only synthetic fixture dialogs and trash are intercepted.
 const { app, dialog, shell } = require('electron');
 const assert = require('node:assert/strict'), fs = require('node:fs/promises'), path = require('node:path');
@@ -20,6 +22,7 @@ async function waitFor(test, label, timeout = 20000) {
   throw Error('Timed out: ' + label);
 }
 async function click(selector) {
+    await revealWorkspace(panel, selector);
   await waitFor(() => evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return !!n&&!n.disabled&&!n.hidden})()`), selector);
   const point = await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});n.scrollIntoView({block:'center'});const r=n.getBoundingClientRect(),p={x:Math.round(r.left+r.width/2),y:Math.round(r.top+r.height/2)},hit=document.elementFromPoint(p.x,p.y);if(!r.width||!r.height||!(hit===n||n.contains(hit)))throw Error('Covered bulk control');return p})()`);
   panel.focus(); panel.webContents.focus();

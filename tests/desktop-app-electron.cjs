@@ -3,18 +3,27 @@
 // website. No live account, game write or download is used by this check.
 const electron=require('electron'),{app,session}=electron;
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),Module=require('node:module');
+const {revealWorkspace}=require('./workspace-input.cjs');
 const root=path.resolve(process.argv[2]||path.join(__dirname,'..'));
 const directory=path.resolve(process.argv[3]||path.join(__dirname,'../../desktop-app-verification'));
 fs.mkdirSync(directory,{recursive:true});
 app.setPath('userData',path.join(directory,'profile'));
 app.disableHardwareAcceleration();
 if(process.env.CHARTSHUB_TEST_NO_SANDBOX==='1')app.commandLine.appendSwitch('no-sandbox');
-let desktop,host,user=null,finished=false;
+let desktop,host,user=null,finished=false,failing=false,lastWait=null;
 const passed=[],errors=[],buttonMotionRelays=[],editMenus=[],delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
-const fail=error=>{console.error(error.stack||error);fs.writeFileSync(path.join(directory,'failure.txt'),String(error.stack||error));app.exit(1);};
+const fail=async error=>{
+ if(failing)return;failing=true;
+ console.error(error.stack||error);fs.writeFileSync(path.join(directory,'failure.txt'),String(error.stack||error));
+ try{const contents=host?.getPanelContents();if(contents&&!contents.isDestroyed()){
+  const diagnostic=await Promise.race([contents.executeJavaScript(`(()=>({url:location.href,workspace:document.querySelector('#companion-app')?.dataset.workspace,activeElement:document.activeElement?.id,scrollY,viewport:{width:innerWidth,height:innerHeight},controls:Object.fromEntries(['#catalogue-query','#library-search','#ch-bloom-open','#ch-bloom-dialog'].map(selector=>{const n=document.querySelector(selector),r=n?.getBoundingClientRect();return [selector,n?{hidden:n.hidden,disabled:n.disabled,workspaceInactive:!!n.closest('.workspace-inactive,[inert]'),rect:{x:r.x,y:r.y,width:r.width,height:r.height}}:null]}))}))()`),delay(1500).then(()=>({unavailable:'renderer diagnostics timed out'}))]);
+  fs.writeFileSync(path.join(directory,'failure.json'),JSON.stringify({error:String(error.stack||error),lastWait,renderer:diagnostic},null,2));
+ }}catch{}
+ app.exit(1);
+};
 process.on('unhandledRejection',fail);
 process.on('uncaughtException',fail);
-async function waitFor(check,label){const end=Date.now()+15000;while(Date.now()<end){if(await check()){console.log('Verified: '+label);return;}await delay(40);}throw Error('Timed out: '+label);}
+async function waitFor(check,label){lastWait=label;const end=Date.now()+15000;while(Date.now()<end){if(await check()){console.log('Verified: '+label);return;}await delay(40);}throw Error('Timed out: '+label);}
 app.on('web-contents-created',(_event,contents)=>{
  contents.on('preload-error',(_event,file,error)=>console.error('Preload error:',file,error.message));
  contents.on('console-message',details=>{if(details.level==='error')console.error('Renderer:',details.message);});
@@ -88,6 +97,7 @@ app.whenReady().then(async()=>{
   electron.BrowserWindow.prototype.showInactive.call(window);
   electron.BrowserWindow.prototype.focus.call(window);
   await delay(100);
+  if(contents===host?.getPanelContents())await revealWorkspace({webContents:contents,isVisible:()=>window.isVisible(),focus:()=>window.focus()},selector);
   await verifyNativeEditContextMenu({contents,ownerWindow:window,selector,menus:editMenus,clipboard:electron.clipboard,waitFor,delay});
  }
  await verifyEditInput(web,'#search');
@@ -191,6 +201,7 @@ app.whenReady().then(async()=>{
  assert.equal(await local.executeJavaScript("window.ChartshubBloom.read().hoverLift"),5,'reload restores saved hover');
  passed.push('centralized appearance sections remain independent; native bloom covers nested cards, saves and cancels with real disk IO and survives renderer reload');
 
+ await revealWorkspace({webContents:local,isVisible:()=>desktop.window.isVisible(),focus:()=>desktop.window.focus()},'#library-search');
  await local.executeJavaScript('document.querySelector("#library-search").value="Recherche conservée";window.scrollTo({top:180,behavior:"instant"});true');
  const localScroll=await local.executeJavaScript('scrollY');
  await select('catalogue');

@@ -53,6 +53,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   // The dialog owner and the trusted renderer are different objects in a tab.
   let panel = null, panelContents = null, panelView = null, overlay = null, overlayEnabled = false, persistenceError = '', saveTimer = null, quitting = false;
   let openTask = null, stopTask = null, disposeTask = null, overlayLoad = null, disposing = false;
+  let maintenanceLocked = false;
   let logTail = Promise.resolve(), pendingSave = Promise.resolve();
   let streamServer = null, streamInit = null, streamTask = Promise.resolve(), streamDesired = false, streamError = null;
   let library = null, rootPickerOpen = false;
@@ -809,7 +810,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   ipcMain.handle('companion:command', async (event, command, payload) => {
     const mini = catalogueAllowed() && trustedCatalogueWidgetCommand(event, catalogueWidget, command, payload);
     const playerSender = trustedPlayer(event) && typeof command === 'string' && (command.startsWith('player.') || (command === 'panels.appearance' && payload?.panel === 'player'));
-    if (disposing || stopTask || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini || playerSender) || !validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
+    if (disposing || stopTask || maintenanceLocked || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini || playerSender) || !validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
     if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
       if (command === 'player.report' || command === 'player.spectrum' || command === 'player.ended') {
@@ -1291,7 +1292,26 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     })();
     return disposeTask;
   }
+  function maintenanceStatus() {
+    const reasons = [], state = library?.status(), player = musicPlayer?.snapshot();
+    if (disposing || stopTask || openTask) reasons.push('companion_busy');
+    if (state?.status === 'scanning') reasons.push('library_scanning');
+    if (cleanupTask || cleanupDialogOpen || state?.duplicateVerification?.running || state?.bulkCleanup || state?.badSongsBusy) reasons.push('library_cleanup');
+    if (downloads?.status()?.items?.some(item => ['Queued','Downloading'].includes(item.state))) reasons.push('chart_downloads');
+    if (filters?.status()?.busy || reshade?.status()?.busy || ['preparing','installing'].includes(reshadeSetup?.status()?.state)) reasons.push('game_setup');
+    if (player?.playing || player?.loading) reasons.push('player_active');
+    if (streamStatus().enabled) reasons.push('stream_active');
+    if (songRequests?.snapshot().enabled || songRequestBusy) reasons.push('requests_active');
+    if (songRequestShare.busy) reasons.push('sharing_active');
+    if (rootPickerOpen || downloadPickerOpen || cloneHeroPickerOpen || filtersPickerOpen || filtersConfirmationOpen || reshadePickerOpen || reshadeConfirmationOpen) reasons.push('dialog_active');
+    return { busyReasons: reasons };
+  }
+  async function flushPortableConfiguration() {
+    await saveSettings();await Promise.all([...profileWrites]);await floatingPanels.flush();await songRequestPreferences.flush();
+    if(persistenceError||profiles.status().error||floatingPanels.status().error||songRequestPreferences.status().error)throw Object.assign(Error('Visual settings could not be saved'),{code:'BACKUP_WRITE_FAILED'});
+  }
   return { open, stop, snapshot, services, integration, registry, setLanguage, setButtonMotion, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
+    maintenanceStatus, flushPortableConfiguration, setMaintenanceLocked: value => { maintenanceLocked = value === true; },
     getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, getPlayerWidget: () => playerWindow, dispose
   };
 }

@@ -107,7 +107,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
   };
   const create = new vm.Script(`(function(adapters) {
     const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer}=adapters;
-    let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0,songRequestBusy=false;
+    let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0,songRequestBusy=false,maintenanceLocked=false;
     let songRequestServer=null,songRequestConnections=null,songRequestShareBroker=null;
     const publishedTwitchClientId='syntheticclient',shell={openExternal:async()=>{}},language='fr',publishPanel=()=>{};
     const requestPreferences={ingestToken:'a'.repeat(64),readToken:'b'.repeat(64),error:null,port:38474};

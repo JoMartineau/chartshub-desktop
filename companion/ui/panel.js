@@ -19,8 +19,16 @@ import { ProfileControls } from '../dist/settings/ProfileControls.js';
 import { SongRequestControls } from '../dist/settings/SongRequestControls.js';
 import { LocalMusicPlayerControls } from '../dist/settings/LocalMusicPlayerControls.js';
 
+import { WorkspaceNavigation } from './workspace-navigation.js';
+import { UpdatesControls } from '../dist/settings/UpdatesControls.js';
+import { ConfigurationBackupControls } from '../dist/settings/ConfigurationBackupControls.js';
+
 const api = window.ChartsHubCompanion;
 const query = selector => document.querySelector(selector);
+const workspaceNavigation = new WorkspaceNavigation(query('#companion-app'), { language: document.documentElement.lang });
+window.ChartshubWorkspaceNavigation = workspaceNavigation;
+const updates = window.ChartsHubMaintenance ? new UpdatesControls({root:query('#updates-controls'),bridge:window.ChartsHubMaintenance}) : null;
+const configurationBackup = window.ChartsHubMaintenance ? new ConfigurationBackupControls({root:query('#config-backup-controls'),bridge:window.ChartsHubMaintenance}) : null;
 const ui = value => window.ChartshubCompanionLanguage?.translate?.(value) ?? value;
 const controls = {
   state: query('#gameplay-state'), next: query('#step-mock'), reset: query('#reset-mock'),
@@ -60,6 +68,7 @@ const library = new LibraryControls({ root: query('#companion-app'), command: (n
 const badSongs = new BadSongsCleanupControls({ root: query('#library-bad-songs'), command: (name, payload) => command(name, payload) });
 const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
 window.addEventListener('companion:library-focus', () => {
+  window.ChartshubWorkspaceNavigation?.select('library');
   const panel = query('#library-panel'); panel?.scrollIntoView({ block: 'start', behavior: 'smooth' });
   const target = currentSnapshot?.library?.settings?.rootPath ? query('#library-refresh') : query('#library-choose-root');
   if (target && !target.disabled) target.focus({ preventScroll: true });
@@ -80,7 +89,7 @@ const reshade = new ReShadeControls({ root: query('#reshade-controls'), command:
 const reshadeSetup = new ReShadeSetupControls({ root: query('#reshade-controls'), command: (name, payload) => command(name, payload) });
 const profiles = new ProfileControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 query('#companion-app').addEventListener('companion:catalogue-candidates', event => {
-  if (typeof event.detail?.localId === 'string') catalogue.showCandidates(event.detail.localId);
+  if (typeof event.detail?.localId === 'string') { workspaceNavigation.select('catalogue'); catalogue.showCandidates(event.detail.localId); }
 });
 
 function showError(message) {
@@ -150,7 +159,7 @@ async function changeSource(name, payload) {
 
 function applySnapshot(snapshot) {
   if (disposed || !snapshot?.state) return;
-  if (snapshot.language === 'fr' || snapshot.language === 'en') window.ChartshubCompanionLanguage?.apply(snapshot.language);
+  if (snapshot.language === 'fr' || snapshot.language === 'en') { window.ChartshubCompanionLanguage?.apply(snapshot.language); workspaceNavigation.update(snapshot.language); updates?.update({language:snapshot.language}); configurationBackup?.update({language:snapshot.language}); }
   currentSnapshot = snapshot;
   receivedSnapshot = true;
   const { state } = snapshot;
@@ -347,6 +356,8 @@ async function connect() {
 
 window.addEventListener('beforeunload', () => {
   disposed = true;
+  workspaceNavigation.dispose();
+  updates?.dispose(); configurationBackup?.dispose();
   unsubscribe();
   overlay.dispose();
   settings.dispose();

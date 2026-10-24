@@ -1,0 +1,9 @@
+# ChartsHub 0.14.27
+
+- Le Companion dispose de six rubriques : Bibliothèque, Catalogue, Lecteur, Stream / OBS, Song Request et Réglages. La navigation conserve les recherches, les réglages en cours et les opérations déjà démarrées.
+- Une sauvegarde JSON portable permet d’exporter puis de restaurer le thème et les dispositions des widgets, les profils d’overlay, l’apparence des panneaux, le thème de l’interface et le widget Song Request. Un aperçu indique les catégories présentes avant confirmation. Les comptes, clés de connexion, chemins locaux et fichiers musicaux sont exclus. Les ports, règles et clés locales restent conservés lors de la restauration du widget Song Request.
+- Les mises à jour peuvent être recherchées et téléchargées depuis l’application. La version officielle, sa provenance et ses empreintes sont vérifiées. Sous Windows x64, l’installation attend la fermeture normale de ChartsHub, sauvegarde l’application précédente puis redémarre. Les opérations incompatibles doivent être terminées ou arrêtées avant l’installation. Les chansons et les réglages restent en place.
+- Le retour manuel à une version précédente utilise uniquement une sauvegarde vérifiée créée par la mise à jour intégrée pour cette installation. Le bouton reste indisponible lorsqu’aucune sauvegarde correspondante n’est vérifiable. La version quittée est également conservée ; les dossiers modifiés entre-temps ne sont pas écrasés.
+- Sur macOS, Linux ou une installation incompatible avec le remplacement intégré, le bouton mène au téléchargement officiel et l’installation reste manuelle.
+
+Restaurer une configuration demande un redémarrage de ChartsHub. Une restauration interrompue est vérifiée au lancement suivant ; les fichiers modifiés et leurs copies sont conservés lorsqu’une intervention manuelle est nécessaire.

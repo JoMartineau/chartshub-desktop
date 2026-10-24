@@ -1,4 +1,6 @@
 'use strict';
+const {revealWorkspace,registerFixtureMaintenance}=require('./workspace-input.cjs');
+registerFixtureMaintenance();
 // Run with Electron after build:companion. Every file is synthetic and contained
 // in this run's fixture. Native dialog/bin boundaries are intercepted; the real
 // renderer, IPC, worker, scanner, verification and persistence all run normally.
@@ -29,6 +31,7 @@ async function waitFor(check, label, timeout = 15000) {
 const evaluate = code => panel.webContents.executeJavaScript(code);
 const command = (name, payload) => evaluate(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`);
 async function click(selector) {
+    await revealWorkspace(panel, selector);
   await waitFor(() => evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});return !!n&&!n.disabled&&!n.hidden})()`), 'enabled control ' + selector);
   const point = await evaluate(`(()=>{
     const n=document.querySelector(${JSON.stringify(selector)});n.scrollIntoView({block:'center',inline:'nearest'});
@@ -130,8 +133,8 @@ async function fail(error) {
     try {
       report.renderer = await Promise.race([evaluate(`(()=>{
         const selectors=['#library-comparison','#library-comparison-feedback','#library-comparison-summary','#library-cleanup-prepare','#library-cleanup-plan','#library-cleanup-recycle','#library-cleanup-result','#library-verify-all-status','#library-feedback','#library-error'];
-        return {url:location.href,readyState:document.readyState,activeElement:document.activeElement?.id,scrollY,viewport:{width:innerWidth,height:innerHeight},
-          controls:Object.fromEntries(selectors.map(selector=>{const n=document.querySelector(selector);return [selector,n?{hidden:n.hidden,disabled:n.disabled,busy:n.getAttribute('aria-busy'),text:n.textContent.trim().slice(0,2000)}:null]})),
+        return {url:location.href,readyState:document.readyState,activeElement:document.activeElement?.id,scrollY,scrollHeight:document.documentElement.scrollHeight,workspace:document.querySelector('#companion-app')?.dataset.workspace,viewport:{width:innerWidth,height:innerHeight},
+          controls:Object.fromEntries(selectors.map(selector=>{const n=document.querySelector(selector),r=n?.getBoundingClientRect();return [selector,n?{hidden:n.hidden,disabled:n.disabled,busy:n.getAttribute('aria-busy'),rect:{top:r.top,bottom:r.bottom,height:r.height},text:n.textContent.trim().slice(0,2000)}:null]})),
           variants:[...document.querySelectorAll('.library-variant')].map(n=>({id:n.dataset.variantId,preferred:n.classList.contains('is-preferred'),path:n.querySelector('.library-variant-path')?.textContent})),
           candidates:[...document.querySelectorAll('.library-cleanup-check')].map(n=>({id:n.dataset.cleanupId,checked:n.checked,disabled:n.disabled}))};
       })()`), delay(2000).then(() => ({ unavailable: 'renderer diagnostics timed out' }))]);

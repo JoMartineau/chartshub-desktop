@@ -14,7 +14,7 @@ const validTab = name => name === 'catalogue' || name === 'companion';
 const messages = { catalogue: 'Le catalogue est indisponible. Vérifiez votre connexion, puis réessayez.', companion: 'Le Companion ne peut pas démarrer. Réessayez dans un instant.' };
 
 /** The shell owns the catalogue; Companion retains ownership of its own view. */
-function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () => {}, onButtonMotion = () => {} } = {}) {
+function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () => {}, onButtonMotion = () => {}, isMaintenanceLocked = () => false } = {}) {
   if (typeof onSelectTab !== 'function') throw TypeError('Invalid desktop tab callback');
   const filename = path.join(__dirname, 'index.html'), shellUrl = pathToFileURL(filename).href;
   let disposed = false, companionView = null, activeTab = 'catalogue', companionAvailable = false;
@@ -63,7 +63,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
   const mountBloom = () => bloom || (bloom = createUIBloomIpc({
     ipcMain,
     getContents: () => alive(companionView) ? contentsByView.get(companionView) : null,
-    isAvailable: () => !disposed && !window.isDestroyed() && companionAvailable,
+    isAvailable: () => !disposed && !window.isDestroyed() && companionAvailable && !isMaintenanceLocked(),
     getDirectory: () => path.join(app.getPath('userData'), 'companion'),
     onSettings: applyButtonSettings
   }));
@@ -245,7 +245,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
   const restoreMotion = createUIBloomStore(path.join(app.getPath('userData'), 'companion'))
     .then(store => store.read()).then(result => { if (!disposed && buttonMotionRevision === 0) applyButtonSettings(result.settings); }).catch(() => {});
   const ready = Promise.all([window.loadFile(filename), restoreMotion]).then(() => undefined);
-  return { window, catalogueView, ready, attachCompanion, showTab, setTheme, setCompanionAvailable, dispose };
+  return { window, catalogueView, ready, attachCompanion, showTab, setTheme, setCompanionAvailable, flushPortableConfiguration: () => bloom?.flush() ?? Promise.resolve(), dispose };
 }
 
 module.exports = { createDesktopShell };
