@@ -232,7 +232,7 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
     await waitFor(() => obs("document.querySelectorAll('#request-queue > li').length===3 && getComputedStyle(document.querySelector('main')).fontSize==='24px'"), 'OBS restores default three requests');
     for (const language of ['fr', 'en']) {
       host.setLanguage(language);
-      await waitFor(() => obs(`document.documentElement.lang===${JSON.stringify(language)} && document.querySelector('.request-next-label').textContent===${JSON.stringify(language === 'fr' ? 'À jouer ensuite' : 'Up next')}`), 'OBS widget language ' + language);
+      await waitFor(() => obs(`document.documentElement.lang===${JSON.stringify(language)} && document.querySelector('#request-queue .request-next-label').textContent===${JSON.stringify(language === 'fr' ? 'À jouer ensuite' : 'Up next')}`), 'OBS widget language ' + language);
       for (const width of [480, 320]) {
         obsWindow.setSize(width, 680); await delay(100);
         const geometry = await obs("({width:innerWidth,scroll:document.documentElement.scrollWidth,background:getComputedStyle(document.body).backgroundColor,rows:document.querySelectorAll('#request-queue>li').length})");
