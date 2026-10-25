@@ -9,7 +9,13 @@ async function launchWindowsHelper(job,signal,{spawnProcess=spawn,clock=()=>Date
  if(await fileHash(job.helperPath)!==job.plan.helperSha256||await fileHash(job.planPath)!==job.planSha256)throw fail('PLAN_CHANGED');
  const executable=path.join(process.env.SystemRoot||'C:\\Windows','System32','WindowsPowerShell','v1.0','powershell.exe');
  let launchError;
- const child=spawnProcess(executable,['-NoProfile','-NonInteractive','-WindowStyle','Hidden','-File',job.helperPath,'-Plan',job.planPath,'-PlanSha256',job.planSha256],{detached:true,windowsHide:true,stdio:'ignore',shell:false,cwd:job.plan.jobDirectory});
+ // Start-Process gives the helper its own hidden console. A detached
+ // PowerShell may exit before reading its script; sharing Electron's console
+ // can terminate the helper when Electron exits. Keep the bootstrap unreferenced.
+ const literal=value=>"'"+value.replaceAll("'","''")+"'";
+ const helperArgs=['-NoProfile','-NonInteractive','-ExecutionPolicy','Bypass','-WindowStyle','Hidden','-File',job.helperPath,'-Plan',job.planPath,'-PlanSha256',job.planSha256].map(value=>'"'+value+'"').join(' ');
+ const command="$ErrorActionPreference='Stop'; Start-Process -FilePath "+literal(executable)+' -ArgumentList '+literal(helperArgs)+' -WorkingDirectory '+literal(job.plan.jobDirectory)+' -WindowStyle Hidden | Out-Null';
+ const child=spawnProcess(executable,['-NoProfile','-NonInteractive','-WindowStyle','Hidden','-EncodedCommand',Buffer.from(command,'utf16le').toString('base64')],{detached:false,windowsHide:true,stdio:'ignore',shell:false,cwd:job.plan.jobDirectory});
  child.on('error',()=>{launchError=fail('HELPER_START_FAILED');});child.unref();
  const deadline=clock()+15000;
  while(clock()<deadline){
