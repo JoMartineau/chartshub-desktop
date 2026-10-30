@@ -23,3 +23,7 @@ test('cancellation remains available during an outstanding check and unsupported
 test('disposal ignores late action results and release events',async t=>{
  const ui=await fixture(t);ui.button('check').click();ui.controls.dispose();const before=ui.doc.writes;ui.calls[0].resolve({ok:false,error:'UPDATE_FAILED'});ui.push({status:'error'});await tick();assert.equal(ui.doc.writes,before);
 });
+test('a completed download recovered after restart requires an explicit new verification',async t=>{
+ const ui=await fixture(t,state({status:'cached',cachedVersion:'0.14.99'}));assert.equal(ui.calls.length,0);assert.match(ui.root.textContent,/completed update download was found/);assert.equal(ui.button('check').textContent,'Verify and resume');assert.equal(ui.button('install').disabled,true);assert.equal(ui.button('download').disabled,true);
+ ui.controls.update({language:'fr'});assert.equal(ui.button('check').textContent,'Vérifier et reprendre');ui.button('check').click();assert.deepEqual(ui.calls.map(c=>c.action),['update.check']);ui.push({status:'ready',canInstall:true,canDownload:false,latestVersion:'0.14.99'});ui.calls[0].resolve({ok:true});await tick();assert.equal(ui.button('install').disabled,false);assert.equal(ui.calls.length,1);
+});

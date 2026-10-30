@@ -2,6 +2,7 @@
 const fs=require('node:fs').promises,path=require('node:path'),crypto=require('node:crypto');
 const releaseApi=require('./update-release.cjs'),paths=require('./update-plan.cjs');
 const rollbackApi=require('./update-rollback.cjs');
+const completedCache=require('./update-cache.cjs');
 const {fail}=releaseApi;
 const DOWNLOAD_HOSTS=new Set(['github.com','release-assets.githubusercontent.com','objects.githubusercontent.com','github-releases.githubusercontent.com']);
 async function assetResponse(fetcher,asset,signal){
@@ -20,18 +21,24 @@ async function smallAsset(fetcher,asset,signal){
 }
 function createUpdateService({currentVersion,platform=process.platform,arch=process.arch,packaged=false,applicationDirectory,dataDirectory,fetcher=globalThis.fetch,onChange=()=>{},busyReasons=()=>[],openExternal=async()=>{},launchHelper=async()=>{},pid=process.pid,clock=()=>Date.now(),makePlan=paths.createPlan,makeRollbackPlan=rollbackApi.createRollbackPlan}={}){
  releaseApi.version(currentVersion);if(typeof fetcher!=='function')throw TypeError('A fetcher is required');
- let release=null,status='idle',error=null,progress=null,controller=null,pending=null,disposed=false,checkedAt=0,lastResult=null,rollback=null;
+ let release=null,status='idle',error=null,progress=null,controller=null,pending=null,disposed=false,checkedAt=0,lastResult=null,rollback=null,cached=null;
  const supported=platform==='win32'&&arch==='x64'&&packaged===true;
  const reasons=()=>{try{const list=busyReasons();return Array.isArray(list)&&list.every(x=>typeof x==='string'&&/^[a-z_]{1,60}$/.test(x))?[...new Set(list)]:['state_unavailable'];}catch{return ['state_unavailable'];}};
  const active=()=>['checking','downloading','staging'].includes(status);
- function snapshot(){const blocked=reasons();return {status,currentVersion,latestVersion:release?.version??null,notes:release?.notes??'',releaseUrl:release?.url??null,progress:progress?{...progress}:null,installSupported:supported,canCheck:!disposed&&!active()&&!pending,canDownload:!disposed&&!active()&&!pending&&!!release&&releaseApi.compareVersions(release.version,currentVersion)>0,canInstall:!disposed&&supported&&status==='ready'&&!!release?.download&&!pending&&blocked.length===0,canRollback:!disposed&&supported&&!active()&&!pending&&!!rollback&&blocked.length===0,previousVersion:rollback?.version??null,busyReasons:blocked,error,lastResult:lastResult?{...lastResult}:null};}
+ function snapshot(){const blocked=reasons();return {status,currentVersion,latestVersion:release?.version??null,cachedVersion:cached?.release.version??null,notes:release?.notes??'',releaseUrl:release?.url??null,progress:progress?{...progress}:null,installSupported:supported,canCheck:!disposed&&!active()&&!pending,canDownload:!disposed&&!active()&&!pending&&!!release&&releaseApi.compareVersions(release.version,currentVersion)>0&&status!=='ready',canInstall:!disposed&&supported&&status==='ready'&&!!release?.download&&!pending&&blocked.length===0,canRollback:!disposed&&supported&&!active()&&!pending&&!!rollback&&blocked.length===0,previousVersion:rollback?.version??null,busyReasons:blocked,error,lastResult:lastResult?{...lastResult}:null};}
  const publish=()=>{try{onChange(snapshot());}catch{}};
  function begin(next){if(disposed||active()||pending)throw fail('BUSY');status=next;error=null;controller=new AbortController();publish();return controller;}
  function finish(operation){if(controller===operation)controller=null;publish();}
  function failed(problem){status='error';progress=null;error=problem?.name==='AbortError'?'UPDATE_CANCELLED':typeof problem?.code==='string'&&/^UPDATE_[A-Z_]+$/.test(problem.code)?problem.code:'UPDATE_NETWORK';}
  async function check(){const operation=begin('checking');try{
   const found=await releaseApi.discoverRelease(fetcher,AbortSignal.any([operation.signal,AbortSignal.timeout(20000)]));if(disposed)throw fail('CANCELLED');
-  release=found;checkedAt=clock();status=releaseApi.compareVersions(found.version,currentVersion)>0?'available':'current';progress=null;return snapshot();
+  let downloaded=null;
+  if(supported&&releaseApi.compareVersions(found.version,currentVersion)>0){
+   cached??=await completedCache.findCompleted({dataDirectory,currentVersion,now:clock()});
+   if(cached){try{downloaded=await completedCache.verifyCompleted(cached,found,{currentVersion,now:clock()});}catch{cached=null;}}
+  }else cached=null;
+  operation.signal.throwIfAborted();if(disposed)throw fail('CANCELLED');
+  release=downloaded?{...found,download:downloaded}:found;checkedAt=clock();status=downloaded?'ready':releaseApi.compareVersions(found.version,currentVersion)>0?'available':'current';progress=null;return snapshot();
  }catch(problem){failed(problem);throw problem;}finally{finish(operation);}}
  async function download(){
   if(!release||releaseApi.compareVersions(release.version,currentVersion)<=0)throw fail('NO_UPDATE');
@@ -51,6 +58,7 @@ function createUpdateService({currentVersion,platform=process.platform,arch=proc
    signal.throwIfAborted();if(received!==asset.size||hasher.digest('hex')!==asset.sha256)throw fail('ARCHIVE_DIGEST');await handle.sync();await handle.close();handle=null;
    const info=await paths.plain(partial);if(info.ino!==first.ino||info.dev!==first.dev||info.size!==received||await paths.fileHash(partial)!==asset.sha256)throw fail('ARCHIVE_CHANGED');
    const final=path.join(directory,asset.name);await paths.plain(final,{missing:true});await fs.rename(partial,final);
+   cached=await completedCache.saveCompleted({directory,release,currentVersion,now:clock()});signal.throwIfAborted();if(disposed)throw fail('CANCELLED');
    release={...release,download:{cacheDirectory:cache,path:final}};status='ready';checkedAt=clock();return snapshot();
   }catch(problem){failed(problem);throw problem;}finally{if(handle)await handle.close().catch(()=>{});finish(operation);}
  }
@@ -82,6 +90,7 @@ function createUpdateService({currentVersion,platform=process.platform,arch=proc
  async function openRelease(){if(!release||disposed)throw fail('NO_UPDATE');await openExternal(release.url);}
  async function loadPreviousResult(){
   if(!dataDirectory||disposed)return;const cache=path.join(dataDirectory,'updates');
+  if(supported){const restored=await completedCache.findCompleted({dataDirectory,currentVersion,now:clock()});if(!disposed&&!release&&!active()&&!pending&&status==='idle'&&restored){cached=restored;status='cached';publish();}}
   try{
    await paths.plain(cache,{directory:true});const entries=(await fs.readdir(cache,{withFileTypes:true})).filter(x=>x.isDirectory()&&/^install-[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(x.name));
    if(entries.length>100)return;const results=[];

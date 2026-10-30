@@ -10,6 +10,10 @@ Le site doit disposer de l'intégration `ChartsHubDesktop`. L'application néces
 
 ## Développement
 
+Dans **Companion → État**, consultez les connexions, la bibliothèque, le partage public, OBS, les mises à jour et les téléchargements au même endroit. Les boutons ouvrent les réglages correspondants sans lancer d’opération.
+
+Si ChartsHub retrouve une mise à jour complètement téléchargée après un redémarrage, ouvrez **Réglages → Mises à jour → Vérifier et reprendre**. La version officielle et l’archive sont contrôlées de nouveau avant que vous choisissiez d’installer. Les archives incomplètes ne sont pas reprises automatiquement.
+
 Le Companion 0.12 ajoute un assistant qui télécharge ReShade depuis son site
 officiel et propose un pack Curves, MagicHDR et Technicolor2. Le panneau
 et le widget contrôlent aussi vos effets existants. Voir [les instructions ReShade](docs/RESHADE.txt).

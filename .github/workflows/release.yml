@@ -45,6 +45,22 @@ jobs:
         run: node -e "if(process.platform!=='${{ matrix.platform }}'||process.arch!=='${{ matrix.arch }}')throw Error('A native runner is required for this target')"
       - name: Compile TypeScript and run tests
         run: npm test
+      - name: Verify status and update recovery UI before packaging Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          node node_modules/electron/cli.js tests/companion-workspaces-electron.cjs "$env:RUNNER_TEMP/companion-release-readiness" --functional-only
+          if ($LASTEXITCODE -ne 0) { throw 'Companion release readiness verification failed' }
+          $reportPath = Join-Path $env:RUNNER_TEMP 'companion-release-readiness/report.json'
+          if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Companion release readiness report missing' }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.result -ne 'COMPANION_WORKSPACES_FUNCTIONAL_OK' -or @($report.passed).Count -ne 12 -or @($report.passed | Sort-Object -Unique).Count -ne 12 -or $report.statusRevealOnly -ne $true -or $report.completedDownloadRecoveryUI -ne $true -or $report.fixtureOnly -ne $true -or $report.functionalOnly -ne $true -or @($report.captures).Count -ne 0 -or @($report.runtimeErrors).Count -ne 0 -or @($report.consoleErrors).Count -ne 0 -or @($report.cspErrors).Count -ne 0 -or @($report.externalRequests).Count -ne 0 -or @($report.maintenanceCalls | Where-Object { $_.action -match 'install|download|apply' }).Count -ne 0) { throw 'Companion release readiness evidence incomplete' }
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: companion-release-readiness
+          path: ${{ runner.temp }}/companion-release-readiness/report.json
+          if-no-files-found: warn
       - name: Verify Windows updater helper survives Electron exit
         if: runner.os == 'Windows'
         shell: pwsh

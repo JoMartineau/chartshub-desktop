@@ -16,7 +16,7 @@
 <body>
   <main id="companion-app" class="companion-app">
     <header class="app-header">
-      <nav id="companion-workspace-nav" class="companion-workspace-nav" aria-label="Rubriques du Companion" translate="no"><button type="button" data-companion-workspace="library" aria-current="page">Bibliothèque</button><button type="button" data-companion-workspace="catalogue">Catalogue</button><button type="button" data-companion-workspace="player">Lecteur</button><button type="button" data-companion-workspace="stream">Stream / OBS</button><button type="button" data-companion-workspace="requests">Demandes</button><button type="button" data-companion-workspace="settings">Réglages</button></nav>
+      <nav id="companion-workspace-nav" class="companion-workspace-nav" aria-label="Rubriques du Companion" translate="no"><button type="button" data-companion-workspace="library" aria-current="page">Bibliothèque</button><button type="button" data-companion-workspace="catalogue">Catalogue</button><button type="button" data-companion-workspace="player">Lecteur</button><button type="button" data-companion-workspace="stream">Stream / OBS</button><button type="button" data-companion-workspace="requests">Demandes</button><button type="button" data-companion-workspace="status">État</button><button type="button" data-companion-workspace="settings">Réglages</button></nav>
       <span id="source-mode-badge" class="demo-badge"><span aria-hidden="true"></span><span id="source-mode-label">MODE DÉMO</span></span>
     </header>
 
@@ -27,6 +27,7 @@
 
     <div id="action-feedback" class="notice error-notice" role="alert" hidden></div>
     <div id="persistence-feedback" class="notice warning-notice" role="status" hidden></div>
+    <section id="status-panel" class="card" aria-labelledby="status-title"><div id="status-controls" translate="no"></div></section>
 
     <section id="clonehero-source" class="card clonehero-source" aria-labelledby="clonehero-source-title">
       <div class="card-heading"><div><h2 id="clonehero-source-title">Source des informations</h2><span class="helper-text">Connectez l’export de Clone Hero ou essayez le scénario de démonstration.</span></div><label class="clonehero-mode-field" for="clonehero-mode">Source<select id="clonehero-mode" disabled><option value="live">Direct Clone Hero</option><option value="mock" selected>Démonstration</option></select></label></div>
