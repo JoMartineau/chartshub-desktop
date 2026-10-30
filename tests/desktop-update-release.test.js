@@ -20,7 +20,7 @@ test('real discovery verifies tag, Git source package, tree and all native relea
  for(const {url,options} of f.requests){assert(url.startsWith(api.API+'/'));assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');assert(!Object.keys(options.headers).some(x=>/authorization|cookie/i.test(x)));}
 });
 test('source verification refuses a moved tag, other package version, other repository or unsuccessful build',async()=>{
- const mutators=[f=>f.responses.get(api.API+'/git/ref/tags/v'+f.version).object.sha='c'.repeat(40),f=>f.responses.get(api.API+'/contents/package.json?ref='+f.commit).content=Buffer.from('{"name":"other","version":"0.14.99"}').toString('base64'),f=>f.run.repository.id=1,f=>f.jobs.jobs[1].conclusion='failure',f=>f.jobs.jobs.pop(),f=>f.jobs.jobs.find(j=>j.name==='release').steps=[]];
+ const mutators=[f=>f.responses.get(api.API+'/git/ref/tags/v'+f.version).object.sha='c'.repeat(40),f=>f.responses.get(api.API+'/contents/package.json?ref='+f.commit).content=Buffer.from('{"name":"other","version":"0.14.99"}').toString('base64'),f=>f.run.repository.id=1,f=>f.jobs.jobs[1].conclusion='failure',f=>f.jobs.jobs.pop(),f=>f.jobs.jobs.find(j=>j.name==='release').steps=[{name:'Publish tested release',status:'completed',conclusion:'failure'}]];
  for(const mutate of mutators){const f=fixture();mutate(f);await assert.rejects(()=>api.discoverRelease(f.fetcher),e=>/^UPDATE_(SOURCE_MISMATCH|BUILD_UNVERIFIED)$/.test(e.code));}
 });
 test('published metadata cannot silently change between check and download/install',async()=>{
