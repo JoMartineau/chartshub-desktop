@@ -63,8 +63,8 @@ jobs:
           $reportPath = Join-Path $env:RUNNER_TEMP 'companion-workspaces/report.json'
           if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Workspace report missing' }
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
-          if ($report.result -ne 'COMPANION_WORKSPACES_OK' -or @($report.passed).Count -ne 10 -or @($report.captures).Count -ne 17 -or $report.fixtureOnly -ne $true -or $report.functionalOnly -eq $true -or @($report.runtimeErrors).Count -ne 0 -or @($report.consoleErrors).Count -ne 0 -or @($report.cspErrors).Count -ne 0 -or @($report.externalRequests).Count -ne 0) { throw 'Companion workspace verification incomplete' }
-          if (@(Get-ChildItem -LiteralPath (Split-Path -Parent $reportPath) -Filter '*.png' -File).Count -ne 17) { throw 'Workspace screenshots missing' }
+          if ($report.result -ne 'COMPANION_WORKSPACES_OK' -or @($report.passed).Count -ne 12 -or @($report.captures).Count -ne 21 -or $report.statusRevealOnly -ne $true -or $report.completedDownloadRecoveryUI -ne $true -or $report.fixtureOnly -ne $true -or $report.functionalOnly -eq $true -or @($report.runtimeErrors).Count -ne 0 -or @($report.consoleErrors).Count -ne 0 -or @($report.cspErrors).Count -ne 0 -or @($report.externalRequests).Count -ne 0) { throw 'Companion workspace verification incomplete' }
+          if (@(Get-ChildItem -LiteralPath (Split-Path -Parent $reportPath) -Filter '*.png' -File).Count -ne 21) { throw 'Workspace screenshots missing' }
       - name: Verify Windows updater helper survives Electron exit
         if: runner.os == 'Windows'
         shell: pwsh

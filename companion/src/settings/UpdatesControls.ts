@@ -1,5 +1,6 @@
 export interface UpdaterSnapshot {
-  status: 'idle'|'checking'|'available'|'current'|'downloading'|'ready'|'staging'|'error';
+  status: 'idle'|'cached'|'checking'|'available'|'current'|'downloading'|'ready'|'staging'|'error';
+  cachedVersion?: string|null;
   currentVersion: string; latestVersion: string|null; notes: string; releaseUrl: string|null;
   progress: {receivedBytes: number; totalBytes: number}|null;
   installSupported: boolean; canCheck: boolean; canDownload: boolean; canInstall: boolean;
@@ -81,6 +82,7 @@ export class UpdatesControls {
     const current = this.state, status = current?.status;
     const titles: Record<string,[string,string]> = {
       idle:['Vérifiez les nouvelles versions lorsque vous le souhaitez.','Check for new versions whenever you want.'],
+      cached:['Une mise à jour téléchargée a été retrouvée. Vérifiez-la pour reprendre.','A completed update download was found. Verify it to continue.'],
       checking:['Vérification de la version officielle…','Checking the official release…'],
       available:['Une nouvelle version est disponible.','A new version is available.'],
       current:['Vous utilisez une version à jour.','Your version is up to date.'],
@@ -94,7 +96,7 @@ export class UpdatesControls {
     this.status.textContent = this.tr(...phrase);
     this.details.textContent = current ? this.tr(`Version installée : ${current.currentVersion}${current.latestVersion ? ` · Version officielle : ${current.latestVersion}` : ''}`,`Installed version: ${current.currentVersion}${current.latestVersion ? ` · Official release: ${current.latestVersion}` : ''}`) : this.tr('Connexion à l’application…','Connecting to the application…');
     const labels: Record<string,string> = {
-      check:this.tr('Rechercher une mise à jour','Check for updates'),
+      check:status === 'cached' ? this.tr('Vérifier et reprendre','Verify and resume') : this.tr('Rechercher une mise à jour','Check for updates'),
       download:current?.installSupported ? this.tr('Télécharger la mise à jour','Download update') : this.tr('Téléchargement officiel','Official download'),
       install:this.tr('Installer et redémarrer','Install and restart'),rollback:current?.previousVersion?this.tr('Revenir à la version ','Restore version ')+current.previousVersion:this.tr('Revenir à la version précédente','Restore previous version'),cancel:this.tr('Annuler','Cancel'),openRelease:this.tr('Voir la version officielle','View official release')
     };

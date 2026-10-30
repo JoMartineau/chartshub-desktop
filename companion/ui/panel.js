@@ -21,6 +21,7 @@ import { LocalMusicPlayerControls } from '../dist/settings/LocalMusicPlayerContr
 
 import { WorkspaceNavigation } from './workspace-navigation.js';
 import { UpdatesControls } from '../dist/settings/UpdatesControls.js';
+import { StatusControls } from '../dist/settings/StatusControls.js';
 import { ConfigurationBackupControls } from '../dist/settings/ConfigurationBackupControls.js';
 
 const api = window.ChartsHubCompanion;
@@ -28,6 +29,12 @@ const query = selector => document.querySelector(selector);
 const workspaceNavigation = new WorkspaceNavigation(query('#companion-app'), { language: document.documentElement.lang });
 window.ChartshubWorkspaceNavigation = workspaceNavigation;
 const updates = window.ChartsHubMaintenance ? new UpdatesControls({root:query('#updates-controls'),bridge:window.ChartsHubMaintenance}) : null;
+const statusControls = new StatusControls({root:query('#status-controls'),bridge:window.ChartsHubMaintenance,reveal(selector){
+  if (!workspaceNavigation.reveal(selector)) return;
+  const target = query(selector); if (target.tagName === 'DETAILS') target.open = true;
+  target.scrollIntoView({block:'start',behavior:'instant'});
+  target.querySelector('summary,button,input,select')?.focus({preventScroll:true});
+}});
 const configurationBackup = window.ChartsHubMaintenance ? new ConfigurationBackupControls({root:query('#config-backup-controls'),bridge:window.ChartsHubMaintenance}) : null;
 const ui = value => window.ChartshubCompanionLanguage?.translate?.(value) ?? value;
 const controls = {
@@ -161,6 +168,7 @@ function applySnapshot(snapshot) {
   if (disposed || !snapshot?.state) return;
   if (snapshot.language === 'fr' || snapshot.language === 'en') { window.ChartshubCompanionLanguage?.apply(snapshot.language); workspaceNavigation.update(snapshot.language); updates?.update({language:snapshot.language}); configurationBackup?.update({language:snapshot.language}); }
   currentSnapshot = snapshot;
+  statusControls.update(snapshot);
   receivedSnapshot = true;
   const { state } = snapshot;
   const gameplay = state.gameplay.state;
@@ -357,6 +365,7 @@ async function connect() {
 window.addEventListener('beforeunload', () => {
   disposed = true;
   workspaceNavigation.dispose();
+  statusControls.dispose();
   updates?.dispose(); configurationBackup?.dispose();
   unsubscribe();
   overlay.dispose();
