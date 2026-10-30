@@ -42,6 +42,29 @@ async function requestJSON(fetcher,url,signal){
  const response=await fetcher(url,{headers:{Accept:'application/vnd.github+json','User-Agent':'ChartsHub-Desktop-Updater','X-GitHub-Api-Version':'2022-11-28'},credentials:'omit',redirect:'error',cache:'no-store',signal});
  const bytes=await boundedBytes(response,1024*1024,signal);try{return JSON.parse(bytes.toString('utf8'));}catch{throw fail('RESPONSE_INVALID');}
 }
+const positiveId=value=>Number.isSafeInteger(value)&&value>0;
+function hasPublishedStep(steps){
+ if(!Array.isArray(steps)||!steps.length)return false;
+ const publication=steps.filter(step=>step?.name==='Publish tested release');
+ return publication.length===1&&publication[0].status==='completed'&&publication[0].conclusion==='success';
+}
+async function verifyPublication(fetcher,publication,run,release,signal){
+ // A populated step list is authoritative. Never replace a failed, pending or
+ // missing Publish step with a successful job/check projection.
+ if(Array.isArray(publication.steps)&&publication.steps.length){if(!hasPublishedStep(publication.steps))throw fail('BUILD_UNVERIFIED');return;}
+ if(publication.steps!==undefined&&!Array.isArray(publication.steps))throw fail('BUILD_UNVERIFIED');
+ const jobURL=API+'/actions/jobs/'+publication.id,runURL=API+'/actions/runs/'+run.id;
+ const detailsURL=WEB+'/actions/runs/'+run.id+'/job/'+publication.id;
+ const job=await requestJSON(fetcher,jobURL,signal);
+ if(job?.id!==publication.id||job.run_id!==run.id||job.head_sha!==release.commit||job.name!=='release'||job.status!=='completed'||job.conclusion!=='success'||job.url!==jobURL||job.run_url!==runURL||job.html_url!==detailsURL)throw fail('BUILD_UNVERIFIED');
+ if(job.steps!==undefined&&(!Array.isArray(job.steps)||(job.steps.length&&!hasPublishedStep(job.steps))))throw fail('BUILD_UNVERIFIED');
+ const checkPrefix=API+'/check-runs/',checkIdText=typeof job.check_run_url==='string'&&job.check_run_url.startsWith(checkPrefix)?job.check_run_url.slice(checkPrefix.length):'';
+ const checkId=Number(checkIdText);
+ if(!/^[1-9]\d*$/.test(checkIdText)||!positiveId(checkId)||String(checkId)!==checkIdText||!positiveId(run.check_suite_id))throw fail('BUILD_UNVERIFIED');
+ // Reconstruct the allowlisted URL; never fetch a URL supplied by a response.
+ const checkURL=checkPrefix+checkId,check=await requestJSON(fetcher,checkURL,signal);
+ if(check?.id!==checkId||check.url!==checkURL||check.name!=='release'||check.head_sha!==release.commit||check.status!=='completed'||check.conclusion!=='success'||check.details_url!==detailsURL||check.html_url!==detailsURL||check.check_suite?.id!==run.check_suite_id||check.app?.id!==15368||check.app.slug!=='github-actions'||check.app.html_url!=='https://github.com/apps/github-actions'||check.app.owner?.id!==9919||check.app.owner.login!=='github'||check.app.owner.type!=='Organization')throw fail('BUILD_UNVERIFIED');
+}
 async function verifySource(fetcher,release,signal){
  const [ref,commit,pkg,runs]=await Promise.all([
   requestJSON(fetcher,API+'/git/ref/tags/'+release.tag,signal),
@@ -58,7 +81,8 @@ async function verifySource(fetcher,release,signal){
  const run=matching.sort((a,b)=>b.id-a.id)[0];if(!Number.isSafeInteger(run.id)||run.id<1)throw fail('BUILD_UNVERIFIED');
  const result=await requestJSON(fetcher,API+'/actions/runs/'+run.id+'/jobs?per_page=100',signal);
  const names=['Build darwin-arm64','Build win32-x64','Build linux-x64','Build darwin-x64','release'];
- if(result?.total_count!==5||!Array.isArray(result.jobs)||result.jobs.length!==5||new Set(result.jobs.map(j=>j.name)).size!==5||names.some(name=>!result.jobs.some(j=>j.name===name&&j.run_id===run.id&&j.status==='completed'&&j.conclusion==='success'))||!result.jobs.find(j=>j.name==='release')?.steps?.some(s=>s.name==='Publish tested release'&&s.conclusion==='success'))throw fail('BUILD_UNVERIFIED');
+ if(result?.total_count!==5||!Array.isArray(result.jobs)||result.jobs.length!==5||new Set(result.jobs.map(j=>j.name)).size!==5||new Set(result.jobs.map(j=>j.id)).size!==5||result.jobs.some(j=>!positiveId(j.id)||j.head_sha!==release.commit)||names.some(name=>!result.jobs.some(j=>j.name===name&&j.run_id===run.id&&j.status==='completed'&&j.conclusion==='success')))throw fail('BUILD_UNVERIFIED');
+ await verifyPublication(fetcher,result.jobs.find(j=>j.name==='release'),run,release,signal);
  return {...release,tree:commit.tree.sha,runId:run.id};
 }
 async function discoverRelease(fetcher,signal){return verifySource(fetcher,validateRelease(await requestJSON(fetcher,API+'/releases/latest',signal)),signal);}

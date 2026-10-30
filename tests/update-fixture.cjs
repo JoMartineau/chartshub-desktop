@@ -8,7 +8,7 @@ function fixture(){
  const sums=Buffer.from(release.ASSETS.map(name=>hash(bytes.get(name))+'  '+name).join('\n')+'\n');bytes.set('SHA256SUMS.txt',sums);
  const metadata={id:901,tag_name:'v'+version,target_commitish:commit,html_url:release.WEB+'/releases/tag/v'+version,draft:false,prerelease:false,published_at:'2026-10-24T00:00:00Z',body:'Fixture release\n<img src=x onerror=unsafe()>',assets:[...bytes].map(([name,body],i)=>({id:100+i,name,state:'uploaded',size:body.length,digest:'sha256:'+hash(body),browser_download_url:release.WEB+'/releases/download/v'+version+'/'+name}))};
  const run={id:501,path:'.github/workflows/release.yml',event:'push',head_branch:'main',head_sha:commit,status:'completed',conclusion:'success',repository:{id:release.REPOSITORY_ID},head_repository:{id:release.REPOSITORY_ID},head_commit:{tree_id:tree}};
- const jobs={total_count:5,jobs:['Build darwin-arm64','Build win32-x64','Build linux-x64','Build darwin-x64','release'].map(name=>({name,run_id:501,status:'completed',conclusion:'success',steps:[{name:name==='release'?'Publish tested release':'Compile TypeScript and run tests',conclusion:'success'}]}))};
+ const jobs={total_count:5,jobs:['Build darwin-arm64','Build win32-x64','Build linux-x64','Build darwin-x64','release'].map((name,index)=>({id:601+index,name,head_sha:commit,run_id:501,status:'completed',conclusion:'success',steps:[{name:name==='release'?'Publish tested release':'Compile TypeScript and run tests',status:'completed',conclusion:'success'}]}))};
  const responses=new Map([
   [release.API+'/releases/latest',metadata],
   [release.API+'/releases/tags/v'+version,metadata],
