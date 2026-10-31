@@ -27,6 +27,10 @@ const passed = [];
 // Core/builder/theme 28 + stream 9 + library 7 + catalogue 6 + downloads 3
 // + Clone Hero 7 + profiles 3 + Song Request 7; Windows CI also enumerates captures.
 const expectedChecks = 70 + Number(process.platform === 'win32' && process.env.CI === 'true');
+const publicWidgetIds = Object.freeze(['song-title', 'song-artist', 'song-charter', 'song-instrument', 'song-difficulty']);
+// Public controls expose metadata widgets; all thirteen stored records remain
+// intact for profile compatibility, including hidden experimental widgets.
+const publicWidgets = snapshot => snapshot.state.widgets.instances.filter(widget => publicWidgetIds.includes(widget.id));
 let host;
 async function waitFor(check, label) {
   const start = Date.now();
@@ -35,7 +39,7 @@ async function waitFor(check, label) {
 }
 
 async function reloadPanel(panel, expectedGameplay, host) {
-  const expectedControls = host.snapshot().state.widgets.instances
+  const expectedControls = publicWidgets(host.snapshot())
     .map(({ id, enabled }) => ({ id, enabled }))
     .sort((a, b) => a.id.localeCompare(b.id));
   assert.ok(expectedControls.length > 0, 'reload has configured widget controls');
@@ -136,7 +140,7 @@ async function verifyBuilder(panel, host) {
   assert.equal(host.snapshot().state.nowPlaying, null);
   await click('#builder-toggle');
   await waitFor(() => evaluate("document.querySelector('#builder-toggle').getAttribute('aria-pressed')==='true'"), 'builder enabled');
-  const expectedBuilderIds = host.snapshot().state.widgets.instances.map(widget => widget.id).sort();
+  const expectedBuilderIds = publicWidgets(host.snapshot()).map(widget => widget.id).sort();
   await waitFor(() => evaluate(`JSON.stringify([...document.querySelectorAll('#builder-canvas [data-builder-widget-id]')].map(node=>node.dataset.builderWidgetId).sort())===${JSON.stringify(JSON.stringify(expectedBuilderIds))}`), 'every configured widget has an independent layout target');
   assert.equal(host.snapshot().state.gameplay.state, 'menu');
   assert.equal(host.snapshot().state.nowPlaying, null, 'editor sample metadata never enters shared store');
@@ -582,6 +586,11 @@ app.whenReady().then(async () => {
       passed.push(value + ': ' + visible + ' widgets');
     };
     await waitFor(() => evaluate("document.body.dataset.gameplayState === 'menu'"), 'initial menu');
+    assert.equal(host.snapshot().state.widgets.instances.length, 13, 'public startup preserves all stored widget records');
+    assert.equal(publicWidgets(host.snapshot()).length, 5, 'only five independent metadata widgets are public');
+    assert.equal(host.snapshot().telemetry, null, 'public host never initializes the optional measurements');
+    assert.deepEqual(host.snapshot().features, { gameplayMeasurements: false, calibrationBeta: false });
+    await waitFor(() => evaluate("document.querySelectorAll('#widget-settings input[data-widget-id]').length===5"), 'five public widget controls');
     assert.equal(await count(), 0);
     assert.equal(await evaluate('typeof window.require'), 'undefined');
     assert.equal(await evaluate('typeof window.ChartsHubDesktop'), 'undefined');

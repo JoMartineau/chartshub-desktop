@@ -242,11 +242,13 @@ async function verifyStream(panel, host, data, passed) {
     await waitFor(() => evaluate("document.querySelector('#builder-toggle').getAttribute('aria-pressed')==='true'"), 'stream builder enabled');
     await click('#builder-list [data-select-widget-id="song-title"]');
     const before = streamTitle();
+    const retiredStreamLayout = settings().layout.filter(item => !metadataIds.includes(item.id));
     const newX = before.x === 0 ? Math.min(32, 1280 - before.width) : 0;
     assert.notEqual(newX, before.x, 'title has room for a meaningful stream position edit');
     const beforeRevision = revision();
     await number('#builder-x', newX);
     await waitFor(() => streamTitle().x === newX && revision() === beforeRevision + 1, 'native stream inspector commits one layout edit');
+    assert.deepEqual(settings().layout.filter(item => !metadataIds.includes(item.id)), retiredStreamLayout, 'moving a public stream widget preserves all retired widget positions');
     const edited = streamTitle();
     assert.deepEqual(geometry(host.snapshot().state.widgets.instances), originalGameGeometry);
     await click('#builder-undo');
@@ -259,7 +261,11 @@ async function verifyStream(panel, host, data, passed) {
     passed.push('native stream inspector edits only stream geometry; undo and redo restore exact positions through shared history');
 
     const configured = { ...settings(), canvas: { width: 1920, height: 1080, fps: 30 } };
-    await command('stream.settings', { revision: revision(), settings: configured });
+    const hiddenStreamLayout = settings().layout.filter(item => !metadataIds.includes(item.id));
+    await evaluate("(()=>{const resolution=document.querySelector('#stream-resolution');resolution.value='1080p';resolution.dispatchEvent(new Event('change',{bubbles:true}));const fps=document.querySelector('#stream-fps');fps.value='30';fps.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    await click('#stream-settings-apply');
+    await waitFor(() => host.snapshot().state.stream.canvas.width === 1920 && host.snapshot().state.stream.canvas.fps === 30, 'public resolution UI saves the complete stored stream layout');
+    assert.deepEqual(settings().layout.filter(item => !metadataIds.includes(item.id)), hiddenStreamLayout, 'public resolution edits preserve every retired widget placement');
     await waitFor(() => evaluate("document.querySelector('#stream-resolution').value==='1080p'&&document.querySelector('#stream-fps').value==='30'"), 'stream resolution and FPS controls reflect current settings');
     await host.saveSettings();
     const saved = JSON.parse(await fs.readFile(path.join(data, 'settings/settings.json'), 'utf8'));

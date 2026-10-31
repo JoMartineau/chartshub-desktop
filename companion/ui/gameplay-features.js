@@ -15,5 +15,10 @@ export function visibleWidgetSnapshot(snapshot, gameplayMeasurements = false) {
   if (gameplayMeasurements === true || !Array.isArray(widgets?.instances)) return snapshot;
   const instances = widgets.instances.filter(widget => !measurementTypes.has(widget.type));
   if (instances.length === widgets.instances.length) return snapshot;
-  return { ...snapshot, state: { ...snapshot.state, widgets: { ...widgets, instances } } };
+  const ids = new Set(instances.map(widget => widget.id));
+  const stream = snapshot.state.stream;
+  // Stream rendering validates a complete layout for precisely the offered
+  // widgets. Project both together, leaving the persisted full layout intact.
+  return { ...snapshot, state: { ...snapshot.state, widgets: { ...widgets, instances },
+    ...(Array.isArray(stream?.layout) ? { stream: { ...stream, layout: stream.layout.filter(item => ids.has(item.id)) } } : {}) } };
 }

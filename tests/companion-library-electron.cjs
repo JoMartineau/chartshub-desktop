@@ -257,14 +257,19 @@ async function verifyLibrary(panel, host, data, passed) {
     assert.equal(await evaluate("document.querySelector('#library-watch').checked"), false);
     assert.equal(await evaluate("document.querySelector('#library-refresh-on-start').checked"), false);
     const currentGame = structuredClone(host.snapshot().state);
-    const originalDuration = originalGame.performance.session.durationSeconds;
-    const currentDuration = currentGame.performance.session.durationSeconds;
-    const elapsedSeconds = (performance.now() - originalGameCapturedAt) / 1000;
-    assert.ok(Number.isFinite(originalDuration) && originalDuration >= 0);
-    assert.ok(Number.isFinite(currentDuration) && currentDuration >= originalDuration);
-    assert.ok(currentDuration - originalDuration <= elapsedSeconds + 1, 'session duration advances only with elapsed wall time');
-    // Only the running session clock advances while the library is exercised.
-    currentGame.performance.session.durationSeconds = originalDuration;
+    if (originalGame.performance) {
+      const originalDuration = originalGame.performance.session.durationSeconds;
+      const currentDuration = currentGame.performance.session.durationSeconds;
+      const elapsedSeconds = (performance.now() - originalGameCapturedAt) / 1000;
+      assert.ok(Number.isFinite(originalDuration) && originalDuration >= 0);
+      assert.ok(Number.isFinite(currentDuration) && currentDuration >= originalDuration);
+      assert.ok(currentDuration - originalDuration <= elapsedSeconds + 1, 'session duration advances only with elapsed wall time');
+      // Only an explicitly enabled private session clock may advance.
+      currentGame.performance.session.durationSeconds = originalDuration;
+    } else {
+      assert.equal(currentGame.performance, null, 'public library browsing cannot initialize gameplay measurements');
+      assert.equal(host.snapshot().telemetry, null);
+    }
     assert.deepEqual(currentGame, originalGame, 'local library actions must not replace simulated gameplay or overlay data');
     assert.equal(host.snapshot().editor.revision, originalEditorRevision);
     await revealWorkspace(panel,"#library-panel");

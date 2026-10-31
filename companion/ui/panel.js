@@ -180,6 +180,7 @@ async function changeSource(name, payload) {
 
 function applySnapshot(snapshot) {
   if (disposed || !snapshot?.state) return;
+  const completeStreamSettings = snapshot.state.stream;
   snapshot = visibleWidgetSnapshot(snapshot, gameplayMeasurements);
   const signature = controlSnapshotSignature(snapshot);
   const measurementsOnly = signature === lastControlSnapshotSignature;
@@ -214,7 +215,9 @@ function applySnapshot(snapshot) {
   // Rendering both canvases first duplicates work and discards its draft preview.
   builder.update(snapshot);
   themes.update(snapshot);
-  stream.update(snapshot);
+  // Resolution/port saves must round-trip the complete stored layout, including
+  // retired widgets. Their public visibility rows still use the filtered list.
+  stream.update(completeStreamSettings ? { ...snapshot, state: { ...snapshot.state, stream: completeStreamSettings } } : snapshot);
   gameplayControls?.update(snapshot);
   songVisualControls.update(snapshot);
   gameCaptureControls.update(snapshot);
