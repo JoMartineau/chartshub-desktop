@@ -5,6 +5,7 @@ const { pathToFileURL } = require('node:url');
 const { randomUUID } = require('node:crypto');
 const { windowTheme } = require('../window-theme');
 const { createUIBloomIpc, createUIBloomStore } = require('./ui-bloom.cjs');
+const { validateUIPalette } = require('./ui-palette.cjs');
 
 const HEADER_HEIGHT = 108;
 const STATE_CHANNEL = 'chartshub-shell:state';
@@ -19,6 +20,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
   const filename = path.join(__dirname, 'index.html'), shellUrl = pathToFileURL(filename).href;
   let disposed = false, companionView = null, activeTab = 'catalogue', companionAvailable = false;
   let theme = windowTheme({ mode: 'dark', accent: '#49bbff' });
+  let uiPalette = null;
   let buttonMotion = { economy: false };
   let buttonMotionRevision = 0;
   const state = {
@@ -74,7 +76,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     try { window.contentView.removeChildView(view); } catch { /* Already detached. */ }
   }
   function snapshot() {
-    return { activeTab, companionAvailable, tabs: { catalogue: { ...state.catalogue }, companion: { ...state.companion } }, theme: { ...theme }, buttonMotion: { ...buttonMotion }, platform: process.platform };
+    return { activeTab, companionAvailable, tabs: { catalogue: { ...state.catalogue }, companion: { ...state.companion } }, theme: { ...theme }, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, platform: process.platform };
   }
   function trusted(event) {
     return !disposed && !window.isDestroyed() && contentsAlive(shellWeb)
@@ -207,6 +209,12 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     else publish();
     return snapshot();
   }
+  function setUIPalette(value) {
+    const next = validateUIPalette(value);
+    if (!next || disposed) return false;
+    if (JSON.stringify(next) !== JSON.stringify(uiPalette)) { uiPalette = next; publish(); }
+    return true;
+  }
   function dispose() {
     if (disposed) return bloomDisposed;
     disposed = true;
@@ -245,7 +253,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
   const restoreMotion = createUIBloomStore(path.join(app.getPath('userData'), 'companion'))
     .then(store => store.read()).then(result => { if (!disposed && buttonMotionRevision === 0) applyButtonSettings(result.settings); }).catch(() => {});
   const ready = Promise.all([window.loadFile(filename), restoreMotion]).then(() => undefined);
-  return { window, catalogueView, ready, attachCompanion, showTab, setTheme, setCompanionAvailable, flushPortableConfiguration: () => bloom?.flush() ?? Promise.resolve(), dispose };
+  return { window, catalogueView, ready, attachCompanion, showTab, setTheme, setUIPalette, setCompanionAvailable, flushPortableConfiguration: () => bloom?.flush() ?? Promise.resolve(), dispose };
 }
 
 module.exports = { createDesktopShell };

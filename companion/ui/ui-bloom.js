@@ -1,5 +1,6 @@
 import * as model from './ui-bloom-model.js';
 import { applyButtonMotion } from './button-motion.js';
+import { paintCataloguePalette } from './catalogue-palette.js';
 
 // All preview changes stay in this renderer. Only Apply invokes the native store.
 const bridge = window.ChartsHubUIBloom;
@@ -32,7 +33,7 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   const heading = node('div', 'ch-bloom-heading');
   const title = node('h2', '', 'Theme and colors', 'Thème et couleurs'); title.id = 'ch-bloom-title';
   const close = button('close', 'Close', 'Fermer'); heading.setAttribute('translate', 'no'); heading.append(title, close);
-  const info = node('p', 'ch-bloom-muted', 'Bloom decorates Companion panels. Button movement also applies to floating windows. Notes and ReShade effects stay unchanged. Local to this app profile, not synced with the website or your ChartsHub account.', 'Le bloom décore les panneaux du Companion. Le mouvement des boutons s’applique aussi aux fenêtres flottantes. Les notes et les effets ReShade restent inchangés. Réglage local à ce profil de l’application, non synchronisé avec le site ou votre compte ChartsHub.');
+  const info = node('p', 'ch-bloom-muted', 'Follow Catalogue uses its holiday or custom interface colors. Personal colors keep your saved Companion bloom. This choice is saved on this computer. Game and stream widget colors stay unchanged.', 'Suivre le Catalogue reprend ses couleurs de fête ou personnalisées. Les couleurs personnelles conservent votre bloom du Companion. Ce choix est enregistré sur cet ordinateur. Les couleurs des widgets du jeu et du stream restent inchangées.');
   info.id = 'ch-bloom-info'; form.append(info);
   function field(name, type, en, french, parent = form) {
     const label = node('label', 'ch-bloom-field');
@@ -44,6 +45,14 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
     const input = field(name, 'checkbox', en, french); input.parentElement.classList.add('ch-bloom-toggle');
     input.addEventListener('change', () => preview({ ...draft, [name]: input.checked })); return input;
   }
+  const modeLabel = node('label', 'ch-bloom-field'); modeLabel.htmlFor = 'ch-bloom-palette-mode';
+  modeLabel.append(node('span', 'ch-bloom-label', 'Interface colors', 'Couleurs de l’interface'));
+  const mode = node('select'); mode.id = 'ch-bloom-palette-mode'; controls.paletteMode = mode;
+  for (const [value, en, french] of [['catalogue', 'Follow Catalogue (holiday or personal colors)', 'Suivre le Catalogue (couleurs de fête ou personnelles)'], ['custom', 'My personal Companion colors', 'Mes couleurs personnalisées du Companion']]) {
+    const option = node('option', '', en, french); option.value = value; mode.append(option);
+  }
+  modeLabel.append(mode); form.append(modeLabel);
+  mode.addEventListener('change', () => { if (['catalogue', 'custom'].includes(mode.value)) { preview({ ...draft, followCatalogue: mode.value === 'catalogue' }); fill(); } });
   toggle('enabled', 'Enable interface bloom', 'Activer le bloom de l’interface');
   const sample = node('div', 'ch-bloom-sample');
   sample.append(node('strong', '', 'ChartsHub / Companion'), node('span', '', 'Live preview · Text stays crisp', 'Aperçu immédiat · Le texte reste net')); form.append(sample);
@@ -58,19 +67,19 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
       const values = ['r', 'g', 'b'].map(k => controls[k].valueAsNumber);
       ['r', 'g', 'b'].forEach((k, j) => valid(controls[k], Number.isInteger(values[j]) && values[j] >= 0 && values[j] <= 255));
       const value = model.fromRGB(values);
-      if (value) { preview({ ...draft, color: value }); syncColors(); }
+      if (value) { preview({ ...draft, color: value, followCatalogue: false }); syncColors(); }
     });
   }
-  color.addEventListener('input', () => { preview({ ...draft, color: color.value }); syncColors(); });
+  color.addEventListener('input', () => { preview({ ...draft, color: color.value, followCatalogue: false }); syncColors(); });
   hex.addEventListener('input', () => {
     const value = model.color(hex.value);
-    if (valid(hex, Boolean(value))) { const typed = hex.value; preview({ ...draft, color: value }); syncColors(); hex.value = typed; }
+    if (valid(hex, Boolean(value))) { const typed = hex.value; preview({ ...draft, color: value, followCatalogue: false }); syncColors(); hex.value = typed; }
   });
   hex.addEventListener('change', () => { if (hex.validity.valid) syncColors(); });
   const palette = node('div', 'ch-bloom-palette'); palette.setAttribute('role', 'group'); form.append(palette);
   for (const [value, en, french] of [['#a855f7','Violet','Violet'], ['#00cfff','Cyan','Cyan'], ['#38d96b','Green','Vert'], ['#ffbf36','Gold','Or'], ['#ff783c','Orange','Orange'], ['#f546c0','Pink','Rose']]) {
     const b = button('swatch-' + en.toLowerCase(), en, french); b.classList.add('ch-bloom-swatch'); b.dataset.color = value; b.style.setProperty('--swatch', value);
-    b.addEventListener('click', () => { preview({ ...draft, color: value }); syncColors(); }); palette.append(b); swatches.push(b);
+    b.addEventListener('click', () => { preview({ ...draft, color: value, followCatalogue: false }); syncColors(); }); palette.append(b); swatches.push(b);
   }
   const names = { intensity: ['Intensity','Intensité'], radius: ['Spread radius','Rayon de diffusion'], blur: ['Blur','Flou'], opacity: ['Opacity','Opacité'] };
   for (const [key, [min, max, unit]] of Object.entries(model.RANGES)) {
@@ -114,16 +123,21 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   function valid(input, ok) { input.setCustomValidity(ok ? '' : (fr() ? 'Valeur invalide.' : 'Invalid value.')); input.setAttribute('aria-invalid', String(!ok)); return ok; }
   function paint(value) {
     const p = model.normalize(value);
-    document.documentElement.style.setProperty('--ch-bloom-shadow', model.shadow(p));
-    document.documentElement.dataset.chBloom = model.shadow(p) === 'none' ? 'off' : 'on';
+    const colors = paintCataloguePalette(p.followCatalogue), effective = colors ? { ...p, color: colors.bloom } : p;
+    document.documentElement.style.setProperty('--ch-bloom-shadow', model.shadow(effective));
+    document.documentElement.style.setProperty('--ch-bloom-color', effective.color);
+    document.documentElement.dataset.chBloom = model.shadow(effective) === 'none' ? 'off' : 'on';
     applyButtonMotion(document.documentElement, p);
     return p;
   }
   function preview(value) { if (busy) return; draft = paint(value); say('preview'); }
   function syncColors() {
-    controls.color.value = draft.color; controls.hex.value = draft.color.toUpperCase(); valid(controls.hex, true);
-    model.rgb(draft.color).forEach((v, i) => { controls[['r','g','b'][i]].value = v; valid(controls[['r','g','b'][i]], true); });
-    for (const b of swatches) b.setAttribute('aria-pressed', String(b.dataset.color === draft.color));
+    controls.paletteMode.value = draft.followCatalogue ? 'catalogue' : 'custom';
+    const current = paintCataloguePalette(draft.followCatalogue)?.bloom || draft.color;
+    controls.color.value = current; controls.hex.value = current.toUpperCase(); valid(controls.hex, true);
+    model.rgb(current).forEach((v, i) => { controls[['r','g','b'][i]].value = v; valid(controls[['r','g','b'][i]], true); });
+    for (const key of ['color', 'hex', 'r', 'g', 'b']) controls[key].disabled = busy || draft.followCatalogue;
+    for (const b of swatches) { b.setAttribute('aria-pressed', String(b.dataset.color === current)); b.disabled = busy || draft.followCatalogue; }
   }
   function fill() {
     controls.enabled.checked = draft.enabled; controls.economy.checked = draft.economy;
@@ -135,6 +149,7 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
     busy = value; form.setAttribute('aria-busy', String(value));
     for (const el of form.querySelectorAll('input, button, select')) el.disabled = value;
     apply.disabled = value || !loaded; trigger.disabled = value;
+    syncColors();
   }
   async function load() {
     setBusy(true); say('loading');
@@ -149,14 +164,15 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
     if (busy || dialog.open) return;
     draft = paint(saved); fill(); dialog.showModal(); void load();
   }
+  function restoreSaved() { draft = paint(saved); fill(); }
   trigger.addEventListener('click', open);
-  for (const b of [close, cancel]) b.addEventListener('click', () => { if (!busy) dialog.close(); });
+  for (const b of [close, cancel]) b.addEventListener('click', () => { if (!busy) { restoreSaved(); dialog.close(); } });
   reset.addEventListener('click', () => { preview(model.normalize()); fill(); });
-  dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
+  dialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); else restoreSaved(); });
   // The layout editor underneath may still be active. Modal keys belong only
   // to these appearance controls; Escape retains the native dialog behavior.
   dialog.addEventListener('keydown', event => event.stopPropagation());
-  dialog.addEventListener('close', () => { if (dialog.open) return; draft = paint(saved); fill(); trigger.focus(); });
+  dialog.addEventListener('close', () => { if (dialog.open) return; restoreSaved(); trigger.focus(); });
   form.addEventListener('submit', async event => {
     event.preventDefault(); if (busy || !loaded || !form.reportValidity()) return;
     const candidate = model.validate(draft); if (!candidate) return;
@@ -169,6 +185,7 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
     finally { setBusy(false); }
   });
   window.addEventListener('chartshub:languagechange', translate);
+  window.addEventListener('chartshub:cataloguepalettechange', () => { paint(draft); syncColors(); });
   new MutationObserver(translate).observe(document.documentElement, { attributes: true, attributeFilter: ['lang'] });
   window.ChartshubBloom = Object.freeze({ open, read: () => ({ ...saved }) });
   paint(saved); fill(); translate(); void load();

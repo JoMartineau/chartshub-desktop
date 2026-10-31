@@ -40,6 +40,7 @@ const { createSongVisuals } = require('./song-visuals.cjs');
 const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs');
 const { changeMusicPlaylist } = require('./music-playlists.cjs');
 const { createGameCapture } = require('./game-capture.cjs');
+const { validateUIPalette } = require('../desktop/ui-palette.cjs');
 const SCHEME = 'chartshub-companion';
 const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu', player: 'ChartsHub — Lecteur Songs' });
 function registerCompanionScheme() {
@@ -97,6 +98,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let language = 'fr';
   let telemetry = null;
   let buttonMotion = { economy: false };
+  let uiPalette = null;
   const tr = (fr, en) => language === 'fr' ? fr : en;
   let preferredProfileId = null;
   const profileWrites = new Set();
@@ -195,7 +197,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
   const stateView = () => ({ ...telemetryStateView(services.store.getState(), telemetry?.snapshot(), { language, liveMetadata: integration.status().mode === 'live' }), lyrics: songVisuals?.lyricsSnapshot() ?? null });
   const telemetryPanel = () => { const value = telemetry?.snapshot(); return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, reason: value.reason } : null; };
-  const snapshot = () => ({ language, buttonMotion: { ...buttonMotion }, state: stateView(), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const snapshot = () => ({ language, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView(), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
     return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
@@ -233,7 +235,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     updateVisuals();
     const value = snapshot();
     publishPanel(value);
-    if (overlay && !overlay.isDestroyed() && !overlay.webContents.isLoading()) overlay.webContents.send('companion:changed', { ...value, songRequests: undefined, player: undefined });
+    if (overlay && !overlay.isDestroyed() && !overlay.webContents.isLoading()) overlay.webContents.send('companion:changed', { ...value, uiPalette: undefined, songRequests: undefined, player: undefined });
     if (filtersWidget && !filtersWidget.isDestroyed() && !filtersWidget.webContents.isLoading()) filtersWidget.webContents.send('companion:changed', filtersWidgetSnapshot());
     syncOverlay();
     streamServer?.publish(value.state);
@@ -250,6 +252,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.economy !== 'boolean' || Object.keys(value).some(key => !['economy', 'hoverLift'].includes(key)) || (Object.hasOwn(value, 'hoverLift') && ![1, 3, 5].includes(value.hoverLift))) return false;
     const next = { economy: value.economy, ...(Object.hasOwn(value, 'hoverLift') ? { hoverLift: value.hoverLift } : {}) };
     if (JSON.stringify(buttonMotion) !== JSON.stringify(next)) { buttonMotion = next; if (!disposing) publish(); }
+    return true;
+  }
+  function setUIPalette(value) {
+    const next = validateUIPalette(value);
+    if (!next || disposing) return false;
+    if (JSON.stringify(next) !== JSON.stringify(uiPalette)) { uiPalette = next; publishPanel(); }
     return true;
   }
   const unsubscribe = services.store.subscribe(publish);
@@ -1373,7 +1381,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     await saveSettings();await Promise.all([...profileWrites]);await floatingPanels.flush();await songRequestPreferences.flush();
     if(persistenceError||profiles.status().error||floatingPanels.status().error||songRequestPreferences.status().error)throw Object.assign(Error('Visual settings could not be saved'),{code:'BACKUP_WRITE_FAILED'});
   }
-  return { open, stop, snapshot, services, integration, registry, setLanguage, setButtonMotion, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
+  return { open, stop, snapshot, services, integration, registry, setLanguage, setButtonMotion, setUIPalette, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
     maintenanceStatus, flushPortableConfiguration, setMaintenanceLocked: value => { maintenanceLocked = value === true; },
     getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, getPlayerWidget: () => playerWindow, dispose
   };

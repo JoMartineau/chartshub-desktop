@@ -1,5 +1,7 @@
 @import url('./chartshub-palette.css');
 :root { color-scheme: dark; font-family: "Segoe UI", Arial, sans-serif; font-size: 14px; color: var(--text); background: var(--background); }
+html[data-ch-catalogue-palette] #companion-app .button.primary:not(.danger):not(:disabled) { color: var(--ch-button-ink); }
+html[data-ch-catalogue-palette] #companion-app .button.primary:not(.danger):not(:disabled):hover { color: var(--ch-button-hover-ink); }
 .game-filters { margin-bottom: 24px; border-color: var(--border); scroll-margin-top: 18px; }
 .game-filters > .card-heading { background: var(--surface); align-items: center; }
 .game-filters .eyebrow { color: var(--muted); font-size: 9px; margin-bottom: 6px; }

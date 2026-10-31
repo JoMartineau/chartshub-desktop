@@ -2,6 +2,8 @@
 // Actual renderer, production IPC/host and Windows named pipe; all game data is synthetic.
 // No real game, accounts, Song folders or user profile are read or changed.
 const {app,BrowserWindow}=require('electron'),fs=require('node:fs/promises'),path=require('node:path'),net=require('node:net'),assert=require('node:assert/strict'),{randomUUID}=require('node:crypto');
+// Isolated checkouts reuse an explicitly supplied, installed dependency tree.
+if(process.env.NODE_PATH)require('node:module').Module._initPaths();
 const {registerFixtureMaintenance,revealWorkspace}=require('./workspace-input.cjs');
 const disposeFixtureMaintenance=registerFixtureMaintenance();
 const outputArg=process.argv.find(value=>value.startsWith('--fixture-output='));if(!outputArg)throw Error('An explicit --fixture-output directory is required');
@@ -167,6 +169,41 @@ app.whenReady().then(async()=>{
   await calibrationField('#calibration-stage','audio');await calibrationField('#calibration-method','manual');assert.equal(await evaluate("document.querySelector('.performance-trials').children.length"),2,'both native audio histories retained independently');
   assert.doesNotMatch(await evaluate("document.querySelector('.performance-trials').textContent"),/Entered setting (10|14)\.0 ms/,'chart-hit settings absent from native history');
   await calibrationField('#calibration-method','native');
+ });
+ await check('The real Start trial button arms Audio and Video before chart start, waits without fake samples, then retains thirty hits independently',async()=>{
+  host.setLanguage('fr');panel.setSize(1280,900);
+  await calibrationField('#calibration-method','gameplay');await calibrationField('#calibration-stage','audio');await calibrationField('#calibration-setting','13');
+  send('state',{phase:'menu'});await until(()=>host.snapshot().telemetry.phase==='menu','synthetic menu before arm');
+  await click('#calibration-start');await until(()=>evaluate("document.querySelector('.performance-calibration-trial').textContent.includes('En attente du début de la chart')"),'French waiting-for-chart state');
+  assert.equal(host.snapshot().telemetry.calibration.trial.sampleCount,0);assert.equal(host.snapshot().telemetry.calibration.trial.incomplete,false);
+  async function trialCapture(name){await revealWorkspace(panel,'.performance-calibration-trial');await evaluate("new Promise(resolve=>{document.querySelector('[data-calibration-step=\"3\"]').scrollIntoView({block:'start',behavior:'instant'});requestAnimationFrame(()=>requestAnimationFrame(resolve));})");await fs.writeFile(path.join(directory,name),(await panel.webContents.capturePage()).toPNG());captures.push(name);}
+  await trialCapture('calibration-armed-before-chart-fr.png');
+  attemptId='armed-audio-chart';send('reset',{reason:'song'});send('state',{phase:'loading'});send('state',{phase:'playing',metadata:{chartId:'b'.repeat(64),instrument:'Guitar',difficulty:'Expert'},clock:{positionSeconds:-2,durationSeconds:240,speed:1}});
+  send('state',{phase:'playing',clock:{positionSeconds:0,durationSeconds:240,speed:.75}});
+  await until(()=>evaluate("document.querySelector('.performance-calibration-trial').textContent.includes('Jouez : les mesures commencent')"),'first-hit waiting state after chart start');
+  assert.equal(host.snapshot().telemetry.calibration.trial.sampleCount,0);assert.equal(host.snapshot().telemetry.calibration.trial.incomplete,false);
+  assert.equal(await evaluate("document.querySelector('#calibration-finish').disabled&&document.querySelector('.performance-calibration-live').hidden"),true);
+  assert.doesNotMatch(await evaluate("document.querySelector('.performance-calibration-trial').textContent"),/Interruption/);
+  await trialCapture('calibration-chart-started-waiting-hit-fr.png');
+  for(let i=0;i<29;i++)send('hit',{offsetMs:-4});await until(()=>host.snapshot().telemetry.calibration.trial?.sampleCount===29,'29 audio chart hits');
+  assert.equal(await evaluate("document.querySelector('#calibration-finish').disabled"),true);
+  send('hit',{offsetMs:-4});await until(()=>evaluate("!document.querySelector('#calibration-finish').disabled"),'30 audio chart hits enable Finish');
+  await trialCapture('calibration-30-hits-ready-fr.png');await click('#calibration-finish');
+  const audioTrial=host.snapshot().telemetry.calibration.trials.find(t=>t.stage==='audio'&&t.source==='gameplay'&&t.settingMs===13);
+  assert.equal(audioTrial.sampleCount,30);assert.equal(audioTrial.meanOffsetMs,-4);
+  await calibrationField('#calibration-stage','video');await calibrationField('#calibration-setting','13');send('state',{phase:'menu'});await until(()=>host.snapshot().telemetry.phase==='menu','menu before video arm');await click('#calibration-start');
+  attemptId='armed-video-chart';send('reset',{reason:'song'});send('hit',{offsetMs:3});
+  await until(()=>host.snapshot().telemetry.calibration.trial?.sampleCount===1,'early video hit before throttled state');
+  send('state',{phase:'playing',clock:{positionSeconds:1,durationSeconds:240,speed:.5}});
+  for(let i=1;i<30;i++)send('hit',{offsetMs:3});await until(()=>evaluate("!document.querySelector('#calibration-finish').disabled"),'30 independent video hits');await click('#calibration-finish');
+  const trials=host.snapshot().telemetry.calibration.trials;
+  assert.equal(trials.find(t=>t.stage==='video'&&t.source==='gameplay'&&t.settingMs===13).meanOffsetMs,3);
+  assert.deepEqual(trials.find(t=>t.stage==='audio'&&t.source==='gameplay'&&t.settingMs===13),audioTrial);
+  assert.doesNotMatch(await evaluate("document.querySelector('.performance-trials').textContent"),/-4,0 ms/,'audio values stay out of video history');
+  await calibrationField('#calibration-stage','audio');await calibrationField('#calibration-setting','14');await click('#calibration-start');send('hit',{offsetMs:-4});await until(()=>host.snapshot().telemetry.calibration.trial?.sampleCount===1,'first measured hit before speed change');
+  send('state',{phase:'playing',clock:{positionSeconds:2,durationSeconds:240,speed:.75}});for(let i=0;i<30;i++)send('hit',{offsetMs:100});
+  await until(()=>evaluate("document.querySelector('.performance-calibration-trial').textContent.includes('Interruption : recommencez')"),'real midtrial speed change still interrupts');
+  assert.equal(host.snapshot().telemetry.calibration.trial.sampleCount,1);assert.equal(await evaluate("document.querySelector('#calibration-finish').disabled"),true);
  });
  await check('English text and native minimum window retain readable controls',async()=>{host.setLanguage('en');await until(()=>evaluate("document.querySelector('#performance-controls').textContent.includes('Gameplay measurements')"),'English controls');const minimum=panel.getMinimumSize();panel.setSize(Math.max(minimum[0],800),Math.max(minimum[1],750));await revealWorkspace(panel,'#performance-panel');await delay(100);assert.equal(await evaluate("document.documentElement.scrollWidth>innerWidth+1"),false);await capture('accuracy-fixture-min-en.png');});
  await check('Seven widgets render through the real Stream preview and OBS transport at720p and1080p with five synthetic results',async()=>{

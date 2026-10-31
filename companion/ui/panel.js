@@ -26,6 +26,7 @@ import { GameCaptureControls } from './game-capture-controls.js';
 import { UpdatesControls } from '../dist/settings/UpdatesControls.js';
 import { StatusControls } from '../dist/settings/StatusControls.js';
 import { ConfigurationBackupControls } from '../dist/settings/ConfigurationBackupControls.js';
+import { setCataloguePalette } from './catalogue-palette.js';
 
 const api = window.ChartsHubCompanion;
 const query = selector => document.querySelector(selector);
@@ -173,6 +174,7 @@ async function changeSource(name, payload) {
 
 function applySnapshot(snapshot) {
   if (disposed || !snapshot?.state) return;
+  setCataloguePalette(snapshot.uiPalette);
   if (snapshot.language === 'fr' || snapshot.language === 'en') { window.ChartshubCompanionLanguage?.apply(snapshot.language); workspaceNavigation.update(snapshot.language); updates?.update({language:snapshot.language}); configurationBackup?.update({language:snapshot.language}); }
   currentSnapshot = snapshot;
   statusControls.update(snapshot);

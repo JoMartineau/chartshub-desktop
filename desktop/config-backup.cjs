@@ -2,7 +2,8 @@
 const fs=require('node:fs/promises'),{constants}=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const MAX_BYTES=2*1024*1024,UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const GROUP_FILES=Object.freeze({overlay:'settings.json',profiles:'overlay-profiles.json',panels:'floating-panels.json',bloom:'ui-bloom.json',requests:'song-request-access.json'});
-const WIDGETS=Object.freeze({'song.title':'song-title','song.artist':'song-artist','song.charter':'song-charter','song.instrument':'song-instrument','song.difficulty':'song-difficulty'});
+const WIDGETS=Object.freeze({'song.title':'song-title','song.artist':'song-artist','song.charter':'song-charter','song.instrument':'song-instrument','song.difficulty':'song-difficulty',
+ 'gameplay.accuracy':'gameplay-accuracy','gameplay.combo':'gameplay-combo','gameplay.fc':'gameplay-fc','gameplay.progress':'gameplay-progress','gameplay.comparison':'gameplay-comparison','session.goal':'session-goal','session.history':'session-history','song.lyrics':'song-lyrics'});
 const fail=code=>Object.assign(Error(code),{code:'BACKUP_'+code});
 const object=x=>!!x&&typeof x==='object'&&!Array.isArray(x);
 const keys=(x,names)=>object(x)&&Object.keys(x).length===names.length&&Object.keys(x).every(k=>names.includes(k));
@@ -36,8 +37,9 @@ function parse(bytes){try{return JSON.parse(new TextDecoder('utf-8',{fatal:true}
 async function createConfigBackup({directory,version,clock=()=>Date.now(),hook=async()=>{},onChange=()=>{},isProcessAlive=pid=>{try{process.kill(pid,0);return true;}catch(e){return e.code!=='ESRCH';}}}={}){
  if(typeof directory!=='string'||!path.isAbsolute(directory)||typeof version!=='string'||!/^\d+\.\d+\.\d+$/.test(version))throw fail('INVALID');
  directory=path.resolve(directory);
- const [{validateSettings},{createDefaultWidgets},{createDefaultTheme},{createDefaultStream},bloom]=await Promise.all([
-  import('../companion/dist/storage/SettingsRepository.js'),import('../companion/dist/widgets/core/index.js'),import('../companion/dist/themes/ThemeService.js'),import('../companion/dist/overlay/stream/StreamConfig.js'),import('../companion/ui/ui-bloom-model.js')
+ const [{validateSettings},{createDefaultWidgets},{createDefaultTheme},{createDefaultStream},bloom,{validateAccuracyConfig},{validateLyricsConfig}]=await Promise.all([
+  import('../companion/dist/storage/SettingsRepository.js'),import('../companion/dist/widgets/core/index.js'),import('../companion/dist/themes/ThemeService.js'),import('../companion/dist/overlay/stream/StreamConfig.js'),import('../companion/ui/ui-bloom-model.js'),
+  import('../companion/dist/widgets/core/Gameplay/AccuracyConfig.js'),import('../companion/dist/widgets/core/Gameplay/LyricsConfig.js')
  ]);
  const defaults=createDefaultWidgets(),defaultDocument={version:3,widgets:defaults,theme:createDefaultTheme(),stream:createDefaultStream(defaults)};
  const {DEFAULT_WIDGET,validateWidget}=require('../companion/song-request-widget.cjs');
@@ -47,17 +49,24 @@ async function createConfigBackup({directory,version,clock=()=>Date.now(),hook=a
  function expirePreview(){if(preview&&(clock()-preview.created>=10*60000||clock()<preview.created)){preview=null;clearTimeout(expiryTimer);expiryTimer=null;notify();}}
  function assertPreview(id){expirePreview();if(!preview||preview.id!==id||!UUID.test(id))throw fail('PREVIEW_EXPIRED');return true;}
  const requireKeys=(value,names)=>{if(!keys(value,names))throw fail('INVALID');};
- function portableSettings(value,fromDisk=false){
+ function portableConfig(widget,fromDisk){
+  const allowed=widget.type==='gameplay.accuracy'?['fields','showTitle','showCoverage']:widget.type==='song.lyrics'?['showNextLine']:[];
+  if(!object(widget.config)||!fromDisk&&Object.keys(widget.config).some(key=>!allowed.includes(key)))throw fail('INVALID');
+  // Only explicit public display choices travel. Paths, tokens, song data and
+  // arbitrary legacy configuration never enter an exported visual profile.
+  const config=Object.fromEntries(allowed.filter(key=>Object.hasOwn(widget.config,key)).map(key=>[key,structuredClone(widget.config[key])]));
+  try{if(widget.type==='gameplay.accuracy')validateAccuracyConfig(config);if(widget.type==='song.lyrics')validateLyricsConfig(config);}catch{throw fail('INVALID');}
+  return config;
+ }
+ function portableSettings(value,fromDisk=false,profile=false){
   if(!object(value)||!Array.isArray(value.widgets))throw fail('INVALID');
-  if(!fromDisk){requireKeys(value,['widgets','theme','stream']);requireKeys(value.stream,['canvas','layout']);}
-  // Current widgets have no configurable strings. Drop arbitrary legacy config
-  // on export; imports must contain the exact empty portable configuration.
+  if(!fromDisk||profile){requireKeys(value,['widgets','theme','stream']);requireKeys(value.stream,['canvas','layout']);}
   const widgets=value.widgets.map(w=>{
    if(!object(w)||WIDGETS[w.type]!==w.id)throw fail('UNSUPPORTED_WIDGET');
-   if(!fromDisk&&(!keys(w.config,[])||Object.keys(w).some(k=>!['id','type','enabled','locked','position','size','visibility','gameplayVisibility','style','config'].includes(k))))throw fail('INVALID');
-   return {...w,config:{}};
+   if(!fromDisk&&Object.keys(w).some(k=>!['id','type','enabled','locked','position','size','visibility','gameplayVisibility','style','config'].includes(k)))throw fail('INVALID');
+   return {...w,config:portableConfig(w,fromDisk)};
   });
-  let normalized;try{normalized=validateSettings(fromDisk?{...value,widgets}:{version:3,widgets,theme:value.theme,stream:{port:38473,canvas:value.stream.canvas,layout:value.stream.layout}});}catch{throw fail('INVALID');}
+  let normalized;try{normalized=validateSettings(fromDisk&&!profile?{...value,widgets}:{version:3,widgets,theme:value.theme,stream:{port:38473,canvas:value.stream.canvas,layout:value.stream.layout}});}catch{throw fail('INVALID');}
   return {widgets:normalized.widgets,theme:normalized.theme,stream:{canvas:normalized.stream.canvas,layout:normalized.stream.layout}};
  }
  function profiles(value,fromDisk=false){
@@ -70,7 +79,7 @@ async function createConfigBackup({directory,version,clock=()=>Date.now(),hook=a
    let name=item.name.normalize('NFC').trim();
    if(/[\x00-\x1f\x7f\u202a-\u202e\u2066-\u2069\\/:]/.test(name)){if(!fromDisk)throw fail('INVALID');name='Profile '+(index+1);}
    if(names.has(name.toLowerCase()))throw fail('INVALID');ids.add(item.id);names.add(name.toLowerCase());
-   return {id:item.id,name,updatedAt:item.updatedAt,document:portableSettings(item.document,false)};
+   return {id:item.id,name,updatedAt:item.updatedAt,document:portableSettings(item.document,fromDisk,true)};
   })};
  }
  function panels(value,fromDisk=false){

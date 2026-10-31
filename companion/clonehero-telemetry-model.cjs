@@ -22,8 +22,35 @@ function createTelemetryModel({ now = Date.now, settings = { windowMs: 20, goal:
         nativeCalibration = null;
     }
     function clearNative() { nativeCalibration = null; nativeResults = { audio: null, video: null }; retiredCalibrations = new Set(); }
-    function resetAttempt(frame, kind = 'connect') { active = { attemptId: frame.attemptId, playerId: frame.playerId, phase: 'loading', metadata: {}, stats: emptyStats(), clock: null, ended: false, completed: null, comparisonKey: null, comparisonBaseline: null }; timing = accumulator(); coverage = ['song', 'restart'].includes(kind) ? 'complete' : kind === 'seek' ? 'incomplete' : 'since-connect'; if (trial)
+    // An armed gameplay trial has no measured segment yet. Menu -> chart,
+    // preroll and speed selection are preparation until the first local hit.
+    // Native tool trials retain their existing reset rules.
+    function resetAttempt(frame, kind = 'connect') { active = { attemptId: frame.attemptId, playerId: frame.playerId, phase: 'loading', metadata: {}, stats: emptyStats(), clock: null, ended: false, completed: null, comparisonKey: null, comparisonBaseline: null }; timing = accumulator(); coverage = ['song', 'restart'].includes(kind) ? 'complete' : kind === 'seek' ? 'incomplete' : 'since-connect'; if (trial && (trial.source !== 'gameplay' || trial.context))
         trial.incomplete = true; }
+    function updateGameplayContext() {
+        if (trial?.source !== 'gameplay' || !trial.context || trial.incomplete || !active)
+            return;
+        const context = trial.context;
+        if (context.attemptId !== active.attemptId || context.playerId !== active.playerId)
+            trial.incomplete = true;
+        for (const key of ['chartId', 'instrument', 'difficulty']) {
+            const value = active.metadata[key];
+            if (!value) continue;
+            if (context[key] && context[key] !== value) trial.incomplete = true;
+            else context[key] = value;
+        }
+        if (capabilities.clock && active.clock) {
+            const { speed, positionSeconds } = active.clock;
+            if (contract.finite(speed, .01, 10)) {
+                if (known(context.speed) && context.speed !== speed) trial.incomplete = true;
+                else context.speed = speed;
+            }
+            if (known(positionSeconds)) {
+                if (known(context.positionSeconds) && positionSeconds < context.positionSeconds - .25) trial.incomplete = true;
+                context.positionSeconds = positionSeconds;
+            }
+        }
+    }
     function applyStats(value) { if (!active || !value)
         return; const next = {...active.stats}; for (const k of Object.keys(value)) {
         const capability = k === 'notesHit' || k === 'notesTotal' ? 'attemptResults' : k;
@@ -44,11 +71,8 @@ function createTelemetryModel({ now = Date.now, settings = { windowMs: 20, goal:
             active.comparisonBaseline = bestScores.get(key) ?? null;
         }
     } if (value.stats)
-        applyStats(value.stats); if (capabilities.clock && value.clock) {
-        if (trial?.source === 'gameplay' && contract.finite(active.clock?.speed, .01, 10)
-            && contract.finite(value.clock.speed, .01, 10) && active.clock.speed !== value.clock.speed)
-            trial.incomplete = true;
-        active.clock = { ...value.clock }; } }
+        applyStats(value.stats); if (capabilities.clock && value.clock)
+        active.clock = { ...value.clock }; updateGameplayContext(); }
     const chartKey = () => active?.metadata.chartId && active.metadata.instrument && active.metadata.difficulty ? JSON.stringify([active.metadata.chartId, active.metadata.instrument, active.metadata.difficulty]) : null;
     function ingest(raw) {
         const frame = contract.validateFrame(raw);
@@ -96,13 +120,19 @@ function createTelemetryModel({ now = Date.now, settings = { windowMs: 20, goal:
         if (frame.type === 'hit') {
             if (!capabilities.hitTiming)
                 throw Error('Mesures de précision non déclarées.');
-            if (active.ended)
+            if (active.ended || !['loading', 'playing'].includes(active.phase))
                 return true;
             active.phase = 'playing';
             measure(timing, frame.data.offsetMs);
             applyStats(frame.data.stats);
-            if (trial && trial.source === 'gameplay')
-                measure(trial.measurements, frame.data.offsetMs);
+            if (trial && trial.source === 'gameplay' && !trial.incomplete) {
+                // The bridge may emit this hit before its next throttled state.
+                // Latch only verified, available context; never require or invent
+                // chart metadata or speed to accept a real hit.
+                if (!trial.context) trial.context = { attemptId: active.attemptId, playerId: active.playerId };
+                updateGameplayContext();
+                if (!trial.incomplete) measure(trial.measurements, frame.data.offsetMs);
+            }
         }
         if (frame.type === 'calibration') {
             if (!capabilities.calibrationTiming)
@@ -187,7 +217,7 @@ function createTelemetryModel({ now = Date.now, settings = { windowMs: 20, goal:
             timing:metrics(timing,settings.windowMs,coverage),
             comparison:{bestScore:known(best)?best:null,personalBestScore:known(personalBest)?personalBest:null,currentScore:s.score,delta:coverage==='complete'&&known(best)&&known(s.score)?s.score-best:null,bestAttempt:key&&bestAttempts.has(key)?clone(bestAttempts.get(key)):null},
             session:{completedSongs,fullCombos,bestCombo,durationSeconds:elapsed/1000},goal:{...settings.goal,value:progress,percent:Math.min(100,progress/settings.goal.target*100)},history:clone(history),
-            calibration:{trial:trial?{stage:trial.stage,source:trial.source,settingMs:trial.settingMs,incomplete:trial.incomplete,...metrics(trial.measurements,settings.windowMs,trial.incomplete?'incomplete':'complete')}:null,trials:clone(trials),nativeResults:connected && capabilities.calibrationResults ? clone(nativeResults) : {audio:null,video:null}},
+            calibration:{trial:trial?{stage:trial.stage,source:trial.source,settingMs:trial.settingMs,incomplete:trial.incomplete,state:trial.incomplete?'interrupted':trial.source!=='gameplay'||trial.context?'collecting':active?.phase==='playing'&&!active.ended?'waiting-hit':'waiting-chart',...metrics(trial.measurements,settings.windowMs,trial.incomplete?'incomplete':'complete')}:null,trials:clone(trials),nativeResults:connected && capabilities.calibrationResults ? clone(nativeResults) : {audio:null,video:null}},
             settings:clone(settings),lastEventAgeMs:lastEventAt?Math.max(0,now()-lastEventAt):null
         };
     }

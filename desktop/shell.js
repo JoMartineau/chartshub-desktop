@@ -27,6 +27,15 @@
       document.documentElement.dataset.theme = state.theme.mode;
       document.documentElement.style.setProperty('--accent', state.theme.accent);
     }
+    const palette = state.uiPalette;
+    if (palette && ['dark', 'light'].includes(palette.mode) && ['season', 'custom'].includes(palette.paletteMode)) {
+      const tokens = { accent: '--accent', secondary: '--secondary', background: '--page', surface: '--nav', surfaceAlt: '--title', text: '--text', muted: '--muted', border: '--line' };
+      if (Object.keys(tokens).every(key => /^#[a-f0-9]{6}$/i.test(palette.colors?.[key]))) {
+        for (const [key, token] of Object.entries(tokens)) document.documentElement.style.setProperty(token, palette.colors[key]);
+        document.documentElement.style.setProperty('--accent-ink', window.ChartshubPaletteContrast.readableAccent(palette.colors.accent, palette.colors.surface, palette.colors.secondary));
+        document.documentElement.dataset.paletteMode = palette.paletteMode;
+      }
+    }
     document.body.classList.toggle('mac', state.platform === 'darwin');
     document.documentElement.dataset.chEconomy = state.buttonMotion?.economy === true ? 'on' : 'off';
     if ([1, 3, 5].includes(state.buttonMotion?.hoverLift)) document.documentElement.style.setProperty('--ch-motion-hover-lift', `${state.buttonMotion.hoverLift}px`);

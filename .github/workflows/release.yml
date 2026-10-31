@@ -61,6 +61,28 @@ jobs:
           name: companion-release-readiness
           path: ${{ runner.temp }}/companion-release-readiness/report.json
           if-no-files-found: warn
+      - name: Verify shared palette, calibration start and complete widget backup on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          node node_modules/electron/cli.js tests/ui-palette-electron.cjs "$env:RUNNER_TEMP/ui-palette-sync"
+          if ($LASTEXITCODE -ne 0) { throw 'Palette initial verification failed' }
+          node node_modules/electron/cli.js tests/ui-palette-electron.cjs "$env:RUNNER_TEMP/ui-palette-sync" --restart --companion
+          if ($LASTEXITCODE -ne 0) { throw 'Palette restart verification failed' }
+          node node_modules/electron/cli.js tests/clonehero-gameplay-electron.cjs "$env:RUNNER_TEMP/clonehero-gameplay-start"
+          if ($LASTEXITCODE -ne 0) { throw 'Gameplay calibration start verification failed' }
+          node node_modules/electron/cli.js tests/config-backup-electron.cjs "$env:RUNNER_TEMP/config-backup-widgets"
+          if ($LASTEXITCODE -ne 0) { throw 'Complete widget backup verification failed' }
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: companion-palette-calibration-backup
+          path: |
+            ${{ runner.temp }}/ui-palette-sync/report.json
+            ${{ runner.temp }}/ui-palette-sync/restart-report.json
+            ${{ runner.temp }}/clonehero-gameplay-start/report.json
+            ${{ runner.temp }}/config-backup-widgets/report.json
+          if-no-files-found: warn
       - name: Verify Windows updater helper survives Electron exit
         if: runner.os == 'Windows'
         shell: pwsh

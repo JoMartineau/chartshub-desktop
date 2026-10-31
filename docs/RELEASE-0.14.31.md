@@ -1,5 +1,8 @@
 # ChartsHub 0.14.31
 
+- Le Companion suit par défaut les couleurs du Catalogue, y compris celles des fêtes. Le choix personnel reste disponible et conservé pour les prochaines ouvertures. Cette apparence concerne les panneaux et les boutons ; les widgets du jeu et d’OBS gardent leurs propres réglages.
+- Un essai d’analyse en jeu peut être démarré avant la chart : il attend son lancement puis la première frappe, avant de compter les 30 mesures. Une interruption après le début des mesures doit toujours être recommencée.
+- La sauvegarde de configuration prend en charge les treize widgets fournis, dont les options publiques d’Accuracy et des paroles, sans exporter de données de compte ni de chemins locaux.
 - Ajoute sept widgets de jeu : **Accuracy**, combo, suivi FC, progression, comparaison du record, objectif de session et cinq derniers essais. Accuracy affiche six mesures de frappe : dernier décalage, moyenne signée, écart absolu moyen, dispersion, part dans la fenêtre choisie et nombre de jugements.
 - Les mesures nécessitent un **connecteur local compatible avec Clone Hero 1.1.0.6142 IL2CPP sous Windows**, installé séparément. L’export `currentsong.txt` seul ne fournit ni frappes ni horloge précise. Les valeurs indisponibles restent masquées ; une mesure partielle n’est pas présentée comme un résultat complet ou un FC confirmé.
 - Accuracy démarre à **16 px** pour les nouveaux widgets. Les réglages existants sont conservés. Chaque mesure peut être affichée ou masquée, avec un titre et une indication de couverture facultatifs. Dernier décalage et moyenne seuls peuvent tenir sur deux lignes. Police et choix sont partagés entre Jeu et OBS, enregistrés dans les profils et compatibles avec Annuler/Rétablir.

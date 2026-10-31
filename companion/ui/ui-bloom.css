@@ -55,3 +55,19 @@ html[data-ch-bloom="on"] .ch-bloom-dialog .ch-bloom-sample { box-shadow: var(--c
 @media print { #ch-bloom-open, .ch-bloom-dialog { display: none !important; } }
 #companion-app > .app-header:has(#ch-bloom-open) { gap: 12px; }
 @media (max-width: 720px) { #companion-app > .app-header:has(#ch-bloom-open) { flex-wrap: wrap; height: auto; min-height: 73px; padding: 12px 0; } }
+/* Local interface controls inherit the Catalogue; previews keep their own
+   widget colors, geometry and text styling. */
+html[data-ch-catalogue-palette] .ch-bloom-dialog,
+html[data-ch-catalogue-palette] .ch-bloom-dialog > .ch-bloom-heading { color-scheme: inherit; color: var(--text); background: var(--surface); border-color: var(--border); }
+html[data-ch-catalogue-palette] .ch-bloom-button,
+html[data-ch-catalogue-palette] .ch-bloom-field :is(select,input:not([type="range"]):not([type="checkbox"])),
+html[data-ch-catalogue-palette] .ch-bloom-sample { background: var(--surface-raised); color: var(--text); border-color: var(--border); }
+html[data-ch-catalogue-palette] .ch-bloom-button:hover { background: var(--accent-soft); }
+html[data-ch-catalogue-palette] :is(.ch-bloom-muted,.ch-bloom-value,.ch-bloom-sample span) { color: var(--muted); }
+html[data-ch-catalogue-palette] .ch-bloom-primary:not(:disabled) { background: var(--accent); color: var(--ch-button-ink); border-color: var(--accent); }
+html[data-ch-catalogue-palette] .ch-bloom-primary:not(:disabled):hover { background: var(--accent-hover); color: var(--ch-button-hover-ink); }
+html[data-ch-catalogue-palette] .ch-bloom-field :is(input[type="range"],input[type="checkbox"]) { accent-color: var(--accent); }
+@media(forced-colors:active) {
+  html[data-ch-catalogue-palette] #companion-app .button.primary:not(.danger):not(:disabled),
+  html[data-ch-catalogue-palette] .ch-bloom-primary:not(:disabled) { background:ButtonFace; color:ButtonText; border-color:ButtonText; }
+}
