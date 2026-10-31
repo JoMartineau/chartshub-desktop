@@ -164,6 +164,19 @@ async function controlsFixture(t) {
   return { document, root, controls, calls, snapshot, html, get: selector => root.querySelector(selector) };
 }
 
+test('OBS checkbox changes only its destination and preserves all existing result/menu states', async t => {
+  const ui = await controlsFixture(t), initial = structuredClone(ui.snapshot);
+  const widget = ui.snapshot.state.widgets.instances[0];widget.gameplayVisibility = ['idle', 'menu', 'loading', 'playing', 'paused', 'results'];
+  const phases = [...widget.gameplayVisibility];ui.snapshot.state.gameplay = { state: 'results', isChartActive: false };
+  ui.controls.update(ui.snapshot);
+  const checkbox = Array.from(ui.get('#stream-widget-visibility').children).map(label => label.children[0]).find(input => input.dataset.streamWidgetId === widget.id);checkbox.checked = !widget.visibility.stream;checkbox.dispatchEvent(new Event('change'));
+  assert.equal(ui.calls.length, 1);assert.equal(ui.calls[0].name, 'widget.visibility');
+  assert.deepEqual(ui.calls[0].payload, { revision: 9, id: widget.id, game: widget.visibility.game, stream: !widget.visibility.stream });
+  assert.equal(Object.hasOwn(ui.calls[0].payload, 'gameplayVisibility'), false);
+  assert.deepEqual(widget.gameplayVisibility, phases);assert.deepEqual(widget.position, initial.state.widgets.instances[0].position);
+  ui.calls[0].resolve({ ok: true });await tick();assert.equal(checkbox.disabled, false);
+});
+
 test('OBS native window controls remain unavailable until each host permission is explicitly ready', async t => {
   const ui = await controlsFixture(t);
   const forceClick = name => ui.get('#stream-open-' + name).dispatchEvent(new Event('click'));
@@ -182,6 +195,13 @@ test('OBS native window controls remain unavailable until each host permission i
   ui.controls.update({ ...ui.snapshot, captureWindows: { player: { canOpen: true, title: 'Player' } } });
   assert.equal(ui.get('#stream-open-player').disabled, false); assert.equal(ui.get('#stream-open-catalogue').disabled, true);
   forceClick('filters'); assert.equal(ui.calls.length, 0);
+});
+
+test('Stream counter names only widget connections while independent media URLs are available',async t=>{
+ const ui=await controlsFixture(t),snapshot={...ui.snapshot,stream:{...ui.snapshot.stream,clients:0,backgroundUrl:'http://127.0.0.1/background',videoUrl:'http://127.0.0.1/video'}};
+ ui.controls.update(snapshot);assert.equal(ui.get('#stream-clients').textContent,'0 connexions aux widgets');
+ ui.document.documentElement.lang='en';ui.controls.update(snapshot);assert.equal(ui.get('#stream-clients').textContent,'0 widget connections');
+ ui.controls.update({...snapshot,stream:{...snapshot.stream,clients:2}});assert.equal(ui.get('#stream-clients').textContent,'2 widget connections');
 });
 
 test('OBS opens only the selected existing native window and preserves stream/game settings', async t => {

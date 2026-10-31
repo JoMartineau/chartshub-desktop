@@ -16,6 +16,7 @@ let songRequestSharing=null;
 let activeCompanionHost=null,maintenance=null,updater=null,maintenanceLocked=false,pendingUpdate=false;
 let backupModule=null,backupEngine=null,backupReady=Promise.resolve(),pendingBackupId=null;
 let buttonMotion={economy:false};
+let cataloguePalette=null,paletteIpc=null;
 let requestedTab=process.argv.includes('--companion')?'companion':'catalogue';
 const focusWindow=()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
 const openCompanion=async()=>{
@@ -23,6 +24,9 @@ const openCompanion=async()=>{
  await desktop.ready;
  await backupReady;
  if(closing)return;
+ // Restore the Catalogue's own persistent appearance through its normal page
+ // lifecycle, including when the app was launched directly on Companion.
+ loadCatalogue();
  if(!await canOpenCompanion()){if(!closing&&requestedTab==='companion')await selectTab('catalogue');return;}
  if(closing||requestedTab!=='companion')return;
  if(!companionHostPromise)companionHostPromise=createCompanionHost({sharingClient:songRequestSharing,isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
@@ -30,6 +34,7 @@ const openCompanion=async()=>{
  activeCompanionHost=host;
  host.setLanguage?.(companionLanguage);
  host.setButtonMotion?.(buttonMotion);
+ if(cataloguePalette)host.setUIPalette?.(cataloguePalette);
  if(closing||!companionAvailable||requestedTab!=='companion')return;
  return host.open();
 };
@@ -53,6 +58,7 @@ const {createAccountBoundDownloads}=require('./download-state');
 let win,job=null,guest=null;
 function trusted(url){try{const u=new URL(url);return u.origin===ORIGIN&&!u.username&&!u.password;}catch{return false;}}
 function allowedSender(event){return !closing&&!maintenanceLocked&&win&&!win.isDestroyed()&&web&&!web.isDestroyed()&&event.sender===web&&event.senderFrame===web.mainFrame&&trusted(event.senderFrame.url);}
+function resumeUIPalette(){if(!closing&&!maintenanceLocked&&win&&!win.isDestroyed()&&web&&!web.isDestroyed()&&trusted(web.getURL()))web.send('chartshub:ui-palette-resume');}
 async function external(url){
  try{const u=new URL(url);if(u.protocol!=='https:'||u.username||u.password)return;
  const {response}=await dialog.showMessageBox(win,{type:'question',buttons:['Annuler','Ouvrir dans le navigateur'],defaultId:0,cancelId:0,message:'Ouvrir ce lien externe ?',detail:u.href});if(response===1)await shell.openExternal(u.href);
@@ -108,7 +114,7 @@ else{
      if(kind==='rollback')await updater.stageRollback();else await updater.stageInstallation();
      if(closing||!companionAvailable||!isCurrent()||job||activeCompanionHost?.maintenanceStatus().busyReasons.length)throw Object.assign(Error('Busy'),{code:'UPDATE_OPERATIONS_ACTIVE'});
      pendingUpdate=true;win.close();
-    }catch(error){await updater.cancelInstallation();maintenanceLocked=false;activeCompanionHost?.setMaintenanceLocked(false);throw error;}
+    }catch(error){await updater.cancelInstallation();maintenanceLocked=false;activeCompanionHost?.setMaintenanceLocked(false);resumeUIPalette();throw error;}
    }
   });
   void updater.loadPreviousResult();
@@ -119,7 +125,7 @@ else{
     beforeExport:async()=>{
      if(maintenanceLocked||closing||!companionAvailable)throw Object.assign(Error('Unavailable'),{code:'BACKUP_BUSY'});
      maintenanceLocked=true;activeCompanionHost?.setMaintenanceLocked(true);
-     const release=()=>{maintenanceLocked=false;activeCompanionHost?.setMaintenanceLocked(false);};
+     const release=()=>{maintenanceLocked=false;activeCompanionHost?.setMaintenanceLocked(false);resumeUIPalette();};
      try{await activeCompanionHost?.flushPortableConfiguration();await desktop.flushPortableConfiguration();return release;}catch(error){release();throw error;}
     },
     beginApply:async id=>{
@@ -166,6 +172,13 @@ else{
    desktop.setTheme(theme);
    return theme;
   });
+  paletteIpc=require('./desktop/ui-palette.cjs').createUIPaletteIpc({ipcMain,allowedSender,onPalette:palette=>{
+   cataloguePalette=palette;
+   const theme=windowTheme({mode:palette.mode,accent:palette.colors.accent});
+   nativeTheme.themeSource=theme.mode;desktop.setTheme(theme);desktop.setUIPalette(palette);
+   activeCompanionHost?.setUIPalette(palette);
+   return theme;
+  }});
   ipcMain.handle('chartshub:fullscreen',(event,toggle)=>{
    if(!allowedSender(event)||typeof toggle!=='boolean')return;
    if(toggle)win.setFullScreen(!win.isFullScreen());
@@ -316,7 +329,7 @@ else{
      catch{dialog.showErrorBox('ChartsHub',companionLanguage==='fr'?'La restauration n’a pas pu être terminée. Les fichiers et leurs sauvegardes ont été conservés.':'The restore could not finish. Files and their backups have been preserved.');}
      app.relaunch();
     }
-    maintenance?.dispose();updater?.dispose();allowClose=true;if(!win.isDestroyed())win.close();
+    paletteIpc?.dispose();maintenance?.dispose();updater?.dispose();allowClose=true;if(!win.isDestroyed())win.close();
    }
   };
   let closePrompt=false;

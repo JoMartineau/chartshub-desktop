@@ -13,6 +13,7 @@ export interface WidgetRenderModel {
   type: string;
   text: string;
   segments?: ColoredTextSegment[];
+  lines?: string[];
   position: { x: number; y: number };
   size: { width: number; height: number };
   style: ResolvedWidgetStyle;
@@ -20,6 +21,12 @@ export interface WidgetRenderModel {
 
 function boundedNumber(value: number | undefined, fallback: number, min: number, max: number): number {
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
+
+// Literal chart words may be metadata sentinels such as "Unknown" or "Na".
+function lyricText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim() || null;
 }
 
 export class WidgetRenderer {
@@ -37,18 +44,22 @@ export class WidgetRenderer {
         const registration = this.registry.get(instance.type);
         if (!registration || !isWidgetVisible(instance, registration.definition, state, destination)) return null;
         const content = registration.component(state, instance);
-        const text = meaningfulText(content?.text);
+        const selectText = instance.type === 'song.lyrics' ? lyricText : meaningfulText;
+        const text = selectText(content?.text);
         if (text === null) return null;
         const defaultSize = registration.definition.defaultSize;
         const style = resolveWidgetStyle(instance, state.theme);
         // Source formatting is restricted to validated charter text, even for a custom registry.
         const segments = instance.type === 'song.charter' && style.useSourceColors
           ? validateColoredTextSegments(content?.segments, text) : undefined;
+        const lines = Array.isArray(content?.lines) && content.lines.length <= 8
+          ? content.lines.map(selectText).filter((line): line is string => line !== null).map(line => line.slice(0,512)) : undefined;
         return {
           id: instance.id,
           type: instance.type,
           text,
           ...(segments ? { segments } : {}),
+          ...(lines?.length ? { lines } : {}),
           position: {
             x: boundedNumber(instance.position.x, 0, -100000, 100000),
             y: boundedNumber(instance.position.y, 0, -100000, 100000)
@@ -70,6 +81,7 @@ export class WidgetRenderer {
     const fragment = document.createDocumentFragment();
     for (const model of this.renderWidgetModels(state, destination)) {
       this.boundary.run(model, () => {
+        const fixedGameplayLines = !!model.lines?.length && ['gameplay.accuracy','gameplay.combo','gameplay.fc','gameplay.progress','gameplay.comparison','session.goal','session.history'].includes(model.type);
         const element = document.createElement('span');
         element.className = 'companion-widget';
         element.dataset.widgetId = model.id;
@@ -84,7 +96,7 @@ export class WidgetRenderer {
             if (segment.color) run.style.color = segment.color;
             text.appendChild(run);
           }
-        } else text.textContent = model.text;
+        } else text.textContent = model.lines ? model.lines.join('\n') : model.text;
         Object.assign(element.style, {
           position: 'absolute',
           left: `${model.position.x}px`,
@@ -97,7 +109,7 @@ export class WidgetRenderer {
           fontSize: `${model.style.fontSize}px`,
           fontWeight: String(model.style.fontWeight),
           lineHeight: '1.25',
-          whiteSpace: 'nowrap',
+          whiteSpace: fixedGameplayLines ? 'pre' : model.lines ? 'pre-line' : 'nowrap',
           overflow: 'visible',
           pointerEvents: 'none'
         });
@@ -115,7 +127,7 @@ export class WidgetRenderer {
           height: `${Math.max(model.size.height, model.style.fontSize * 1.25) + padding * 2}px`,
           padding: `${padding}px`,
           margin: `-${padding}px`,
-          whiteSpace: 'nowrap',
+          whiteSpace: fixedGameplayLines ? 'pre' : model.lines ? 'pre-line' : 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           textShadow: shadows.join(', '),

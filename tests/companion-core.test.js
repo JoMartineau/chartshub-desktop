@@ -126,10 +126,10 @@ test('Companion complete deterministic mock scenario keeps active metadata only 
     assert.equal(current.gameplay.state, state);
     assert.equal(current.gameplay.isChartActive, state === 'playing' || state === 'paused');
     if (current.gameplay.isChartActive) {
-      assert.deepEqual(current.nowPlaying, { songId: 'mock-everlong', title: 'Everlong', artist: 'Foo Fighters', charter: 'ExampleCharter', instrument: 'Guitar', difficulty: 'Expert' });
+      assert.deepEqual(current.nowPlaying, { songId: 'mock-signal-aurore', title: 'Signal d’aurore', artist: 'Groupe Exemple', charter: 'Charter Démo', instrument: 'Guitar', difficulty: 'Expert' });
     } else assert.equal(current.nowPlaying, null);
   }
-  assert.ok((await mock.getCurrentSong()).title.includes('Everlong'), 'raw metadata stays present in menu');
+  assert.ok((await mock.getCurrentSong()).title.includes('Signal d’aurore'), 'raw metadata stays present in menu');
   assert.equal(container.store.getState().widgets.instances[0].id, 'title-1');
   mock.transition('playing');
   mock.reset();

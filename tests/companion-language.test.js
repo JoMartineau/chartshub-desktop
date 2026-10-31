@@ -61,6 +61,17 @@ test('OBS opening confirmation follows live French and English language selectio
  language.apply('fr');assert.equal(language.translate(message),message);
 });
 
+test('layout names, ghost labels and multiple selection summaries translate without exposing widget identifiers',async()=>{
+ const {widgetLabel}=await import('../companion/dist/widgets/engine/WidgetLabels.js');
+ const {runInNewContext}=require('node:vm');
+ const window={ChartsHubCompanion:{initialLanguage:'en'},dispatchEvent(){}},document={readyState:'loading',documentElement:{},addEventListener(){}};
+ runInNewContext(read('companion/ui/localization.js'),{window,document,CustomEvent:class {}});
+ const language=window.ChartshubCompanionLanguage;
+ const widgets=[['gameplay.accuracy','Accuracy · timing'],['gameplay.combo','Combo and session best'],['gameplay.fc','FC tracking'],['gameplay.progress','Song progress'],['gameplay.comparison','Personal best comparison'],['session.goal','Session goal'],['session.history','Last five attempts']];
+ for(const [type,en]of widgets){const fr=widgetLabel(type);assert.notEqual(fr,type);assert.equal(language.translate(fr),en);assert.equal(language.translate(fr+' · verrouillé · masqué'),en+' · locked · hidden');language.apply('fr');assert.equal(language.translate(fr),fr);language.apply('en');}
+ for(const [fr,en]of [['0 widgets sélectionnés','0 widgets selected'],['1 widget sélectionné','1 widget selected'],['2 widgets sélectionnés · déplacement et alignement groupés','2 widgets selected · move and align together'],['Tout sélectionner','Select all'],['Désélectionner','Clear selection']])assert.equal(language.translate(fr),en);
+});
+
 test('optional ReShade pack follows French and English without implying automatic activation',()=>{
  const {runInNewContext}=require('node:vm');
  const window={ChartsHubCompanion:{initialLanguage:'en'},dispatchEvent(){}},document={readyState:'loading',documentElement:{},addEventListener(){}};

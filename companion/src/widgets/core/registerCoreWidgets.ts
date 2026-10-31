@@ -5,6 +5,7 @@ import { CharterWidget, charterDefinition } from './Charter/CharterWidget.js';
 import { DifficultyWidget, difficultyDefinition } from './Difficulty/DifficultyWidget.js';
 import { InstrumentWidget, instrumentDefinition } from './Instrument/InstrumentWidget.js';
 import { SongTitleWidget, songTitleDefinition } from './SongTitle/SongTitleWidget.js';
+import { gameplayWidgets } from './Gameplay/GameplayWidgets.js';
 
 export function registerCoreWidgets(registry: WidgetRegistry): void {
   registry.register(songTitleDefinition, SongTitleWidget);
@@ -12,6 +13,7 @@ export function registerCoreWidgets(registry: WidgetRegistry): void {
   registry.register(charterDefinition, CharterWidget);
   registry.register(instrumentDefinition, InstrumentWidget);
   registry.register(difficultyDefinition, DifficultyWidget);
+  for (const widget of gameplayWidgets) registry.register(widget.definition, widget.component);
 }
 
 export function createDefaultRegistry(): WidgetRegistry {

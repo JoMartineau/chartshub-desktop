@@ -20,13 +20,21 @@ import { SongRequestControls } from '../dist/settings/SongRequestControls.js';
 import { LocalMusicPlayerControls } from '../dist/settings/LocalMusicPlayerControls.js';
 
 import { WorkspaceNavigation } from './workspace-navigation.js';
+import { GameplayControls } from './gameplay-controls.js';
+import { SongVisualControls } from './song-visuals-controls.js';
+import { GameCaptureControls } from './game-capture-controls.js';
+import { InputViewerControls } from './input-viewer-controls.js';
 import { UpdatesControls } from '../dist/settings/UpdatesControls.js';
 import { StatusControls } from '../dist/settings/StatusControls.js';
 import { ConfigurationBackupControls } from '../dist/settings/ConfigurationBackupControls.js';
+import { setCataloguePalette } from './catalogue-palette.js';
+import { controlSnapshotSignature } from './panel-snapshot.js';
+import { gameplayFeatureFlags, visibleWidgetSnapshot } from './gameplay-features.js';
 
 const api = window.ChartsHubCompanion;
+const { gameplayMeasurements, calibrationBeta } = gameplayFeatureFlags(api?.features);
 const query = selector => document.querySelector(selector);
-const workspaceNavigation = new WorkspaceNavigation(query('#companion-app'), { language: document.documentElement.lang });
+const workspaceNavigation = new WorkspaceNavigation(query('#companion-app'), { language: document.documentElement.lang, gameplayMeasurements, calibrationBeta });
 window.ChartshubWorkspaceNavigation = workspaceNavigation;
 const updates = window.ChartsHubMaintenance ? new UpdatesControls({root:query('#updates-controls'),bridge:window.ChartsHubMaintenance}) : null;
 const statusControls = new StatusControls({root:query('#status-controls'),bridge:window.ChartsHubMaintenance,reveal(selector){
@@ -43,6 +51,7 @@ const controls = {
 };
 const names = { idle: 'Inactif', menu: 'Menu', loading: 'Chargement', playing: 'En jeu', paused: 'En pause', results: 'Résultats' };
 let currentSnapshot;
+let lastControlSnapshotSignature;
 let receivedSnapshot = false;
 let unsubscribe = () => {};
 let disposed = false;
@@ -58,7 +67,7 @@ const streamPreview = new StreamRenderer(query('#stream-preview'), new WidgetRen
 const themePreview = new GameOverlay(query('#theme-preview'), new WidgetRenderer(createDefaultRegistry()));
 const settings = new WidgetSettings(query('#widget-settings'), (id, enabled) => {
   void command('widget.enabled', { id, enabled });
-}, payload => command('widget.fontSize', payload));
+}, payload => command('widget.fontSize', payload), payload => command('widget.accuracy', payload), payload => command('widget.lyrics', payload));
 const builder = new WidgetBuilder({
   root: query('#companion-app'),
   surface: query('.preview-surface'),
@@ -71,6 +80,10 @@ const builder = new WidgetBuilder({
 });
 const themes = new ThemeControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const stream = new StreamControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
+const gameplayControls = gameplayMeasurements ? new GameplayControls({ root: query('#performance-controls'), calibrationRoot: query('#calibration-controls'), gameplayMeasurements, calibrationBeta, command: (name, payload) => command(name, payload) }) : null;
+const songVisualControls = new SongVisualControls({ root: query('#song-visuals-controls'), command: (name, payload) => command(name, payload) });
+const gameCaptureControls = new GameCaptureControls({ root: query('#game-capture-controls'), command: (name, payload) => command(name, payload) });
+const inputViewerControls = new InputViewerControls({ root: query('#input-viewer-controls'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const badSongs = new BadSongsCleanupControls({ root: query('#library-bad-songs'), command: (name, payload) => command(name, payload) });
 const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
@@ -114,13 +127,14 @@ function exportedSong(snapshot = currentSnapshot) {
 
 function renderSource(snapshot) {
   const live = liveSource(snapshot), source = snapshot?.cloneHero;
+  const measurements = gameplayMeasurements && snapshot?.telemetry?.connected === true && snapshot.telemetry.status === 'connected';
   query('#clonehero-mode').value = live ? 'live' : 'mock';
   query('#clonehero-mode').disabled = sourceBusy || !source || !api;
   for (const id of ['#clonehero-choose-file', '#clonehero-detect']) query(id).disabled = sourceBusy || !source || !live || !api;
   query('#clonehero-live-controls').hidden = !live;
   query('#clonehero-capabilities').hidden = !live;
-  query('#source-mode-label').textContent = live ? 'DIRECT CLONE HERO' : 'MODE DÉMO';
-  query('#source-mode-badge').classList.toggle('is-live', live);
+  query('#source-mode-label').textContent = measurements ? 'MESURES CLONE HERO' : live ? 'DIRECT CLONE HERO' : 'MODE DÉMO';
+  query('#source-mode-badge').classList.toggle('is-live', live || measurements);
   document.body.dataset.cloneheroMode = live ? 'live' : 'mock';
   const path = query('#clonehero-file-path');
   path.textContent = source?.filePath || 'Aucun fichier sélectionné';
@@ -166,10 +180,20 @@ async function changeSource(name, payload) {
 
 function applySnapshot(snapshot) {
   if (disposed || !snapshot?.state) return;
-  if (snapshot.language === 'fr' || snapshot.language === 'en') { window.ChartshubCompanionLanguage?.apply(snapshot.language); workspaceNavigation.update(snapshot.language); updates?.update({language:snapshot.language}); configurationBackup?.update({language:snapshot.language}); }
+  const completeStreamSettings = snapshot.state.stream;
+  snapshot = visibleWidgetSnapshot(snapshot, gameplayMeasurements);
+  const signature = controlSnapshotSignature(snapshot);
+  const measurementsOnly = signature === lastControlSnapshotSignature;
   currentSnapshot = snapshot;
-  statusControls.update(snapshot);
   receivedSnapshot = true;
+  if (measurementsOnly) {
+    builder.update(snapshot);
+    gameplayControls?.update(snapshot);
+    return;
+  }
+  setCataloguePalette(snapshot.uiPalette);
+  if (snapshot.language === 'fr' || snapshot.language === 'en') { window.ChartshubCompanionLanguage?.apply(snapshot.language); workspaceNavigation.update(snapshot.language); updates?.update({language:snapshot.language}); configurationBackup?.update({language:snapshot.language}); }
+  statusControls.update(snapshot);
   const { state } = snapshot;
   const gameplay = state.gameplay.state;
   controls.state.value = gameplay;
@@ -187,11 +211,17 @@ function applySnapshot(snapshot) {
     else item.removeAttribute('aria-current');
   }
   settings.render(state.widgets.instances, snapshot.editor?.revision ?? 0);
-  overlay.render(state);
-  streamPreview.render(state);
+  // The builder renders the selected destination, including outside edit mode.
+  // Rendering both canvases first duplicates work and discards its draft preview.
   builder.update(snapshot);
   themes.update(snapshot);
-  stream.update(snapshot);
+  // Resolution/port saves must round-trip the complete stored layout, including
+  // retired widgets. Their public visibility rows still use the filtered list.
+  stream.update(completeStreamSettings ? { ...snapshot, state: { ...snapshot.state, stream: completeStreamSettings } } : snapshot);
+  gameplayControls?.update(snapshot);
+  songVisualControls.update(snapshot);
+  gameCaptureControls.update(snapshot);
+  inputViewerControls.update(snapshot);
   library.update(snapshot);
   badSongs.update(snapshot);
   cleanupHistory.update({ rootPath: snapshot.library?.settings?.rootPath ?? null, revision: snapshot.library?.revision ?? 0 });
@@ -212,7 +242,7 @@ function applySnapshot(snapshot) {
   themePreview.render({
     ...state,
     gameplay: { state: 'playing', isChartActive: true },
-    nowPlaying: state.nowPlaying ?? { songId: 'theme-preview', title: 'Everlong', artist: 'Foo Fighters', charter: 'ExampleCharter', instrument: 'Guitar', difficulty: 'Expert' },
+    nowPlaying: state.nowPlaying ?? { songId: 'theme-preview', title: 'Signal d’aurore', artist: 'Groupe Exemple', charter: 'Charter Démo', instrument: 'Guitar', difficulty: 'Expert' },
     widgets: { ...state.widgets, instances: state.widgets.instances.map(instance => ({ ...instance, enabled: true, visibility: { ...instance.visibility, game: true }, gameplayVisibility: ['playing', 'paused'] })) },
   });
   query('#persistence-feedback').hidden = !snapshot.persistenceError;
@@ -220,6 +250,7 @@ function applySnapshot(snapshot) {
     ? 'Les réglages n’ont pas pu être enregistrés. Vos changements restent actifs pendant cette session.' : '';
   query('#settings-status').textContent = snapshot.persistenceError ? 'Enregistrement indisponible' : 'Réglages enregistrés automatiquement';
   window.ChartshubCompanionLanguage?.refresh();
+  lastControlSnapshotSignature = signature;
 }
 
 function updatePreviewStatus() {
@@ -374,6 +405,10 @@ window.addEventListener('beforeunload', () => {
   themes.dispose();
   themePreview.dispose();
   stream.dispose();
+  gameplayControls?.dispose();
+  songVisualControls.dispose();
+  gameCaptureControls.dispose();
+  inputViewerControls.dispose();
   streamPreview.dispose();
   library.dispose();
   cleanupHistory.dispose();

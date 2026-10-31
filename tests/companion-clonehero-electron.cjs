@@ -30,6 +30,9 @@ const rendered = root => `(()=>[...document.querySelectorAll(${JSON.stringify(ro
 /** Run only inside the isolated native harness, constructed with cloneHeroCandidates: []. */
 async function verifyCloneHero({ host, panel, data, passed, waitFor = defaultWaitFor }) {
   const initial = structuredClone(host.snapshot());
+  const metadataIds = ['song-title', 'song-artist', 'song-charter', 'song-instrument', 'song-difficulty'];
+  const metadataWidgets = initial.state.widgets.instances.filter(widget => metadataIds.includes(widget.id));
+  assert.deepEqual(metadataWidgets.map(widget => widget.id).sort(), [...metadataIds].sort(), 'the Clone Hero source fixture has every metadata widget');
   assert.equal(initial.cloneHero.mode, 'mock', 'native verification must start with mock and no real Clone Hero candidates');
   const directory = path.join(data, 'clonehero-source-fixture-' + randomUUID());
   const filePath = path.join(directory, 'currentsong.txt');
@@ -51,7 +54,7 @@ async function verifyCloneHero({ host, panel, data, passed, waitFor = defaultWai
     await fs.writeFile(filePath, 'Stale exported song\nPrevious artist\nPrevious charter\n');
     await waitFor(() => evaluate("!!document.querySelector('#clonehero-mode')"), 'Clone Hero source controls loaded');
     await evaluate("(()=>{const toggle=document.querySelector('#builder-toggle');if(toggle?.getAttribute('aria-pressed')==='true')toggle.click();document.querySelector('#preview-game-tab')?.click();})()");
-    for (const widget of initial.state.widgets.instances) {
+    for (const widget of metadataWidgets) {
       if (!widget.enabled) await command('widget.enabled', { id: widget.id, enabled: true });
       await command('widget.visibility', { revision: revision(), id: widget.id, game: true, stream: true, gameplayVisibility: ['playing', 'paused'] });
     }
@@ -131,6 +134,9 @@ async function verifyCloneHero({ host, panel, data, passed, waitFor = defaultWai
     await waitFor(() => host.snapshot().cloneHero.mode === 'mock' && host.snapshot().state.nowPlaying?.instrument && host.snapshot().state.nowPlaying?.difficulty, 'return to the separate simulation source');
     await waitFor(async () => (await nativeWidgets()).length === 5 && (await evaluate(rendered('#game-preview'))).length === 5, 'five mock widgets restored');
     await waitFor(() => evaluate("document.querySelector('#clonehero-mode').value==='mock'&&!document.querySelector('#simulation-panel').hidden"), 'simulation controls restored');
+    for (const original of initial.state.widgets.instances.filter(widget => !metadataIds.includes(widget.id))) {
+      assert.deepEqual(host.snapshot().state.widgets.instances.find(widget => widget.id === original.id), original, 'metadata source verification preserves optional widget ' + original.id);
+    }
     passed.push('switching back to mock restores all five simulated widgets and controls without reusing the live export');
   } catch (error) { primaryFailure = error; throw error; }
   finally {
@@ -140,7 +146,7 @@ async function verifyCloneHero({ host, panel, data, passed, waitFor = defaultWai
     try { await host.integration.setMode('mock'); } catch { failures.push('restore mock source'); }
     if (!panel.isDestroyed()) {
       try {
-        for (const original of initial.state.widgets.instances) {
+        for (const original of metadataWidgets) {
           const current = host.snapshot().state.widgets.instances.find(widget => widget.id === original.id);
           if (current?.enabled !== original.enabled) await command('widget.enabled', { id: original.id, enabled: original.enabled });
           await command('widget.visibility', { revision: revision(), id: original.id, game: original.visibility.game, stream: original.visibility.stream, gameplayVisibility: original.gameplayVisibility ?? ['playing', 'paused'] });

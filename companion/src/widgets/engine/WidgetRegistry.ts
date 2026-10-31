@@ -2,7 +2,7 @@ import type { AppState } from '../../core/state/AppState.js';
 import type { ColoredTextSegment } from '../../core/types/ColoredText.js';
 import type { WidgetDefinition, WidgetInstance } from '../../core/types/Widget.js';
 
-export interface WidgetContent { text: string; segments?: ColoredTextSegment[]; }
+export interface WidgetContent { text: string; segments?: ColoredTextSegment[]; lines?: string[]; }
 export type WidgetComponent = (state: AppState, instance: WidgetInstance) => WidgetContent | null;
 export interface RegisteredWidget { definition: WidgetDefinition; component: WidgetComponent; }
 

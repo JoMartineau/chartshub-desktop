@@ -4,6 +4,7 @@ import type { ServiceHealth } from '../types/ServiceHealth.js';
 import type { WidgetEngineState } from '../types/Widget.js';
 import type { ThemeSettings } from '../../themes/types.js';
 import type { StreamSettings } from '../../overlay/stream/StreamConfig.js';
+import type { GameplayTelemetry } from '../types/GameplayTelemetry.js';
 
 export interface AppState {
   gameplay: GameplaySessionState;
@@ -12,4 +13,6 @@ export interface AppState {
   widgets: WidgetEngineState;
   theme?: ThemeSettings;
   stream?: StreamSettings;
+  performance?: GameplayTelemetry;
+  lyrics?: { current: string; next: string | null } | null;
 }

@@ -64,7 +64,7 @@ export function resolveWidgetStyle(instance: WidgetInstance, theme?: ThemeSettin
     useSourceColors: style.useSourceColors !== false,
     backgroundColor: safeColor(style.backgroundColor, palette?.background ?? '#00000000'),
     borderColor: safeColor(style.borderColor, palette?.border ?? '#00000000'),
-    fontSize: bounded(style.fontSize, 20, 8, 200),
+    fontSize: bounded(style.fontSize, instance.type === 'gameplay.accuracy' ? 16 : 20, 8, 200),
     fontWeight: bounded(style.fontWeight, 500, 100, 900),
     glow: {
       enabled: typeof glow.enabled === 'boolean' ? glow.enabled : globalGlow?.enabled ?? false,

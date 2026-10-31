@@ -1,5 +1,5 @@
 // Shared by the renderer and the main-process store. UI decoration only.
-export const DEFAULTS = Object.freeze({ version: 1, enabled: false, color: '#a855f7', intensity: 65, radius: 4, blur: 32, opacity: 65, economy: false });
+export const DEFAULTS = Object.freeze({ version: 1, enabled: false, color: '#a855f7', intensity: 65, radius: 4, blur: 32, opacity: 65, economy: false, followCatalogue: true });
 export const RANGES = Object.freeze({ intensity: Object.freeze([0, 100, '%']), radius: Object.freeze([0, 24, ' px']), blur: Object.freeze([0, 80, ' px']), opacity: Object.freeze([0, 100, '%']) });
 export function color(value) {
   if (typeof value !== 'string' || value.length > 32) return null;
@@ -14,7 +14,7 @@ export function fromRGB(values) {
 }
 export function normalize(value) {
   const p = value && typeof value === 'object' && !Array.isArray(value) && (value.version === undefined || value.version === 1) ? value : {};
-  const out = { ...DEFAULTS, color: color(p.color) || DEFAULTS.color, enabled: p.enabled === true, economy: p.economy === true };
+  const out = { ...DEFAULTS, color: color(p.color) || DEFAULTS.color, enabled: p.enabled === true, economy: p.economy === true, followCatalogue: p.followCatalogue !== false };
   for (const [key, [min, max]] of Object.entries(RANGES)) out[key] = typeof p[key] === 'number' && Number.isFinite(p[key]) ? Math.round(Math.max(min, Math.min(max, p[key]))) : DEFAULTS[key];
   if (Object.hasOwn(p, 'hoverLift') && [1, 3, 5].includes(p.hoverLift)) out.hoverLift = p.hoverLift;
   return out;
@@ -23,7 +23,8 @@ export function normalize(value) {
 export function validate(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const keys = Object.keys(DEFAULTS);
-  if (!keys.every(k => Object.hasOwn(value, k)) || Object.keys(value).some(k => !keys.includes(k) && k !== 'hoverLift')) return null;
+  if (!keys.filter(k => k !== 'followCatalogue').every(k => Object.hasOwn(value, k)) || Object.keys(value).some(k => !keys.includes(k) && k !== 'hoverLift')) return null;
+  if (Object.hasOwn(value, 'followCatalogue') && typeof value.followCatalogue !== 'boolean') return null;
   if (Object.hasOwn(value, 'hoverLift') && ![1, 3, 5].includes(value.hoverLift)) return null;
   if (value.version !== 1 || typeof value.enabled !== 'boolean' || typeof value.economy !== 'boolean') return null;
   if (typeof value.color !== 'string' || !/^#[a-f\d]{6}$/i.test(value.color)) return null;

@@ -151,6 +151,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     query: options => call('query', [options]), resolveSongFolder: id => call('resolveSongFolder', [id]),
     resolveRequestSong: (id, context) => call('resolveRequestSong', [id, context]),
     resolvePlaybackSong: id => call('resolvePlaybackSong', [id]),
+    resolveVisualSong: id => call('resolveVisualSong', [id]),
     queryPlayback: options => call('queryPlayback', [options]),
     requestLibraryForSharing: () => call('requestLibraryForSharing', []),
     cancelLibrarySharing: () => call('cancelLibrarySharing', [])

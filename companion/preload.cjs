@@ -5,6 +5,7 @@ if (location.protocol === 'chartshub-companion:' && location.hostname === 'app')
   const initialLanguage = ['fr','en'].includes(languageArg?.split('=')[1]) ? languageArg.split('=')[1] : 'en';
   const playerPage = location.href === 'chartshub-companion://app/ui/music-player.html' && process.isMainFrame !== false;
   const panelPage = location.href === 'chartshub-companion://app/ui/index.html' && process.isMainFrame !== false;
+  const gameplayMeasurements = panelPage && (typeof process !== 'undefined' && Array.isArray(process.argv) ? process.argv : []).includes('--chartshub-gameplay-measurements');
   const listen = channel => listener => {
     if (typeof listener !== 'function') throw new TypeError('Listener required');
     const handler = (_event, value) => listener(value); ipcRenderer.on(channel, handler);
@@ -12,6 +13,7 @@ if (location.protocol === 'chartshub-companion:' && location.hostname === 'app')
   };
   contextBridge.exposeInMainWorld('ChartsHubCompanion', Object.freeze({
     initialLanguage,
+    ...(panelPage ? { features: Object.freeze({ gameplayMeasurements, calibrationBeta: gameplayMeasurements && (typeof process !== 'undefined' && Array.isArray(process.argv) ? process.argv : []).includes('--chartshub-calibration-beta') }) } : {}),
     ...(playerPage || panelPage ? { player: Object.freeze({
       subscribeSpectrum: listen('companion:player-spectrum'),
       ...(playerPage ? { subscribeAction: listen('companion:player-action') } : {})

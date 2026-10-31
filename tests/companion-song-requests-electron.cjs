@@ -118,8 +118,14 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
   };
   const type = async (selector, value) => {
     await click(selector); const modifiers = [process.platform === 'darwin' ? 'meta' : 'control'];
+    await waitFor(() => evaluate(`document.activeElement===document.querySelector(${JSON.stringify(selector)})`), 'typing target focused');
     panel.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'A', modifiers }); panel.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'A', modifiers });
-    await panel.webContents.insertText(String(value)); panel.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' }); panel.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
+    await waitFor(() => evaluate(`document.activeElement===document.querySelector(${JSON.stringify(selector)})`), 'selection target focused');
+    panel.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Backspace' }); panel.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Backspace' });
+    await waitFor(() => evaluate(`document.querySelector(${JSON.stringify(selector)}).value===''`), 'typing target cleared');
+    await panel.webContents.insertText(String(value));
+    await waitFor(() => evaluate(`document.querySelector(${JSON.stringify(selector)}).value===${JSON.stringify(String(value))}`), 'exact typed value');
+    panel.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Tab' }); panel.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Tab' });
   };
   const command = (name, payload) => evaluate(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`);
   const state = () => host.snapshot().songRequests;

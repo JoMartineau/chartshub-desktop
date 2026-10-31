@@ -12,6 +12,7 @@ for (const method of ['prepareBadSongs', 'badSongsReview', 'recycleBadSongs', 'c
 METHODS.add('keepDuplicateVersions');
 METHODS.add('resolveRequestSong');
 METHODS.add('resolvePlaybackSong');
+METHODS.add('resolveVisualSong');
 METHODS.add('queryPlayback');
 METHODS.add('requestLibraryForSharing');
 METHODS.add('cancelLibrarySharing');

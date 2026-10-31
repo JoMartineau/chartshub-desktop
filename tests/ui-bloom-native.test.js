@@ -21,7 +21,7 @@ function fixture(createStore) {
 }
 test('shared defaults are opt-in and match website ranges', async () => {
   const m = await model; assert.equal(m.DEFAULTS.enabled, false); assert.equal(m.shadow(m.DEFAULTS), 'none');
-  assert.deepEqual(Object.keys(m.DEFAULTS).sort(), ['version','enabled','color','intensity','radius','blur','opacity','economy'].sort());
+  assert.deepEqual(Object.keys(m.DEFAULTS).sort(), ['version','enabled','color','intensity','radius','blur','opacity','economy','followCatalogue'].sort());
   assert.deepEqual(m.RANGES.blur, [0,80,' px']);
 });
 test('HEX and RGB freely select colors without CSS injection', async () => {

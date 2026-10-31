@@ -49,6 +49,9 @@ function renderedWidgets(root) {
 /** Run from the native verification app; no OBS installation or Electron bridge is used by the browser page. */
 async function verifyStream(panel, host, data, passed) {
   const initial = structuredClone(host.snapshot());
+  const metadataIds = ['song-title', 'song-artist', 'song-charter', 'song-instrument', 'song-difficulty'];
+  const metadataWidgets = initial.state.widgets.instances.filter(widget => metadataIds.includes(widget.id));
+  assert.deepEqual(metadataWidgets.map(widget => widget.id).sort(), [...metadataIds].sort(), 'the stream fixture has every metadata widget');
   const originalGameGeometry = geometry(initial.state.widgets.instances);
   const evaluate = code => panel.webContents.executeJavaScript(code);
   const revision = () => host.snapshot().editor.revision;
@@ -187,7 +190,7 @@ async function verifyStream(panel, host, data, passed) {
     const port = await freePort();
     assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535);
     await command('stream.settings', { revision: revision(), settings: { ...settings(), port } });
-    for (const widget of host.snapshot().state.widgets.instances) {
+    for (const widget of metadataWidgets) {
       if (!widget.enabled) await command('widget.enabled', { id: widget.id, enabled: true });
       await command('widget.visibility', { revision: revision(), id: widget.id, game: false, stream: true, gameplayVisibility: ['playing', 'paused'] });
     }
@@ -229,7 +232,7 @@ async function verifyStream(panel, host, data, passed) {
     await command('mock.state', { state: 'playing' });
     await sameRender('five stream widgets match the panel preview and browser source');
     const texts = await browserEvaluate("[...document.querySelectorAll('#stream-overlay .companion-widget')].map(node=>node.textContent)");
-    assert.deepEqual(texts, ['Everlong', 'Foo Fighters', 'ExampleCharter', 'Guitar', 'Expert']);
+    assert.deepEqual(texts, ['Signal d’aurore', 'Groupe Exemple', 'Charter Démo', 'Guitar', 'Expert']);
     await waitFor(() => !host.getOverlay().isVisible(), 'game overlay remains hidden for stream-only widgets');
     assert.equal(await host.getOverlay().webContents.executeJavaScript("document.querySelectorAll('.companion-widget').length"), 0);
     assert.deepEqual(geometry(host.snapshot().state.widgets.instances), originalGameGeometry);
@@ -239,11 +242,13 @@ async function verifyStream(panel, host, data, passed) {
     await waitFor(() => evaluate("document.querySelector('#builder-toggle').getAttribute('aria-pressed')==='true'"), 'stream builder enabled');
     await click('#builder-list [data-select-widget-id="song-title"]');
     const before = streamTitle();
+    const retiredStreamLayout = settings().layout.filter(item => !metadataIds.includes(item.id));
     const newX = before.x === 0 ? Math.min(32, 1280 - before.width) : 0;
     assert.notEqual(newX, before.x, 'title has room for a meaningful stream position edit');
     const beforeRevision = revision();
     await number('#builder-x', newX);
     await waitFor(() => streamTitle().x === newX && revision() === beforeRevision + 1, 'native stream inspector commits one layout edit');
+    assert.deepEqual(settings().layout.filter(item => !metadataIds.includes(item.id)), retiredStreamLayout, 'moving a public stream widget preserves all retired widget positions');
     const edited = streamTitle();
     assert.deepEqual(geometry(host.snapshot().state.widgets.instances), originalGameGeometry);
     await click('#builder-undo');
@@ -256,7 +261,11 @@ async function verifyStream(panel, host, data, passed) {
     passed.push('native stream inspector edits only stream geometry; undo and redo restore exact positions through shared history');
 
     const configured = { ...settings(), canvas: { width: 1920, height: 1080, fps: 30 } };
-    await command('stream.settings', { revision: revision(), settings: configured });
+    const hiddenStreamLayout = settings().layout.filter(item => !metadataIds.includes(item.id));
+    await evaluate("(()=>{const resolution=document.querySelector('#stream-resolution');resolution.value='1080p';resolution.dispatchEvent(new Event('change',{bubbles:true}));const fps=document.querySelector('#stream-fps');fps.value='30';fps.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    await click('#stream-settings-apply');
+    await waitFor(() => host.snapshot().state.stream.canvas.width === 1920 && host.snapshot().state.stream.canvas.fps === 30, 'public resolution UI saves the complete stored stream layout');
+    assert.deepEqual(settings().layout.filter(item => !metadataIds.includes(item.id)), hiddenStreamLayout, 'public resolution edits preserve every retired widget placement');
     await waitFor(() => evaluate("document.querySelector('#stream-resolution').value==='1080p'&&document.querySelector('#stream-fps').value==='30'"), 'stream resolution and FPS controls reflect current settings');
     await host.saveSettings();
     const saved = JSON.parse(await fs.readFile(path.join(data, 'settings/settings.json'), 'utf8'));
@@ -293,6 +302,9 @@ async function verifyStream(panel, host, data, passed) {
     assert.equal(pageLoads, 1, 'reconnection does not reload the page');
     assert.equal(await browserEvaluate('window.__streamVerificationMarker'), marker);
     await sameRender('reconnected browser still matches stream preview');
+    for (const original of initial.state.widgets.instances.filter(widget => !metadataIds.includes(widget.id))) {
+      assert.deepEqual(host.snapshot().state.widgets.instances.find(widget => widget.id === original.id), original, 'metadata stream verification preserves optional widget ' + original.id);
+    }
     passed.push('restart preserves the source URL and the existing page reconnects automatically without navigation or an Electron bridge');
   } catch (error) {
     primaryFailure = error;
@@ -310,7 +322,7 @@ async function verifyStream(panel, host, data, passed) {
     if (!panel.isDestroyed()) {
       try {
         await command('mock.state', { state: 'menu' });
-        for (const original of initial.state.widgets.instances) {
+        for (const original of metadataWidgets) {
           const current = host.snapshot().state.widgets.instances.find(widget => widget.id === original.id);
           if (!current) continue;
           if (current.enabled !== original.enabled) await command('widget.enabled', { id: original.id, enabled: original.enabled });

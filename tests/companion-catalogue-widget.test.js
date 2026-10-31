@@ -214,7 +214,10 @@ test('panel appearance remains independent, rejects unsafe colors and flushes on
   assert.equal((await f.invoke(mini, 'panels.appearance', { revision: 0, panel: 'catalogue', appearance })).code, 'STALE_FLOATING_PANELS');
   const revision = f.host.snapshot().floatingPanels.revision;
   for (const color of ['url(https://outside)', 'red;display:none', 'var(--user-controlled)']) assert.equal((await f.invoke(panel, 'panels.appearance', { revision, panel: 'catalogue', appearance: { ...appearance, backgroundColor: color } })).ok, false);
-  assert.deepEqual(f.host.snapshot().state, initial);
+  const current = f.host.snapshot().state;
+  assert.equal(initial.performance, null, 'public mini catalogue does not start a measurement session');
+  assert.equal(current.performance, null, 'editing appearance cannot start a measurement session');
+  assert.deepEqual(current, initial, 'appearance must preserve every state field');
   await f.host.stop();
   const stored = JSON.parse(await fs.readFile(path.join(f.directory, 'floating-panels.json'), 'utf8'));
   assert.equal(stored.appearance.catalogue.fontSize, 18); assert.equal(stored.appearance.filters.fontSize, 14);

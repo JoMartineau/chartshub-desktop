@@ -17,8 +17,11 @@ const resolutions: Record<string, { width: number; height: number }> = {
   '1440p': { width: 2560, height: 1440 }, '2160p': { width: 3840, height: 2160 },
 };
 const labels: Record<string, string> = {
+  'gameplay.accuracy': 'Accuracy · précision', 'gameplay.combo': 'Combo et record', 'gameplay.fc': 'Suivi FC',
+  'gameplay.progress': 'Progression du morceau', 'gameplay.comparison': 'Comparaison du record', 'session.goal': 'Objectif de session', 'session.history': 'Cinq derniers essais',
   'song.title': 'Titre du morceau', 'song.artist': 'Artiste', 'song.charter': 'Créateur de la chart',
   'song.instrument': 'Instrument', 'song.difficulty': 'Difficulté',
+  'song.lyrics': 'Paroles synchronisées',
 };
 
 export class StreamControls {
@@ -129,9 +132,10 @@ export class StreamControls {
   private async toggleWidget(id: string, stream: boolean): Promise<void> {
     const widget = this.snapshot?.state.widgets.instances.find(instance => instance.id === id);
     if (!widget || this.busy) return;
+    // Destination-only edits preserve existing results/menu visibility. Explicit
+    // gameplay-state changes use the separately validated builder controls.
     await this.send('widget.visibility', {
       revision: this.revision, id, game: widget.visibility.game, stream,
-      gameplayVisibility: widget.gameplayVisibility ?? ['playing', 'paused'],
     }, false);
   }
 
@@ -160,7 +164,7 @@ export class StreamControls {
     this.element('#stream-status').textContent = enabled ? 'Serveur actif' : 'Serveur arrêté';
     this.element('#stream-status').classList.toggle('is-visible', enabled);
     const clients = Math.max(0, status?.clients ?? 0);
-    this.element('#stream-clients').textContent = `${clients} source${clients > 1 ? 's' : ''} connectée${clients > 1 ? 's' : ''}`;
+    this.element('#stream-clients').textContent = this.tr(`${clients} connexion${clients === 1 ? '' : 's'} aux widgets`, `${clients} widget connection${clients === 1 ? '' : 's'}`);
     const error = this.element('#stream-error');
     error.hidden = !status?.error;
     error.textContent = status?.error ? 'Le serveur Stream est indisponible. Vérifiez que le port est libre, puis réactivez-le.' : '';

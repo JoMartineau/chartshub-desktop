@@ -1,0 +1,843 @@
+{
+  "version": 1,
+  "loader": {
+    "version": "0.7.3",
+    "url": "https://github.com/LavaGang/MelonLoader/releases/download/v0.7.3/MelonLoader.x64.zip",
+    "bytes": 20155622,
+    "sha256": "5b2b2f3d1cd42b59ec886c5bdc2663edae87a0097a4f4a8f58c0965a99dda416",
+    "assetId": 420440414,
+    "releaseUrl": "https://github.com/LavaGang/MelonLoader/releases/tag/v0.7.3"
+  },
+  "module": {
+    "version": "0.2.2",
+    "bytes": 108032,
+    "sha256": "1244a2b0ccd14b54259b442253313f59ce731fb1a7e2bf5e504f1329aa99a811"
+  },
+  "game": {
+    "version": "1.1.0.6142",
+    "gameAssemblySha256": "12bc21e5a88a2fc9abc259d5d67f24835145eabca6c3f863b075ba37ad75f197",
+    "metadataSha256": "5f14231810f2641639167eb72956e85cced2f36cb4a84682bdefb1e9da3e3d42"
+  },
+  "files": [
+    {
+      "path": "MelonLoader/Dependencies/CompatibilityLayers/Demeo.dll",
+      "bytes": 8704,
+      "sha256": "ee26a3a57ab37154a7e6903619e1806f6c546603645eb3441d340eddd050b74a"
+    },
+    {
+      "path": "MelonLoader/Dependencies/CompatibilityLayers/Demeo.pdb",
+      "bytes": 3296,
+      "sha256": "f58e557f45a74266612100802a1bfc186bc72aad2d00f6d7754c883492088ab7"
+    },
+    {
+      "path": "MelonLoader/Dependencies/CompatibilityLayers/IPA.dll",
+      "bytes": 10240,
+      "sha256": "f6cff76cb0a889eabc1be5721f51a05d2e77e37e0d477bc52e5179e37145d200"
+    },
+    {
+      "path": "MelonLoader/Dependencies/CompatibilityLayers/IPA.dll.mdb",
+      "bytes": 2331,
+      "sha256": "bde09aacacde6a503ee0a65354b6d57f8001c47f383b72beb52b7136adef23c7"
+    },
+    {
+      "path": "MelonLoader/Dependencies/CompatibilityLayers/IPA.pdb",
+      "bytes": 3800,
+      "sha256": "98a598d3bfbdda2228a2fc3aca25e9479ad5758eb297c8ea329ffac83cd7d87e"
+    },
+    {
+      "path": "MelonLoader/Dependencies/CompatibilityLayers/Muse_Dash_Mono.dll",
+      "bytes": 9216,
+      "sha256": "7de3884c08b5c0c374212004fcbd1aeb6bb1eedda67f60c5ec35623047768362"
+    },
+    {
+      "path": "MelonLoader/Dependencies/CompatibilityLayers/Muse_Dash_Mono.dll.mdb",
+      "bytes": 1711,
+      "sha256": "bc371f0b808d8ee143a4102f5a97e381df1be7c748f320ea40e023e070ad2304"
+    },
+    {
+      "path": "MelonLoader/Dependencies/CompatibilityLayers/Muse_Dash_Mono.pdb",
+      "bytes": 3136,
+      "sha256": "f840eefb3e9f1f585d436448da630f17a3236bb0b994ca105246dcb0ad247233"
+    },
+    {
+      "path": "MelonLoader/Dependencies/CompatibilityLayers/Stress_Level_Zero_Il2Cpp.deps.json",
+      "bytes": 517,
+      "sha256": "e616e8af9744c236b80e1e0ab899bdab625d7bf3af4747f2499480db4919302b"
+    },
+    {
+      "path": "MelonLoader/Dependencies/CompatibilityLayers/Stress_Level_Zero_Il2Cpp.dll",
+      "bytes": 6656,
+      "sha256": "d1c0b9ddc245a1d373d44503f4093350d950cdceac114c4907e0e1bd1228c95c"
+    },
+    {
+      "path": "MelonLoader/Dependencies/Il2CppAssemblyGenerator/Il2CppAssemblyGenerator.deps.json",
+      "bytes": 514,
+      "sha256": "b18a08bd55f02fcd99b134d35077c5b2abff078b9d61b89fda117ba3a3bc8abb"
+    },
+    {
+      "path": "MelonLoader/Dependencies/Il2CppAssemblyGenerator/Il2CppAssemblyGenerator.dll",
+      "bytes": 42496,
+      "sha256": "4b9c8a48640befe1840f7ed0a1059db173b22b319c4f684ce7e1d8794802b4dc"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/mscorlib.dll",
+      "bytes": 4631552,
+      "sha256": "066a409f9228c9478d506d769978f0065fa42f9ccc97bfa266ee4451f4cbafad"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Buffers.dll",
+      "bytes": 4608,
+      "sha256": "762f8fdbe975e05b76be5fe996c53ce7c75e4a2830f2f50b02a5948ef6ba0aeb"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Collections.Immutable.dll",
+      "bytes": 259376,
+      "sha256": "152b3a724ab5c95a7c5893baf38defb003ac467776e1d5c58972748f3bc5ff03"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.ComponentModel.Composition.dll",
+      "bytes": 257024,
+      "sha256": "68c7f8f8182cdf00685cebb656af26fcde72aa380888a1ee98ab986b58564544"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Configuration.dll",
+      "bytes": 124928,
+      "sha256": "b4505aad4201fea717940591d5c7c59cd3d920f9c96d989ca98ab07e3208b034"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Core.dll",
+      "bytes": 1113088,
+      "sha256": "771dbf3f43fe24a8849ae78dc9640e3db9127d543f121e9a00740d71ef9ccab6"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Data.DataSetExtensions.dll",
+      "bytes": 29696,
+      "sha256": "e52832d9ecf8e65d0d64e8207c457003c3b5f692dd6dd5628557155513ec000e"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Data.dll",
+      "bytes": 2125312,
+      "sha256": "800d5211d0449beb99f0c5aa5107880917863c369052e4ac40cc005171c12ed8"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.dll",
+      "bytes": 2639360,
+      "sha256": "b271ae651c463425d5f4e55579bd1fba4af246cce549e322e47f5b463783b326"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Drawing.dll",
+      "bytes": 489984,
+      "sha256": "362930561b35e759e7ca642fb590621df0ab1041950d27bc7b5f54012f9620e9"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.EnterpriseServices.dll",
+      "bytes": 44544,
+      "sha256": "0feb13072956cf69a80da4cad4c170f3ea80c9764454ac7b995fa0156fb21f79"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.IO.Compression.dll",
+      "bytes": 114688,
+      "sha256": "7baa41be268231ac9c582a854d8f5d5d0b1d9815dfd32f42abdd6530cc354abd"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.IO.Compression.FileSystem.dll",
+      "bytes": 18432,
+      "sha256": "44908b620784ac1c9caa4272cef69e6872b3786240f89a20b3caef81873a7fb2"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Memory.dll",
+      "bytes": 4608,
+      "sha256": "c4f030a2cba7da7cdcf493257c24560e203d355904aee490d645a935842f834a"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Net.Http.dll",
+      "bytes": 122880,
+      "sha256": "1e979a8532060193273b2024b80556e83ec3155cbb041326b8707de706791db3"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Numerics.dll",
+      "bytes": 119296,
+      "sha256": "18ae2faab369ef13f93a95716664eac1b984488a03d8bdad34b5d4c7a2b0f28b"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Runtime.CompilerServices.Unsafe.6.0.dll",
+      "bytes": 19256,
+      "sha256": "fd67abc4c4af10affbcd42fd68a2a7bc361b26714afe6965d4d0d139459d8297"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Runtime.CompilerServices.Unsafe.dll",
+      "bytes": 16768,
+      "sha256": "bfc8f02a96934786ca5a0514a3b657021c12542e215e94b78fdcc74bfeffe3d3"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Runtime.dll",
+      "bytes": 12288,
+      "sha256": "e0a7334b7ba419aaab6bd3bb6992d693e689341a9178172c9bf99c2aa6a085bd"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Runtime.Serialization.dll",
+      "bytes": 934400,
+      "sha256": "c9eb8f87514696b7e8aee703b5dbc959d4d317dcdaa0ebe2f7f717d316a3fa58"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Security.Cryptography.Cng.dll",
+      "bytes": 18824,
+      "sha256": "5beb0246fc8cbc617fd7d18dd1f520da8dbbb7ec820e5834d53352836a99bda1"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Security.dll",
+      "bytes": 320000,
+      "sha256": "f54ba987619737424586ce30f5f1e12c1a9580312f905c83a22a62a45d69c41d"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.ServiceModel.Internals.dll",
+      "bytes": 215040,
+      "sha256": "09a4f3e9bcedbc7e657650ff3bd60982f433aa0e7a70a62cd65b4480cd2ffe8c"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Transactions.dll",
+      "bytes": 35328,
+      "sha256": "c1f1b908005857162d29273c6ab144b802fd5df4dc4e44f599da4aa0aad02b49"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Xml.dll",
+      "bytes": 3160064,
+      "sha256": "a741ab74c7763758c716ec0ddfb902708e5446053d02400c9cd7d1f9cd0f69a3"
+    },
+    {
+      "path": "MelonLoader/Dependencies/MonoBleedingEdgePatches/System.Xml.Linq.dll",
+      "bytes": 136704,
+      "sha256": "e8236d3e1b6e115547ab4ce92e522feb552d76c388fb741f398af070677fd863"
+    },
+    {
+      "path": "MelonLoader/Dependencies/NetStandardPatches/System.Configuration.dll",
+      "bytes": 124928,
+      "sha256": "f72c6c78a7c4c76b59184ea38c3efcc65ecca45b157deb8ae508eed83a6d88b2"
+    },
+    {
+      "path": "MelonLoader/Dependencies/NetStandardPatches/System.Core.dll",
+      "bytes": 265728,
+      "sha256": "5aa2b8ffe185461e16256b966802d6aca117d19728cc0c7455cb5f91fd7e0123"
+    },
+    {
+      "path": "MelonLoader/Dependencies/NetStandardPatches/System.dll",
+      "bytes": 1679360,
+      "sha256": "862e789e52b83b86f32f612a11e0d8d3c32ac90b4df82f01b755f7240e581ab4"
+    },
+    {
+      "path": "MelonLoader/Dependencies/NetStandardPatches/System.Xml.dll",
+      "bytes": 1270272,
+      "sha256": "3a7d4c5915516e44ce5d281fbb108b22d43c1342cbc3cee5e40762f24bf56a5f"
+    },
+    {
+      "path": "MelonLoader/Dependencies/SupportModules/Il2Cpp.deps.json",
+      "bytes": 463,
+      "sha256": "d4543683915bc7160ef8f5910ee961132df2c26c2f2824fbf96905ac48890c10"
+    },
+    {
+      "path": "MelonLoader/Dependencies/SupportModules/Il2Cpp.dll",
+      "bytes": 36352,
+      "sha256": "2ab2fd9858c4d97457e3ec2f74f4d8ff3a9296e95ceaab079cdbda2302453743"
+    },
+    {
+      "path": "MelonLoader/Dependencies/SupportModules/Mono.dll",
+      "bytes": 14848,
+      "sha256": "ddf46054be5cb2855131e2b402197dda03bf74e3b0e6dbdd011dd572afc848f8"
+    },
+    {
+      "path": "MelonLoader/Dependencies/SupportModules/Mono.dll.mdb",
+      "bytes": 3656,
+      "sha256": "90a5cc3071ac5696f39c06ec4833a4049f1218cbc2cbe0819e4cd7e265089bcb"
+    },
+    {
+      "path": "MelonLoader/Dependencies/SupportModules/Mono.pdb",
+      "bytes": 5160,
+      "sha256": "8d759bd63267e079275eab5152ed690a6945b4cc0b097101d7b1ad369dcf0a5d"
+    },
+    {
+      "path": "MelonLoader/Documentation/CHANGELOG.md",
+      "bytes": 121522,
+      "sha256": "6896ef65bf98706bffb81c7c8a970182717018e57e347a65e6235aa8b9e6ec6a"
+    },
+    {
+      "path": "MelonLoader/Documentation/LICENSE.md",
+      "bytes": 10953,
+      "sha256": "689a30a20770a4239ec0a994262fde506052b256f3887582f2d51b6974c20b09"
+    },
+    {
+      "path": "MelonLoader/Documentation/NOTICE.txt",
+      "bytes": 199,
+      "sha256": "081981b2760e887cd845ac478bef503b3b61269b0f3c42007800fa6e00078258"
+    },
+    {
+      "path": "MelonLoader/Documentation/README.md",
+      "bytes": 19267,
+      "sha256": "35738dc7ed6804a013829d77ecc6d203bf42577a7650b40b4cc456edc4811f57"
+    },
+    {
+      "path": "MelonLoader/net35/0Harmony.dll",
+      "bytes": 263168,
+      "sha256": "9710c782b13742fa23b9fc2c3608263ba6f1d08ef1342898fc26a8f539d3f247"
+    },
+    {
+      "path": "MelonLoader/net35/AsmResolver.dll",
+      "bytes": 71680,
+      "sha256": "b225fcc32e88951fe491913cc25cbc08b3b003b553f79f566569a64139e08acb"
+    },
+    {
+      "path": "MelonLoader/net35/AsmResolver.DotNet.dll",
+      "bytes": 562688,
+      "sha256": "eab87d5bae62e8b69cf0dd6d163ff2b2e5ba0954e105089ce4c061d9418d634d"
+    },
+    {
+      "path": "MelonLoader/net35/AsmResolver.PE.dll",
+      "bytes": 397312,
+      "sha256": "3c38692fd181af0f90d54c4b3525a663d1ede4008b6c796a8b7008c4c464a5c2"
+    },
+    {
+      "path": "MelonLoader/net35/AsmResolver.PE.File.dll",
+      "bytes": 42496,
+      "sha256": "918529a38b421751960c7b11ad2f174cf692b111fbcfcc275b39f683e63040b6"
+    },
+    {
+      "path": "MelonLoader/net35/AssetRipper.Primitives.dll",
+      "bytes": 22016,
+      "sha256": "80d06dca66453b0fc8aa0ee001d817d076e8e1cb71347e78d22fceae25f3f48f"
+    },
+    {
+      "path": "MelonLoader/net35/AssetsTools.NET.dll",
+      "bytes": 208384,
+      "sha256": "6d2dc18921a3fe723e9de7835c4f1ecee055ea3ef73c278411ecb6b16c213a7c"
+    },
+    {
+      "path": "MelonLoader/net35/bHapticsLib.dll",
+      "bytes": 48640,
+      "sha256": "b3fdfde20e01cfdbab8f151f1d1d1cf43f3f6789da106e813d20eab174671e86"
+    },
+    {
+      "path": "MelonLoader/net35/IndexRange.dll",
+      "bytes": 10240,
+      "sha256": "58022ec83cf23517bafe8bfa1d5f1de37a3672a31bdd73f22a7673f08bbc9dac"
+    },
+    {
+      "path": "MelonLoader/net35/MelonLoader.dll",
+      "bytes": 1951744,
+      "sha256": "7c0e8c59a4ec02cbcaec91d0393e7caf9886f21d00ad35984b7013bca695225b"
+    },
+    {
+      "path": "MelonLoader/net35/MelonLoader.dll.mdb",
+      "bytes": 248364,
+      "sha256": "d1bef08feb430c09bb7c410d71a7032f653d86c9f7dd4de9f1d407f9e81b286c"
+    },
+    {
+      "path": "MelonLoader/net35/MelonLoader.pdb",
+      "bytes": 216584,
+      "sha256": "fb303be5d6d9d78843c78b2e489e2becd98df1597330457de505ef4976f01c88"
+    },
+    {
+      "path": "MelonLoader/net35/MelonLoader.xml",
+      "bytes": 691873,
+      "sha256": "d0313dd7f017cda53629b02da3ab631d7ce1b5beec2eb1e0476ea2544c84a030"
+    },
+    {
+      "path": "MelonLoader/net35/Mono.Cecil.dll",
+      "bytes": 339456,
+      "sha256": "7ae470288fff4a402899c254d0a76cefef55877f5c54f96e83c797cc5bb6e2f6"
+    },
+    {
+      "path": "MelonLoader/net35/Mono.Cecil.Mdb.dll",
+      "bytes": 43008,
+      "sha256": "5896d1898f616701fff18f3b2c71e6b844d2390ef9f41e1c5fccce8cb27c698e"
+    },
+    {
+      "path": "MelonLoader/net35/Mono.Cecil.Pdb.dll",
+      "bytes": 86528,
+      "sha256": "174db44a067f58561510af746f3caeb032037762c57a31c8d9ee32db25174984"
+    },
+    {
+      "path": "MelonLoader/net35/Mono.Cecil.Rocks.dll",
+      "bytes": 27648,
+      "sha256": "54ac539fb5ddc8b44c0e9acd0fcb7324f89d1a072edf8ebc1b06dd691e3d3927"
+    },
+    {
+      "path": "MelonLoader/net35/MonoMod.Backports.dll",
+      "bytes": 242688,
+      "sha256": "689c38424ffa30089957f3f3f8942ebf179c15f7330f3f90e479054d0b0d6003"
+    },
+    {
+      "path": "MelonLoader/net35/MonoMod.exe",
+      "bytes": 67072,
+      "sha256": "fbc729be008c9c22de637f871877dce5366583a3206d5e484807184f11e38285"
+    },
+    {
+      "path": "MelonLoader/net35/MonoMod.ILHelpers.dll",
+      "bytes": 6656,
+      "sha256": "8353ade0183f57ca1df618d2aed117262366fd2fe98e1776373f392b8d33c9f9"
+    },
+    {
+      "path": "MelonLoader/net35/MonoMod.RuntimeDetour.dll",
+      "bytes": 108032,
+      "sha256": "6120a4a1fa3287b149f408eeac04c017c6453e8fd69dbc5d12f1489c087385ab"
+    },
+    {
+      "path": "MelonLoader/net35/MonoMod.Utils.dll",
+      "bytes": 188416,
+      "sha256": "c764fa0141e3b9308ae25808baea11feabc0b4843ecfc28ec5c5cc470d6ab420"
+    },
+    {
+      "path": "MelonLoader/net35/Newtonsoft.Json.dll",
+      "bytes": 524200,
+      "sha256": "4a3d7bbaa2c347c2f98fa06a7324ebf311f696d9965e9ba0a81a56219420ce01"
+    },
+    {
+      "path": "MelonLoader/net35/Tomlet.dll",
+      "bytes": 104448,
+      "sha256": "0110544d80cd1ef83707a42b07362bf496c514baa31a694e9c20ce572e7870de"
+    },
+    {
+      "path": "MelonLoader/net35/ValueTupleBridge.dll",
+      "bytes": 31744,
+      "sha256": "7d90cbb7c50467e22d2be3e008e5a2e29581c0a9dabf63d89a07c91f5b32d4f8"
+    },
+    {
+      "path": "MelonLoader/net35/WebSocketDotNet.dll",
+      "bytes": 36864,
+      "sha256": "ba8679a52549784963c2544ef401aba87a57d7589e5f8593ef31fdf377f0a314"
+    },
+    {
+      "path": "MelonLoader/net472/0Harmony.dll",
+      "bytes": 264704,
+      "sha256": "9846eb9edf64a5e2473342c75b8c5ab37293fb4c27418bc7a5b9a156aa0d7214"
+    },
+    {
+      "path": "MelonLoader/net472/AsmResolver.dll",
+      "bytes": 67072,
+      "sha256": "22529c0e1bab7779af0e20ce1180475a48fd78cdbfdad01a38e645a09b1fdca0"
+    },
+    {
+      "path": "MelonLoader/net472/AsmResolver.DotNet.dll",
+      "bytes": 566272,
+      "sha256": "7f53dc524bd427389b0be3caefef37393b44fdf7fad73cb3d95ce36178b7855b"
+    },
+    {
+      "path": "MelonLoader/net472/AsmResolver.PE.dll",
+      "bytes": 399360,
+      "sha256": "538f353f338f8d0e483cda6fc1144bc1b2ef85c50adf6210e8cfe64124dff278"
+    },
+    {
+      "path": "MelonLoader/net472/AsmResolver.PE.File.dll",
+      "bytes": 42496,
+      "sha256": "041b450e31bd473d5ef64ee07c1f0f4e273468b562a321be62a91b3119a061dc"
+    },
+    {
+      "path": "MelonLoader/net472/AssetRipper.Primitives.dll",
+      "bytes": 33280,
+      "sha256": "f3acf4f3ae593a4dcf5c31c4835a4fbedeb5f8a73b8acd5d8f592354910bb557"
+    },
+    {
+      "path": "MelonLoader/net472/AssetsTools.NET.dll",
+      "bytes": 207872,
+      "sha256": "9e04a8fb2040866827981f00d0c212dbfd4bdeb72ea4d659a7b206d4b7608d58"
+    },
+    {
+      "path": "MelonLoader/net472/bHapticsLib.dll",
+      "bytes": 49664,
+      "sha256": "4f2b0b41a86230ba6918b7a0d35b31a1b220273d6776c17c34cdcfbb82132d15"
+    },
+    {
+      "path": "MelonLoader/net472/IndexRange.dll",
+      "bytes": 11776,
+      "sha256": "d70e5e09c477fa402db5b1de973b9b457dec4ce2048985b24a85d06e9af14595"
+    },
+    {
+      "path": "MelonLoader/net472/MelonLoader.dll",
+      "bytes": 1951232,
+      "sha256": "2c4e6079a6c46ed8a6f7411980255b69095835d3b1ae9d702d9582cc26ec31ac"
+    },
+    {
+      "path": "MelonLoader/net472/MelonLoader.pdb",
+      "bytes": 216716,
+      "sha256": "e7cdf1d1a765e052586da7b74a5cec499cfc926b7b78dadf3c69fc509ce3c42f"
+    },
+    {
+      "path": "MelonLoader/net472/MelonLoader.xml",
+      "bytes": 691873,
+      "sha256": "d0313dd7f017cda53629b02da3ab631d7ce1b5beec2eb1e0476ea2544c84a030"
+    },
+    {
+      "path": "MelonLoader/net472/Microsoft.Bcl.HashCode.dll",
+      "bytes": 23424,
+      "sha256": "76b1260ce747a317e9b514433b89a81b038411fcabddc6f9c7dbabb0742d8b81"
+    },
+    {
+      "path": "MelonLoader/net472/Mono.Cecil.dll",
+      "bytes": 363008,
+      "sha256": "c41bdb9ffd3c5f6e17d2382c1012d73703e035e3f1100245fdd4e08c8dc6eb5b"
+    },
+    {
+      "path": "MelonLoader/net472/Mono.Cecil.Mdb.dll",
+      "bytes": 43520,
+      "sha256": "570a437dea0271d1d5c8b7d6a408b0b2635bdb0e8b8d5051878f3e7fca087f89"
+    },
+    {
+      "path": "MelonLoader/net472/Mono.Cecil.Pdb.dll",
+      "bytes": 90112,
+      "sha256": "50a1a1a79dc86fcfb8b51249b5325a10dd93d193c52999cf6775d25030a4e606"
+    },
+    {
+      "path": "MelonLoader/net472/Mono.Cecil.Rocks.dll",
+      "bytes": 29696,
+      "sha256": "842e09959084eda733aab1a5354d7af79e29594f4d8b91c8792103e5c755ed9b"
+    },
+    {
+      "path": "MelonLoader/net472/MonoMod.Backports.dll",
+      "bytes": 117760,
+      "sha256": "6db3486eb3bfc458c770d61a1391569000cd871dcc7160fb3da2cbfe8d98601a"
+    },
+    {
+      "path": "MelonLoader/net472/MonoMod.exe",
+      "bytes": 67584,
+      "sha256": "fddeae2409911135a1b690a9e5ab996a3d3b08b9bb62056cc3466b82ea30b658"
+    },
+    {
+      "path": "MelonLoader/net472/MonoMod.ILHelpers.dll",
+      "bytes": 6656,
+      "sha256": "20df341949b81662e09787e42b66ac3fea601d4cf4b717294f2d72a80860e4ec"
+    },
+    {
+      "path": "MelonLoader/net472/MonoMod.RuntimeDetour.dll",
+      "bytes": 112128,
+      "sha256": "bd7230c2f2b084ab26a3ec5501023020bc17f47eeb6cfaddd1e34fadb656eefb"
+    },
+    {
+      "path": "MelonLoader/net472/MonoMod.Utils.dll",
+      "bytes": 197632,
+      "sha256": "814a6311e9831ee87e93e0fd34451f274cb1d8103629b6b517fc861374f9ec3f"
+    },
+    {
+      "path": "MelonLoader/net472/Newtonsoft.Json.dll",
+      "bytes": 721320,
+      "sha256": "f0c07af0e84d4dd4da4bd7823ba4535bc0481b3bf623ed40b659b68147a6bb75"
+    },
+    {
+      "path": "MelonLoader/net472/System.Buffers.dll",
+      "bytes": 20856,
+      "sha256": "accccfbe45d9f08ffeed9916e37b33e98c65be012cfff6e7fa7b67210ce1fefb"
+    },
+    {
+      "path": "MelonLoader/net472/System.Memory.dll",
+      "bytes": 142240,
+      "sha256": "bf3fb84664f4097f1a8a9bc71a51dcf8cf1a905d4080a4d290da1730866e856f"
+    },
+    {
+      "path": "MelonLoader/net472/System.Numerics.Vectors.dll",
+      "bytes": 115856,
+      "sha256": "1d3ef8698281e7cf7371d1554afef5872b39f96c26da772210a33da041ba1183"
+    },
+    {
+      "path": "MelonLoader/net472/System.Runtime.CompilerServices.Unsafe.dll",
+      "bytes": 16768,
+      "sha256": "66409f670315afe8610f17a4d3a1ee52d72b6a46c544cec97544e8385f90ad74"
+    },
+    {
+      "path": "MelonLoader/net472/System.ValueTuple.dll",
+      "bytes": 25232,
+      "sha256": "e905d102585b22c6df04f219af5cbdbfa7bc165979e9788b62df6dcc165e10f4"
+    },
+    {
+      "path": "MelonLoader/net472/Tomlet.dll",
+      "bytes": 104448,
+      "sha256": "0110544d80cd1ef83707a42b07362bf496c514baa31a694e9c20ce572e7870de"
+    },
+    {
+      "path": "MelonLoader/net472/WebSocketDotNet.dll",
+      "bytes": 53760,
+      "sha256": "e8d266e754193f5970c108f7e8b9664d5c09a5718b5f932392ea4ab311260e9f"
+    },
+    {
+      "path": "MelonLoader/net6/0Harmony.dll",
+      "bytes": 264192,
+      "sha256": "6c898933b52149e8bcf6722305c7e4d94add47c9e53b364096f91721624c0877"
+    },
+    {
+      "path": "MelonLoader/net6/AsmResolver.dll",
+      "bytes": 67584,
+      "sha256": "64b50030b34654f12805ec4d2848551e431c5f0bcd65cd70d6fe2845f715fb12"
+    },
+    {
+      "path": "MelonLoader/net6/AsmResolver.DotNet.dll",
+      "bytes": 561664,
+      "sha256": "045bcdf32427f9bd39bee2620c470372583935c8e89b360931e467dd191d46d1"
+    },
+    {
+      "path": "MelonLoader/net6/AsmResolver.PE.dll",
+      "bytes": 397824,
+      "sha256": "6ba6d56bf5fd3dd18233b56606a7ed1d42b8c93977b5375716771bf13ea36a1e"
+    },
+    {
+      "path": "MelonLoader/net6/AsmResolver.PE.File.dll",
+      "bytes": 40960,
+      "sha256": "8246433a1a6fb4c012c1814acee8a4ff24f3a4fac593569f6a1e343e68c9d8ee"
+    },
+    {
+      "path": "MelonLoader/net6/AssetRipper.Primitives.dll",
+      "bytes": 29184,
+      "sha256": "681ba26fd356d9263fdf6afeb1b8f8506802a9503ffa80c9d21e0c4a46743a28"
+    },
+    {
+      "path": "MelonLoader/net6/AssetsTools.NET.dll",
+      "bytes": 207872,
+      "sha256": "60aa43d8fc284c1599b478e8e197e915979fe5b31df7f3f3dd446e78d2435959"
+    },
+    {
+      "path": "MelonLoader/net6/bHapticsLib.dll",
+      "bytes": 49664,
+      "sha256": "c80ba400773d65498b0139945f7a8096630cc37672e4b64c2f54cbc244811f3f"
+    },
+    {
+      "path": "MelonLoader/net6/Iced.dll",
+      "bytes": 1896448,
+      "sha256": "f058c01321b4cdfc9b9151879e88e59571c8d0ba176fbcf95bc936a8f3d073ed"
+    },
+    {
+      "path": "MelonLoader/net6/Il2CppInterop.Common.dll",
+      "bytes": 41472,
+      "sha256": "afa35eb0822336a17d00071ec49e4e2ecaff6f3861e1ae73e4f0963c88610b3e"
+    },
+    {
+      "path": "MelonLoader/net6/Il2CppInterop.Generator.dll",
+      "bytes": 219648,
+      "sha256": "84de44214abf234a419a991f0b9dc91e2e39fceb2cc0a4136a79fa369777ff23"
+    },
+    {
+      "path": "MelonLoader/net6/Il2CppInterop.HarmonySupport.dll",
+      "bytes": 26624,
+      "sha256": "f64c53d389fc76a910ffab86f7ac6d27e437b0c7c0c60918565a5d9f34f8ad06"
+    },
+    {
+      "path": "MelonLoader/net6/Il2CppInterop.Runtime.dll",
+      "bytes": 284672,
+      "sha256": "3878ce0ba0c60385f76f2ba37e07ad0ee3649d019703aec8695db3402abeedd7"
+    },
+    {
+      "path": "MelonLoader/net6/IndexRange.dll",
+      "bytes": 20840,
+      "sha256": "4117e1e2273763a95ca2bd69a4ab4b092317bafbe53b3dad7531af4cd751e0a6"
+    },
+    {
+      "path": "MelonLoader/net6/MelonLoader.deps.json",
+      "bytes": 28892,
+      "sha256": "856679e5955ec6f59008e2e920925301112793bf33587466d3a55cab82fb9eee"
+    },
+    {
+      "path": "MelonLoader/net6/MelonLoader.dll",
+      "bytes": 2011648,
+      "sha256": "bdd43dc0f3893c208c95389b863ab61c967ae14204da0dd8051647e754c8709b"
+    },
+    {
+      "path": "MelonLoader/net6/MelonLoader.NativeHost.deps.json",
+      "bytes": 9284,
+      "sha256": "e9f257473d71b433a64e4e8084522b3388f368b9f27829cfac88dbe82fe1b7db"
+    },
+    {
+      "path": "MelonLoader/net6/MelonLoader.NativeHost.dll",
+      "bytes": 14336,
+      "sha256": "66ab84903018c4a10a8a5de45ecea63445ac0d1d0147d6fcb713a91162764b3e"
+    },
+    {
+      "path": "MelonLoader/net6/MelonLoader.pdb",
+      "bytes": 239932,
+      "sha256": "3bffd543d36aed364cba377d6a1daa2e44e50637c0070b60411ac6bdcfd88e8c"
+    },
+    {
+      "path": "MelonLoader/net6/MelonLoader.runtimeconfig.json",
+      "bytes": 395,
+      "sha256": "d8c6bf06df9cfb54b0828b0986b53e50507fc23a6a52071051ff238eea28ecc4"
+    },
+    {
+      "path": "MelonLoader/net6/MelonLoader.xml",
+      "bytes": 691873,
+      "sha256": "d0313dd7f017cda53629b02da3ab631d7ce1b5beec2eb1e0476ea2544c84a030"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Bcl.AsyncInterfaces.dll",
+      "bytes": 18736,
+      "sha256": "f311565f29e9db0038bf712363d0fc2093f434cccd5c570d15d74044ce255b12"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Bcl.Memory.dll",
+      "bytes": 47928,
+      "sha256": "b4e28dc3f5564f55296ec462ef29668e4b3e5a66c979b49808af80d9e4821531"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Diagnostics.NETCore.Client.dll",
+      "bytes": 152136,
+      "sha256": "d07b58185b94db7764ec6a0954e1e1071488097ab1aeec47f5822a3761c58919"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Diagnostics.Runtime.dll",
+      "bytes": 682024,
+      "sha256": "06f9910c8a37f8d4d758538e6dd307de58bcfb3bb13e83658142c08087a25382"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Extensions.Configuration.Abstractions.dll",
+      "bytes": 32528,
+      "sha256": "636907558a2633950886b9f97c3732f1e88cf3fc1e31f89c66ab516542f7f289"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Extensions.Configuration.dll",
+      "bytes": 48392,
+      "sha256": "5ac6a0fff2cba99ed8d9f22ff0215f0a87f35d290bf12e5441ec3abf19d93efb"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Extensions.DependencyInjection.Abstractions.dll",
+      "bytes": 66824,
+      "sha256": "8dbbc4d07b1fd3f9d6ec9be13c1a619cdc88b5ad0a26392bbff6edeb62e1c942"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Extensions.DependencyInjection.dll",
+      "bytes": 100616,
+      "sha256": "aef548883308179109f297aeb30ca8485a88a685afb4084dfa8b72873f57ec03"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Extensions.Logging.Abstractions.dll",
+      "bytes": 70456,
+      "sha256": "1fc03424101e21d974b007e1f62d9e27d2c925a7729782d6ace287c0d8cc0cca"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Extensions.Logging.dll",
+      "bytes": 54064,
+      "sha256": "011f0bf961fd7e6567bda75cc38484f16c18711c55885a36bbdfe46b46dba028"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Extensions.Options.dll",
+      "bytes": 70960,
+      "sha256": "d54e0869a366a88cdf670493aad096a66009587d821b9157bb1447394718e058"
+    },
+    {
+      "path": "MelonLoader/net6/Microsoft.Extensions.Primitives.dll",
+      "bytes": 51472,
+      "sha256": "3cc6ae4739180484c58a7a7fb5f6b1b15528301e758da9ecb04db141824e779a"
+    },
+    {
+      "path": "MelonLoader/net6/Mono.Cecil.dll",
+      "bytes": 361472,
+      "sha256": "831dca77470d85cb6ffbea3072daa7a3df5b7c9fcfd9c3f43674a9be99d4bfcf"
+    },
+    {
+      "path": "MelonLoader/net6/Mono.Cecil.Mdb.dll",
+      "bytes": 39936,
+      "sha256": "28cb367972bdc1cd43e4006306af2fd96d37f4ed4b239ee90e1dc7237a93af7f"
+    },
+    {
+      "path": "MelonLoader/net6/Mono.Cecil.Pdb.dll",
+      "bytes": 90112,
+      "sha256": "a332332633fbcb20e8d50e49b4db7bd1557721417122cf0c5f4c42f2332391d0"
+    },
+    {
+      "path": "MelonLoader/net6/Mono.Cecil.Rocks.dll",
+      "bytes": 27136,
+      "sha256": "bf992f3dce364ebcc3200fa7832ef07e20b4e2dbc3a8a6213ce44e3d239db984"
+    },
+    {
+      "path": "MelonLoader/net6/MonoMod.Backports.dll",
+      "bytes": 29184,
+      "sha256": "cdd6e9f7bcdb98d2c002f63bfbe85ae80ea36261190a741e64283d769a6c6502"
+    },
+    {
+      "path": "MelonLoader/net6/MonoMod.dll",
+      "bytes": 68096,
+      "sha256": "cfa83184f0cc98ccda1475cd5a62ee83226d0ba63e03b058dbd9ec9a7e40def0"
+    },
+    {
+      "path": "MelonLoader/net6/MonoMod.ILHelpers.dll",
+      "bytes": 4096,
+      "sha256": "0081403bdcef3340f78c7ccded0be6ae0507b397ee8b9980b44f01bf9f93aed1"
+    },
+    {
+      "path": "MelonLoader/net6/MonoMod.RuntimeDetour.dll",
+      "bytes": 112640,
+      "sha256": "1b3d55f53cb9f9f2550daed4dfd300b247d71698a0ace82bc7b9ff38d563594f"
+    },
+    {
+      "path": "MelonLoader/net6/MonoMod.Utils.dll",
+      "bytes": 193024,
+      "sha256": "72a5b4249985873d7ecb160cbbed7a1e6540a38ee7618c72c64b9cb068c1438a"
+    },
+    {
+      "path": "MelonLoader/net6/Newtonsoft.Json.dll",
+      "bytes": 723368,
+      "sha256": "a28c251dfe36d881e9e2462e171441b8b0ec156fe3f452602c9149b1b9efe05b"
+    },
+    {
+      "path": "MelonLoader/net6/System.Configuration.ConfigurationManager.dll",
+      "bytes": 431376,
+      "sha256": "77064e278d811b035243774e9ab07cd73317fafeb4d31543a49f485ffe103cc4"
+    },
+    {
+      "path": "MelonLoader/net6/System.Diagnostics.DiagnosticSource.dll",
+      "bytes": 210232,
+      "sha256": "9137a2621f11f561d2d70dabc6efdadf1470ae0eab701a74b68cd415b4fbd85c"
+    },
+    {
+      "path": "MelonLoader/net6/System.Runtime.CompilerServices.Unsafe.dll",
+      "bytes": 19232,
+      "sha256": "60e5957ad8ceddc68650747a71598c0d84c291943c8693135333335d3dbaaf3b"
+    },
+    {
+      "path": "MelonLoader/net6/System.Security.Cryptography.ProtectedData.dll",
+      "bytes": 43272,
+      "sha256": "36f78627daed665491c9955a23e551a32cacfe396578953ccf84ddfd584a8e0b"
+    },
+    {
+      "path": "MelonLoader/net6/System.Security.Permissions.dll",
+      "bytes": 122680,
+      "sha256": "ce21bf221ec947744fe0dad11b68a12fd963e73f5dd41407513e55419a7d4bb8"
+    },
+    {
+      "path": "MelonLoader/net6/Tomlet.dll",
+      "bytes": 114176,
+      "sha256": "1d4ba58b6ec7b63a725f20da860462c5cecfed9a0aa561f1859c7968e42f3873"
+    },
+    {
+      "path": "MelonLoader/net6/UnityEngine.Il2CppAssetBundleManager.deps.json",
+      "bytes": 1196,
+      "sha256": "68d2db43ef84e10a2df05aa0a34fea0e308bd70875d9e8974fe19e1d502c1913"
+    },
+    {
+      "path": "MelonLoader/net6/UnityEngine.Il2CppAssetBundleManager.dll",
+      "bytes": 29696,
+      "sha256": "eed31c8c3795f2219e1e3e6982ac190eea9f8f2fd7d2319de8f152e6d6e8c7de"
+    },
+    {
+      "path": "MelonLoader/net6/UnityEngine.Il2CppAssetBundleManager.pdb",
+      "bytes": 16436,
+      "sha256": "24f2f2ad4f2e13298013087b4d89df0f8cc881b3a2bba42a83a696e83f5c4884"
+    },
+    {
+      "path": "MelonLoader/net6/UnityEngine.Il2CppImageConversionManager.deps.json",
+      "bytes": 4688,
+      "sha256": "7ad41ade4daf1965f31a67ef5126dd056a48969bab22a6bef5eb8963f93db2fc"
+    },
+    {
+      "path": "MelonLoader/net6/UnityEngine.Il2CppImageConversionManager.dll",
+      "bytes": 12800,
+      "sha256": "311f0f73d1ed4db5f16e04024aaa2b2740ed43efd14c10a8ee0c27d9e0f8a91f"
+    },
+    {
+      "path": "MelonLoader/net6/UnityEngine.Il2CppImageConversionManager.pdb",
+      "bytes": 12924,
+      "sha256": "d363ed0e54bfa502e9fb956e949cbd9500693c9054b6ebb1825229ae87baf178"
+    },
+    {
+      "path": "MelonLoader/net6/WebSocketDotNet.dll",
+      "bytes": 57856,
+      "sha256": "a98bf044314c909621f9a8007bb70a66a4c4d29f1ced7de599264c797876fa7a"
+    },
+    {
+      "path": "version.dll",
+      "bytes": 11057664,
+      "sha256": "0ce7a4e530c7f83f172a2c44aed45eedb3bdcf06b83760f143a0fba6885fa929"
+    }
+  ]
+}

@@ -65,6 +65,8 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
   const evaluate = code => panel.webContents.executeJavaScript(code);
   const originalOpenExternal = shell.openExternal;
   const originalGame = structuredClone(host.snapshot().state);
+  assert.equal(originalGame.performance, null, 'public catalogue starts without private gameplay measurements');
+  assert.equal(host.snapshot().telemetry, null, 'public catalogue never starts the private telemetry provider');
   const originalEditorRevision = host.snapshot().editor.revision;
   let opened = null;
   const first = '[data-catalogue-id="native-catalogue-000"]';
@@ -178,7 +180,12 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
     assert.equal(JSON.parse(await fs.readFile(matchingFile, 'utf8')).links.length, 0);
     fixture.state.demo = false;
     await click('#catalogue-refresh'); await rows(2); await waitFor(readyToLink, 'restore normal catalogue fixture');
-    assert.deepEqual(host.snapshot().state, originalGame);
+    const currentGame = structuredClone(host.snapshot().state);
+    assert.equal(currentGame.performance, null, 'catalogue interaction cannot enable private gameplay measurements');
+    assert.equal(host.snapshot().telemetry, null, 'catalogue interaction leaves the private telemetry provider inactive');
+    // Public builds have no private session clock. Every game, widget and
+    // layout field must remain exactly equal throughout catalogue interaction.
+    assert.deepEqual(currentGame, originalGame);
     assert.equal(host.snapshot().editor.revision, originalEditorRevision);
     panel.setSize(900, 660);
     await revealWorkspace(panel,"#catalogue-panel");

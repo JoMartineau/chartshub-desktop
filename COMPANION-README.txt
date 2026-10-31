@@ -1,4 +1,31 @@
-ChartsHub Desktop 0.14.24 - Catalogue et Companion
+ChartsHub Desktop 0.14.32 - Catalogue et Companion
+
+NOUVEAUTES 0.14.32 - INPUT VIEWER ET WIDGETS SANS CONNECTEUR
+
+Companion > Stream / OBS > Input Viewer : ouvrez le viewer, choisissez Guitare
+ou Batterie, puis Demarrer et votre manette compatible. Associez chaque entree
+en relachant puis en appuyant sur le bouton souhaite. Les couleurs, formes,
+positions, tailles et noms sont modifiables. Les trainees ont quatre directions,
+avec vitesse, duree, longueur, epaisseur, intensite et fondu reglables.
+Dans OBS, ajoutez Capture de fenetre : ChartsHub - Input Viewer.
+Les reglages sont conserves localement. Les entrees jouees ne sont pas stockees.
+Les guitares USB non exposees par Gamepad API ne sont pas reconnues ; le clavier
+fonctionne uniquement quand la fenetre du viewer est active.
+
+Highway, Score et Paroles disposent chacun d'une capture recadree. Choisissez
+la fenetre de Clone Hero, demarrez la capture puis dessinez chaque zone.
+Le fond present dans la zone reste visible. Aucune capture ne demarre seule.
+
+Le mini-widget ReShade retablit son affichage au-dessus des fenetres lorsqu'il
+est rouvert. Si le plein ecran exclusif le masque, utilisez le mode sans bordure
+ou fenetre dans le jeu.
+
+MelonLoader, l'assistant Calibration BETA et les mesures Accuracy associees ne
+sont plus distribues. Les widgets independants du connecteur restent disponibles
+et les anciens profils sont conserves. Le viewer affiche les entrees ; il ne
+mesure pas leur avance ou retard par rapport aux notes de la chart.
+
+HISTORIQUE DES VERSIONS PRECEDENTES
 
 NOUVEAUTES 0.14.24 - INTERACTIONS ET BIBLIOTHEQUE
 
@@ -601,6 +628,38 @@ Les requêtes utilisent uniquement les routes publiques officielles du site,
 sans cookies de compte. Les charts de démonstration ne sont pas téléchargeables.
 Cette étape prépare les fichiers ; elle ne valide pas leur jouabilité,
 ne les installe pas automatiquement et ne crée pas d'association de catalogue.
+
+WIDGETS DU MORCEAU
+Le titre, l’artiste, le charter, l’instrument et la difficulté restent
+configurables séparément pour Jeu et Stream. Les profils sont conservés.
+La version publique ne propose pas l’assistant de calibration, MelonLoader
+ou le connecteur de mesures. Accuracy, combo, FC, progression mesurée et
+objectifs/historique basés sur ce connecteur ne sont pas proposés.
+
+PAROLES DU JEU
+Utilisez la capture recadrée Paroles décrite ci-dessous. Elle reprend les
+paroles affichées par Clone Hero, avec le fond visible dans cette zone.
+Aucun connecteur, horloge reconstruite ou service de paroles externe n’est
+nécessaire. Les paroles doivent être présentes et affichées dans le jeu.
+Le texte synchronisé de la chart locale n’est pas proposé sans horloge de
+jeu compatible. Ses anciens réglages restent conservés dans les profils.
+
+HIGHWAY, SCORE ET PAROLES — CAPTURES RECADRÉES POUR OBS
+1. Dans Stream / OBS, choisir Choisir la fenêtre et les zones.
+2. Choisir explicitement la fenêtre Clone Hero puis Démarrer la capture.
+3. Choisir Highway et notes, puis tracer sa zone sur l'aperçu. Refaire
+   l'opération avec Panneau du score et Paroles. Ouvrir les fenêtres souhaitées.
+4. Dans OBS, ajouter les sources Capture de fenêtre souhaitées :
+   ChartsHub — Highway, ChartsHub — Score et ChartsHub — Paroles. Garder l'aperçu et ces fenêtres
+   ouverts. Le fond présent dans chaque zone du jeu reste dans l'image.
+
+Cette capture utilise l'image réelle du jeu et reste locale, vidéo seule.
+Elle ne démarre pas à l'ouverture. Arrêter, fermer l'aperçu ou le Companion,
+ou perdre la fenêtre arrête la capture et ferme ses sorties. Choisir de
+nouveau la fenêtre et retracer les zones après un arrêt ou changement de
+taille. La séparation transparente des éléments natifs n'est pas disponible.
+Les essais automatisés utilisent une vidéo synthétique ; vérifier la capture
+avec le jeu réel et OBS avant utilisation en diffusion.
 
 STREAM / OBS
 1. Dans Stream / OBS, cocher les widgets à afficher dans le stream.

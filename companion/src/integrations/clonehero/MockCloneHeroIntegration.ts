@@ -5,10 +5,10 @@ import type { CloneHeroEvent, RawCloneHeroSong } from './CloneHeroTypes.js';
 
 export const MOCK_SCENARIO: readonly GameplayState[] = ['menu', 'loading', 'playing', 'paused', 'playing', 'results', 'menu'];
 const SAMPLE_SONG: Readonly<RawCloneHeroSong> = Object.freeze({
-  songId: 'mock-everlong',
-  title: '  Everlong  ',
-  artist: ' Foo   Fighters ',
-  charter: ' ExampleCharter ',
+  songId: 'mock-signal-aurore',
+  title: '  Signal d’aurore  ',
+  artist: ' Groupe   Exemple ',
+  charter: ' Charter Démo ',
   instrument: ' Guitar ',
   difficulty: ' Expert ',
 });

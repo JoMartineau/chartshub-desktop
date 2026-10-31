@@ -60,6 +60,7 @@ async function verifyDownloads(initialPanel, host, data, passed, fixture) {
   const evaluate = code => panel.webContents.executeJavaScript(code);
   const root = path.join(data, 'download-fixture-' + randomUUID());
   const originalOpenPath = shell.openPath;
+  const originalGameCapturedAt = performance.now();
   const originalGame = structuredClone(host.snapshot().state);
   let opened = null;
   const keepAlive = () => {};
@@ -141,7 +142,21 @@ async function verifyDownloads(initialPanel, host, data, passed, fixture) {
     await click(selector(firstId, 'remove'));
     await waitFor(() => host.snapshot().downloads.items.length === 0, 'completed history removed');
     assert.equal((await fs.stat(completedDestination)).isDirectory(), true, 'removing completed history retains downloaded files');
-    assert.deepEqual(host.snapshot().state, originalGame, 'downloads do not replace demo gameplay or overlay data');
+    const currentGame = structuredClone(host.snapshot().state);
+    if (originalGame.performance) {
+      const originalDuration = originalGame.performance.session.durationSeconds;
+      const currentDuration = currentGame.performance.session.durationSeconds;
+      const elapsedSeconds = (performance.now() - originalGameCapturedAt) / 1000;
+      assert.ok(Number.isFinite(originalDuration) && originalDuration >= 0);
+      assert.ok(Number.isFinite(currentDuration) && currentDuration >= originalDuration);
+      assert.ok(currentDuration - originalDuration <= elapsedSeconds + 1, 'session duration advances only with elapsed wall time');
+      // Only an explicitly enabled private session clock may advance.
+      currentGame.performance.session.durationSeconds = originalDuration;
+    } else {
+      assert.equal(currentGame.performance, null, 'public downloads cannot initialize gameplay measurements');
+      assert.equal(host.snapshot().telemetry, null);
+    }
+    assert.deepEqual(currentGame, originalGame, 'downloads do not replace demo gameplay or overlay data');
     passed.push('queued pause/cancel/retry, transfer failure/retry, folder opening and history removal follow state-specific controls; completed files remain');
 
     await enqueue(firstChart);

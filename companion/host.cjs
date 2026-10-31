@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, protocol, session, net, screen, clipboard, dialog, shell, globalShortcut, safeStorage, Menu } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, protocol, session, net, screen, clipboard, dialog, shell, globalShortcut, safeStorage, Menu, desktopCapturer } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs/promises');
@@ -19,6 +19,8 @@ const { createCatalogueService } = require('./catalogue-service.cjs');
 const { createDownloadService } = require('./download-service.cjs');
 const { createLibraryDownloadRefresh } = require('./library-download-refresh.cjs');
 const { createCloneHeroSource } = require('./clonehero-source.cjs');
+const { loadMeasurementFactories } = require('./gameplay-measurements.cjs');
+const { publicTelemetrySnapshot, telemetryStateView } = require('./clonehero-telemetry-view.cjs');
 const { createCharterColorResolver } = require('./charter-color-resolver.cjs');
 const { createCloneHeroProcessProbe } = require('./clonehero-process.cjs');
 const { createOverlayProfiles } = require('./overlay-profiles.cjs');
@@ -34,17 +36,23 @@ const { createSongRequestShareSync, songRequestShareKey } = require('./song-requ
 const { createSongRequestPublicBroker } = require('./song-request-public-broker.cjs');
 const { attachEditContextMenu } = require('../desktop/edit-context-menu.cjs');
 const { createMusicPlayer } = require('./music-player.cjs');
+const { createSongVisuals } = require('./song-visuals.cjs');
 const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs');
 const { changeMusicPlaylist } = require('./music-playlists.cjs');
+const { createGameCapture } = require('./game-capture.cjs');
+const { createInputViewer } = require('./input-viewer.cjs');
+const { validateUIPalette } = require('../desktop/ui-palette.cjs');
 const SCHEME = 'chartshub-companion';
 const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu', player: 'ChartsHub — Lecteur Songs' });
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
-  const [{ ServiceContainer }, { MockCloneHeroIntegration }, { createDefaultRegistry, createDefaultWidgets }, { WidgetRenderer }, { SettingsRepository, validateSettings }, { SnapshotHistory }, { ThemeService, createDefaultTheme }, { validateWidgetStyle }, { createDefaultStream, validateStream }] = await Promise.all([
+  const measurementFactories = loadMeasurementFactories(gameplayMeasurements);
+  const measurementsEnabled = measurementFactories !== null;
+  const [{ ServiceContainer }, { MockCloneHeroIntegration }, { createDefaultRegistry, createDefaultWidgets, ensureGameplayDocument }, { WidgetRenderer }, { SettingsRepository, validateSettings }, { SnapshotHistory }, { ThemeService, createDefaultTheme }, { validateWidgetStyle }, { createDefaultStream, validateStream }] = await Promise.all([
     import('./dist/core/services/ServiceContainer.js'), import('./dist/integrations/clonehero/MockCloneHeroIntegration.js'),
     import('./dist/widgets/core/index.js'), import('./dist/widgets/engine/WidgetRenderer.js'), import('./dist/storage/SettingsRepository.js'), import('./dist/layout/WidgetHistory.js'),
     import('./dist/themes/ThemeService.js'), import('./dist/themes/ThemeResolver.js'), import('./dist/overlay/stream/StreamConfig.js')
@@ -57,6 +65,19 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let logTail = Promise.resolve(), pendingSave = Promise.resolve();
   let streamServer = null, streamInit = null, streamTask = Promise.resolve(), streamDesired = false, streamError = null;
   let library = null, rootPickerOpen = false;
+  let songVisuals = null;
+  let inputViewer = null, inputViewerTask = null;
+  const inputViewerStatus = () => inputViewer?.status() ?? { available: hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive(), open: false, phase: 'stopped', title: 'ChartsHub — Input Viewer', language };
+  async function ensureInputViewer() {
+    if (inputViewer) return inputViewer;
+    if (!inputViewerTask) {
+      const task = createInputViewer({ root: __dirname, active: () => hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive(), language: () => language, onChange: () => { if (!disposing) publishPanel(); } });
+      inputViewerTask = task;
+      task.then(value => { inputViewer = value; }, () => { if (inputViewerTask === task) inputViewerTask = null; });
+    }
+    return inputViewerTask;
+  }
+  let gameCapture = null, gameCaptureTask = null;
   let musicPlayer = null, playerWindow = null, playerWindowLoad = null, playerSpectrumAt = 0;
   let playerPreferencesTask = Promise.resolve();
   const playerPreferences = createMusicPlayerPreferences({ dataDirectory });
@@ -89,7 +110,18 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let reshadeSetup = null, reshadeSetupStarting = false;
   let lifecycleRevision = 0;
   let language = 'fr';
+  let telemetry = null;
+  const calibrationHardware = measurementsEnabled ? calibrationHardwareService ?? measurementFactories.createCalibrationHardware({ screen, bounds: () => panel && !panel.isDestroyed() ? panel.getBounds() : null, onChange: () => { if (!disposing) publishPanel(); } }) : null;
+  const connectorSetup = measurementsEnabled ? connectorSetupService ?? measurementFactories.createConnectorSetup({ dataDirectory,
+    chooseDirectory: async () => {
+      const owner = panel && !panel.isDestroyed() ? panel : embedded?.ownerWindow;
+      if (!owner || owner.isDestroyed() || disposing || maintenanceLocked) return null;
+      const choice = await dialog.showOpenDialog(owner, { title: tr('Choisir le dossier contenant Clone Hero.exe', 'Choose the folder containing Clone Hero.exe'), properties: ['openDirectory'] });
+      if (disposing || maintenanceLocked || choice.canceled || choice.filePaths.length !== 1) return null;
+      return choice.filePaths[0];
+    }, onChange: () => { if (!disposing) publishPanel(); } }) : null;
   let buttonMotion = { economy: false };
+  let uiPalette = null;
   const tr = (fr, en) => language === 'fr' ? fr : en;
   let preferredProfileId = null;
   const profileWrites = new Set();
@@ -113,6 +145,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     logger.warn('Settings could not be loaded');
   }
   const profiles = createOverlayProfiles({ dataDirectory, validateSettings });
+  ({ widgets, theme, stream } = validateSettings(ensureGameplayDocument({ version: 3, widgets, theme, stream })));
   await profiles.load();
   const floatingPanels = createFloatingPanels({ dataDirectory });
   await floatingPanels.load();
@@ -126,6 +159,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   });
   const services = new ServiceContainer({ integration, initialWidgets: widgets, logger });
   services.store.setState(state => ({ ...state, theme, stream }));
+  if (measurementsEnabled) telemetry = await measurementFactories.createTelemetrySource({ dataDirectory, onChange: () => { if (!disposing) publish(); } });
   const history = new SnapshotHistory({ widgets, theme, stream });
   const themeService = new ThemeService();
   let editorRevision = 0;
@@ -157,6 +191,14 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     return net.fetch(pathToFileURL(filename).href);
   });
   const preferences = { session: ses, preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, backgroundThrottling: false };
+  const gameCaptureStatus = () => gameCapture?.snapshot() ?? { available: hostActive && !disposing && !stopTask && !maintenanceLocked, phase: 'stopped', title: 'ChartsHub — Capture Clone Hero' };
+  async function ensureGameCapture() {
+    if (gameCapture) return gameCapture;
+    if (!gameCaptureTask) gameCaptureTask = createGameCapture({ root: __dirname, onChange: () => { if (!disposing) publishPanel(); },
+      active: () => hostActive && !disposing && !stopTask && !maintenanceLocked, language: () => language,
+      electron: { BrowserWindow, desktopCapturer, session, ipcMain, net } }).then(value => gameCapture = value).finally(() => { gameCaptureTask = null; });
+    return gameCaptureTask;
+  }
   function hardenContents(contents, page, ownerWindow) {
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', (event, url) => { if (url !== `${SCHEME}://app/ui/${page}`) event.preventDefault(); });
@@ -176,7 +218,11 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), widget: songRequestPreferences.status().widget,
     publicRequests: songRequestShareBroker?.status(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare, autoSync: songRequestShareSync?.status(),
     progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
-  const snapshot = () => ({ language, buttonMotion: { ...buttonMotion }, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const stateView = () => ({ ...(measurementsEnabled ? telemetryStateView(services.store.getState(), telemetry?.snapshot(), { language, liveMetadata: integration.status().mode === 'live' }) : { ...services.store.getState(), performance: null }), lyrics: songVisuals?.lyricsSnapshot() ?? null });
+  const telemetryPanel = () => { const value = telemetry?.snapshot(); return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, hardware: calibrationHardware.snapshot(), connectorSetup: connectorSetup.snapshot(), reason: value.reason } : null; };
+  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true }, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView(), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  // Installation destinations belong only to the private Companion panel.
+  const overlaySnapshot = value => ({ ...value, uiPalette: undefined, telemetry: value.telemetry ? { ...value.telemetry, connectorSetup: undefined } : null, songRequests: undefined, player: undefined });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
     return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
@@ -199,13 +245,22 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   };
   function syncOverlay() {
     if (!overlay || overlay.isDestroyed()) return;
-    const visible = overlayEnabled && renderer.renderWidgetModels(services.store.getState(), 'game').length > 0;
+    const visible = overlayEnabled && renderer.renderWidgetModels(stateView(), 'game').length > 0;
     if (visible && !overlay.webContents.isLoading()) overlay.showInactive(); else overlay.hide();
   }
+  function updateVisuals() {
+    if (!songVisuals) return;
+    songVisuals.setEnabled(hostActive && !disposing && !stopTask && (streamDesired || services.store.getState().widgets.instances.some(w => w.type === 'song.lyrics' && w.enabled && (w.visibility.game || w.visibility.stream))));
+    const view = stateView(), performance = view.performance;
+    const real = performance?.connected === true || (integration.status().mode === 'live' && integration.status().status === 'active');
+    void songVisuals.update({ live: real && hostActive && !disposing && !stopTask, phase: view.gameplay.state,
+      song: view.nowPlaying, clock: performance?.connected ? performance.active?.clock : null });
+  }
   function publish() {
+    updateVisuals();
     const value = snapshot();
     publishPanel(value);
-    if (overlay && !overlay.isDestroyed() && !overlay.webContents.isLoading()) overlay.webContents.send('companion:changed', { ...value, songRequests: undefined, player: undefined });
+    if (overlay && !overlay.isDestroyed() && !overlay.webContents.isLoading()) overlay.webContents.send('companion:changed', overlaySnapshot(value));
     if (filtersWidget && !filtersWidget.isDestroyed() && !filtersWidget.webContents.isLoading()) filtersWidget.webContents.send('companion:changed', filtersWidgetSnapshot());
     syncOverlay();
     streamServer?.publish(value.state);
@@ -222,6 +277,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.economy !== 'boolean' || Object.keys(value).some(key => !['economy', 'hoverLift'].includes(key)) || (Object.hasOwn(value, 'hoverLift') && ![1, 3, 5].includes(value.hoverLift))) return false;
     const next = { economy: value.economy, ...(Object.hasOwn(value, 'hoverLift') ? { hoverLift: value.hoverLift } : {}) };
     if (JSON.stringify(buttonMotion) !== JSON.stringify(next)) { buttonMotion = next; if (!disposing) publish(); }
+    return true;
+  }
+  function setUIPalette(value) {
+    const next = validateUIPalette(value);
+    if (!next || disposing) return false;
+    if (JSON.stringify(next) !== JSON.stringify(uiPalette)) { uiPalette = next; publishPanel(); }
     return true;
   }
   const unsubscribe = services.store.subscribe(publish);
@@ -246,6 +307,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     await shell.trashItem(target);
   }, onChange: () => {
     musicPlayer?.libraryChanged();
+    updateVisuals();
     const requestState = library?.status(), requestRoot = library?.matchingSnapshot().rootKey;
     const refreshingRequestRoot = requestState?.status === 'scanning' && requestState.count > 0 && !!requestRoot && requestRoot === libraryRequestRoot;
     if (requestState?.status === 'ready') libraryRequestRoot = requestRoot;
@@ -264,6 +326,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!disposing) publishPanel();
   } });
   await library.load();
+  songVisuals = createSongVisuals({ library, onChange: () => { if (!disposing) publish(); } });
   musicPlayer = createMusicPlayer({ library, preferences: playerPreferences.status(), onChange: () => { if (!disposing) publishPanel(); }, onAction: value => {
     if (playerWindow && !playerWindow.isDestroyed() && !playerWindow.webContents.isLoading()) playerWindow.webContents.send('companion:player-action', value);
   } });
@@ -621,13 +684,14 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         }
       }
       if (!/^[a-f0-9]{64}$/.test(token)) throw Error('Invalid stream access key');
-      streamServer = createLocalOverlayServer({ root: __dirname, token, onStatus: publish });
+      streamServer = createLocalOverlayServer({ root: __dirname, token, onStatus: publish, visuals: songVisuals });
       return streamServer;
     })().finally(() => { streamInit = null; });
     return streamInit;
   }
   function setStream(enabled) {
     streamDesired = enabled;
+    updateVisuals();
     streamTask = streamTask.catch(() => {}).then(async () => {
       if (!streamDesired || disposing || stopTask) {
         await streamServer?.stop();
@@ -637,7 +701,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       try {
         const server = await ensureStreamServer();
         if (!streamDesired || disposing || stopTask) { await server.stop(); return; }
-        server.publish(services.store.getState());
+        server.publish(stateView());
         await server.start(services.store.getState().stream.port);
         if (!server.status().enabled) streamDesired = false;
         streamError = null;
@@ -691,6 +755,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (typeof enabled !== 'boolean') throw TypeError('Invalid catalogue availability');
     catalogueAccess = enabled;
     if (!enabled) {
+      songVisuals?.stop();
       void songRequestShareBroker?.stop();
       void songRequestShareSync?.pause({ forget: true });
       songRequestShareManualBusy = null;
@@ -757,6 +822,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     }
     if (filtersWidgetLoad) await filtersWidgetLoad;
     if (disposing || stopTask || !filtersWidgetEnabled || !filtersWidget || filtersWidget.isDestroyed()) return;
+    // Reassert the game-overlay level when showing a reused widget, without taking focus.
+    filtersWidget.setAlwaysOnTop(true, 'screen-saver');
     filtersWidget.showInactive();
     publish();
   }
@@ -806,12 +873,14 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   }
   function trustedPlayer(event) { return trustedSender(event, playerWindow, 'music-player.html'); }
   function canRead(event) { return trustedPanel(event) || trustedSender(event, overlay, 'overlay.html'); }
-  ipcMain.handle('companion:snapshot', event => trustedPanel(event) ? snapshot() : trustedPlayer(event) ? playerWidgetSnapshot() : canRead(event) ? { ...snapshot(), songRequests: undefined, player: undefined } : trustedSender(event, filtersWidget, 'filters-widget.html') ? filtersWidgetSnapshot() : catalogueAllowed() && trustedSender(event, catalogueWidget, 'catalogue-widget.html') ? catalogueWidgetSnapshot() : null);
+  ipcMain.handle('companion:snapshot', event => trustedPanel(event) ? snapshot() : trustedPlayer(event) ? playerWidgetSnapshot() : canRead(event) ? overlaySnapshot(snapshot()) : trustedSender(event, filtersWidget, 'filters-widget.html') ? filtersWidgetSnapshot() : catalogueAllowed() && trustedSender(event, catalogueWidget, 'catalogue-widget.html') ? catalogueWidgetSnapshot() : null);
   ipcMain.handle('companion:command', async (event, command, payload) => {
     const mini = catalogueAllowed() && trustedCatalogueWidgetCommand(event, catalogueWidget, command, payload);
     const playerSender = trustedPlayer(event) && typeof command === 'string' && (command.startsWith('player.') || (command === 'panels.appearance' && payload?.panel === 'player'));
-    if (disposing || stopTask || maintenanceLocked || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini || playerSender) || !validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
-    if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
+    if (disposing || stopTask || maintenanceLocked || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini || playerSender)) return { ok: false, error: 'Commande non autorisée.' };
+    if (!measurementsEnabled && typeof command === 'string' && command.startsWith('telemetry.')) return { ok: false, code: 'GAMEPLAY_MEASUREMENTS_UNAVAILABLE', error: tr('Les mesures de jeu et leur connecteur ne sont pas proposés dans cette version.', 'Gameplay measurements and their connector are not offered in this version.') };
+    if (!validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
+    if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.accuracy', 'widget.lyrics', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
       if (command === 'player.report' || command === 'player.spectrum' || command === 'player.ended') {
         if (!trustedPlayer(event)) return { ok: false };
@@ -830,6 +899,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'player.control') return payload.action === 'volume' ? await savePlayerPreferences({ volume: payload.value }) : await musicPlayer.control(payload.action, payload.value);
       if (command === 'player.widget') { await setPlayerWidget(payload.enabled); return { ok: true }; }
       if (command === 'capture.player') { await setPlayerWidget(true); return { ok: true }; }
+      if (command === 'gameCapture.open') { await (await ensureGameCapture()).open(); return { ok: true }; }
+      if (command === 'inputViewer.open') { await (await ensureInputViewer()).open(); return { ok: true }; }
       if (command === 'player.video') return await savePlayerPreferences({ videoEnabled: payload.enabled });
       if (command === 'player.appearance') return await savePlayerPreferences({ appearance: payload.appearance });
       if (command === 'player.shuffle') return await savePlayerPreferences({ shuffle: payload.enabled });
@@ -911,6 +982,23 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       else if (command === 'filters.widget') await setFiltersWidget(payload.enabled);
       else if (command === 'filters.openPanel') { await open(); filtersFocusRevision++; }
       else if (command === 'clonehero.mode') await integration.setMode(payload.mode);
+      else if (command === 'telemetry.enabled') await telemetry.setEnabled(payload.enabled);
+      else if (command === 'telemetry.configure') await telemetry.configure(payload);
+      else if (command === 'telemetry.sessionReset') telemetry.resetSession();
+      else if (command === 'telemetry.hardwareRefresh') await calibrationHardware.refresh();
+      else if (command === 'telemetry.connectorChoose') await connectorSetup.choose();
+      else if (command === 'telemetry.connectorPrepare') await connectorSetup.prepare(payload);
+      else if (command === 'telemetry.connectorCancel') await connectorSetup.cancel();
+      else if (command === 'telemetry.connectorInstall') await connectorSetup.install(payload);
+      else if (command === 'telemetry.connectorRollback') await connectorSetup.rollback(payload);
+      else if (command === 'telemetry.calibrationStart') telemetry.startCalibration(payload.stage, payload.settingMs, payload.source, payload.hardwareContext);
+      else if (command === 'telemetry.calibrationFinish') telemetry.finishCalibration();
+      else if (command === 'telemetry.guide') await shell.openExternal('https://wiki.clonehero.net/books/guides-and-tutorials/page/calibrating-audio-and-video');
+      else if (command === 'telemetry.widgets') {
+        const next = ensureGameplayDocument({ version: 3, ...editorDocument() });
+        const types = new Set(['gameplay.accuracy','gameplay.combo','gameplay.fc','gameplay.progress','gameplay.comparison','session.goal','session.history']);
+        commitEditorState({ ...next, widgets: next.widgets.map(widget => types.has(widget.type) ? { ...widget, enabled: true, visibility: { ...widget.visibility, stream: true } } : widget) });
+      }
       else if (command === 'clonehero.detect') await integration.detect();
       else if (command === 'clonehero.chooseFile') {
         if (cloneHeroPickerOpen) return { ok: false, error: 'Le choix du fichier est déjà ouvert.' };
@@ -943,7 +1031,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         }
       } else if (command === 'widget.visibility') {
         commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id
-          ? { ...widget, visibility: { ...widget.visibility, game: payload.game, ...(payload.stream === undefined ? {} : { stream: payload.stream }) }, gameplayVisibility: [...payload.gameplayVisibility] } : widget));
+          ? { ...widget, visibility: { ...widget.visibility, game: payload.game, ...(payload.stream === undefined ? {} : { stream: payload.stream }) }, ...(payload.gameplayVisibility === undefined ? {} : { gameplayVisibility: [...payload.gameplayVisibility] }) } : widget));
       } else if (command === 'theme.preset') {
         commitEditorState({ ...editorDocument(), theme: themeService.applyPreset(payload.id) });
       } else if (command === 'theme.color') {
@@ -956,6 +1044,14 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       } else if (command === 'widget.fontSize') {
         commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id
           ? { ...widget, style: { ...widget.style, fontSize: payload.fontSize } } : widget));
+      } else if (command === 'widget.accuracy') {
+        if (services.store.getState().widgets.instances.find(widget => widget.id === payload.id)?.type !== 'gameplay.accuracy') return { ok: false, error: 'Ce réglage concerne uniquement Accuracy.' };
+        const config = require('./dist/widgets/core/Gameplay/AccuracyConfig.js').validateAccuracyConfig(payload.config);
+        commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id ? { ...widget, config } : widget));
+      } else if (command === 'widget.lyrics') {
+        if (services.store.getState().widgets.instances.find(widget => widget.id === payload.id)?.type !== 'song.lyrics') return { ok: false, error: 'Ce réglage concerne uniquement les paroles.' };
+        const config = require('./dist/widgets/core/Gameplay/LyricsConfig.js').validateLyricsConfig(payload.config);
+        commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id ? { ...widget, config } : widget));
       } else if (command === 'widget.locked') {
         commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id ? { ...widget, locked: payload.locked } : widget));
       } else if (command === 'editor.undo' || command === 'editor.redo') {
@@ -972,6 +1068,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       } else if (command === 'stream.enabled') {
         await setStream(payload.enabled);
         if (payload.enabled && !streamStatus().enabled) return { ok: false, error: streamStatus().error || streamError || 'Le serveur OBS est indisponible.' };
+      } else if (command === 'visuals.select') {
+        await songVisuals.select(payload);
+      } else if (command === 'visuals.copyUrl') {
+        const value = streamStatus(), url = payload.kind === 'background' ? value.backgroundUrl : value.videoUrl;
+        if (!value.enabled || !url) return { ok: false, error: 'Activez le serveur OBS pour copier cette source.' };
+        clipboard.writeText(url);
       } else if (command === 'stream.copyUrl') {
         const status = streamStatus();
         if (!status.enabled || !status.url) return { ok: false, error: 'Activez le serveur OBS avant de copier son adresse.' };
@@ -1155,6 +1257,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate' || command === 'library.keepDuplicateVersions') {
         return { ok: false, error: error?.code === 'LIBRARY_COMPARISON_SAFE' ? error.message : 'La comparaison n’a pas pu être terminée. Vérifiez les fichiers puis recomparez les versions.' };
       }
+      if (command.startsWith('telemetry.')) return { ok: false, error: 'Vérifiez la connexion aux mesures, le réglage testé et les 30 jugements continus avant de terminer un essai.' };
       if (command.startsWith('profile.')) {
         publish();
         return { ok: false, ...(error?.code === 'STALE_PROFILES' ? { code: error.code } : {}), error: ['PROFILE_SAFE', 'STALE_PROFILES'].includes(error?.code) ? error.message : 'Le profil n’a pas pu être enregistré ou chargé. Réessayez.' };
@@ -1164,6 +1267,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function stop() {
     if (stopTask) return stopTask;
     lifecycleRevision++;
+    telemetry?.stop();
+    inputViewer?.stop();
+    songVisuals?.stop();
     libraryDownloadRefresh?.stop();
     const songRequestSharingStop = songRequestShareSync?.pause();
     const songRequestPublicStop = songRequestShareBroker?.stop();
@@ -1175,6 +1281,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const songRequestStop = songRequestServer?.stop();
     const songRequestConnectionsStop = songRequestConnections?.stop();
     hostActive = false; catalogueWidgetTicket++; catalogueWidgetEnabled = false;
+    gameCapture?.stop();
     musicPlayer?.stop();
     if (playerWindow && !playerWindow.isDestroyed()) playerWindow.destroy();
     playerWindowLoad = null;
@@ -1212,6 +1319,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (disposing || embedded?.ownerWindow.isDestroyed()) return null;
       const openingRevision = lifecycleRevision;
       await services.start();
+      telemetry?.start();
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
       hostActive = true;
       void refreshSongRequestShare();
@@ -1229,7 +1337,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
       await downloads.start();
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
-      const panelPreferences = { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`] };
+      const panelPreferences = { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`, ...(measurementsEnabled ? ['--chartshub-gameplay-measurements'] : []), ...(measurementsEnabled && calibrationBeta === true ? ['--chartshub-calibration-beta'] : [])] };
       const window = embedded?.ownerWindow ?? new BrowserWindow({ width: 1250, height: 850, minWidth: 900, minHeight: 660, show: false, title: 'ChartsHub — Clone Hero Companion', backgroundColor: '#10121a', icon: path.join(__dirname, '..', 'icon.ico'), webPreferences: panelPreferences });
       const view = embedded ? new WebContentsView({ webPreferences: panelPreferences }) : null;
       const contents = view?.webContents ?? window.webContents;
@@ -1281,7 +1389,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     else app.removeListener('before-quit', beforeQuit);
     unsubscribe(); ipcMain.removeHandler('companion:snapshot'); ipcMain.removeHandler('companion:command');
     disposeTask = (async () => {
-      await stop(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
+      await stop(); if (gameCaptureTask) await gameCaptureTask; await gameCapture?.dispose(); if (inputViewerTask) await inputViewerTask.catch(() => {}); await inputViewer?.dispose(); await telemetry?.dispose(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
       if (embedded && panelContents && !panelContents.isDestroyed()) {
         const contents = panelContents;
         await new Promise(resolve => { contents.once('destroyed', resolve); contents.close(); });
@@ -1300,7 +1408,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (downloads?.status()?.items?.some(item => ['Queued','Downloading'].includes(item.state))) reasons.push('chart_downloads');
     if (filters?.status()?.busy || reshade?.status()?.busy || ['preparing','installing'].includes(reshadeSetup?.status()?.state)) reasons.push('game_setup');
     if (player?.playing || player?.loading) reasons.push('player_active');
-    if (streamStatus().enabled) reasons.push('stream_active');
+    if (streamStatus().enabled || gameCaptureStatus().phase !== 'stopped' || inputViewerStatus().phase === 'running') reasons.push('stream_active');
     if (songRequests?.snapshot().enabled || songRequestBusy) reasons.push('requests_active');
     if (songRequestShare.busy) reasons.push('sharing_active');
     if (rootPickerOpen || downloadPickerOpen || cloneHeroPickerOpen || filtersPickerOpen || filtersConfirmationOpen || reshadePickerOpen || reshadeConfirmationOpen) reasons.push('dialog_active');
@@ -1310,7 +1418,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     await saveSettings();await Promise.all([...profileWrites]);await floatingPanels.flush();await songRequestPreferences.flush();
     if(persistenceError||profiles.status().error||floatingPanels.status().error||songRequestPreferences.status().error)throw Object.assign(Error('Visual settings could not be saved'),{code:'BACKUP_WRITE_FAILED'});
   }
-  return { open, stop, snapshot, services, integration, registry, setLanguage, setButtonMotion, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
+  return { open, stop, snapshot, services, integration, registry, setLanguage, setButtonMotion, setUIPalette, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
     maintenanceStatus, flushPortableConfiguration, setMaintenanceLocked: value => { maintenanceLocked = value === true; },
     getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, getPlayerWidget: () => playerWindow, dispose
   };

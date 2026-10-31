@@ -1,6 +1,17 @@
 const test = require('node:test'), assert = require('node:assert/strict'), path = require('node:path');
 const { assetPath, trustedSender, trustedFiltersWidgetCommand, validCommand } = require('../companion/security.cjs');
 const root = path.resolve(__dirname, '../companion');
+// Host snapshots now include a live session clock. Preserve every other field
+// in the old isolation assertions while checking that this one value is sane.
+function assertStateApartFromSessionClock(actual, expected, message) {
+  if (expected.performance == null) { assert.equal(actual.performance, expected.performance); assert.deepEqual(actual, expected, message); return; }
+  const before = expected.performance.session.durationSeconds, after = actual.performance.session.durationSeconds;
+  assert.ok(Number.isFinite(before) && before >= 0, 'initial session duration is finite and nonnegative');
+  assert.ok(Number.isFinite(after) && after >= before, 'session duration is finite and monotonic');
+  const comparable = structuredClone(actual);
+  comparable.performance.session.durationSeconds = before;
+  assert.deepEqual(comparable, expected, message);
+}
 
 test('history IPC accepts bounded pagination only and verification cancellation accepts no target', () => {
   for (const payload of [{}, { offset: 0, limit: 10 }, { offset: 200, limit: 50 }]) assert.equal(validCommand('library.cleanupHistory', payload, []), true);
@@ -136,6 +147,10 @@ test('builder commands reject invalid coordinates, duplicate identities and unsu
   assert.equal(valid({ revision: 0.5, items: [item] }), false);
   assert.equal(valid({ revision: -1, items: [item] }), false);
   assert.equal(validCommand('widget.visibility', { revision: 0, id: 'title', game: true, gameplayVisibility: [] }, ['title']), true);
+  assert.equal(validCommand('widget.visibility', { revision: 0, id: 'title', game: true, stream: false }, ['title']), true);
+  for (const gameplayVisibility of [undefined, null]) {
+    assert.equal(validCommand('widget.visibility', { revision: 0, id: 'title', game: true, gameplayVisibility }, ['title']), false, 'Only absence preserves existing states');
+  }
   for (const gameplayVisibility of [['menu'], ['playing', 'playing'], ['playing', 'paused', 'results'], 'playing']) {
     assert.equal(validCommand('widget.visibility', { revision: 0, id: 'title', game: true, gameplayVisibility }, ['title']), false);
   }
@@ -162,7 +177,7 @@ test('existing application menu can open Companion without removing catalogue co
   assert.equal(calls, 1); assert.ok(menu.some(item => item.label === 'Catalogue'));
 });
 
-async function hostFixture(t, { catalogueClient, downloadWorker, filtersService, reshadeService, reshadeSetupService, prepareData, embedded = false } = {}) {
+async function hostFixture(t, { catalogueClient, downloadWorker, filtersService, reshadeService, reshadeSetupService, prepareData, embedded = false, measurementOptions = {} } = {}) {
   const fs = require('node:fs/promises'), os = require('node:os');
   const { EventEmitter } = require('node:events');
   const Module = require('node:module');
@@ -184,11 +199,11 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
     isDestroyed() { return this.destroyed; }
     destroy() { if (!this.destroyed) { this.destroyed = true; this.visible = false; this.emit('closed'); } }
     show() { assert.equal(this.destroyed, false); this.visible = true; }
-    showInactive() { this.show(); }
+    showInactive() { this.inactiveShows = (this.inactiveShows ?? 0) + 1; this.show(); }
     hide() { this.visible = false; }
     isMinimized() { return false; }
     restore() {}
-    focus() {}
+    focus() { this.focusCalls = (this.focusCalls ?? 0) + 1; }
     setMenuBarVisibility() {}
     setIgnoreMouseEvents() {}
     setAlwaysOnTop(value, level) { this.alwaysOnTop = { value, level }; }
@@ -238,7 +253,7 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
     if (previous) require.cache[hostPath] = previous; else delete require.cache[hostPath];
   }
   if (prepareData) await prepareData(directory);
-  const host = await createCompanionHost({ dataDirectory: directory, catalogueClient, downloadWorker, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }), filtersService, reshadeService, reshadeSetupService,
+  const host = await createCompanionHost({ dataDirectory: directory, catalogueClient, downloadWorker, cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: null, sessions: [] }), filtersService, reshadeService, reshadeSetupService, ...measurementOptions,
     ...(embedded ? { embedded: { ownerWindow: owner, attachView: view => attached.push(view), activate: () => { activations++; } } } : {}) });
   t.after(async () => {
     await host.dispose();
@@ -250,6 +265,34 @@ async function hostFixture(t, { catalogueClient, downloadWorker, filtersService,
   const eventFor = window => ({ sender: window.webContents, senderFrame: window.webContents.mainFrame });
   return { host, windows, views, owner, attached, activations: () => activations, app, handlers, eventFor, directory, copied, dialog, shell, opened, openedUrls, menus, protocolRequest: (url, method = 'GET') => localProtocol({ url, method }) };
 }
+
+test('public Host leaves measurement files and profiles alone, rejects telemetry commands and preserves ordinary widget editing', async t => {
+  const fs=require('node:fs/promises'),privateFiles=['clonehero-telemetry.json','clonehero-records.json','connector-setup/previous-receipt.json'];let serviceCalls=0;
+  const unavailable=()=>{serviceCalls++;throw Error('Public Host must not access a private service');};
+  const f=await hostFixture(t,{measurementOptions:{calibrationHardwareService:{snapshot:unavailable,refresh:unavailable},connectorSetupService:{snapshot:unavailable,choose:unavailable}},prepareData:async directory=>{
+    for(const name of privateFiles){const file=path.join(directory,name);await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,'existing private data preserved: '+name);}
+  }});
+  const panel=await f.host.open(),initial=structuredClone(f.host.snapshot()),invoke=(name,payload)=>f.handlers.get('companion:command')(f.eventFor(panel),name,payload);
+  assert.deepEqual(initial.features,{gameplayMeasurements:false,calibrationBeta:false});assert.equal(initial.telemetry,null);assert.equal(initial.state.performance,null);assert.equal(serviceCalls,0);
+  const original=structuredClone(initial.state.widgets);
+  for(const name of ['telemetry.enabled','telemetry.configure','telemetry.widgets','telemetry.sessionReset','telemetry.hardwareRefresh','telemetry.connectorChoose','telemetry.connectorPrepare','telemetry.connectorInstall','telemetry.connectorRollback','telemetry.connectorCancel','telemetry.calibrationStart','telemetry.calibrationFinish','telemetry.guide','telemetry.futureOperation']){
+    const result=await invoke(name,{untrusted:'unused'});assert.equal(result.ok,false,name);assert.equal(result.code,'GAMEPLAY_MEASUREMENTS_UNAVAILABLE',name);
+  }
+  assert.deepEqual(f.host.snapshot().state.widgets,original);assert.equal(serviceCalls,0);assert.equal(f.openedUrls.length,0);
+  const measured=new Set(['gameplay.accuracy','gameplay.combo','gameplay.fc','gameplay.progress','gameplay.comparison','session.goal','session.history']),ordinary=original.instances.filter(widget=>!measured.has(widget.type));assert.equal(ordinary.length,6);
+  for(const widget of ordinary){const revision=f.host.snapshot().editor.revision;assert.equal((await invoke('widget.visibility',{revision,id:widget.id,game:!widget.visibility.game})).ok,true);assert.equal((await invoke('widget.visibility',{revision:f.host.snapshot().editor.revision,id:widget.id,game:widget.visibility.game})).ok,true);}
+  assert.deepEqual(f.host.snapshot().state.widgets,original,'six ordinary widgets remain editable without changing stored measurement widgets');
+  // Even an old in-memory sample cannot reach either renderer projection.
+  f.host.services.store.setState(state=>({...state,performance:{connected:true,phase:'playing',timing:{sampleCount:999}}}));
+  assert.equal(f.host.snapshot().state.performance,null);await f.host.setOverlay(true);const overlay=f.host.getOverlay(),projection=f.handlers.get('companion:snapshot')(f.eventFor(overlay));assert.equal(projection.telemetry,null);assert.equal(projection.state.performance,null);
+  for(const widget of original.instances.filter(widget=>measured.has(widget.type)))assert.equal(f.host.registry.get(widget.type).component(projection.state,widget),null,widget.type+' cannot render measurements or fallback session statistics');
+  await f.host.flushPortableConfiguration();await f.host.stop();for(const name of privateFiles)assert.equal(await fs.readFile(path.join(f.directory,name),'utf8'),'existing private data preserved: '+name);assert.equal(serviceCalls,0);
+});
+
+test('an explicit private Host option preserves isolated measurement development without enabling it from truthy values',async t=>{
+  const publicHost=await hostFixture(t,{measurementOptions:{gameplayMeasurements:'true',calibrationBeta:true}});const publicPanel=await publicHost.host.open();assert.equal(publicHost.host.snapshot().telemetry,null);assert.equal(publicPanel.options.webPreferences.additionalArguments.includes('--chartshub-gameplay-measurements'),false);assert.equal(publicPanel.options.webPreferences.additionalArguments.includes('--chartshub-calibration-beta'),false);await publicHost.host.dispose();
+  const privateHost=await hostFixture(t,{measurementOptions:{gameplayMeasurements:true,calibrationBeta:true}});const privatePanel=await privateHost.host.open();assert.deepEqual(privateHost.host.snapshot().features,{gameplayMeasurements:true,calibrationBeta:true});assert(privateHost.host.snapshot().telemetry);assert(privatePanel.options.webPreferences.additionalArguments.includes('--chartshub-gameplay-measurements'));assert(privatePanel.options.webPreferences.additionalArguments.includes('--chartshub-calibration-beta'));
+});
 
 test('right-click editing stays in the exact local Companion contents in tabbed and separate windows', async t => {
   for (const embedded of [false, true]) {
@@ -596,10 +639,37 @@ test('filter widget has isolated reads and cannot install modules or control the
   assert.equal(filtersService.value.settings.enabled, true);
   assert.equal((await invoke(widget, 'filters.openPanel')).ok, true);
   assert.equal(host.snapshot().filtersFocusRevision, 1);
-  assert.deepEqual(host.snapshot().state, originalState, 'game filters must not mutate overlay appearance or editor history');
+  assertStateApartFromSessionClock(host.snapshot().state, originalState, 'game filters must not mutate overlay appearance or editor history');
   widget.destroy();
   assert.equal(host.snapshot().filtersWidgetEnabled, false);
   assert.equal((await invoke(widget, 'filters.settings', { settings: filtersService.value.settings })).ok, false);
+});
+
+test('filter mini widget restores its topmost level without taking focus on every show', async t => {
+  const { host } = await hostFixture(t, { filtersService: fakeFiltersService() });
+  await host.open(); await host.setFiltersWidget(true);
+  const widget = host.getFiltersWidget();
+  assert.deepEqual(widget.alwaysOnTop, { value: true, level: 'screen-saver' });
+  assert.equal(widget.inactiveShows, 1); assert.equal(widget.focusCalls ?? 0, 0);
+  assert.equal(widget.options.resizable, true); assert.equal(widget.options.movable, true);
+  const actions = [], topmost = widget.setAlwaysOnTop.bind(widget), showInactive = widget.showInactive.bind(widget);
+  widget.setAlwaysOnTop = (value, level) => { actions.push(['topmost', value, level]); topmost(value, level); };
+  widget.showInactive = () => { actions.push(['showInactive']); showInactive(); };
+  widget.focus = () => assert.fail('Showing the mini filter widget must not take focus from the game');
+  await host.setFiltersWidget(false); assert.equal(widget.visible, false);
+  topmost(false, 'normal');
+  await host.setFiltersWidget(true);
+  assert.equal(host.getFiltersWidget(), widget, 'A hidden widget is reused');
+  assert.deepEqual(actions, [['topmost', true, 'screen-saver'], ['showInactive']]);
+  assert.deepEqual(widget.alwaysOnTop, { value: true, level: 'screen-saver' });
+  actions.length = 0;
+  await host.setFiltersWidget(true);
+  assert.deepEqual(actions, [['topmost', true, 'screen-saver'], ['showInactive']], 'An already visible widget reasserts the same level');
+  widget.destroy();
+  await host.setFiltersWidget(true);
+  assert.notEqual(host.getFiltersWidget(), widget);
+  assert.deepEqual(host.getFiltersWidget().alwaysOnTop, { value: true, level: 'screen-saver' });
+  assert.equal(host.getFiltersWidget().focusCalls ?? 0, 0);
 });
 
 test('native filter installation confirms the selected target and rejects stale dialogs', async t => {
@@ -675,7 +745,7 @@ test('native Clone Hero export reaches widgets and clears them without changing 
   const originalWidgets = structuredClone(host.snapshot().state.widgets);
   host.integration.transition('playing');
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(host.snapshot().state.nowPlaying.title, 'Everlong');
+  assert.equal(host.snapshot().state.nowPlaying.title, 'Signal d’aurore');
   dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [songFile] });
   assert.equal((await command('clonehero.chooseFile')).ok, true);
   assert.equal(host.snapshot().cloneHero.mode, 'live');
@@ -721,7 +791,7 @@ test('native Clone Hero export reaches widgets and clears them without changing 
   assert.deepEqual(host.snapshot().state.widgets, originalWidgets);
   assert.equal((await command('clonehero.mode', { mode: 'mock' })).ok, true);
   assert.equal((await command('mock.state', { state: 'playing' })).ok, true);
-  await waitFor(() => host.snapshot().state.nowPlaying?.title === 'Everlong');
+  await waitFor(() => host.snapshot().state.nowPlaying?.title === 'Signal d’aurore');
 });
 
 test('closing a panel invalidates its pending Clone Hero file picker', async t => {
@@ -795,6 +865,45 @@ test('builder group edits are atomic, undoable and reject stale revisions withou
   const revision = host.snapshot().editor.revision;
   await command('editor.redo');
   assert.equal(host.snapshot().editor.revision, revision, 'empty redo is a no-op');
+});
+
+test('Accuracy options are revisioned, undoable, saved with profiles and restricted to the exact widget type',async t=>{
+ const {host,handlers,eventFor,directory}=await hostFixture(t),panel=await host.open(),command=(name,payload)=>handlers.get('companion:command')(eventFor(panel),name,payload),revision=()=>host.snapshot().editor.revision;
+ const id='gameplay-accuracy',config={fields:['lastOffsetMs','meanOffsetMs'],showTitle:false,showCoverage:false},initial=structuredClone(host.snapshot().state.widgets.instances);
+ assert.equal((await command('widget.accuracy',{revision:revision(),id:'song-title',config})).ok,false);
+ const before=revision();assert.equal((await command('widget.accuracy',{revision:before,id,config})).ok,true);assert.equal(revision(),before+1);assert.deepEqual(host.snapshot().state.widgets.instances.find(w=>w.id===id).config,config);
+ assert.equal((await command('widget.accuracy',{revision:before,id,config:{}})).code,'STALE_REVISION');
+ assert.deepEqual(host.snapshot().state.widgets.instances.filter(w=>w.id!==id),initial.filter(w=>w.id!==id));
+ await command('editor.undo');assert.deepEqual(host.snapshot().state.widgets.instances,initial);await command('editor.redo');
+ const saved=await command('profile.save',{revision:revision(),profilesRevision:host.snapshot().profiles.revision,name:'Accuracy compact'});assert.equal(saved.ok,true);
+ await command('widget.accuracy',{revision:revision(),id,config:{}});assert.equal((await command('profile.apply',{revision:revision(),profilesRevision:host.snapshot().profiles.revision,id:saved.result.id})).ok,true);
+ assert.deepEqual(host.snapshot().state.widgets.instances.find(w=>w.id===id).config,config);
+ await host.saveSettings();const stored=JSON.parse(await require('node:fs/promises').readFile(path.join(directory,'settings.json'),'utf8'));assert.deepEqual(stored.widgets.find(w=>w.id===id).config,config);
+});
+
+test('OBS destination changes preserve existing gameplay states after results and survive a settings reload', async t => {
+  const fs = require('node:fs/promises');
+  const { host, handlers, eventFor, directory } = await hostFixture(t), panel = await host.open();
+  const command = (name, payload) => handlers.get('companion:command')(eventFor(panel), name, payload);
+  const id = 'gameplay-combo', before = structuredClone(host.snapshot().state.widgets.instances.find(widget => widget.id === id));
+  assert.deepEqual(before.gameplayVisibility, ['idle', 'menu', 'loading', 'playing', 'paused', 'results']);
+  host.integration.transition('results');
+  for (const stream of [true, false]) {
+    assert.equal((await command('widget.visibility', { revision: host.snapshot().editor.revision, id, game: before.visibility.game, stream })).ok, true);
+    const widget = host.snapshot().state.widgets.instances.find(widget => widget.id === id);
+    assert.equal(widget.visibility.stream, stream);assert.deepEqual(widget.gameplayVisibility, before.gameplayVisibility);
+  }
+  const revision = host.snapshot().editor.revision;
+  assert.equal((await command('widget.visibility', { revision, id, game: true, gameplayVisibility: ['results'] })).ok, false);
+  assert.equal(host.snapshot().editor.revision, revision, 'Explicit unsupported phases still cannot alter settings');
+  assert.equal((await command('widget.visibility', { revision, id, game: true, gameplayVisibility: ['paused'] })).ok, true);
+  const expected = structuredClone(host.snapshot().state.widgets.instances.find(widget => widget.id === id));
+  await host.saveSettings();
+  const { SettingsRepository } = await import('../companion/dist/storage/SettingsRepository.js');
+  const loaded = await new SettingsRepository(path.join(directory, 'settings.json'), []).load();
+  assert.deepEqual(loaded.widgets.find(widget => widget.id === id), expected);
+  assert.deepEqual(expected.gameplayVisibility, ['paused']);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(directory, 'settings.json'), 'utf8')).widgets.find(widget => widget.id === id), expected);
 });
 
 test('builder visibility updates native overlay and geometry survives a flushed settings reload', async t => {
@@ -1272,7 +1381,7 @@ test('real Companion worker and queue deliver verified files through catalogue c
   assert.equal((await command('downloads.openFolder', { id: completed.id })).ok, true);
   assert.deepEqual(f.opened, [completed.destination]);
   assert.equal(f.host.snapshot().library.count, 0); assert.equal(f.host.snapshot().library.settings.rootPath, null);
-  assert.deepEqual(f.host.snapshot().state, initial);
+  assertStateApartFromSessionClock(f.host.snapshot().state, initial);
   assert.equal((await command('downloads.remove', { id: completed.id })).ok, true);
   assert.equal(f.host.snapshot().downloads.items.length, 0);
   assert.equal((await fs.stat(completed.destination)).isDirectory(), true, 'removing history retains the completed chart');
@@ -1338,7 +1447,7 @@ test('catalogue host stays offline until requested, scopes artwork and links, an
   assert.equal((await command('catalogue.unlink', { localId, contextId })).ok, true);
   await host.setOverlay(true);
   assert.equal((await handlers.get('companion:command')(eventFor(host.getOverlay()), 'catalogue.search', catalogueSearch())).ok, false);
-  assert.deepEqual(host.snapshot().state, initial);
+  assertStateApartFromSessionClock(host.snapshot().state, initial);
   panel.destroy(); await host.stop();
   await host.open(); assert.equal(requests, 1, 'reopening does not automatically reload the remote catalogue');
 });
@@ -1375,11 +1484,11 @@ test('locked widgets reject geometry through both layout routes, remain style-ed
   assert.equal((await command('widget.layout', { revision: revision(), destination: 'stream', items: [streamItem] })).code, 'WIDGET_LOCKED');
   const badStream = structuredClone(initial.stream); badStream.layout = badStream.layout.map(item => item.id === id ? streamItem : item);
   assert.equal((await command('stream.settings', { revision: revision(), settings: badStream })).code, 'WIDGET_LOCKED');
-  assert.deepEqual(host.snapshot().state, initial);
+  assertStateApartFromSessionClock(host.snapshot().state, initial);
   assert.equal((await command('widget.fontSize', { revision: revision(), id, fontSize: 60 })).ok, true);
   assert.equal(host.snapshot().state.widgets.instances.find(item => item.id === id).locked, true);
   await command('editor.undo');
-  assert.deepEqual(host.snapshot().state, initial);
+  assertStateApartFromSessionClock(host.snapshot().state, initial);
   await command('editor.undo');
   assert.equal(host.snapshot().state.widgets.instances.find(item => item.id === id).locked, undefined);
   await command('editor.redo');
@@ -1418,7 +1527,7 @@ test('named overlay profiles restore a whole visual snapshot without restoring n
   assert.deepEqual(applied.stream, { ...original.stream, port: stream.port });
   assert.deepEqual(applied.nowPlaying, beforeApply.nowPlaying); assert.deepEqual(applied.gameplay, beforeApply.gameplay);
   assert.equal(host.snapshot().editor.revision, applyRevision + 1, 'applying is one history action');
-  await command('editor.undo'); assert.deepEqual(host.snapshot().state, beforeApply);
+  await command('editor.undo'); assertStateApartFromSessionClock(host.snapshot().state, beforeApply);
   await command('editor.redo'); assert.deepEqual(host.snapshot().state.widgets, original.widgets);
   assert.equal((await command('profile.apply', { ...rev(), revision: applyRevision, id })).code, 'STALE_REVISION');
   assert.equal((await command('profile.save', { ...rev(), id, name: 'Jeu personnel' })).ok, true);
@@ -1430,7 +1539,7 @@ test('named overlay profiles restore a whole visual snapshot without restoring n
   assert.doesNotMatch(stored, /49371|38473|charterSegments|nowPlaying|filePath|stream-access|Chosen/);
   const stateBeforeDelete = structuredClone(host.snapshot().state);
   assert.equal((await command('profile.delete', { profilesRevision: rev().profilesRevision, id })).ok, true);
-  assert.equal(host.snapshot().profiles.items.length, 0); assert.deepEqual(host.snapshot().state, stateBeforeDelete);
+  assert.equal(host.snapshot().profiles.items.length, 0); assertStateApartFromSessionClock(host.snapshot().state, stateBeforeDelete);
 });
 
 

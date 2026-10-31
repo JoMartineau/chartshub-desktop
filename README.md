@@ -39,6 +39,10 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.32
+
+Les widgets du morceau se règlent séparément pour Jeu et Stream. La version publique ne propose ni MelonLoader, ni connecteur de mesures, ni assistant de calibration. Stream / OBS fournit des captures recadrées de la highway, du score et des paroles réellement affichées par le jeu : choisissez sa fenêtre puis démarrez explicitement la capture. Le fond reste présent dans chaque zone ; la séparation transparente des éléments natifs est indisponible. Le texte des paroles locales et la vidéo ne peuvent pas se synchroniser sans une horloge de jeu compatible. Un Input Viewer personnalisable pour guitare et batterie affiche les entrées et des traînées directionnelles, sans accès aux données du jeu. [Mode d’emploi](docs/INPUT-VIEWER.md). [Notes et limites de la version](docs/RELEASE-0.14.32.md).
+
 ### Version 0.14.8
 
 Cette version améliore le passage au morceau suivant, la lecture vidéo avec ses proportions originales et le plein écran, les marges et le défilement automatique du lecteur Songs. Les playlists, Song Request, widgets personnalisables et le nettoyage sûr des doublons restent disponibles. [Notes complètes de la version](docs/RELEASE-0.14.12.md).

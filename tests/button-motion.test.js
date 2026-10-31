@@ -39,7 +39,7 @@ test('existing economy previews and cancellation update button motion without ch
   const source = fs.readFileSync(path.join(repo, 'companion/ui/ui-bloom.js'), 'utf8');
   const body = source.slice(source.indexOf('  function paint(value) {'), source.indexOf('  function preview(value)'));
   const properties = new Map(), document = { documentElement: { dataset: {}, style: { setProperty: (name, value) => properties.set(name, value), removeProperty: name => properties.delete(name) } } };
-  const paint = Function('document', 'model', 'applyButtonMotion', body + ';return paint;')(document, model, applyButtonMotion);
+  const paint = Function('document', 'model', 'applyButtonMotion', 'paintCataloguePalette', body + ';return paint;')(document, model, applyButtonMotion, () => null);
   const saved = { ...model.DEFAULTS, color: '#123456' }, original = structuredClone(saved);
   paint({ ...saved, economy: true, hoverLift: 5 });
   assert.equal(document.documentElement.dataset.chEconomy, 'on');
