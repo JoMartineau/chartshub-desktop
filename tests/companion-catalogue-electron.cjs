@@ -64,8 +64,9 @@ function createCatalogueFixture() {
 async function verifyCatalogue(panel, host, data, passed, fixture) {
   const evaluate = code => panel.webContents.executeJavaScript(code);
   const originalOpenExternal = shell.openExternal;
-  const originalGameCapturedAt = performance.now();
   const originalGame = structuredClone(host.snapshot().state);
+  assert.equal(originalGame.performance, null, 'public catalogue starts without private gameplay measurements');
+  assert.equal(host.snapshot().telemetry, null, 'public catalogue never starts the private telemetry provider');
   const originalEditorRevision = host.snapshot().editor.revision;
   let opened = null;
   const first = '[data-catalogue-id="native-catalogue-000"]';
@@ -180,15 +181,10 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
     fixture.state.demo = false;
     await click('#catalogue-refresh'); await rows(2); await waitFor(readyToLink, 'restore normal catalogue fixture');
     const currentGame = structuredClone(host.snapshot().state);
-    const originalDuration = originalGame.performance.session.durationSeconds;
-    const currentDuration = currentGame.performance.session.durationSeconds;
-    const elapsedSeconds = (performance.now() - originalGameCapturedAt) / 1000;
-    assert.ok(Number.isFinite(originalDuration) && originalDuration >= 0);
-    assert.ok(Number.isFinite(currentDuration) && currentDuration >= originalDuration);
-    assert.ok(currentDuration - originalDuration <= elapsedSeconds + 1, 'session duration advances only with elapsed wall time');
-    // The session clock keeps running during catalogue interaction. All other
-    // game, telemetry, goal, history, widget and layout fields must stay equal.
-    currentGame.performance.session.durationSeconds = originalDuration;
+    assert.equal(currentGame.performance, null, 'catalogue interaction cannot enable private gameplay measurements');
+    assert.equal(host.snapshot().telemetry, null, 'catalogue interaction leaves the private telemetry provider inactive');
+    // Public builds have no private session clock. Every game, widget and
+    // layout field must remain exactly equal throughout catalogue interaction.
     assert.deepEqual(currentGame, originalGame);
     assert.equal(host.snapshot().editor.revision, originalEditorRevision);
     panel.setSize(900, 660);
