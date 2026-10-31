@@ -217,7 +217,7 @@ function createTelemetryModel({ now = Date.now, settings = { windowMs: 20, goal:
             timing:metrics(timing,settings.windowMs,coverage),
             comparison:{bestScore:known(best)?best:null,personalBestScore:known(personalBest)?personalBest:null,currentScore:s.score,delta:coverage==='complete'&&known(best)&&known(s.score)?s.score-best:null,bestAttempt:key&&bestAttempts.has(key)?clone(bestAttempts.get(key)):null},
             session:{completedSongs,fullCombos,bestCombo,durationSeconds:elapsed/1000},goal:{...settings.goal,value:progress,percent:Math.min(100,progress/settings.goal.target*100)},history:clone(history),
-            calibration:{trial:trial?{stage:trial.stage,source:trial.source,settingMs:trial.settingMs,incomplete:trial.incomplete,state:trial.incomplete?'interrupted':trial.source!=='gameplay'||trial.context?'collecting':active?.phase==='playing'&&!active.ended?'waiting-hit':'waiting-chart',...metrics(trial.measurements,settings.windowMs,trial.incomplete?'incomplete':'complete')}:null,trials:clone(trials),nativeResults:connected && capabilities.calibrationResults ? clone(nativeResults) : {audio:null,video:null}},
+            calibration:{trial:trial?{stage:trial.stage,source:trial.source,settingMs:trial.settingMs,...(trial.hardwareContext ? {hardwareContext:clone(trial.hardwareContext)} : {}),incomplete:trial.incomplete,state:trial.incomplete?'interrupted':trial.source!=='gameplay'||trial.context?'collecting':active?.phase==='playing'&&!active.ended?'waiting-hit':'waiting-chart',...metrics(trial.measurements,settings.windowMs,trial.incomplete?'incomplete':'complete')}:null,trials:clone(trials),nativeResults:connected && capabilities.calibrationResults ? clone(nativeResults) : {audio:null,video:null}},
             settings:clone(settings),lastEventAgeMs:lastEventAt?Math.max(0,now()-lastEventAt):null
         };
     }
@@ -230,12 +230,12 @@ function createTelemetryModel({ now = Date.now, settings = { windowMs: 20, goal:
             trial.incomplete = true;
     } return snapshot(); }
     function configure(value) { settings = validSettings(value); return snapshot(); }
-    function startCalibration(stage, settingMs, source = 'gameplay') { if (!['audio', 'video'].includes(stage) || !['gameplay', 'tool'].includes(source) || !contract.finite(settingMs, -1000, 1000))
+    function startCalibration(stage, settingMs, source = 'gameplay', hardwareContext) { if (!['audio', 'video'].includes(stage) || !['gameplay', 'tool'].includes(source) || !contract.finite(settingMs, -1000, 1000) || (hardwareContext !== undefined && !require('./calibration-hardware.cjs').validHardwareContext(hardwareContext)))
         throw Error('Essai de calibration invalide.'); if (status !== 'connected' || !(source === 'gameplay' ? capabilities.hitTiming : capabilities.calibrationTiming))
-        throw Error('Connectez les mesures réelles avant de démarrer un essai.'); trial = { stage, source, settingMs, measurements: accumulator(), incomplete: false, startedAt: now() }; return snapshot(); }
+        throw Error('Connectez les mesures réelles avant de démarrer un essai.'); trial = { stage, source, settingMs, ...(hardwareContext ? {hardwareContext:clone(hardwareContext)} : {}), measurements: accumulator(), incomplete: false, startedAt: now() }; return snapshot(); }
     function finishCalibration() { if (!trial)
         throw Error('Aucun essai en cours.'); if (trial.incomplete || trial.measurements.count < 30)
-        throw Error('Mesurez au moins30 jugements continus pour comparer cet essai.'); const result = { stage: trial.stage, source: trial.source, settingMs: trial.settingMs, at: now(), ...metrics(trial.measurements, settings.windowMs, 'complete') }; trials.unshift(result); trials = trials.slice(0, 6); trial = null; return snapshot(); }
+        throw Error('Mesurez au moins30 jugements continus pour comparer cet essai.'); const result = { stage: trial.stage, source: trial.source, settingMs: trial.settingMs, ...(trial.hardwareContext ? {hardwareContext:clone(trial.hardwareContext)} : {}), at: now(), ...metrics(trial.measurements, settings.windowMs, 'complete') }; trials.unshift(result); trials = trials.slice(0, 6); trial = null; return snapshot(); }
     function resetSession() { startedAt = now(); completedSongs = 0; fullCombos = 0; bestCombo = active?.stats.combo || 0; history = []; bestAttempts.clear(); return snapshot(); }
     function exportRecords() { return { version: 1, bestScores: [...bestScores].slice(-2000) }; }
     function importRecords(value) { if (!contract.only(value, ['version', 'bestScores']) || value.version !== 1 || !Array.isArray(value.bestScores) || value.bestScores.length > 2000)

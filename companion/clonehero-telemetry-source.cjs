@@ -249,7 +249,7 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
         settings = before;
         throw e;
     } model.configure(settings); publish(true); return snapshot(); }
-    function startCalibration(stage, value, source) { model.startCalibration(stage, value, source); publish(true); return snapshot(); }
+    function startCalibration(stage, value, source, hardwareContext) { model.startCalibration(stage, value, source, hardwareContext); publish(true); return snapshot(); }
     function finishCalibration() { model.finishCalibration(); publish(true); return snapshot(); }
     function resetSession() { model.resetSession(); publish(true); return snapshot(); }
     function queue(action) { const task = controls.then(() => { if (disposed)

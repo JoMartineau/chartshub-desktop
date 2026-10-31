@@ -49,11 +49,12 @@ function validCommand(command, payload, widgetIds) {
   if (command === 'visuals.select') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && Object.keys(payload).length === 2 && Object.keys(payload).every(key => ['id','selectionKey'].includes(key))
     && [payload.id,payload.selectionKey].every(value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value));
-  if (['telemetry.sessionReset', 'telemetry.calibrationFinish', 'telemetry.widgets', 'telemetry.guide'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (['telemetry.sessionReset', 'telemetry.calibrationFinish', 'telemetry.hardwareRefresh', 'telemetry.widgets', 'telemetry.guide'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'telemetry.enabled') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && typeof payload.enabled === 'boolean';
   if (command === 'telemetry.configure') { try { require('./clonehero-telemetry-model.cjs').validSettings(payload); return true; } catch { return false; } }
   if (command === 'telemetry.calibrationStart') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
-    && Object.keys(payload).length === 3 && Object.keys(payload).every(key => ['stage','source','settingMs'].includes(key))
+    && [3,4].includes(Object.keys(payload).length) && Object.keys(payload).every(key => ['stage','source','settingMs','hardwareContext'].includes(key))
+    && (!Object.hasOwn(payload, 'hardwareContext') || require('./calibration-hardware.cjs').validHardwareContext(payload.hardwareContext))
     && ['audio','video'].includes(payload.stage) && ['gameplay','tool'].includes(payload.source)
     && typeof payload.settingMs === 'number' && Number.isFinite(payload.settingMs) && payload.settingMs >= -1000 && payload.settingMs <= 1000;
   if (command === 'capture.player') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);

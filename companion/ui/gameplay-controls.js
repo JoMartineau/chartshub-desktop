@@ -69,6 +69,44 @@ export class GameplayControls {
         this.text('summary', 'Aide à la calibration audio et vidéo', 'Audio and video calibration helper', details);
         this.text('p', 'Calibrez l’audio et la vidéo séparément. Chaque réglage garde sa saisie et ses essais. Vous pouvez commencer par celui de votre choix.', 'Calibrate audio and video separately. Each setting keeps its own input and trials. Start with either one.', details);
         this.text('p', 'L’analyse suit les jugements mesurés par le jeu. Elle ne mesure pas directement le délai physique des haut-parleurs ou de l’écran et ne garantit pas une calibration parfaite.', 'Analysis follows the judgments measured by the game. It does not directly measure physical speaker or display delay and cannot guarantee perfect calibration.', details);
+        const hardware = this.node('details', details, 'performance-calibration-hardware');
+        this.text('summary', 'Reconnaître le matériel et adapter les essais', 'Recognize hardware and adapt trials', hardware);
+        this.text('p', 'La détection lit les noms du matériel et les modes déclarés par le système, uniquement à votre demande. Aucun son, enregistrement ou capture d’écran. Retard physique non mesuré.', 'Detection reads hardware names and modes reported by the system, only on request. No sound, recording or screen capture. Physical delay is not measured.', hardware);
+        this.hardwareRefresh = button(hardware, 'Détecter / actualiser le matériel', 'Detect / refresh hardware', () => void this.run('telemetry.hardwareRefresh'));
+        this.hardwareRefresh.id = 'calibration-hardware-detect';
+        this.hardwareStatus = this.node('p', hardware, 'helper-text');
+        this.hardwareStatus.setAttribute('role', 'status');
+        this.hardwareAudio = this.node('p', hardware, 'helper-text');
+        this.hardwareVideo = this.node('p', hardware, 'helper-text');
+        this.hardwareInputs = this.node('p', hardware, 'helper-text');
+        const hardwareField = (fr, en, id) => {
+            const label = this.node('label', hardware, 'performance-field');
+            this.text('span', fr, en, label);
+            const input = this.node('input', label); input.type = 'text'; input.maxLength = 120; input.id = id;
+            return input;
+        };
+        this.hardwareOutput = hardwareField('Sortie audio réellement utilisée dans Clone Hero', 'Audio output actually used in Clone Hero', 'calibration-hardware-output');
+        this.hardwareInput = hardwareField('Guitare / clavier réellement utilisé', 'Guitar / keyboard actually used', 'calibration-hardware-input');
+        this.hardwareInputList = this.node('datalist', hardware); this.hardwareInputList.id = 'calibration-hardware-inputs';
+        this.hardwareInput.setAttribute('list', this.hardwareInputList.id);
+        const displayLabel = this.node('label', hardware, 'performance-field');
+        this.text('span', 'Écran utilisé par le jeu · à choisir', 'Display used by the game · select it', displayLabel);
+        this.hardwareDisplay = this.node('select', displayLabel); this.hardwareDisplay.id = 'calibration-hardware-display';
+        this.hardwareNote = hardwareField('Connexion et mode écran (ex. USB, Bluetooth, mode Jeu TV)', 'Connection and display mode (e.g. USB, Bluetooth, TV Game mode)', 'calibration-hardware-note');
+        const confirmed = this.node('label', hardware, 'performance-calibration-comparable');
+        this.hardwareConfirmed = this.node('input', confirmed); this.hardwareConfirmed.type = 'checkbox'; this.hardwareConfirmed.id = 'calibration-hardware-confirmed';
+        this.text('span', 'J’ai vérifié ces choix dans le jeu. Joindre cette configuration aux prochains essais.', 'I checked these choices in the game. Attach this setup to future trials.', confirmed);
+        this.text('p', 'Le défaut Windows ne prouve pas la sortie utilisée par Clone Hero. Les entrées proposées sont des candidates. Les informations restent locales à cette session ; vous pouvez continuer sans détection.', 'The Windows default does not prove which output Clone Hero uses. Suggested inputs are candidates. Information stays local to this session; trials remain available without detection.', hardware);
+        const hardwareChanged = () => { this.hardwareConfirmed.checked = false; this.comparable.checked = false; this.render(); };
+        for (const field of [this.hardwareOutput, this.hardwareInput, this.hardwareNote]) this.listen(field, 'input', hardwareChanged);
+        this.listen(this.hardwareDisplay, 'change', hardwareChanged);
+        this.listen(this.hardwareConfirmed, 'change', () => {
+            if (this.hardwareConfirmed.checked && (!this.hardwareOutput.value.trim() || !this.hardwareInput.value.trim())) {
+                this.hardwareConfirmed.checked = false;
+                this.showFeedback('Renseignez la sortie audio et la guitare ou le clavier utilisés avant de confirmer.', 'Enter the audio output and guitar or keyboard used before confirming.');
+            }
+            this.render();
+        });
         const step = (number, fr, en) => {
             const section = this.node('section', details, 'performance-calibration-step');
             section.dataset.calibrationStep = String(number);
@@ -106,7 +144,7 @@ export class GameplayControls {
         this.text('p', 'Recopiez le réglage réellement présent dans Clone Hero. ChartsHub conserve cette saisie pour comparer vos essais ; il ne l’applique pas au jeu.', 'Enter the setting actually shown in Clone Hero. ChartsHub keeps this input to compare trials; it does not apply it to the game.', this.calibrationControls);
         const trialActions = this.node('div', this.calibrationControls, 'performance-actions');
         this.start = button(trialActions, 'Démarrer l’essai', 'Start trial', () => { if (this.setting.reportValidity())
-            void this.run('telemetry.calibrationStart', { stage: this.stage.value, settingMs: Number(this.setting.value), source: this.calibrationSource() }); });
+            void this.run('telemetry.calibrationStart', { stage: this.stage.value, settingMs: Number(this.setting.value), source: this.calibrationSource(), ...(this.hardwareContext() ? { hardwareContext: this.hardwareContext() } : {}) }); });
         this.start.id = 'calibration-start';
         this.finish = button(trialActions, 'Terminer et conserver l’essai', 'Finish and keep trial', () => void this.run('telemetry.calibrationFinish'));
         this.finish.id = 'calibration-finish';
@@ -161,6 +199,51 @@ export class GameplayControls {
     showFeedback(fr, en) { this.feedbackMessage = [fr, en]; this.feedback.textContent = this.tr(fr, en); this.feedback.classList.remove('is-error'); this.feedback.hidden = false; }
     format(value, decimals = 1) { return typeof value === 'number' && Number.isFinite(value) ? new Intl.NumberFormat(this.language, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(value) : '—'; }
     calibrationSource() { return this.method.value === 'gameplay' ? 'gameplay' : 'tool'; }
+    hardwareContext() {
+        if (!this.hardwareConfirmed.checked) return null;
+        const display = this.snapshot?.hardware?.displays?.find(value => value.key === this.hardwareDisplay.value);
+        return { version: 1, audioOutput: this.hardwareOutput.value.trim(), input: this.hardwareInput.value.trim(), display: display ? { key: display.key, label: display.label, widthPx: display.widthPx, heightPx: display.heightPx, refreshHz: display.refreshHz } : null, note: this.hardwareNote.value.trim() };
+    }
+    hardwareSummary(context) {
+        if (!context) return this.tr('configuration non renseignée', 'setup not recorded');
+        const display = context.display;
+        return context.audioOutput + ' · ' + context.input + (display ? ' · ' + display.label + ' ' + display.widthPx + '×' + display.heightPx + (display.refreshHz ? ' · ' + this.format(display.refreshHz) + ' Hz' : '') : '') + (context.note ? ' · ' + context.note : '');
+    }
+    matchingHardware(a, b) {
+        if (!a && !b) return true;
+        if (!a || !b || (this.stage.value === 'video' && (!a.display || !b.display))) return false;
+        const identity = context => [context.audioOutput, context.input, context.display?.key, context.display?.label, context.display?.widthPx, context.display?.heightPx, context.display?.refreshHz, context.note];
+        return JSON.stringify(identity(a)) === JSON.stringify(identity(b));
+    }
+    renderHardware() {
+        const h = this.snapshot?.hardware, displays = h?.displays || [];
+        this.hardwareRefresh.disabled = this.busy || h?.status === 'checking';
+        this.hardwareStatus.textContent = h?.status === 'checking' ? this.tr('Lecture du matériel…', 'Reading hardware…') : h?.checkedAt ? this.tr('Informations système actualisées à la demande. Confirmez le matériel réellement utilisé.', 'System information refreshed on request. Confirm the hardware actually used.') : this.tr('Aucune détection effectuée. Vous pouvez renseigner votre matériel manuellement.', 'No detection performed. You can enter your hardware manually.');
+        const identity = JSON.stringify([h?.audio, displays, h?.inputs]);
+        if (identity !== this.hardwareIdentity) {
+            const selected = this.hardwareDisplay.value;
+            this.hardwareIdentity = identity; this.hardwareConfirmed.checked = false;
+            this.hardwareDisplay.replaceChildren();
+            const unknown = this.node('option', this.hardwareDisplay); unknown.value = '';
+            for (const display of displays) {
+                const option = this.node('option', this.hardwareDisplay); option.value = display.key;
+            }
+            this.hardwareDisplay.value = displays.some(display => display.key === selected) ? selected : '';
+            this.hardwareInputList.replaceChildren();
+            for (const candidate of h?.inputs || []) this.node('option', this.hardwareInputList).value = candidate.name;
+        }
+        this.hardwareDisplay.options[0].textContent = this.tr('Non renseigné / détection indisponible', 'Not recorded / detection unavailable');
+        for (let index = 0; index < displays.length; index++) {
+            const d = displays[index];
+            this.hardwareDisplay.options[index + 1].textContent = d.label + ' · ' + d.widthPx + '×' + d.heightPx + this.tr(' px (mode système)', ' px (system mode)') + (d.refreshHz ? ' · ' + this.format(d.refreshHz) + ' Hz' : '') + (d.appDisplay ? this.tr(' · écran de ChartsHub', ' · ChartsHub display') : '');
+        }
+        const a = h?.audio;
+        this.hardwareOutput.placeholder = a?.outputName || this.tr('Ex. casque USB ou haut-parleurs', 'e.g. USB headset or speakers');
+        this.hardwareAudio.textContent = this.tr('Audio · défaut Windows (à confirmer pour le jeu) : ', 'Audio · Windows default (confirm for the game): ') + (a?.outputName || this.tr('indisponible', 'unavailable')) + (a?.sampleRateHz ? ' · ' + this.format(a.sampleRateHz, 0) + ' Hz · ' + a.channels + ' ' + this.tr('canaux', 'channels') : '') + (a?.defaultPeriodMs ? this.tr(' · période moteur par défaut (partagé) ', ' · default engine period (shared) ') + this.format(a.defaultPeriodMs, 2) + ' ms' : '') + (a?.minimumPeriodMs ? this.tr(' · période minimale (exclusif) ', ' · minimum period (exclusive) ') + this.format(a.minimumPeriodMs, 2) + ' ms' : '') + '. ' + this.tr('Ces périodes ne mesurent pas le retard des haut-parleurs ni le trajet audio du jeu.', 'These periods do not measure speaker delay or the game’s audio path.');
+        const d = displays.find(display => display.key === this.hardwareDisplay.value);
+        this.hardwareVideo.textContent = d ? this.tr('Vidéo · écran choisi : ', 'Video · selected display: ') + d.label + (d.refreshHz ? ' · ' + this.format(d.refreshHz) + ' Hz · ' + this.tr('intervalle de rafraîchissement ', 'refresh interval ') + this.format(d.frameIntervalMs, 2) + ' ms' : '') + '. ' + this.tr('La fréquence ne mesure pas le retard physique, le traitement TV ou la synchronisation du jeu.', 'Refresh rate does not measure physical delay, TV processing or game synchronization.') : this.tr('Vidéo · choisissez l’écran du jeu dans la liste. Seul l’écran de ChartsHub est repéré ; celui du jeu n’est pas identifié automatiquement.', 'Video · select the game display in the list. Only the ChartsHub display is marked; the game display is not identified automatically.');
+        this.hardwareInputs.textContent = this.tr('Entrées candidates · ', 'Input candidates · ') + ((h?.inputs || []).map(input => input.name).join(' · ') || this.tr('indisponibles ; saisie manuelle possible', 'unavailable; manual entry is available')) + '. ' + this.tr('Le système ne mesure pas leur délai de frappe.', 'The system does not measure their input delay.');
+    }
     nativeResult(stage) {
         const p = this.snapshot, result = p?.connected && p?.capabilities?.calibrationResults && p?.calibration?.nativeResults?.[stage];
         return result && Number.isSafeInteger(result.settingMs) && result.settingMs >= -2000 && result.settingMs <= 2000 && Number.isSafeInteger(result.sampleCount) && result.sampleCount > 0 && result.source === 'native-calibration' ? result : null;
@@ -204,6 +287,7 @@ export class GameplayControls {
             node.textContent = this.tr(fr, en);
         if (this.feedbackMessage) this.feedback.textContent = this.tr(...this.feedbackMessage);
         const p = this.snapshot, connected = p?.connected === true, c = p?.capabilities || {};
+        this.renderHardware();
         const status = { disabled: ['Mesures désactivées', 'Measurements disabled'], waiting: ['Connecteur non connecté', 'Connector not connected'], connecting: ['Connexion au jeu…', 'Connecting to game…'], connected: ['Mesures réelles connectées', 'Real measurements connected'], unsupported: ['Version du jeu non validée', 'Game version not validated'], stale: ['Mesures interrompues', 'Measurements interrupted'], error: ['Connexion aux mesures indisponible', 'Measurements unavailable'] }[p?.status || 'waiting'];
         this.status.textContent = this.tr(...status) + (p?.gameVersion ? ' · Clone Hero ' + p.gameVersion : '');
         this.status.dataset.connected = String(connected);
@@ -254,6 +338,8 @@ export class GameplayControls {
             this.tr('Ouvrez Réglages → Gameplay → Calibration, puis utilisez l’outil natif. Seules les mesures ' + settingName + ' reçues de cet outil sont comptées.', 'Open Settings → Gameplay → Calibration, then use the native tool. Only ' + settingName + ' measurements received from that tool are counted.'),
             this.tr('Après au moins 30 mesures continues du même essai natif, terminez ici pour conserver les mesures. Un nouvel essai ou un changement audio/vidéo impose de recommencer le compteur.', 'After at least 30 continuous measurements from the same native trial, finish here to keep the measurements. A new native trial or an audio/video change requires a fresh counter.')
         ];
+        const setup = this.hardwareContext();
+        instructions.unshift(audio ? this.tr('Gardez la même sortie audio et la même connexion pendant les essais. ', 'Keep the same audio output and connection throughout the trials. ') + (setup ? this.tr('Configuration confirmée : ', 'Confirmed setup: ') + this.hardwareSummary(setup) : this.tr('Vérifiez dans le jeu la sortie réellement utilisée ; le défaut Windows peut être différent.', 'Check the actual output in the game; the Windows default may differ.')) : this.tr('Gardez le même écran, la même fréquence, le même mode Jeu/TV et la même synchronisation. ', 'Keep the same display, refresh rate, Game/TV mode and synchronization. ') + (setup?.display ? this.tr('Écran confirmé : ', 'Confirmed display: ') + this.hardwareSummary(setup) : this.tr('Choisissez et confirmez l’écran du jeu dans la rubrique matériel si vous souhaitez conserver ce contexte.', 'Select and confirm the game display in the hardware section to keep this context.')));
         this.instructions.replaceChildren();
         for (const instruction of instructions) this.node('li', this.instructions).textContent = instruction;
         this.nativePanel.hidden = !native;
@@ -278,7 +364,7 @@ export class GameplayControls {
         this.trials.replaceChildren();
         for (const result of results) {
             const li = this.node('li', this.trials);
-            li.textContent = this.tr('Réglage saisi', 'Entered setting') + ' ' + this.format(result.settingMs) + ' ms · ' + this.trialMetrics(result) + ' · ' + this.format(result.sampleCount, 0) + ' ' + this.tr('mesures', 'measurements');
+            li.textContent = this.tr('Réglage saisi', 'Entered setting') + ' ' + this.format(result.settingMs) + ' ms · ' + this.trialMetrics(result) + ' · ' + this.format(result.sampleCount, 0) + ' ' + this.tr('mesures', 'measurements') + (result.hardwareContext ? ' · ' + this.tr('matériel confirmé : ', 'confirmed hardware: ') + this.hardwareSummary(result.hardwareContext) : '');
         }
         const comparisonIdentity = JSON.stringify([this.stage.value, source, results.slice(0, 2)]);
         if (this.comparisonIdentity !== comparisonIdentity) { this.comparable.checked = false; this.comparisonIdentity = comparisonIdentity; }
@@ -287,8 +373,10 @@ export class GameplayControls {
         const regularity = connected && matchingTrial && !trial.incomplete && trial.sampleCount >= 30 ? trial : results[0];
         this.regularity.hidden = !regularity || regularity.sampleCount < 30 || !Number.isFinite(regularity.standardDeviationMs);
         this.regularity.textContent = this.regularity.hidden ? '' : this.tr('Régularité de l’essai', 'Trial consistency') + ' · ' + this.tr('dispersion', 'deviation') + ' ' + this.format(regularity.standardDeviationMs) + ' ms. ' + this.tr('Une faible dispersion indique des frappes plus régulières. Refaites plusieurs essais dans les mêmes conditions pour vérifier que les moyennes restent proches.', 'Lower deviation means more consistent hits. Repeat trials under the same conditions to check that the means remain close.');
-        this.comparable.disabled = results.length < 2;
-        this.comparison.textContent = results.length < 2 ? this.tr('Conservez deux essais de ce réglage avec cette méthode pour comparer avant et après.', 'Keep two trials for this setting and method to compare before and after.') : !this.comparable.checked ? this.tr('Vérifiez les conditions identiques ci-dessus pour comparer les deux derniers essais.', 'Confirm the matching conditions above to compare the two latest trials.') : this.tr('Avant', 'Before') + ' · ' + this.format(results[1].settingMs) + ' ms · ' + this.trialMetrics(results[1]) + '\n' + this.tr('Après', 'After') + ' · ' + this.format(results[0].settingMs) + ' ms · ' + this.trialMetrics(results[0]) + '\n' + this.tr('Variation de l’écart absolu moyen', 'Change in mean absolute offset') + ' : ' + this.signed(results[0].meanAbsoluteOffsetMs - results[1].meanAbsoluteOffsetMs) + '. ' + this.tr('Une baisse rapproche les frappes de zéro, sans déterminer à elle seule le bon réglage.', 'A decrease brings hits closer to zero, without determining the right setting on its own.');
+        const hardwareMatches = results.length >= 2 && this.matchingHardware(results[0].hardwareContext, results[1].hardwareContext);
+        this.comparable.disabled = results.length < 2 || !hardwareMatches;
+        if (!hardwareMatches) this.comparable.checked = false;
+        this.comparison.textContent = results.length < 2 ? this.tr('Conservez deux essais de ce réglage avec cette méthode pour comparer avant et après.', 'Keep two trials for this setting and method to compare before and after.') : !hardwareMatches ? this.tr('Configurations différentes ou incomplètes : conservez deux nouveaux essais avec le même matériel confirmé avant de comparer.', 'Different or incomplete setups: keep two new trials with the same confirmed hardware before comparing.') : !this.comparable.checked ? this.tr('Vérifiez les conditions identiques ci-dessus pour comparer les deux derniers essais.', 'Confirm the matching conditions above to compare the two latest trials.') : this.tr('Avant', 'Before') + ' · ' + this.format(results[1].settingMs) + ' ms · ' + this.trialMetrics(results[1]) + '\n' + this.tr('Après', 'After') + ' · ' + this.format(results[0].settingMs) + ' ms · ' + this.trialMetrics(results[0]) + '\n' + this.tr('Variation de l’écart absolu moyen', 'Change in mean absolute offset') + ' : ' + this.signed(results[0].meanAbsoluteOffsetMs - results[1].meanAbsoluteOffsetMs) + '. ' + this.tr('Une baisse rapproche les frappes de zéro, sans déterminer à elle seule le bon réglage.', 'A decrease brings hits closer to zero, without determining the right setting on its own.');
         if (p?.persistenceError && !this.busy) {
             this.feedbackMessage = null;
             this.feedback.textContent = p.persistenceError;

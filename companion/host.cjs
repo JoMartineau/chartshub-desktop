@@ -40,13 +40,14 @@ const { createSongVisuals } = require('./song-visuals.cjs');
 const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs');
 const { changeMusicPlaylist } = require('./music-playlists.cjs');
 const { createGameCapture } = require('./game-capture.cjs');
+const { createCalibrationHardware } = require('./calibration-hardware.cjs');
 const { validateUIPalette } = require('../desktop/ui-palette.cjs');
 const SCHEME = 'chartshub-companion';
 const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu', player: 'ChartsHub — Lecteur Songs' });
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
   const [{ ServiceContainer }, { MockCloneHeroIntegration }, { createDefaultRegistry, createDefaultWidgets, ensureGameplayDocument }, { WidgetRenderer }, { SettingsRepository, validateSettings }, { SnapshotHistory }, { ThemeService, createDefaultTheme }, { validateWidgetStyle }, { createDefaultStream, validateStream }] = await Promise.all([
@@ -97,6 +98,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let lifecycleRevision = 0;
   let language = 'fr';
   let telemetry = null;
+  const calibrationHardware = calibrationHardwareService ?? createCalibrationHardware({ screen, bounds: () => panel && !panel.isDestroyed() ? panel.getBounds() : null, onChange: () => { if (!disposing) publishPanel(); } });
   let buttonMotion = { economy: false };
   let uiPalette = null;
   const tr = (fr, en) => language === 'fr' ? fr : en;
@@ -196,7 +198,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     publicRequests: songRequestShareBroker?.status(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare, autoSync: songRequestShareSync?.status(),
     progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
   const stateView = () => ({ ...telemetryStateView(services.store.getState(), telemetry?.snapshot(), { language, liveMetadata: integration.status().mode === 'live' }), lyrics: songVisuals?.lyricsSnapshot() ?? null });
-  const telemetryPanel = () => { const value = telemetry?.snapshot(); return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, reason: value.reason } : null; };
+  const telemetryPanel = () => { const value = telemetry?.snapshot(); return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, hardware: calibrationHardware.snapshot(), reason: value.reason } : null; };
   const snapshot = () => ({ language, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView(), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
@@ -955,7 +957,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       else if (command === 'telemetry.enabled') await telemetry.setEnabled(payload.enabled);
       else if (command === 'telemetry.configure') await telemetry.configure(payload);
       else if (command === 'telemetry.sessionReset') telemetry.resetSession();
-      else if (command === 'telemetry.calibrationStart') telemetry.startCalibration(payload.stage, payload.settingMs, payload.source);
+      else if (command === 'telemetry.hardwareRefresh') await calibrationHardware.refresh();
+      else if (command === 'telemetry.calibrationStart') telemetry.startCalibration(payload.stage, payload.settingMs, payload.source, payload.hardwareContext);
       else if (command === 'telemetry.calibrationFinish') telemetry.finishCalibration();
       else if (command === 'telemetry.guide') await shell.openExternal('https://wiki.clonehero.net/books/guides-and-tutorials/page/calibrating-audio-and-video');
       else if (command === 'telemetry.widgets') {

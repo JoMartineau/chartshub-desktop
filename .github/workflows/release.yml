@@ -73,6 +73,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Gameplay calibration start verification failed' }
           node node_modules/electron/cli.js tests/config-backup-electron.cjs "$env:RUNNER_TEMP/config-backup-widgets"
           if ($LASTEXITCODE -ne 0) { throw 'Complete widget backup verification failed' }
+          node node_modules/electron/cli.js tests/calibration-hardware-electron.cjs "--fixture-output=$env:RUNNER_TEMP/calibration-hardware"
+          if ($LASTEXITCODE -ne 0) { throw 'Calibration hardware guidance verification failed' }
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'Windows'
         with:
@@ -82,6 +84,7 @@ jobs:
             ${{ runner.temp }}/ui-palette-sync/restart-report.json
             ${{ runner.temp }}/clonehero-gameplay-start/report.json
             ${{ runner.temp }}/config-backup-widgets/report.json
+            ${{ runner.temp }}/calibration-hardware/**/report.json
           if-no-files-found: warn
       - name: Verify Windows updater helper survives Electron exit
         if: runner.os == 'Windows'
