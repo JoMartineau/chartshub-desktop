@@ -6,5 +6,6 @@ const labels: Record<string, string> = {
   'gameplay.fc': 'Suivi FC', 'gameplay.progress': 'Progression du morceau',
   'gameplay.comparison': 'Comparaison du meilleur score', 'session.goal': 'Objectif de session',
   'session.history': 'Cinq derniers essais',
+  'song.lyrics': 'Paroles synchronisées',
 };
 export const widgetLabel = (type: string): string => labels[type] ?? type;

@@ -602,6 +602,58 @@ sans cookies de compte. Les charts de démonstration ne sont pas téléchargeabl
 Cette étape prépare les fichiers ; elle ne valide pas leur jouabilité,
 ne les installe pas automatiquement et ne crée pas d'association de catalogue.
 
+CALIBRATION AUDIO ET VIDÉO
+Dans Mesures du jeu et widgets, déplier Aide à la calibration audio et vidéo.
+1. Choisir Audio ou Vidéo. Chaque réglage garde sa saisie et son historique.
+2. Choisir la méthode : assistée avec l'outil du jeu, essai manuel avec cet
+   outil, ou analyse d'un passage de chart en jeu. Utiliser un passage connu
+   et régulier pour éviter de confondre les imprécisions de la chart et du jeu.
+3. Faire l'essai en suivant les instructions. Pour les essais manuels et en
+   jeu, recopier d'abord le réglage réellement présent dans Clone Hero.
+4. Lire le résultat. La méthode assistée affiche la valeur absolue retenue
+   par l'outil natif ; ce n'est pas une correction à ajouter. Les essais
+   affichent moyenne signée (négatif = tôt, positif = tard), écart absolu
+   et dispersion. Confirmer le même passage, la même vitesse et l'autre
+   réglage inchangé avant de comparer les deux derniers essais.
+
+ChartsHub ne change aucun réglage du jeu. Une valeur native ne suit pas vos
+modifications manuelles ultérieures. L'analyse utilise les jugements du jeu,
+sans mesurer directement le délai physique des haut-parleurs ou de l'écran
+ni calculer une nouvelle valeur de calibration. Les données nécessitent le
+connecteur local compatible ; un essai interrompu doit être recommencé.
+Un changement de vitesse explicitement transmis pendant un essai d'analyse
+en jeu invalide cet essai : démarrer un nouvel essai à la vitesse choisie.
+
+PAROLES DE LA CHART LOCALE
+Le widget Paroles est désactivé au départ. Dans les réglages des widgets,
+l'activer pour Jeu et/ou Stream, choisir sa police, sa taille et sa couleur,
+puis cocher si souhaité l'affichage de la phrase suivante. Les dispositions
+Jeu et Stream sont indépendantes. Les événements de notes.chart ou notes.mid
+proviennent uniquement du morceau de la bibliothèque Songs scannée.
+
+Une horloge de jeu récente avec une vitesse explicite est nécessaire. Les
+paroles suivent pause, lecture et déplacements dans le morceau ; elles sont
+masquées sans paroles, pendant les plages instrumentales, ou si l'horloge
+est absente ou périmée. Aucun service de paroles externe n'est interrogé.
+Un ancien connecteur qui fournit la position sans vitesse ne suffit pas.
+
+HIGHWAY ET SCORE DU JEU — CAPTURE RECADRÉE POUR OBS
+1. Dans Stream / OBS, choisir Choisir la fenêtre et les zones.
+2. Choisir explicitement la fenêtre Clone Hero puis Démarrer la capture.
+3. Choisir Highway et notes, puis tracer sa zone sur l'aperçu. Refaire
+   l'opération avec Panneau du score. Ouvrir les deux fenêtres de sortie.
+4. Dans OBS, ajouter deux sources Capture de fenêtre et sélectionner
+   ChartsHub — Highway et ChartsHub — Score. Garder l'aperçu et ces fenêtres
+   ouverts. Le fond présent dans chaque zone du jeu reste dans l'image.
+
+Cette capture utilise l'image réelle du jeu et reste locale, vidéo seule.
+Elle ne démarre pas à l'ouverture. Arrêter, fermer l'aperçu ou le Companion,
+ou perdre la fenêtre arrête la capture et ferme ses sorties. Choisir de
+nouveau la fenêtre et retracer les zones après un arrêt ou changement de
+taille. La séparation transparente des éléments natifs n'est pas disponible.
+Les essais automatisés utilisent une vidéo synthétique ; vérifier la capture
+avec le jeu réel et OBS avant utilisation en diffusion.
+
 STREAM / OBS
 1. Dans Stream / OBS, cocher les widgets à afficher dans le stream.
    La case générale Widgets affichés doit aussi rester activée.

@@ -4,6 +4,7 @@ export class SongVisualControls {
     const node = (tag, parent = root, className = '') => { const e = root.ownerDocument.createElement(tag); e.className = className; parent.append(e); return e; };
     this.heading = node('h3'); this.intro = node('p', root, 'helper-text');
     this.status = node('p', root, 'helper-text'); this.status.setAttribute('role', 'status');
+    this.lyricsStatus = node('p', root, 'helper-text'); this.lyricsStatus.setAttribute('role', 'status');
     const choice = node('label', root, 'song-visual-choice'); this.choiceLabel = node('span', choice); this.choice = node('select', choice); this.choice.id = 'song-visual-choice';
     this.choice.addEventListener('change', () => { if (this.choice.value) void this.run('visuals.select', { id: this.choice.value, selectionKey: this.snapshot?.visuals?.selectionKey }); }, { signal: this.abort.signal });
     const grid = node('div', root, 'song-visual-source-grid'); this.cards = {};
@@ -42,6 +43,8 @@ export class SongVisualControls {
     this.heading.textContent = this.tr('Fond et vidéo du morceau — sources séparées', 'Song background and video — separate sources');
     this.intro.textContent = this.tr('Placez le fond et la vidéo indépendamment du jeu et des widgets dans OBS. Les fichiers restent sur votre PC.', 'Place the background and video independently from the game and widgets in OBS. Files stay on your computer.');
     this.status.textContent = this.tr(...(states[v?.state] || states.disabled)) + (v?.title ? ' · ' + v.title : '');
+    const lyricsReasons = { missing: ['Cette chart ne contient pas de paroles.', 'This chart contains no lyrics.'], invalid: ['Les paroles de cette chart ne peuvent pas être synchronisées.', 'The lyrics in this chart cannot be synchronized.'], ambiguous: ['Les phrases de paroles sont ambiguës ; le widget reste transparent.', 'Lyric phrases are ambiguous; the widget stays transparent.'], unsupported: ['Ce format de paroles n’est pas encore pris en charge.', 'This lyrics format is not yet supported.'] };
+    this.lyricsStatus.textContent = this.tr('Paroles : ', 'Lyrics: ') + (v?.hasLyrics ? v.clockReady ? this.tr('disponibles dans le widget Paroles synchronisées.', 'available in the Synchronized lyrics widget.') : this.tr('détectées · en attente de l’horloge et de la vitesse du jeu.', 'detected · waiting for the game clock and speed.') : v?.state === 'ready' ? this.tr(...(lyricsReasons[v.lyricsReason] || lyricsReasons.missing)) : this.tr('en attente du morceau local et de son horloge.', 'waiting for the local song and its clock.'));
     this.choiceLabel.textContent = this.tr('Version du morceau', 'Song version'); this.choice.parentElement.hidden = v?.state !== 'ambiguous';
     const signature = JSON.stringify([v?.selectionKey, v?.candidates, v?.selected, snapshot?.language]);
     if (this.choice.dataset.signature !== signature) {

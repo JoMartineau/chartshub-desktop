@@ -20,6 +20,10 @@ function text(value) {
   const clean = value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 512);
   return clean && !/^(?:undefined|null|n\/?a|unknown)$/i.test(clean) ? clean : undefined;
 }
+function lyricText(value) {
+  if (typeof value !== 'string') return undefined;
+  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 512) || undefined;
+}
 function gradient(value) {
   return object(value) && typeof value.enabled === 'boolean' && color(value.from) && color(value.to)
     ? { enabled: value.enabled, from: color(value.from), to: color(value.to), angle: number(value.angle, 90, 0, 360) } : undefined;
@@ -66,6 +70,9 @@ function widget(value) {
   if (value.type === 'gameplay.accuracy') {
     try { config = require('./dist/widgets/core/Gameplay/AccuracyConfig.js').validateAccuracyConfig(value.config ?? {}); } catch { return null; }
   }
+  if (value.type === 'song.lyrics') {
+    try { config = require('./dist/widgets/core/Gameplay/LyricsConfig.js').validateLyricsConfig(value.config ?? {}); } catch { return null; }
+  }
   return {
     id: value.id, type: value.type, enabled: value.enabled === true,
     position: { x: number(value.position?.x, 0, 0, 8192), y: number(value.position?.y, 0, 0, 8192) },
@@ -107,6 +114,7 @@ function publicState(input) {
   const performance = publicTelemetrySnapshot(source.performance, source.performance?.language);
   return {
     gameplay: { state, isChartActive }, nowPlaying, serviceHealth: {}, widgets: { instances },
+    lyrics: isChartActive && lyricText(source.lyrics?.current) ? { current: lyricText(source.lyrics.current), next: lyricText(source.lyrics.next) || null } : null,
     ...(resolvedTheme ? { theme: resolvedTheme } : {}),
     ...(performance ? { performance } : {}),
     stream: {

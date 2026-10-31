@@ -23,6 +23,12 @@ function boundedNumber(value: number | undefined, fallback: number, min: number,
   return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
+// Literal chart words may be metadata sentinels such as "Unknown" or "Na".
+function lyricText(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  return value.replace(/[\u0000-\u001f\u007f]/g, ' ').trim() || null;
+}
+
 export class WidgetRenderer {
   private readonly boundary: WidgetErrorBoundary;
 
@@ -38,7 +44,8 @@ export class WidgetRenderer {
         const registration = this.registry.get(instance.type);
         if (!registration || !isWidgetVisible(instance, registration.definition, state, destination)) return null;
         const content = registration.component(state, instance);
-        const text = meaningfulText(content?.text);
+        const selectText = instance.type === 'song.lyrics' ? lyricText : meaningfulText;
+        const text = selectText(content?.text);
         if (text === null) return null;
         const defaultSize = registration.definition.defaultSize;
         const style = resolveWidgetStyle(instance, state.theme);
@@ -46,7 +53,7 @@ export class WidgetRenderer {
         const segments = instance.type === 'song.charter' && style.useSourceColors
           ? validateColoredTextSegments(content?.segments, text) : undefined;
         const lines = Array.isArray(content?.lines) && content.lines.length <= 8
-          ? content.lines.map(meaningfulText).filter((line): line is string => line !== null).map(line => line.slice(0,512)) : undefined;
+          ? content.lines.map(selectText).filter((line): line is string => line !== null).map(line => line.slice(0,512)) : undefined;
         return {
           id: instance.id,
           type: instance.type,

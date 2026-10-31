@@ -64,6 +64,7 @@ function createCatalogueFixture() {
 async function verifyCatalogue(panel, host, data, passed, fixture) {
   const evaluate = code => panel.webContents.executeJavaScript(code);
   const originalOpenExternal = shell.openExternal;
+  const originalGameCapturedAt = performance.now();
   const originalGame = structuredClone(host.snapshot().state);
   const originalEditorRevision = host.snapshot().editor.revision;
   let opened = null;
@@ -178,7 +179,17 @@ async function verifyCatalogue(panel, host, data, passed, fixture) {
     assert.equal(JSON.parse(await fs.readFile(matchingFile, 'utf8')).links.length, 0);
     fixture.state.demo = false;
     await click('#catalogue-refresh'); await rows(2); await waitFor(readyToLink, 'restore normal catalogue fixture');
-    assert.deepEqual(host.snapshot().state, originalGame);
+    const currentGame = structuredClone(host.snapshot().state);
+    const originalDuration = originalGame.performance.session.durationSeconds;
+    const currentDuration = currentGame.performance.session.durationSeconds;
+    const elapsedSeconds = (performance.now() - originalGameCapturedAt) / 1000;
+    assert.ok(Number.isFinite(originalDuration) && originalDuration >= 0);
+    assert.ok(Number.isFinite(currentDuration) && currentDuration >= originalDuration);
+    assert.ok(currentDuration - originalDuration <= elapsedSeconds + 1, 'session duration advances only with elapsed wall time');
+    // The session clock keeps running during catalogue interaction. All other
+    // game, telemetry, goal, history, widget and layout fields must stay equal.
+    currentGame.performance.session.durationSeconds = originalDuration;
+    assert.deepEqual(currentGame, originalGame);
     assert.equal(host.snapshot().editor.revision, originalEditorRevision);
     panel.setSize(900, 660);
     await revealWorkspace(panel,"#catalogue-panel");

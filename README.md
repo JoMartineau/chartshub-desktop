@@ -39,6 +39,10 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.31
+
+Les widgets de jeu, dont Accuracy et les paroles de la chart locale, se règlent séparément pour Jeu et Stream. L’aide à la calibration suit quatre étapes avec des saisies Audio/Vidéo indépendantes. Stream / OBS propose aussi deux captures recadrées de l’image réelle du jeu pour la highway et le score : choisissez la fenêtre puis démarrez explicitement la capture. Le fond reste présent dans chaque zone ; la séparation transparente des éléments natifs n’est pas disponible. Les paroles et la vidéo locale synchronisées nécessitent une horloge native avec vitesse explicite. [Notes et limites de la version](docs/RELEASE-0.14.31.md).
+
 ### Version 0.14.8
 
 Cette version améliore le passage au morceau suivant, la lecture vidéo avec ses proportions originales et le plein écran, les marges et le défilement automatique du lecteur Songs. Les playlists, Song Request, widgets personnalisables et le nettoyage sûr des doublons restent disponibles. [Notes complètes de la version](docs/RELEASE-0.14.12.md).

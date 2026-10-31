@@ -11,6 +11,7 @@ function createSongVisuals({ library, onChange, now = Date.now, respond = mediaR
   let desired = false, key = '', selectionKey = secret(), generation = 0, mediaKey = null, plan = null, task = null;
   let state = 'disabled', song = null, phase = 'idle', clock = null, clockAt = 0, clockSignature = '', candidates = [], selected = null;
   let lookupIndex = null, lookup = new Map(), decoderErrors = { background: false, video: false };
+  let lyricsTimer = null, lastLyrics = '';
   const readers = new Set();
   const index = () => library.matchingSnapshot();
   const ready = () => desired && library.status().status === 'ready' && !!index().rootKey;
@@ -67,7 +68,15 @@ function createSongVisuals({ library, onChange, now = Date.now, respond = mediaR
     if (matches.length === 1 && text(song.charter)) return resolve(matches[0].id);
     state = matches.length ? 'ambiguous' : 'missing'; changed(); return null;
   }
-  function setEnabled(enabled) { if (typeof enabled !== 'boolean') throw Error('Invalid visual state'); desired = enabled; key = ''; if (!enabled) { clear('disabled'); changed(); } }
+  function setEnabled(enabled) {
+    if (typeof enabled !== 'boolean') throw Error('Invalid visual state'); if (desired === enabled) return;
+    desired = enabled; key = ''; clearInterval(lyricsTimer); lyricsTimer = null; lastLyrics = '';
+    if (!enabled) { clear('disabled'); changed(); }
+    else {
+      lyricsTimer = setInterval(() => { const next = JSON.stringify(lyricsSnapshot()); if (next !== lastLyrics) { lastLyrics = next; changed(); } }, 100);
+      lyricsTimer.unref?.();
+    }
+  }
   function select(value) {
     if (!ready() || !song || value?.selectionKey !== selectionKey || !validId(value.id) || !candidates.some(row => row.id === value.id)) throw Error('Le morceau ou la bibliothèque a changé.');
     return resolve(value.id);
@@ -75,6 +84,7 @@ function createSongVisuals({ library, onChange, now = Date.now, respond = mediaR
   function snapshot() {
     return { state, selectionKey, candidates: candidates.map(row => ({ ...row })), selected,
       title: song?.title || null, hasBackground: !!(current() && plan.background), hasVideo: !!(current() && plan.video),
+      hasLyrics: !!(current() && plan.lyrics?.lines?.length), lyricsReason: current() ? plan.lyrics?.reason || null : null,
       backgroundReason: current() ? decoderErrors.background ? 'decoder' : plan.backgroundUnavailable : null, videoReason: current() ? decoderErrors.video ? 'decoder' : plan.videoUnavailable : null, clockReady: !!clock && (phase === 'paused' || now() - clockAt <= 2500) };
   }
   function browserSnapshot() {
@@ -83,6 +93,18 @@ function createSongVisuals({ library, onChange, now = Date.now, respond = mediaR
       video: !!(timed && plan.video && !decoderErrors.video), phase: available ? phase : 'idle',
       clock: timed ? { ...clock, positionSeconds: clock.positionSeconds + (phase === 'playing' ? Math.max(0, now() - clockAt) / 1000 * clock.speed : 0) } : null,
       videoStartTimeMs: available && Number.isSafeInteger(plan.videoStartTimeMs) ? plan.videoStartTimeMs : 0 };
+  }
+  // Full lyric text stays in main. Only the phrase at the actual chart clock
+  // and its immediate successor cross into either widget destination.
+  function lyricsSnapshot() {
+    if (!current() || !clock || (phase === 'playing' && now() - clockAt > 2500) || !Array.isArray(plan.lyrics?.lines)) return null;
+    const position = clock.positionSeconds + (phase === 'playing' ? Math.max(0, now() - clockAt) / 1000 * clock.speed : 0);
+    const lines = plan.lyrics.lines;
+    let low = 0, high = lines.length - 1, found = -1;
+    while (low <= high) { const middle = (low + high) >>> 1; if (lines[middle].startSeconds <= position) { found = middle; low = middle + 1; } else high = middle - 1; }
+    const line = lines[found];
+    if (!line || position >= line.endSeconds || typeof line.text !== 'string' || !line.text) return null;
+    return { current: line.text, next: lines[found + 1]?.text || null };
   }
   function reportError(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 3
@@ -97,7 +119,7 @@ function createSongVisuals({ library, onChange, now = Date.now, respond = mediaR
     return respond(plan[kind], request, { signal: controller.signal,
       isAllowed: () => generation === ticket && capability === mediaKey && current(), onClose: () => readers.delete(controller) });
   }
-    function stop() { desired = false; key = ''; song = null; clock = null; clockSignature = ''; phase = 'idle'; clear('disabled'); }
-  return { update, setEnabled, select, snapshot, browserSnapshot, serve, reportError, stop };
+    function stop() { clearInterval(lyricsTimer); lyricsTimer = null; lastLyrics = ''; desired = false; key = ''; song = null; clock = null; clockSignature = ''; phase = 'idle'; clear('disabled'); }
+  return { update, setEnabled, select, snapshot, browserSnapshot, lyricsSnapshot, serve, reportError, stop };
 }
 module.exports = { createSongVisuals };

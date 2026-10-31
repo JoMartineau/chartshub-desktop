@@ -1,5 +1,5 @@
 'use strict';
-const { app, BrowserWindow, WebContentsView, ipcMain, protocol, session, net, screen, clipboard, dialog, shell, globalShortcut, safeStorage, Menu } = require('electron');
+const { app, BrowserWindow, WebContentsView, ipcMain, protocol, session, net, screen, clipboard, dialog, shell, globalShortcut, safeStorage, Menu, desktopCapturer } = require('electron');
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs/promises');
@@ -39,6 +39,7 @@ const { createMusicPlayer } = require('./music-player.cjs');
 const { createSongVisuals } = require('./song-visuals.cjs');
 const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs');
 const { changeMusicPlaylist } = require('./music-playlists.cjs');
+const { createGameCapture } = require('./game-capture.cjs');
 const SCHEME = 'chartshub-companion';
 const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu', player: 'ChartsHub — Lecteur Songs' });
 function registerCompanionScheme() {
@@ -61,6 +62,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let streamServer = null, streamInit = null, streamTask = Promise.resolve(), streamDesired = false, streamError = null;
   let library = null, rootPickerOpen = false;
   let songVisuals = null;
+  let gameCapture = null, gameCaptureTask = null;
   let musicPlayer = null, playerWindow = null, playerWindowLoad = null, playerSpectrumAt = 0;
   let playerPreferencesTask = Promise.resolve();
   const playerPreferences = createMusicPlayerPreferences({ dataDirectory });
@@ -164,6 +166,14 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     return net.fetch(pathToFileURL(filename).href);
   });
   const preferences = { session: ses, preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true, backgroundThrottling: false };
+  const gameCaptureStatus = () => gameCapture?.snapshot() ?? { available: hostActive && !disposing && !stopTask && !maintenanceLocked, phase: 'stopped', title: 'ChartsHub — Capture Clone Hero' };
+  async function ensureGameCapture() {
+    if (gameCapture) return gameCapture;
+    if (!gameCaptureTask) gameCaptureTask = createGameCapture({ root: __dirname, onChange: () => { if (!disposing) publishPanel(); },
+      active: () => hostActive && !disposing && !stopTask && !maintenanceLocked, language: () => language,
+      electron: { BrowserWindow, desktopCapturer, session, ipcMain, net } }).then(value => gameCapture = value).finally(() => { gameCaptureTask = null; });
+    return gameCaptureTask;
+  }
   function hardenContents(contents, page, ownerWindow) {
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', (event, url) => { if (url !== `${SCHEME}://app/ui/${page}`) event.preventDefault(); });
@@ -183,9 +193,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), widget: songRequestPreferences.status().widget,
     publicRequests: songRequestShareBroker?.status(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare, autoSync: songRequestShareSync?.status(),
     progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
-  const stateView = () => telemetryStateView(services.store.getState(), telemetry?.snapshot(), { language, liveMetadata: integration.status().mode === 'live' });
+  const stateView = () => ({ ...telemetryStateView(services.store.getState(), telemetry?.snapshot(), { language, liveMetadata: integration.status().mode === 'live' }), lyrics: songVisuals?.lyricsSnapshot() ?? null });
   const telemetryPanel = () => { const value = telemetry?.snapshot(); return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, reason: value.reason } : null; };
-  const snapshot = () => ({ language, buttonMotion: { ...buttonMotion }, state: stateView(), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const snapshot = () => ({ language, buttonMotion: { ...buttonMotion }, state: stateView(), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
     return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
@@ -213,6 +223,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   }
   function updateVisuals() {
     if (!songVisuals) return;
+    songVisuals.setEnabled(hostActive && !disposing && !stopTask && (streamDesired || services.store.getState().widgets.instances.some(w => w.type === 'song.lyrics' && w.enabled && (w.visibility.game || w.visibility.stream))));
     const view = stateView(), performance = view.performance;
     const real = performance?.connected === true || (integration.status().mode === 'live' && integration.status().status === 'active');
     void songVisuals.update({ live: real && hostActive && !disposing && !stopTask, phase: view.gameplay.state,
@@ -282,7 +293,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!disposing) publishPanel();
   } });
   await library.load();
-  songVisuals = createSongVisuals({ library, onChange: () => { if (!disposing) publishPanel(); } });
+  songVisuals = createSongVisuals({ library, onChange: () => { if (!disposing) publish(); } });
   musicPlayer = createMusicPlayer({ library, preferences: playerPreferences.status(), onChange: () => { if (!disposing) publishPanel(); }, onAction: value => {
     if (playerWindow && !playerWindow.isDestroyed() && !playerWindow.webContents.isLoading()) playerWindow.webContents.send('companion:player-action', value);
   } });
@@ -647,7 +658,6 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   }
   function setStream(enabled) {
     streamDesired = enabled;
-    songVisuals?.setEnabled(enabled);
     updateVisuals();
     streamTask = streamTask.catch(() => {}).then(async () => {
       if (!streamDesired || disposing || stopTask) {
@@ -833,7 +843,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const mini = catalogueAllowed() && trustedCatalogueWidgetCommand(event, catalogueWidget, command, payload);
     const playerSender = trustedPlayer(event) && typeof command === 'string' && (command.startsWith('player.') || (command === 'panels.appearance' && payload?.panel === 'player'));
     if (disposing || stopTask || maintenanceLocked || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini || playerSender) || !validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
-    if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.accuracy', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
+    if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.accuracy', 'widget.lyrics', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
       if (command === 'player.report' || command === 'player.spectrum' || command === 'player.ended') {
         if (!trustedPlayer(event)) return { ok: false };
@@ -852,6 +862,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'player.control') return payload.action === 'volume' ? await savePlayerPreferences({ volume: payload.value }) : await musicPlayer.control(payload.action, payload.value);
       if (command === 'player.widget') { await setPlayerWidget(payload.enabled); return { ok: true }; }
       if (command === 'capture.player') { await setPlayerWidget(true); return { ok: true }; }
+      if (command === 'gameCapture.open') { await (await ensureGameCapture()).open(); return { ok: true }; }
       if (command === 'player.video') return await savePlayerPreferences({ videoEnabled: payload.enabled });
       if (command === 'player.appearance') return await savePlayerPreferences({ appearance: payload.appearance });
       if (command === 'player.shuffle') return await savePlayerPreferences({ shuffle: payload.enabled });
@@ -992,6 +1003,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       } else if (command === 'widget.accuracy') {
         if (services.store.getState().widgets.instances.find(widget => widget.id === payload.id)?.type !== 'gameplay.accuracy') return { ok: false, error: 'Ce réglage concerne uniquement Accuracy.' };
         const config = require('./dist/widgets/core/Gameplay/AccuracyConfig.js').validateAccuracyConfig(payload.config);
+        commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id ? { ...widget, config } : widget));
+      } else if (command === 'widget.lyrics') {
+        if (services.store.getState().widgets.instances.find(widget => widget.id === payload.id)?.type !== 'song.lyrics') return { ok: false, error: 'Ce réglage concerne uniquement les paroles.' };
+        const config = require('./dist/widgets/core/Gameplay/LyricsConfig.js').validateLyricsConfig(payload.config);
         commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id ? { ...widget, config } : widget));
       } else if (command === 'widget.locked') {
         commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id ? { ...widget, locked: payload.locked } : widget));
@@ -1221,6 +1236,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const songRequestStop = songRequestServer?.stop();
     const songRequestConnectionsStop = songRequestConnections?.stop();
     hostActive = false; catalogueWidgetTicket++; catalogueWidgetEnabled = false;
+    gameCapture?.stop();
     musicPlayer?.stop();
     if (playerWindow && !playerWindow.isDestroyed()) playerWindow.destroy();
     playerWindowLoad = null;
@@ -1328,7 +1344,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     else app.removeListener('before-quit', beforeQuit);
     unsubscribe(); ipcMain.removeHandler('companion:snapshot'); ipcMain.removeHandler('companion:command');
     disposeTask = (async () => {
-      await stop(); await telemetry.dispose(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
+      await stop(); if (gameCaptureTask) await gameCaptureTask; await gameCapture?.dispose(); await telemetry.dispose(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
       if (embedded && panelContents && !panelContents.isDestroyed()) {
         const contents = panelContents;
         await new Promise(resolve => { contents.once('destroyed', resolve); contents.close(); });
@@ -1347,7 +1363,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (downloads?.status()?.items?.some(item => ['Queued','Downloading'].includes(item.state))) reasons.push('chart_downloads');
     if (filters?.status()?.busy || reshade?.status()?.busy || ['preparing','installing'].includes(reshadeSetup?.status()?.state)) reasons.push('game_setup');
     if (player?.playing || player?.loading) reasons.push('player_active');
-    if (streamStatus().enabled) reasons.push('stream_active');
+    if (streamStatus().enabled || gameCaptureStatus().phase !== 'stopped') reasons.push('stream_active');
     if (songRequests?.snapshot().enabled || songRequestBusy) reasons.push('requests_active');
     if (songRequestShare.busy) reasons.push('sharing_active');
     if (rootPickerOpen || downloadPickerOpen || cloneHeroPickerOpen || filtersPickerOpen || filtersConfirmationOpen || reshadePickerOpen || reshadeConfirmationOpen) reasons.push('dialog_active');

@@ -8,6 +8,7 @@ import { createDefaultTheme, validateTheme } from '../themes/ThemeService.js';
 import { validateWidgetStyle } from '../themes/ThemeResolver.js';
 import { normalizeColor } from '../themes/normalizeColor.js';
 import { validateAccuracyConfig } from '../widgets/core/Gameplay/AccuracyConfig.js';
+import { validateLyricsConfig } from '../widgets/core/Gameplay/LyricsConfig.js';
 import { createDefaultStream, validateStream, type StreamSettings } from '../overlay/stream/StreamConfig.js';
 
 export interface SettingsDocument { version: 3; widgets: WidgetInstance[]; theme: ThemeSettings; stream: StreamSettings; }
@@ -35,6 +36,7 @@ export function validateSettings(value: unknown): SettingsDocument {
     if (w.gameplayVisibility !== undefined && (!Array.isArray(w.gameplayVisibility) || w.gameplayVisibility.length > 6 || w.gameplayVisibility.some(s => !states.includes(s as GameplayState)))) throw Error('Visibilité de widget invalide.');
     if (!record(w.style) || !record(w.config)) throw Error('Configuration de widget invalide.');
     if (w.type === 'gameplay.accuracy') validateAccuracyConfig(w.config);
+    if (w.type === 'song.lyrics') validateLyricsConfig(w.config);
     const style = validateWidgetStyle(w.style);
     if (value.version === 1 && w.style.colorMode === undefined) {
       const legacyColor = Object.hasOwn(legacyColors, w.type) ? normalizeColor(legacyColors[w.type]!) : null;

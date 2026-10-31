@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; media-src blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'">
+<title>ChartsHub — Capture Clone Hero</title><link rel="stylesheet" href="./game-capture.css"></head>
+<body><main><h1 id="heading">Highway et score du jeu</h1><p id="intro">Choisissez la fenêtre Clone Hero, démarrez l’aperçu, puis tracez les deux zones à la souris. Les notes et le panneau sont ceux du jeu ; le fond présent dans chaque zone est également capturé.</p>
+<div class="actions"><button id="refresh">Actualiser les fenêtres</button><select id="source" aria-label="Fenêtre Clone Hero"><option value="">Choisir une fenêtre…</option></select><button id="start" disabled>Démarrer la capture</button><button id="stop" disabled>Arrêter la capture</button></div>
+<p id="status" role="status"></p>
+<div class="actions"><label id="region-label" for="region">Zone à tracer</label><select id="region"><option value="highway">Highway et notes</option><option value="score">Panneau du score</option></select></div>
+<div id="preview"><video id="game" muted playsinline></video><canvas id="selection" aria-label="Tracer une zone sur l’aperçu"></canvas></div>
+<div class="actions"><button id="open-highway" disabled>Ouvrir Highway pour OBS</button><button id="open-score" disabled>Ouvrir Score pour OBS</button></div>
+<p id="instructions">Dans OBS, ajoutez deux sources « Capture de fenêtre » : ChartsHub — Highway et ChartsHub — Score. Conservez ces fenêtres et cet aperçu ouverts. Cette capture contient le fond du jeu, sans transparence séparant ses éléments.</p>
+<p id="safety">La capture reste arrêtée à l’ouverture. Fermer cet aperçu ou cliquer sur Arrêter met fin à la capture. Une fenêtre disparue doit être choisie à nouveau.</p>
+</main><script type="module" src="./game-capture.js"></script></body></html>

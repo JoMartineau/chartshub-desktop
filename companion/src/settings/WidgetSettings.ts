@@ -16,6 +16,7 @@ interface SettingRow {
   savedFontSize: number;
   dirty: boolean;
   accuracy?: AccuracyControls;
+  lyrics?: { next: HTMLInputElement; saved: boolean };
 }
 
 interface FontSizeChange { revision: number; id: string; fontSize: number; }
@@ -33,6 +34,7 @@ export class WidgetSettings {
     private readonly onToggle: (id: string, enabled: boolean) => void,
     private readonly onFontSize?: (change: FontSizeChange) => Promise<unknown>,
     private readonly onAccuracy?: (change: { revision: number; id: string; config: AccuracyConfig }) => Promise<unknown>,
+    private readonly onLyrics?: (change: { revision: number; id: string; config: { showNextLine: boolean } }) => Promise<unknown>,
   ) {}
 
   render(instances: readonly WidgetInstance[], revision = 0): void {
@@ -47,7 +49,7 @@ export class WidgetSettings {
     }
     for (const instance of instances) {
       let row = this.rows.get(instance.id);
-      if (row && Boolean(row.accuracy) !== (instance.type === 'gameplay.accuracy')) { row.element.remove(); this.rows.delete(instance.id); row = undefined; }
+      if (row && (Boolean(row.accuracy) !== (instance.type === 'gameplay.accuracy') || Boolean(row.lyrics) !== (instance.type === 'song.lyrics'))) { row.element.remove(); this.rows.delete(instance.id); row = undefined; }
       if (!row) {
         const document = this.container.ownerDocument;
         const signal = this.abort.signal;
@@ -99,6 +101,14 @@ export class WidgetSettings {
           const hint = document.createElement('p'); hint.className = 'helper-text'; hint.textContent = 'Pour deux lignes : gardez Dernier et Moyenne, puis décochez le titre et la couverture. Les réglages s’appliquent à Jeu et OBS.'; choices.append(hint);
           element.append(choices);
         }
+        if (instance.type === 'song.lyrics') {
+          const label = document.createElement('label'), next = document.createElement('input'), caption = document.createElement('span');
+          label.className = 'widget-lyrics-next';
+          next.type = 'checkbox'; next.dataset.lyricsNext = instance.id; caption.textContent = 'Afficher aussi la prochaine ligne'; label.append(next, caption); element.append(label);
+          setting.lyrics = { next, saved: instance.config.showNextLine === true };
+          const hint = document.createElement('p'); hint.className = 'helper-text'; hint.textContent = 'Paroles de votre chart locale, synchronisées avec l’horloge du jeu. Scannez Songs ; choisissez la version dans Stream si nécessaire. Sans paroles ou horloge compatible, le widget reste transparent.'; element.append(hint);
+          next.addEventListener('change', () => { void this.commitLyrics(instance.id); }, { signal });
+        }
         fontSize.addEventListener('input', () => { setting.dirty = true; this.feedback(setting); this.availability(); }, { signal });
         fontSize.addEventListener('change', () => { void this.commit(instance.id); }, { signal });
         fontSize.addEventListener('blur', () => { if (setting.dirty) void this.commit(instance.id); }, { signal });
@@ -128,6 +138,7 @@ export class WidgetSettings {
         for (const [field,input] of row.accuracy.fields) input.checked = config.fields.includes(field);
         row.accuracy.title.checked = config.showTitle; row.accuracy.coverage.checked = config.showCoverage;
       }
+      if (row.lyrics) { row.lyrics.saved = instance.config.showNextLine === true; row.lyrics.next.checked = row.lyrics.saved; }
     }
     this.availability();
   }
@@ -156,6 +167,7 @@ export class WidgetSettings {
         for (const input of row.accuracy.fields.values()) input.disabled = this.busy || !this.onAccuracy || count === 1 && input.checked;
         row.accuracy.title.disabled = row.accuracy.coverage.disabled = this.busy || !this.onAccuracy;
       }
+      if (row.lyrics) row.lyrics.next.disabled = this.busy || !this.onLyrics;
     }
   }
 
@@ -209,6 +221,17 @@ export class WidgetSettings {
         this.availability();
       }
     }
+  }
+
+  private async commitLyrics(id: string): Promise<void> {
+    const row = this.rows.get(id), controls = row?.lyrics;
+    if (!row || !controls || this.disposed || this.busy || !this.onLyrics) return;
+    this.busy = true; this.feedback(row); this.availability();
+    try {
+      const result = await this.onLyrics({ revision: this.revision, id, config: { showNextLine: controls.next.checked } });
+      if (!result || typeof result !== 'object' || !('ok' in result) || result.ok !== true) this.feedback(row, 'Les paroles n’ont pas été enregistrées. Réessayez.');
+    } catch { if (!this.disposed) this.feedback(row, 'Les paroles n’ont pas été enregistrées. Réessayez.'); }
+    finally { this.busy = false; if (!this.disposed) { controls.next.checked = controls.saved; this.availability(); } }
   }
 
   dispose(): void {

@@ -207,6 +207,8 @@ select { min-width: 122px; min-height: 35px; background: var(--surface); color: 
 .widget-accuracy-fields label { display: flex; gap: 7px; align-items: center; margin: 7px 0; color: var(--muted); font-size: 11px; }
 .widget-accuracy-fields input { flex: 0 0 auto; }
 .widget-accuracy-fields .helper-text { grid-column: 1 / -1; margin: 10px 0 0; font-size: 10px; line-height: 1.5; }
+.widget-lyrics-next { display: flex; align-items: center; gap: 7px; margin: 12px 0 0; color: var(--muted); font-size: 11px; cursor: pointer; }
+.widget-lyrics-next input { flex: 0 0 auto; }
 .destination-pill { border-radius: 4px; background: var(--surface-raised); color: var(--muted); padding: 4px 6px; font-size: 9px; flex: 0 0 auto; }
 .settings-footer { padding: 13px 18px 17px; display: flex; align-items: flex-start; gap: 7px; color: var(--muted); font-size: 10px; line-height: 1.4; }
 .save-dot, .small-dot { width: 5px; height: 5px; flex: 0 0 auto; border-radius: 50%; background: var(--accent-soft); display: inline-block; }

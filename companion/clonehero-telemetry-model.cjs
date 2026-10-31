@@ -44,8 +44,11 @@ function createTelemetryModel({ now = Date.now, settings = { windowMs: 20, goal:
             active.comparisonBaseline = bestScores.get(key) ?? null;
         }
     } if (value.stats)
-        applyStats(value.stats); if (capabilities.clock && value.clock)
-        active.clock = { ...value.clock }; }
+        applyStats(value.stats); if (capabilities.clock && value.clock) {
+        if (trial?.source === 'gameplay' && contract.finite(active.clock?.speed, .01, 10)
+            && contract.finite(value.clock.speed, .01, 10) && active.clock.speed !== value.clock.speed)
+            trial.incomplete = true;
+        active.clock = { ...value.clock }; } }
     const chartKey = () => active?.metadata.chartId && active.metadata.instrument && active.metadata.difficulty ? JSON.stringify([active.metadata.chartId, active.metadata.instrument, active.metadata.difficulty]) : null;
     function ingest(raw) {
         const frame = contract.validateFrame(raw);

@@ -23,6 +23,7 @@ function send(type,data={}){assert.ok(peer&&!peer.destroyed);peer.write(JSON.str
 const evaluate=code=>panel.webContents.executeJavaScript(code);
 async function command(name,payload={}){const r=await evaluate(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`);assert.equal(r.ok,true,JSON.stringify(r));return r;}
 async function click(selector){await revealWorkspace(panel,selector);const point=await evaluate(`(async()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n||n.disabled)throw Error('Unavailable native control');n.scrollIntoView({block:'center',behavior:'instant'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),p={x:Math.round(b.left+b.width/2),y:Math.round(b.top+b.height/2)},hit=document.elementFromPoint(p.x,p.y);if(!hit||!(hit===n||n.contains(hit)))throw Error('Covered native control');return p;})()`);panel.focus();panel.webContents.focus();for(const type of ['mouseMove','mouseDown','mouseUp'])panel.webContents.sendInputEvent({type,...point,...(type==='mouseMove'?{}:{button:'left',clickCount:1})});await delay(60);}
+async function calibrationField(selector,value){await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n||n.disabled)throw Error('Unavailable calibration input');n.value=${JSON.stringify(String(value))};n.dispatchEvent(new Event('input',{bubbles:true}));n.dispatchEvent(new Event('change',{bubbles:true}));})()`);}
 async function check(name,fn){await fn();checks.push({name,result:'passed'});console.log('PASS '+name);}
 async function captureNativeResults(name){
  await revealWorkspace(panel,'.performance-calibration-results');
@@ -100,9 +101,72 @@ app.whenReady().then(async()=>{
   assert.equal(host.snapshot().telemetry.calibration.nativeResults.audio.sampleCount,32);assert.equal(host.snapshot().telemetry.calibration.nativeResults.video.sampleCount,2);
   assert.equal(host.snapshot().telemetry.timing.sampleCount,40);assert.equal(host.snapshot().telemetry.calibration.trials[0].settingMs,100,'manual comparison setting is not added to the native result');
   assert.ok(await evaluate("document.querySelector('.performance-calibration').textContent.includes('pas un décalage à ajouter')"));
+  assert.deepEqual(await evaluate("[...document.querySelectorAll('[data-calibration-step]>h3')].map(n=>n.textContent)"),['1. Choisir le réglage','2. Choisir la méthode','3. Faire l’essai','4. Lire le résultat et comparer']);
+  assert.deepEqual(await evaluate("[...document.querySelector('#calibration-method').options].map(n=>n.value)"),['native','manual','gameplay']);
+  assert.equal(await evaluate("document.querySelector('#calibration-method').value"),'native');
+  assert.equal(await evaluate("document.querySelector('#calibration-setting').value"),'','no assumed current game setting');
   await captureNativeResults('native-calibration-fr.png');
-  host.setLanguage('en');await until(()=>evaluate("document.querySelector('[data-stage=audio] h3').textContent==='Audio delay'&&document.querySelector('#source-mode-label').textContent==='CLONE HERO DATA'"),'English native cards and telemetry header');
+  host.setLanguage('en');await until(()=>evaluate("document.querySelector('[data-stage=audio] h3').textContent==='Audio delay'&&document.querySelector('#source-mode-label').textContent==='CLONE HERO DATA'&&document.querySelector('.performance-feedback').textContent==='Action completed.'"),'English native cards, telemetry header and action feedback');
   const minimum=panel.getMinimumSize();panel.setSize(Math.max(minimum[0],800),Math.max(minimum[1],750));await captureNativeResults('native-calibration-min-en.png');
+ });
+ await check('Native results can be reused in separate local Audio and Video drafts without changing game values',async()=>{
+  await click('[data-stage=audio] .button');assert.equal(await evaluate("document.querySelector('#calibration-setting').value"),'18');
+  await calibrationField('#calibration-stage','video');assert.equal(await evaluate("document.querySelector('#calibration-setting').value"),'');
+  await click('[data-stage=video] .button');assert.equal(await evaluate("document.querySelector('#calibration-setting').value"),'-27');
+  await calibrationField('#calibration-stage','audio');assert.equal(await evaluate("document.querySelector('#calibration-setting').value"),'18');
+  assert.match(await evaluate("document.querySelector('.performance-feedback').textContent"),/No game setting was changed/);
+  assert.deepEqual(Object.fromEntries(Object.entries(host.snapshot().telemetry.calibration.nativeResults).map(([key,value])=>[key,value.settingMs])),{audio:18,video:-27});
+  assert.equal(host.snapshot().telemetry.calibration.trial,null);
+ });
+ await check('Manual Audio and Video trials route native samples, require thirty continuous measurements and filter their histories',async()=>{
+  await calibrationField('#calibration-method','manual');await calibrationField('#calibration-setting','112');
+  await click('#calibration-start');await until(()=>host.snapshot().telemetry.calibration.trial?.settingMs===112,'manual audio start');
+  assert.equal(host.snapshot().telemetry.calibration.trial.source,'tool');
+  assert.match(await evaluate("document.querySelector('.performance-feedback').textContent"),/Trial started.*No game setting was changed/);
+  send('hit',{offsetMs:90});for(let i=0;i<29;i++)send('calibration',{stage:'audio',offsetMs:5,calibrationAttemptId:'manual-audio-one'});
+  await until(()=>host.snapshot().telemetry.calibration.trial?.sampleCount===29,'manual native samples only');
+  await until(()=>evaluate("document.querySelector('#calibration-finish').disabled"),'manual finish disabled below30');
+  send('calibration',{stage:'audio',offsetMs:5,calibrationAttemptId:'manual-audio-one'});await until(()=>evaluate("!document.querySelector('#calibration-finish').disabled"),'manual finish available');
+  await click('#calibration-finish');await until(()=>host.snapshot().telemetry.calibration.trial===null,'manual audio finished');
+  assert.match(await evaluate("document.querySelector('.performance-feedback').textContent"),/Trial kept/);
+  await calibrationField('#calibration-stage','video');assert.equal(await evaluate("document.querySelector('#calibration-setting').value"),'-27');
+  assert.equal(await evaluate("document.querySelector('.performance-trials').children.length"),0,'audio trials stay out of video history');
+  await calibrationField('#calibration-setting','13');await click('#calibration-start');
+  send('calibration',{stage:'audio',offsetMs:100,calibrationAttemptId:'wrong-stage-one'});
+  await until(()=>host.snapshot().telemetry.calibration.trial?.incomplete,'wrong native stage interrupts video trial');
+  assert.equal(await evaluate("document.querySelector('#calibration-finish').disabled"),true);
+  await click('#calibration-start');for(let i=0;i<30;i++)send('calibration',{stage:'video',offsetMs:-4,calibrationAttemptId:'manual-video-one'});
+  await until(()=>evaluate("!document.querySelector('#calibration-finish').disabled"),'restarted video trial ready');await click('#calibration-finish');
+  await until(()=>evaluate("document.querySelector('.performance-trials').children.length===1"),'video-only native history');
+  assert.match(await evaluate("document.querySelector('.performance-trials').textContent"),/13\.0 ms/);
+  assert.doesNotMatch(await evaluate("document.querySelector('.performance-trials').textContent"),/112\.0 ms/);
+ });
+ await check('In-game analysis keeps its own history, shows early/late and dispersion, and compares only after matching-condition confirmation',async()=>{
+  await calibrationField('#calibration-stage','audio');assert.equal(await evaluate("document.querySelector('#calibration-setting').value"),'112');
+  await calibrationField('#calibration-method','gameplay');assert.equal(await evaluate("document.querySelector('.performance-trials').children.length"),0,'native trials excluded from chart-hit history');
+  await calibrationField('#calibration-setting','14');await click('#calibration-start');assert.equal(host.snapshot().telemetry.calibration.trial.source,'gameplay');
+  send('calibration',{stage:'audio',offsetMs:100,calibrationAttemptId:'ignored-by-gameplay'});
+  for(let i=0;i<29;i++)send('hit',{offsetMs:-8});await until(()=>host.snapshot().telemetry.calibration.trial?.sampleCount===29,'gameplay hits only');
+  assert.equal(await evaluate("document.querySelector('#calibration-finish').disabled"),true);
+  await until(()=>evaluate("document.querySelector('.performance-calibration-live').textContent.includes('-8.0 ms (early)')&&document.querySelector('.performance-calibration-live').textContent.includes('deviation')"),'signed actual live analysis');
+  send('hit',{offsetMs:-8});await until(()=>evaluate("!document.querySelector('#calibration-finish').disabled"),'30 gameplay hits');
+  await calibrationField('#calibration-stage','video');assert.equal(await evaluate("document.querySelector('#calibration-finish').disabled"),true,'cannot finish audio from video context');
+  await calibrationField('#calibration-stage','audio');await click('#calibration-finish');
+  await calibrationField('#calibration-setting','10');await click('#calibration-start');for(let i=0;i<30;i++)send('hit',{offsetMs:-2});
+  await until(()=>evaluate("!document.querySelector('#calibration-finish').disabled"),'second gameplay trial');await click('#calibration-finish');
+  await until(()=>evaluate("document.querySelector('.performance-trials').children.length===2"),'two audio gameplay histories');
+  assert.equal(await evaluate("document.querySelector('#calibration-comparable').checked"),false);
+  assert.doesNotMatch(await evaluate("document.querySelector('.performance-calibration-comparison').textContent"),/Change in mean absolute/);
+  await click('#calibration-comparable');assert.match(await evaluate("document.querySelector('.performance-calibration-comparison').textContent"),/Before.*14\.0 ms.*-8\.0 ms[\s\S]*After.*10\.0 ms.*-2\.0 ms[\s\S]*Change in mean absolute offset : -6\.0 ms/);
+  const read=await evaluate("(()=>{const n=document.querySelector('[data-calibration-step=\"4\"]');n.scrollIntoView({block:'start',behavior:'instant'});return n.textContent})()");assert.match(read,/do not calculate a new audio or video setting/);await delay(100);
+  await fs.writeFile(path.join(directory,'calibration-in-game-comparison-en.png'),(await panel.webContents.capturePage()).toPNG());captures.push('calibration-in-game-comparison-en.png');
+  await calibrationField('#calibration-setting','9');await click('#calibration-start');for(let i=0;i<30;i++)send('hit',{offsetMs:-1});
+  await until(()=>evaluate("!document.querySelector('#calibration-finish').disabled"),'third gameplay trial');await click('#calibration-finish');
+  await until(()=>evaluate("document.querySelector('.performance-trials').children.length===3&&!document.querySelector('#calibration-comparable').checked"),'new before/after pair requires fresh matching-condition confirmation');
+  await calibrationField('#calibration-stage','video');assert.equal(await evaluate("document.querySelector('#calibration-setting').value"),'13');assert.equal(await evaluate("document.querySelector('.performance-trials').children.length"),0);assert.equal(await evaluate("document.querySelector('#calibration-comparable').checked"),false);
+  await calibrationField('#calibration-stage','audio');await calibrationField('#calibration-method','manual');assert.equal(await evaluate("document.querySelector('.performance-trials').children.length"),2,'both native audio histories retained independently');
+  assert.doesNotMatch(await evaluate("document.querySelector('.performance-trials').textContent"),/Entered setting (10|14)\.0 ms/,'chart-hit settings absent from native history');
+  await calibrationField('#calibration-method','native');
  });
  await check('English text and native minimum window retain readable controls',async()=>{host.setLanguage('en');await until(()=>evaluate("document.querySelector('#performance-controls').textContent.includes('Gameplay measurements')"),'English controls');const minimum=panel.getMinimumSize();panel.setSize(Math.max(minimum[0],800),Math.max(minimum[1],750));await revealWorkspace(panel,'#performance-panel');await delay(100);assert.equal(await evaluate("document.documentElement.scrollWidth>innerWidth+1"),false);await capture('accuracy-fixture-min-en.png');});
  await check('Seven widgets render through the real Stream preview and OBS transport at720p and1080p with five synthetic results',async()=>{
@@ -141,6 +205,14 @@ app.whenReady().then(async()=>{
   await host.saveSettings();const stored=JSON.parse(await fs.readFile(path.join(directory,'companion/settings.json'),'utf8'));assert.deepEqual(stored.widgets.find(w=>w.type==='gameplay.accuracy').config,config);assert.equal(stored.widgets.find(w=>w.type==='gameplay.accuracy').style.fontSize,14);
   await new Promise(resolve=>{panel.webContents.once('did-finish-load',resolve);panel.webContents.reload();});await until(()=>evaluate("document.querySelector('#widget-font-size-gameplay-accuracy')?.value==='14'&&document.querySelector('[data-accuracy-field=\"lastOffsetMs\"]')?.checked&&!document.querySelector('[data-accuracy-field=\"sampleCount\"]')?.checked"),'renderer reload restores actual persisted choices');
  });
- await check('Disconnect removes live measurements rather than freezing them as current',async()=>{clearInterval(timer);peer.destroy();await until(()=>!host.snapshot().telemetry.connected,'disconnected');assert.equal(host.snapshot().telemetry.timing.sampleCount,0);await until(()=>evaluate("!document.querySelector('.performance-status').textContent.includes('Connected')"),'renderer disconnect');await until(()=>evaluate("[...document.querySelectorAll('.performance-calibration-result-value')].every(n=>n.textContent==='—')&&document.querySelector('#source-mode-label').textContent==='DEMO MODE'&&!document.querySelector('#source-mode-badge').classList.contains('is-live')"),'old native values hidden and legacy badge restored');for(const obs of obsWindows){await until(()=>obs.webContents.executeJavaScript("[...document.querySelectorAll('.companion-widget')].every(node=>!node.dataset.widgetType.startsWith('gameplay.'))"),'OBS removes all live Gameplay widgets');assert.equal(await obs.webContents.executeJavaScript("document.querySelectorAll('[data-widget-type=\"session.history\"]').length"),1,'valid measured history remains historical');}});
+ await check('Disconnect removes live measurements rather than freezing them as current',async()=>{
+  await click('.performance-calibration summary');await calibrationField('#calibration-stage','video');await calibrationField('#calibration-method','gameplay');await calibrationField('#calibration-setting','13');await click('#calibration-start');
+  for(let i=0;i<30;i++)send('hit',{offsetMs:1});await until(()=>evaluate("!document.querySelector('#calibration-finish').disabled&&!document.querySelector('.performance-calibration-live').hidden"),'running analysis ready before disconnect');
+  clearInterval(timer);peer.destroy();await until(()=>!host.snapshot().telemetry.connected,'disconnected');assert.equal(host.snapshot().telemetry.timing.sampleCount,0);
+  await until(()=>evaluate("document.querySelector('#calibration-finish').disabled&&document.querySelector('#calibration-start').disabled&&document.querySelector('.performance-calibration-live').hidden&&document.querySelector('.performance-calibration-live').textContent===''"),'interrupted analysis cannot finish or display frozen live statistics');
+  assert.match(await evaluate("document.querySelector('.performance-calibration-trial').textContent"),/Interrupted: restart this trial/);
+  await until(()=>evaluate("!document.querySelector('.performance-status').textContent.includes('Connected')"),'renderer disconnect');await until(()=>evaluate("[...document.querySelectorAll('.performance-calibration-result-value')].every(n=>n.textContent==='—')&&document.querySelector('#source-mode-label').textContent==='DEMO MODE'&&!document.querySelector('#source-mode-badge').classList.contains('is-live')"),'old native values hidden and legacy badge restored');
+  for(const obs of obsWindows){await until(()=>obs.webContents.executeJavaScript("[...document.querySelectorAll('.companion-widget')].every(node=>!node.dataset.widgetType.startsWith('gameplay.'))"),'OBS removes all live Gameplay widgets');assert.equal(await obs.webContents.executeJavaScript("document.querySelectorAll('[data-widget-type=\"session.history\"]').length"),1,'valid measured history remains historical');}
+ });
  assert.deepEqual(runtimeErrors,[]);assert.deepEqual(consoleErrors,[]);await finish();
 }).catch(error=>finish(error).catch(e=>{console.error(e);app.exit(1);}));

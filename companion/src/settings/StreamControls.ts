@@ -21,6 +21,7 @@ const labels: Record<string, string> = {
   'gameplay.progress': 'Progression du morceau', 'gameplay.comparison': 'Comparaison du record', 'session.goal': 'Objectif de session', 'session.history': 'Cinq derniers essais',
   'song.title': 'Titre du morceau', 'song.artist': 'Artiste', 'song.charter': 'Créateur de la chart',
   'song.instrument': 'Instrument', 'song.difficulty': 'Difficulté',
+  'song.lyrics': 'Paroles synchronisées',
 };
 
 export class StreamControls {

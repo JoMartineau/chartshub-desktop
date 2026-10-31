@@ -5,6 +5,7 @@ import type { SettingsDocument } from '../../../storage/SettingsRepository.js';
 import { createDefaultStream } from '../../../overlay/stream/StreamConfig.js';
 import type { WidgetComponent, WidgetContent } from '../../engine/WidgetRegistry.js';
 import { validateAccuracyConfig, type AccuracyConfig } from './AccuracyConfig.js';
+import { validateLyricsConfig } from './LyricsConfig.js';
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
 const language = (p: GameplayTelemetry) => p.language === 'en' ? 'en' : 'fr';
@@ -36,7 +37,8 @@ const definitions: WidgetDefinition[] = [
   {type:'gameplay.progress',version:1,displayName:'Progression du morceau',category:'gameplay',defaultSize:{width:440,height:72},defaultConfig:{},requiredCapabilities:['gameplay.progress']},
   {type:'gameplay.comparison',version:1,displayName:'Comparaison du meilleur score',category:'gameplay',defaultSize:{width:400,height:104},defaultConfig:{},requiredCapabilities:['gameplay.comparison']},
   {type:'session.goal',version:1,displayName:'Objectif de session',category:'stream',defaultSize:{width:400,height:104},defaultConfig:{},requiredCapabilities:['session.goal']},
-  {type:'session.history',version:1,displayName:'Cinq derniers essais',category:'stream',defaultSize:{width:680,height:184},defaultConfig:{},requiredCapabilities:['session.history']}
+  {type:'session.history',version:1,displayName:'Cinq derniers essais',category:'stream',defaultSize:{width:680,height:184},defaultConfig:{},requiredCapabilities:['session.history']},
+  {type:'song.lyrics',version:1,displayName:'Paroles synchronisées',category:'song',defaultSize:{width:720,height:100},defaultConfig:{},requiredCapabilities:[]}
 ];
 const renderers: Record<string, (p: GameplayTelemetry) => WidgetContent | null> = {
   'gameplay.accuracy': p => accuracy(p,validateAccuracyConfig({})),
@@ -59,9 +61,15 @@ const renderers: Record<string, (p: GameplayTelemetry) => WidgetContent | null> 
   'session.goal': p => {const unit=p.goal.kind==='songs'?label(p,'morceaux','songs'):p.goal.kind==='fc'?'FC':'min';return content([label(p,'Objectif de session','Session goal'),`${format(p,p.goal.value,p.goal.kind==='minutes'?1:0)} / ${format(p,p.goal.target)} ${unit}  ·  ${format(p,p.goal.percent)} %`,`${label(p,'Durée de session','Session duration')}: ${time(p.session.durationSeconds)}`]);},
   'session.history': p => content([label(p,'Cinq derniers essais','Last five attempts'),...p.history.slice(0,5).map((h,i)=>`${i+1}. ${format(p,h.score)}${h.fullCombo===true?' · FC':''}${h.coverage!=='complete'?' · '+label(p,'essai partiel','partial attempt'):!h.completed?' · '+label(p,'interrompu','interrupted'):''} · ${h.title||label(p,'Morceau','Song')}`)])
 };
-export const gameplayWidgets = definitions.map(definition => ({definition,component: ((state: AppState, instance: WidgetInstance) => state.performance ? definition.type === 'gameplay.accuracy' ? accuracy(state.performance,validateAccuracyConfig(instance.config)) : renderers[definition.type]!(state.performance) : null) as WidgetComponent}));
+export const gameplayWidgets = definitions.map(definition => ({definition,component: ((state: AppState, instance: WidgetInstance) => {
+  if (definition.type === 'song.lyrics') {
+    if (!state.lyrics?.current || !['playing','paused'].includes(state.gameplay.state)) return null;
+    return content([state.lyrics.current,...(validateLyricsConfig(instance.config).showNextLine && state.lyrics.next ? [state.lyrics.next] : [])]);
+  }
+  return state.performance ? definition.type === 'gameplay.accuracy' ? accuracy(state.performance,validateAccuracyConfig(instance.config)) : renderers[definition.type]!(state.performance) : null;
+}) as WidgetComponent}));
 export function createGameplayWidgets(): WidgetInstance[] {
-  const positions=[[816,32],[48,32],[48,124],[48,256],[816,238],[816,368],[48,348]];
+  const positions=[[816,32],[48,32],[48,124],[48,256],[816,238],[816,368],[48,348],[280,600]];
   return definitions.map((definition,i)=>({id:definition.type.replace('.','-'),type:definition.type,enabled:true,position:{x:positions[i]![0]!,y:positions[i]![1]!},size:{...definition.defaultSize},visibility:{game:false,stream:false},gameplayVisibility:['idle','menu','loading','playing','paused','results'],style:{fontSize:definition.type==='gameplay.accuracy'?16:20,fontWeight:500,colorMode:'theme'},config:{}}));
 }
 /** Append only missing optional instances. Existing layouts and styles are kept. */

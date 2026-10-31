@@ -43,6 +43,7 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (command === 'gameCapture.open') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'visuals.copyUrl') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && Object.keys(payload).length === 1 && ['background', 'video'].includes(payload.kind);
   if (command === 'visuals.select') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
@@ -185,6 +186,10 @@ function validCommand(command, payload, widgetIds) {
   if (command === 'widget.accuracy') {
     if (!Number.isSafeInteger(payload.revision) || payload.revision < 0 || !widgetIds.includes(payload.id) || Object.keys(payload).some(key => !['revision','id','config'].includes(key))) return false;
     try { require('./dist/widgets/core/Gameplay/AccuracyConfig.js').validateAccuracyConfig(payload.config); return true; } catch { return false; }
+  }
+  if (command === 'widget.lyrics') {
+    if (!Number.isSafeInteger(payload.revision) || payload.revision < 0 || !widgetIds.includes(payload.id) || Object.keys(payload).some(key => !['revision','id','config'].includes(key))) return false;
+    try { require('./dist/widgets/core/Gameplay/LyricsConfig.js').validateLyricsConfig(payload.config); return true; } catch { return false; }
   }
   if (command === 'downloads.enqueue') return typeof payload.chartId === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/.test(payload.chartId) && Object.keys(payload).every(key => key === 'chartId');
   if (command === 'catalogue.favorite') return Object.keys(payload).length === 2 && Object.keys(payload).every(key => ['chartId', 'favorite'].includes(key))

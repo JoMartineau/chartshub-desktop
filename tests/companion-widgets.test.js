@@ -27,16 +27,16 @@ test('widget registry preserves five song widgets and registers optional gamepla
   const registry = api.createDefaultRegistry();
   assert.deepEqual(registry.getAll().map(({ definition }) => definition.type), [
     'song.title', 'song.artist', 'song.charter', 'song.instrument', 'song.difficulty',
-    'gameplay.accuracy', 'gameplay.combo', 'gameplay.fc', 'gameplay.progress', 'gameplay.comparison', 'session.goal', 'session.history'
+    'gameplay.accuracy', 'gameplay.combo', 'gameplay.fc', 'gameplay.progress', 'gameplay.comparison', 'session.goal', 'session.history', 'song.lyrics'
   ]);
-  assert.equal(new Set(registry.getAll().map(entry => entry.component)).size, 12);
+  assert.equal(new Set(registry.getAll().map(entry => entry.component)).size, 13);
   const entry = registry.get('song.title');
   assert.equal(entry.definition.displayName, 'Song Title');
   assert.throws(() => registry.register(entry.definition, entry.component), /already registered/);
   assert.equal(registry.get('unregistered'), undefined);
   const copy = registry.getAll();
   copy.length = 0;
-  assert.equal(registry.getAll().length, 12);
+  assert.equal(registry.getAll().length, 13);
 });
 
 test('default widget instances have stable unique IDs and independent mutable settings', () => {

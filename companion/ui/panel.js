@@ -22,6 +22,7 @@ import { LocalMusicPlayerControls } from '../dist/settings/LocalMusicPlayerContr
 import { WorkspaceNavigation } from './workspace-navigation.js';
 import { GameplayControls } from './gameplay-controls.js';
 import { SongVisualControls } from './song-visuals-controls.js';
+import { GameCaptureControls } from './game-capture-controls.js';
 import { UpdatesControls } from '../dist/settings/UpdatesControls.js';
 import { StatusControls } from '../dist/settings/StatusControls.js';
 import { ConfigurationBackupControls } from '../dist/settings/ConfigurationBackupControls.js';
@@ -60,7 +61,7 @@ const streamPreview = new StreamRenderer(query('#stream-preview'), new WidgetRen
 const themePreview = new GameOverlay(query('#theme-preview'), new WidgetRenderer(createDefaultRegistry()));
 const settings = new WidgetSettings(query('#widget-settings'), (id, enabled) => {
   void command('widget.enabled', { id, enabled });
-}, payload => command('widget.fontSize', payload), payload => command('widget.accuracy', payload));
+}, payload => command('widget.fontSize', payload), payload => command('widget.accuracy', payload), payload => command('widget.lyrics', payload));
 const builder = new WidgetBuilder({
   root: query('#companion-app'),
   surface: query('.preview-surface'),
@@ -75,6 +76,7 @@ const themes = new ThemeControls({ root: query('#companion-app'), command: (name
 const stream = new StreamControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const gameplayControls = new GameplayControls({ root: query('#performance-controls'), command: (name, payload) => command(name, payload) });
 const songVisualControls = new SongVisualControls({ root: query('#song-visuals-controls'), command: (name, payload) => command(name, payload) });
+const gameCaptureControls = new GameCaptureControls({ root: query('#game-capture-controls'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const badSongs = new BadSongsCleanupControls({ root: query('#library-bad-songs'), command: (name, payload) => command(name, payload) });
 const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
@@ -199,6 +201,7 @@ function applySnapshot(snapshot) {
   stream.update(snapshot);
   gameplayControls.update(snapshot);
   songVisualControls.update(snapshot);
+  gameCaptureControls.update(snapshot);
   library.update(snapshot);
   badSongs.update(snapshot);
   cleanupHistory.update({ rootPath: snapshot.library?.settings?.rootPath ?? null, revision: snapshot.library?.revision ?? 0 });
@@ -383,6 +386,7 @@ window.addEventListener('beforeunload', () => {
   stream.dispose();
   gameplayControls.dispose();
   songVisualControls.dispose();
+  gameCaptureControls.dispose();
   streamPreview.dispose();
   library.dispose();
   cleanupHistory.dispose();

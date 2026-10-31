@@ -9,11 +9,70 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { randomUUID } = require('node:crypto');
-const { registerCompanionScheme, createCompanionHost } = require('../companion/host.cjs');
+const { Worker } = require('node:worker_threads');
 
 const output = path.resolve(process.argv[2] || path.join(__dirname, '../../companion-duplicates-verification'));
 const directory = path.join(output, 'duplicates-' + randomUUID());
 const dataDirectory = path.join(directory, 'profile');
+const interruptionRoot = path.join(directory, 'interrupt-global-verification', 'Songs');
+const interruptionGate = { entries: 0, releasedByCancel: false, timedOut: false, file: null };
+// Keep the real worker and filesystem, but pause its next synthetic note open
+// after one completed group. Native input can then cancel without racing the
+// rest of the verification. This bootstrap exists only in this Electron test.
+function gatedLibraryWorker(filename, root) {
+  const fs = require('node:fs/promises'), path = require('node:path');
+  const { parentPort } = require('node:worker_threads');
+  const open = fs.open, postMessage = parentPort.postMessage.bind(parentPort);
+  let armed = false, used = false, release = null;
+  parentPort.postMessage = (message, ...args) => {
+    if (!used && message.type === 'change' && message.state.status.settings.rootPath === root
+      && message.state.status.duplicateVerification?.processed === 1) armed = true;
+    return postMessage(message, ...args);
+  };
+  fs.open = async function (target, ...args) {
+    const relative = typeof target === 'string' ? path.relative(root, target) : null;
+    if (armed && !used && relative && relative !== '..' && !relative.startsWith('..' + path.sep)
+      && !path.isAbsolute(relative) && path.basename(target) === 'notes.chart') {
+      used = true;
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          release = null; postMessage({ type: 'fixture-duplicate-gate', phase: 'timeout' });
+          reject(Error('Synthetic duplicate cancellation gate timed out'));
+        }, 15000);
+        release = () => { clearTimeout(timer); resolve(); };
+        postMessage({ type: 'fixture-duplicate-gate', phase: 'entered', file: relative });
+      });
+    }
+    return open.call(this, target, ...args);
+  };
+  require(filename);
+  // Register after the production listener. It synchronously aborts the real
+  // verification before this listener releases the pending filesystem call.
+  parentPort.on('message', message => {
+    if (message.method !== 'cancelDuplicateVerification' || !release) return;
+    const resume = release; release = null;
+    queueMicrotask(() => {
+      postMessage({ type: 'fixture-duplicate-gate', phase: 'cancel-release' });
+      resume();
+    });
+  });
+}
+const background = require('../companion/library-background.cjs');
+const createBackgroundLibraryService = background.createBackgroundLibraryService;
+background.createBackgroundLibraryService = options => createBackgroundLibraryService({ ...options,
+  workerFactory: (filename, options) => {
+    const worker = new Worker(`(${gatedLibraryWorker.toString()})(${JSON.stringify(filename)},${JSON.stringify(interruptionRoot)})`, { ...options, eval: true });
+    worker.on('message', message => {
+      if (message.type !== 'fixture-duplicate-gate') return;
+      if (message.phase === 'entered') { interruptionGate.entries++; interruptionGate.file = message.file; }
+      if (message.phase === 'cancel-release') interruptionGate.releasedByCancel = true;
+      if (message.phase === 'timeout') { interruptionGate.timedOut = true; void fail(Error('Synthetic duplicate cancellation gate timed out')); }
+    });
+    return worker;
+  }
+});
+const { registerCompanionScheme, createCompanionHost } = require('../companion/host.cjs');
+background.createBackgroundLibraryService = createBackgroundLibraryService;
 app.setPath('userData', path.join(directory, 'electron-profile'));
 app.disableHardwareAcceleration();
 app.on('window-all-closed', () => {}); // Keep the process alive for the host restart assertion.
@@ -128,7 +187,7 @@ async function fail(error) {
   if (failing) return;
   failing = true;
   console.error(error);
-  const report = { result: 'COMPANION_DUPLICATES_FAILED', error: String(error.stack || error), lastWait, activeRoot, passed, recycled, confirmations, library: host?.snapshot().library ?? null };
+  const report = { result: 'COMPANION_DUPLICATES_FAILED', error: String(error.stack || error), lastWait, activeRoot, passed, recycled, confirmations, interruptionGate, library: host?.snapshot().library ?? null };
   if (panel && !panel.isDestroyed()) {
     try {
       report.renderer = await Promise.race([evaluate(`(()=>{
@@ -392,7 +451,7 @@ app.whenReady().then(async () => {
   assert.equal(host.snapshot().library.count, 2);
   assert.equal(await evaluate("document.querySelector('#library-cleanup-refresh-note').hidden"), true);
   passed.push('one final refresh clears the deferred cleanup status and retains the remaining songs');
-  activeRoot = path.join(directory, 'interrupt-global-verification', 'Songs');
+  activeRoot = interruptionRoot;
   const groupCount = 80, syntheticAudio = Buffer.alloc(128 * 1024, 42);
   for (let index = 0; index < groupCount; index++) for (const copy of ['A', 'B']) {
     const title = 'Bulk ' + String(index).padStart(3, '0'), folder = path.join(activeRoot, title + '-' + copy);
@@ -411,9 +470,13 @@ app.whenReady().then(async () => {
   const indexFile = path.join(dataDirectory, 'library.json'), indexBefore = await fs.readFile(indexFile);
   const beforeStopDialogs = confirmations.length, beforeStopRecycled = recycled.length;
   await click('#library-verify-all-duplicates');
-  await waitFor(() => (host.snapshot().library.duplicateVerification?.processed ?? 0) >= 1, 'one group completed before interruption');
+  await waitFor(() => interruptionGate.entries === 1, 'real worker paused after one completed group');
+  assert.equal(host.snapshot().library.duplicateVerification.processed, 1);
+  assert.equal(interruptionGate.releasedByCancel, false);
   await click('#library-cancel-duplicate-verification');
   await waitFor(() => evaluate("document.querySelector('#library-verify-all-status').textContent.includes('Vérification interrompue')&&!document.querySelector('#library-verify-all-duplicates').disabled"), 'interruption reports partial completion');
+  assert.equal(interruptionGate.releasedByCancel, true, 'the real native-button cancel RPC releases the worker');
+  assert.equal(interruptionGate.timedOut, false);
   assert.equal(host.snapshot().library.duplicateVerification, null);
   const interrupted = await evaluate("document.querySelector('#library-verify-all-status').textContent");
   assert.match(interrupted, /Vérification interrompue : \d+ \/ 80/); assert.match(interrupted, /Aucun fichier n’a été supprimé/);
@@ -427,6 +490,7 @@ app.whenReady().then(async () => {
   await capture('global-verification-interrupted');
   await click('#library-verify-all-duplicates');
   await waitFor(() => evaluate("!document.querySelector('#library-verify-all-duplicates').disabled&&document.querySelector('#library-verify-all-status').textContent.includes('79 choix de version requis')"), 'verification restarts and finishes');
+  assert.equal(interruptionGate.entries, 1, 'the restarted verification runs without a gate');
   assert.deepEqual(await fs.readFile(choicesFile), choicesBefore); assert.deepEqual(await fs.readFile(indexFile), indexBefore);
   for (let index = 0; index < groupCount; index++) for (const copy of ['A', 'B']) {
     const folder = path.join(activeRoot, 'Bulk ' + String(index).padStart(3, '0') + '-' + copy);
@@ -495,7 +559,7 @@ app.whenReady().then(async () => {
   passed.push('manual deletion of different indexed notes recycles only the explicitly confirmed copy; keeper and unchecked copy stay intact, remaining plan stays unselected and no scan starts');
   await host.dispose(); host = null;
   dialog.showMessageBox = originalDialog; dialog.showOpenDialog = originalPicker; shell.trashItem = originalTrash;
-  await fs.writeFile(path.join(directory, 'verification.json'), JSON.stringify({ result: 'COMPANION_DUPLICATES_VERIFIED', passed, nativeBin: 'intercepted only for synthetic fixture', confirmations: confirmations.length, recycled }, null, 2));
+  await fs.writeFile(path.join(directory, 'verification.json'), JSON.stringify({ result: 'COMPANION_DUPLICATES_VERIFIED', passed, interruptionGate, nativeBin: 'intercepted only for synthetic fixture', confirmations: confirmations.length, recycled }, null, 2));
   console.log(JSON.stringify({ result: 'COMPANION_DUPLICATES_VERIFIED', checks: passed.length, directory }));
   app.exit(0);
 }).catch(fail);

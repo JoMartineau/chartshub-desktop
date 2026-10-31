@@ -216,7 +216,11 @@ async function prepareVisualMedia({ root, item } = {}) {
   const video = await visual('video', 'video', { '.webm': 'video/webm', '.mp4': 'video/mp4' }, VIDEO_LIMIT, videoMatches);
   const metadata = await metadataFromIni(root, directory, names, bundle);
   if (await captureBundleSnapshot(options) !== item.cleanupSnapshot) throw failure();
-  return { background: background.entry, backgroundUnavailable: background.reason, video: video.entry, videoUnavailable: video.reason, videoStartTimeMs: metadata.videoStartTimeMs };
+  const { parseSongLyrics, MAX_BYTES } = require('./song-lyrics-parser.cjs');
+  const notes = await entryFor(root, directory, path.posix.basename(relative), 'lyrics', 'application/octet-stream', bundle);
+  const lyrics = notes.size <= MAX_BYTES ? parseSongLyrics(await readPrefix(notes, notes.size), item.format) : { lines: [], reason: 'unsupported' };
+  if (await captureBundleSnapshot(options) !== item.cleanupSnapshot) throw failure();
+  return { background: background.entry, backgroundUnavailable: background.reason, video: video.entry, videoUnavailable: video.reason, videoStartTimeMs: metadata.videoStartTimeMs, lyrics };
 }
 function validEntry(entry) {
   return entry && typeof entry.rootPath === 'string' && path.isAbsolute(entry.rootPath) && relativeValid(entry.relativePath)

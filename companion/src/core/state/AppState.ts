@@ -14,4 +14,5 @@ export interface AppState {
   theme?: ThemeSettings;
   stream?: StreamSettings;
   performance?: GameplayTelemetry;
+  lyrics?: { current: string; next: string | null } | null;
 }

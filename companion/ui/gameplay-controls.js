@@ -10,6 +10,7 @@ export class GameplayControls {
         this.disposed = false;
         this.labels = [];
         this.listeners = [];
+        this.calibrationDrafts = { audio: '', video: '' };
         this.node = (tag, parent = root, className = '') => { const e = root.ownerDocument.createElement(tag); e.className = className; parent.append(e); return e; };
         this.label = (node, fr, en) => { this.labels.push([node, fr, en]); return node; };
         this.text = (tag, fr, en, parent = root) => this.label(this.node(tag, parent), fr, en);
@@ -66,8 +67,56 @@ export class GameplayControls {
         this.availability = this.node('ul', root, 'performance-availability');
         const details = this.node('details', root, 'performance-calibration');
         this.text('summary', 'Aide à la calibration audio et vidéo', 'Audio and video calibration helper', details);
-        this.text('p', 'Dans Clone Hero : Réglages → Gameplay → Calibration. Terminez les essais audio et vidéo séparément : leurs résultats apparaissent ici quand le connecteur les prend en charge.', 'In Clone Hero: Settings → Gameplay → Calibration. Complete audio and video separately: their results appear here when supported by the connector.', details);
-        const native = this.node('div', details, 'performance-calibration-results');
+        this.text('p', 'Calibrez l’audio et la vidéo séparément. Chaque réglage garde sa saisie et ses essais. Vous pouvez commencer par celui de votre choix.', 'Calibrate audio and video separately. Each setting keeps its own input and trials. Start with either one.', details);
+        this.text('p', 'L’analyse suit les jugements mesurés par le jeu. Elle ne mesure pas directement le délai physique des haut-parleurs ou de l’écran et ne garantit pas une calibration parfaite.', 'Analysis follows the judgments measured by the game. It does not directly measure physical speaker or display delay and cannot guarantee perfect calibration.', details);
+        const step = (number, fr, en) => {
+            const section = this.node('section', details, 'performance-calibration-step');
+            section.dataset.calibrationStep = String(number);
+            this.text('h3', number + '. ' + fr, number + '. ' + en, section);
+            return section;
+        };
+        const chooseStage = step(1, 'Choisir le réglage', 'Choose the setting');
+        const stage = this.node('label', chooseStage, 'performance-field');
+        this.text('span', 'Réglage à calibrer', 'Setting to calibrate', stage);
+        this.stage = this.node('select', stage);
+        this.stage.id = 'calibration-stage';
+        for (const [value, fr, en] of [['audio', 'Audio', 'Audio'], ['video', 'Vidéo', 'Video']]) {
+            const option = this.text('option', fr, en, this.stage);
+            option.value = value;
+        }
+        this.stageHint = this.node('p', chooseStage, 'helper-text');
+        const chooseMethod = step(2, 'Choisir la méthode', 'Choose the method');
+        const method = this.node('label', chooseMethod, 'performance-field');
+        this.text('span', 'Méthode', 'Method', method);
+        this.method = this.node('select', method);
+        this.method.id = 'calibration-method';
+        for (const [value, fr, en] of [['native', 'Automatique assistée · outil du jeu', 'Assisted automatic · game tool'], ['manual', 'Manuelle · essai avec l’outil du jeu', 'Manual · trial with the game tool'], ['gameplay', 'Analyse en jeu · passage d’une chart', 'In-game analysis · chart passage']]) {
+            const option = this.text('option', fr, en, this.method);
+            option.value = value;
+        }
+        this.methodHelp = this.node('p', chooseMethod, 'helper-text');
+        const perform = step(3, 'Faire l’essai', 'Run the trial');
+        this.instructions = this.node('ol', perform, 'performance-calibration-instructions');
+        this.nativeProgress = this.node('p', perform, 'helper-text');
+        this.nativeProgress.setAttribute('role', 'status');
+        this.calibrationControls = this.node('div', perform);
+        this.setting = field(this.calibrationControls, 'Valeur actuelle dans le jeu (ms)', 'Current in-game value (ms)');
+        this.setting.id = 'calibration-setting';
+        Object.assign(this.setting, { min: '-1000', max: '1000', step: 'any', required: true });
+        this.text('p', 'Recopiez le réglage réellement présent dans Clone Hero. ChartsHub conserve cette saisie pour comparer vos essais ; il ne l’applique pas au jeu.', 'Enter the setting actually shown in Clone Hero. ChartsHub keeps this input to compare trials; it does not apply it to the game.', this.calibrationControls);
+        const trialActions = this.node('div', this.calibrationControls, 'performance-actions');
+        this.start = button(trialActions, 'Démarrer l’essai', 'Start trial', () => { if (this.setting.reportValidity())
+            void this.run('telemetry.calibrationStart', { stage: this.stage.value, settingMs: Number(this.setting.value), source: this.calibrationSource() }); });
+        this.start.id = 'calibration-start';
+        this.finish = button(trialActions, 'Terminer et conserver l’essai', 'Finish and keep trial', () => void this.run('telemetry.calibrationFinish'));
+        this.finish.id = 'calibration-finish';
+        this.trial = this.node('p', perform, 'helper-text performance-calibration-trial');
+        this.trial.setAttribute('role', 'status');
+        this.liveTrial = this.node('p', perform, 'performance-calibration-live');
+        this.replaceHint = this.text('p', 'Démarrer un nouvel essai remplace l’essai en cours. Un essai interrompu doit être recommencé.', 'Starting a new trial replaces the running one. Restart an interrupted trial.', this.calibrationControls);
+        const read = step(4, 'Lire le résultat et comparer', 'Read the result and compare');
+        this.nativePanel = this.node('div', read);
+        const native = this.node('div', this.nativePanel, 'performance-calibration-results');
         this.nativeResults = {};
         for (const [key, fr, en] of [['audio', 'Délai audio', 'Audio delay'], ['video', 'Délai vidéo', 'Video delay']]) {
             const card = this.node('section', native, 'performance-calibration-result');
@@ -76,35 +125,32 @@ export class GameplayControls {
             const value = this.node('p', card, 'performance-calibration-result-value');
             const state = this.node('p', card, 'helper-text');
             value.setAttribute('role', 'status');
-            this.nativeResults[key] = { value, state };
+            const copy = button(card, 'Reprendre dans ma saisie', 'Use in my input', () => {
+                const result = this.nativeResult(key);
+                if (!result) return;
+                this.calibrationDrafts[key] = String(result.settingMs);
+                if (this.stage.value === key) this.setting.value = this.calibrationDrafts[key];
+                this.showFeedback('Valeur ' + (key === 'audio' ? 'audio' : 'vidéo') + ' reprise dans votre saisie locale. Aucun réglage du jeu n’a été changé.', (key === 'audio' ? 'Audio' : 'Video') + ' value copied to your local input. No game setting was changed.');
+            });
+            this.nativeResults[key] = { value, state, copy };
         }
-        this.text('p', 'La valeur affichée a été retenue lors du dernier essai de l’outil de calibration du jeu, en millisecondes. C’est une valeur complète, pas un décalage à ajouter à votre réglage. Elle ne suit pas vos modifications manuelles ultérieures. ChartsHub ne modifie aucun réglage.', 'The displayed value was retained in the last trial of the game’s calibration tool, in milliseconds. It is an absolute value, not an offset to add to your setting. It does not track later manual changes. ChartsHub does not change any settings.', details);
-        this.text('p', 'Testez d’abord l’audio avec l’outil de calibration de Clone Hero, puis vérifiez séparément la vidéo avec la fenêtre de frappe visible. Une seule moyenne ne permet pas de déduire les deux réglages.', 'Test audio first with Clone Hero’s calibration tool, then check video separately with the hit window visible. A single mean cannot determine both settings.', details);
-        this.text('h3', 'Comparer mes essais', 'Compare my trials', details);
-        this.text('p', 'Changez un seul réglage dans le jeu, notez sa valeur, puis mesurez au moins 30 frappes continues sur le même passage et à la même vitesse. Ces essais comparent votre jeu réel ; ils ne remplacent pas la calibration native.', 'Change one game setting, enter its value, then measure at least 30 continuous hits on the same passage at the same speed. These trials compare actual playing; they do not replace native calibration.', details);
-        const calibration = this.node('div', details, 'performance-settings'), stage = this.node('label', calibration, 'performance-field');
-        this.text('span', 'Réglage testé', 'Setting tested', stage);
-        this.stage = this.node('select', stage);
-        for (const [value, fr, en] of [['audio', 'Audio', 'Audio'], ['video', 'Vidéo', 'Video']]) {
-            const option = this.text('option', fr, en, this.stage);
-            option.value = value;
-        }
-        const source = this.node('label', calibration, 'performance-field');
-        this.text('span', 'Source de l’essai', 'Trial source', source);
-        this.source = this.node('select', source);
-        for (const [value, fr, en] of [['tool', 'Outil de calibration natif', 'Native calibration tool'], ['gameplay', 'Frappes pendant une chart', 'Hits during a chart']]) {
-            const option = this.text('option', fr, en, this.source);
-            option.value = value;
-        }
-        this.setting = field(calibration, 'Valeur dans le jeu (ms)', 'In-game value (ms)');
-        Object.assign(this.setting, { min: '-1000', max: '1000', step: 'any', value: '0' });
-        this.start = button(calibration, 'Démarrer un essai', 'Start trial', () => { if (this.setting.reportValidity())
-            void this.run('telemetry.calibrationStart', { stage: this.stage.value, settingMs: Number(this.setting.value), source: this.source.value }); });
-        this.listen(this.source, 'change', () => this.render());
-        this.finish = button(calibration, 'Terminer et comparer', 'Finish and compare', () => void this.run('telemetry.calibrationFinish'));
-        this.trial = this.node('p', details, 'helper-text');
-        this.trial.setAttribute('role', 'status');
-        this.trials = this.node('ol', details, 'performance-trials');
+        this.text('p', 'La valeur affichée a été retenue lors du dernier essai de l’outil de calibration du jeu, en millisecondes. C’est une valeur complète, pas un décalage à ajouter à votre réglage. Elle ne suit pas vos modifications manuelles ultérieures. ChartsHub ne modifie aucun réglage.', 'The displayed value was retained in the last trial of the game’s calibration tool, in milliseconds. It is an absolute value, not an offset to add to your setting. It does not track later manual changes. ChartsHub does not change any settings.', this.nativePanel);
+        this.comparisonPanel = this.node('div', read);
+        this.historyTitle = this.node('h4', this.comparisonPanel);
+        this.text('p', 'Moyenne signée : négatif = tôt, positif = tard. L’écart absolu moyen indique la distance à zéro ; la dispersion indique la régularité. Ces mesures ne calculent pas un nouveau réglage audio ou vidéo.', 'Signed mean: negative = early, positive = late. Mean absolute offset is the distance from zero; deviation shows consistency. These measurements do not calculate a new audio or video setting.', this.comparisonPanel);
+        this.trials = this.node('ol', this.comparisonPanel, 'performance-trials');
+        this.emptyHistory = this.node('p', this.comparisonPanel, 'helper-text');
+        this.regularity = this.node('p', this.comparisonPanel, 'helper-text');
+        const comparable = this.node('label', this.comparisonPanel, 'performance-calibration-comparable');
+        this.comparable = this.node('input', comparable);
+        this.comparable.type = 'checkbox';
+        this.comparable.id = 'calibration-comparable';
+        this.text('span', 'Pour les deux derniers essais, j’ai gardé le même passage, la même vitesse et l’autre réglage inchangé.', 'For the two latest trials, I kept the same passage, the same speed and the other setting unchanged.', comparable);
+        this.comparison = this.node('p', this.comparisonPanel, 'performance-calibration-comparison');
+        this.listen(this.comparable, 'change', () => this.render());
+        this.listen(this.setting, 'input', () => { this.calibrationDrafts[this.stage.value] = this.setting.value; });
+        this.listen(this.stage, 'change', () => { this.setting.value = this.calibrationDrafts[this.stage.value]; this.comparable.checked = false; this.render(); });
+        this.listen(this.method, 'change', () => { this.comparable.checked = false; this.render(); });
         button(details, 'Guide officiel Clone Hero', 'Official Clone Hero guide', () => void this.run('telemetry.guide'));
         this.feedback = this.node('p', root, 'performance-feedback');
         this.feedback.hidden = true;
@@ -112,11 +158,20 @@ export class GameplayControls {
         this.render();
     }
     tr(fr, en) { return this.language === 'en' ? en : fr; }
+    showFeedback(fr, en) { this.feedbackMessage = [fr, en]; this.feedback.textContent = this.tr(fr, en); this.feedback.classList.remove('is-error'); this.feedback.hidden = false; }
     format(value, decimals = 1) { return typeof value === 'number' && Number.isFinite(value) ? new Intl.NumberFormat(this.language, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(value) : '—'; }
+    calibrationSource() { return this.method.value === 'gameplay' ? 'gameplay' : 'tool'; }
+    nativeResult(stage) {
+        const p = this.snapshot, result = p?.connected && p?.capabilities?.calibrationResults && p?.calibration?.nativeResults?.[stage];
+        return result && Number.isSafeInteger(result.settingMs) && result.settingMs >= -2000 && result.settingMs <= 2000 && Number.isSafeInteger(result.sampleCount) && result.sampleCount > 0 && result.source === 'native-calibration' ? result : null;
+    }
+    signed(value) { return (value > 0 ? '+' : '') + this.format(value) + ' ms'; }
+    trialMetrics(result) { return this.tr('moyenne signée', 'signed mean') + ' ' + this.signed(result.meanOffsetMs) + (result.meanOffsetMs < 0 ? this.tr(' (tôt)', ' (early)') : result.meanOffsetMs > 0 ? this.tr(' (tard)', ' (late)') : '') + ' · ' + this.tr('écart absolu', 'absolute offset') + ' ' + this.format(result.meanAbsoluteOffsetMs) + ' ms · ' + this.tr('dispersion', 'deviation') + ' ' + this.format(result.standardDeviationMs) + ' ms'; }
     async run(name, payload, clear = false) {
         if (this.busy || this.disposed)
             return;
         this.busy = true;
+        this.feedbackMessage = null;
         this.feedback.hidden = true;
         this.render();
         try {
@@ -127,9 +182,7 @@ export class GameplayControls {
                 throw Error(result?.error || this.tr('Cette action n’a pas pu être appliquée.', 'This action could not be applied.'));
             if (clear)
                 this.dirty = false;
-            this.feedback.textContent = this.tr('Réglage appliqué.', 'Setting applied.');
-            this.feedback.classList.remove('is-error');
-            this.feedback.hidden = false;
+            this.showFeedback(...(name === 'telemetry.calibrationStart' ? ['Essai démarré. Aucun réglage du jeu n’a été changé.', 'Trial started. No game setting was changed.'] : name === 'telemetry.calibrationFinish' ? ['Essai conservé dans l’historique de ce réglage et de cette méthode.', 'Trial kept in the history for this setting and method.'] : ['Action terminée.', 'Action completed.']));
         }
         catch (error) {
             if (!this.disposed) {
@@ -149,6 +202,7 @@ export class GameplayControls {
     render() {
         for (const [node, fr, en] of this.labels)
             node.textContent = this.tr(fr, en);
+        if (this.feedbackMessage) this.feedback.textContent = this.tr(...this.feedbackMessage);
         const p = this.snapshot, connected = p?.connected === true, c = p?.capabilities || {};
         const status = { disabled: ['Mesures désactivées', 'Measurements disabled'], waiting: ['Connecteur non connecté', 'Connector not connected'], connecting: ['Connexion au jeu…', 'Connecting to game…'], connected: ['Mesures réelles connectées', 'Real measurements connected'], unsupported: ['Version du jeu non validée', 'Game version not validated'], stale: ['Mesures interrompues', 'Measurements interrupted'], error: ['Connexion aux mesures indisponible', 'Measurements unavailable'] }[p?.status || 'waiting'];
         this.status.textContent = this.tr(...status) + (p?.gameVersion ? ' · Clone Hero ' + p.gameVersion : '');
@@ -178,23 +232,64 @@ export class GameplayControls {
         }
         const trial = p?.calibration?.trial;
         for (const [stage, nodes] of Object.entries(this.nativeResults)) {
-            const result = connected && c.calibrationResults && p?.calibration?.nativeResults?.[stage];
-            const available = result && Number.isSafeInteger(result.settingMs) && result.settingMs >= -2000 && result.settingMs <= 2000 && Number.isSafeInteger(result.sampleCount) && result.sampleCount > 0 && result.source === 'native-calibration';
-            nodes.value.textContent = available ? this.format(result.settingMs, 0) + ' ms' : '—';
-            nodes.state.textContent = available ? this.tr('Valeur retenue par le jeu au dernier essai natif', 'Value retained by the game in the last native trial') + ' · ' + this.format(result.sampleCount, 0) + ' ' + this.tr('mesures reçues', 'received measurements') : !connected ? this.tr('Connectez le jeu pour recevoir ce résultat.', 'Connect the game to receive this result.') : !c.calibrationResults ? this.tr('Résultat natif indisponible avec ce connecteur.', 'Native result unavailable with this connector.') : this.tr(stage === 'audio' ? 'Terminez la calibration audio dans le jeu.' : 'Terminez la calibration vidéo dans le jeu.', stage === 'audio' ? 'Complete audio calibration in the game.' : 'Complete video calibration in the game.');
+            const result = this.nativeResult(stage);
+            nodes.value.textContent = result ? this.format(result.settingMs, 0) + ' ms' : '—';
+            nodes.state.textContent = result ? this.tr('Valeur retenue par le jeu au dernier essai natif', 'Value retained by the game in the last native trial') + ' · ' + this.format(result.sampleCount, 0) + ' ' + this.tr('mesures reçues', 'received measurements') : !connected ? this.tr('Connectez le jeu pour recevoir ce résultat.', 'Connect the game to receive this result.') : !c.calibrationResults ? this.tr('Résultat natif indisponible avec ce connecteur.', 'Native result unavailable with this connector.') : this.tr(stage === 'audio' ? 'Terminez la calibration audio dans le jeu.' : 'Terminez la calibration vidéo dans le jeu.', stage === 'audio' ? 'Complete audio calibration in the game.' : 'Complete video calibration in the game.');
+            nodes.copy.disabled = this.busy || !result || result.settingMs < -1000 || result.settingMs > 1000;
         }
-        this.start.disabled = this.busy || !connected || !(this.source.value === 'tool' ? c.calibrationTiming : c.hitTiming);
+        const audio = this.stage.value === 'audio', native = this.method.value === 'native', gameplay = this.method.value === 'gameplay', source = this.calibrationSource();
+        this.stageHint.textContent = audio ? this.tr('Audio : comparez les notes à la musique. Si les notes arrivent avant le son, augmentez le délai audio dans le jeu ; si elles arrivent après, diminuez-le.', 'Audio: compare notes with the music. If notes arrive before the sound, increase the audio delay in the game; if they arrive after, decrease it.') : this.tr('Vidéo : activez « Show Hit Window » dans Clone Hero et vérifiez les frappes au centre de la fenêtre. Testez ce réglage indépendamment de l’audio.', 'Video: enable “Show Hit Window” in Clone Hero and check hits at the center of the window. Test this setting independently of audio.');
+        this.methodHelp.textContent = native ? this.tr('Le jeu réalise sa calibration ; ChartsHub reçoit automatiquement les valeurs retenues. L’outil natif peut modifier les deux délais. Votre choix Audio/Vidéo ici sépare uniquement les saisies et essais ChartsHub.', 'The game runs its calibration; ChartsHub automatically receives the retained values. The native tool may change both delays. Your Audio/Video choice here only separates ChartsHub inputs and trials.') : gameplay ? this.tr('Mesurez vos frappes pendant une chart pour vérifier un réglage, puis comparez avant et après un changement manuel dans le jeu.', 'Measure your hits during a chart to check a setting, then compare before and after a manual change in the game.') : this.tr('Notez votre réglage et mesurez un essai avec l’outil du jeu. Cet outil peut modifier les deux délais : vérifiez-les ensuite dans Clone Hero. Les mesures natives restent séparées des frappes en jeu.', 'Record your setting and measure a trial with the game tool. This tool may change both delays: check them afterward in Clone Hero. Native measurements remain separate from chart hits.');
+        const settingName = this.tr(audio ? 'audio' : 'vidéo', audio ? 'audio' : 'video');
+        const instructions = native ? [
+            this.tr('Dans Clone Hero : Réglages → Gameplay → Calibration.', 'In Clone Hero: Settings → Gameplay → Calibration.'),
+            this.tr('Lancez l’outil natif et suivez ses indications jusqu’au résultat. Vérifiez les deux délais qu’il a retenus dans le jeu.', 'Start the native tool and follow its instructions through to the result. Check both delays it retained in the game.'),
+            this.tr('Revenez à l’étape 4 : le résultat ' + settingName + ' reçu apparaît automatiquement. Vous pourrez le reprendre dans votre saisie locale.', 'Return to step 4: the received ' + settingName + ' result appears automatically. You can reuse it in your local input.')
+        ] : gameplay ? [
+            this.tr('Utilisez une chart de calibration connue, avec le même passage et la même vitesse à chaque essai. Notez le réglage ' + settingName + ' actuel et gardez l’autre réglage inchangé.', 'Use a known calibration chart, with the same passage and speed for every trial. Note the current ' + settingName + ' setting and leave the other setting unchanged.'),
+            this.tr('Une fois le passage lancé, recopiez la valeur ci-dessous et démarrez l’essai ChartsHub avant les frappes à mesurer.', 'Once the passage is running, enter the value below and start the ChartsHub trial before the hits you want to measure.'),
+            this.tr('Jouez au moins 30 frappes continues, sans redémarrer ni déplacer la lecture, puis terminez l’essai. Pour comparer, changez seulement le réglage ' + settingName + ' dans le jeu et rejouez le même passage à la même vitesse.', 'Play at least 30 continuous hits without restarting or seeking, then finish the trial. To compare, change only the ' + settingName + ' setting in the game and replay the same passage at the same speed.')
+        ] : [
+            this.tr('Dans Clone Hero, relevez le réglage ' + settingName + ' actuel. Recopiez-le ci-dessous et démarrez l’essai ChartsHub.', 'In Clone Hero, read the current ' + settingName + ' setting. Enter it below and start the ChartsHub trial.'),
+            this.tr('Ouvrez Réglages → Gameplay → Calibration, puis utilisez l’outil natif. Seules les mesures ' + settingName + ' reçues de cet outil sont comptées.', 'Open Settings → Gameplay → Calibration, then use the native tool. Only ' + settingName + ' measurements received from that tool are counted.'),
+            this.tr('Après au moins 30 mesures continues du même essai natif, terminez ici pour conserver les mesures. Un nouvel essai ou un changement audio/vidéo impose de recommencer le compteur.', 'After at least 30 continuous measurements from the same native trial, finish here to keep the measurements. A new native trial or an audio/video change requires a fresh counter.')
+        ];
+        this.instructions.replaceChildren();
+        for (const instruction of instructions) this.node('li', this.instructions).textContent = instruction;
+        this.nativePanel.hidden = !native;
+        this.comparisonPanel.hidden = native;
+        this.calibrationControls.hidden = native;
+        this.nativeProgress.hidden = !native;
+        this.nativeProgress.textContent = this.nativeResults[this.stage.value].state.textContent;
+        this.start.disabled = this.busy || native || !connected || !(gameplay ? c.hitTiming : c.calibrationTiming);
         this.setting.disabled = this.busy;
         this.stage.disabled = this.busy;
-        this.source.disabled = this.busy;
-        this.finish.disabled = this.busy || !trial || trial.incomplete || trial.sampleCount < 30;
-        this.trial.textContent = trial ? this.tr(trial.stage === 'audio' ? 'Essai audio' : 'Essai vidéo', trial.stage === 'audio' ? 'Audio trial' : 'Video trial') + ' · ' + this.format(trial.sampleCount, 0) + '/30 ' + this.tr('jugements', 'judgments') + (trial.incomplete ? ' · ' + this.tr('Interruption : redémarrez cet essai.', 'Interrupted: start this trial again.') : '') : this.tr('Aucun essai en cours.', 'No trial running.');
+        this.method.disabled = this.busy;
+        const matchingTrial = !native && trial?.stage === this.stage.value && trial?.source === source;
+        this.finish.disabled = this.busy || !connected || !matchingTrial || trial.incomplete || trial.sampleCount < 30;
+        this.replaceHint.hidden = !trial;
+        this.trial.hidden = native && !trial;
+        this.trial.textContent = trial ? this.tr(trial.stage === 'audio' ? 'Essai audio' : 'Essai vidéo', trial.stage === 'audio' ? 'Audio trial' : 'Video trial') + ' · ' + this.tr(trial.source === 'gameplay' ? 'frappes en jeu' : 'outil du jeu', trial.source === 'gameplay' ? 'chart hits' : 'game tool') + ' · ' + this.format(trial.settingMs) + ' ms · ' + this.format(trial.sampleCount, 0) + '/30 ' + this.tr('mesures', 'measurements') + (!connected || trial.incomplete ? ' · ' + this.tr('Interruption : recommencez cet essai.', 'Interrupted: restart this trial.') : !matchingTrial ? ' · ' + this.tr('Choisissez ce réglage et cette méthode pour terminer cet essai.', 'Choose this setting and method to finish this trial.') : '') : !connected ? this.tr('Connectez les mesures réelles pour démarrer un essai.', 'Connect real measurements to start a trial.') : !(gameplay ? c.hitTiming : c.calibrationTiming) ? this.tr('Cette méthode nécessite des mesures compatibles avec le connecteur.', 'This method requires compatible connector measurements.') : this.tr('Aucun essai en cours. Terminer devient disponible à partir de 30 mesures continues.', 'No trial running. Finish becomes available after 30 continuous measurements.');
+        this.liveTrial.hidden = !connected || !matchingTrial || trial?.incomplete || !trial?.sampleCount;
+        this.liveTrial.textContent = this.liveTrial.hidden ? '' : this.trialMetrics(trial);
+        this.historyTitle.textContent = this.tr('Historique ' + settingName + ' · ' + (gameplay ? 'analyse en jeu' : 'outil du jeu'), (audio ? 'Audio' : 'Video') + ' history · ' + (gameplay ? 'in-game analysis' : 'game tool'));
+        const results = (p?.calibration?.trials || []).filter(result => result.stage === this.stage.value && result.source === source);
         this.trials.replaceChildren();
-        for (const result of p?.calibration?.trials || []) {
+        for (const result of results) {
             const li = this.node('li', this.trials);
-            li.textContent = this.tr(result.stage === 'audio' ? 'Audio' : 'Vidéo', result.stage === 'audio' ? 'Audio' : 'Video') + ' ' + this.format(result.settingMs) + ' ms · ' + this.tr('moyenne', 'mean') + ' ' + this.format(result.meanOffsetMs) + ' ms · ' + this.tr('écart absolu', 'absolute offset') + ' ' + this.format(result.meanAbsoluteOffsetMs) + ' ms · ' + this.tr('dispersion', 'deviation') + ' ' + this.format(result.standardDeviationMs) + ' ms · ' + this.format(result.sampleCount, 0) + ' ' + this.tr('jugements', 'judgments');
+            li.textContent = this.tr('Réglage saisi', 'Entered setting') + ' ' + this.format(result.settingMs) + ' ms · ' + this.trialMetrics(result) + ' · ' + this.format(result.sampleCount, 0) + ' ' + this.tr('mesures', 'measurements');
         }
+        const comparisonIdentity = JSON.stringify([this.stage.value, source, results.slice(0, 2)]);
+        if (this.comparisonIdentity !== comparisonIdentity) { this.comparable.checked = false; this.comparisonIdentity = comparisonIdentity; }
+        this.emptyHistory.hidden = results.length > 0;
+        this.emptyHistory.textContent = this.tr('Aucun essai conservé pour ce réglage et cette méthode.', 'No trials kept for this setting and method.');
+        const regularity = connected && matchingTrial && !trial.incomplete && trial.sampleCount >= 30 ? trial : results[0];
+        this.regularity.hidden = !regularity || regularity.sampleCount < 30 || !Number.isFinite(regularity.standardDeviationMs);
+        this.regularity.textContent = this.regularity.hidden ? '' : this.tr('Régularité de l’essai', 'Trial consistency') + ' · ' + this.tr('dispersion', 'deviation') + ' ' + this.format(regularity.standardDeviationMs) + ' ms. ' + this.tr('Une faible dispersion indique des frappes plus régulières. Refaites plusieurs essais dans les mêmes conditions pour vérifier que les moyennes restent proches.', 'Lower deviation means more consistent hits. Repeat trials under the same conditions to check that the means remain close.');
+        this.comparable.disabled = results.length < 2;
+        this.comparison.textContent = results.length < 2 ? this.tr('Conservez deux essais de ce réglage avec cette méthode pour comparer avant et après.', 'Keep two trials for this setting and method to compare before and after.') : !this.comparable.checked ? this.tr('Vérifiez les conditions identiques ci-dessus pour comparer les deux derniers essais.', 'Confirm the matching conditions above to compare the two latest trials.') : this.tr('Avant', 'Before') + ' · ' + this.format(results[1].settingMs) + ' ms · ' + this.trialMetrics(results[1]) + '\n' + this.tr('Après', 'After') + ' · ' + this.format(results[0].settingMs) + ' ms · ' + this.trialMetrics(results[0]) + '\n' + this.tr('Variation de l’écart absolu moyen', 'Change in mean absolute offset') + ' : ' + this.signed(results[0].meanAbsoluteOffsetMs - results[1].meanAbsoluteOffsetMs) + '. ' + this.tr('Une baisse rapproche les frappes de zéro, sans déterminer à elle seule le bon réglage.', 'A decrease brings hits closer to zero, without determining the right setting on its own.');
         if (p?.persistenceError && !this.busy) {
+            this.feedbackMessage = null;
             this.feedback.textContent = p.persistenceError;
             this.feedback.classList.add('is-error');
             this.feedback.hidden = false;
