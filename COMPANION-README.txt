@@ -1,4 +1,31 @@
-ChartsHub Desktop 0.14.24 - Catalogue et Companion
+ChartsHub Desktop 0.14.32 - Catalogue et Companion
+
+NOUVEAUTES 0.14.32 - INPUT VIEWER ET WIDGETS SANS CONNECTEUR
+
+Companion > Stream / OBS > Input Viewer : ouvrez le viewer, choisissez Guitare
+ou Batterie, puis Demarrer et votre manette compatible. Associez chaque entree
+en relachant puis en appuyant sur le bouton souhaite. Les couleurs, formes,
+positions, tailles et noms sont modifiables. Les trainees ont quatre directions,
+avec vitesse, duree, longueur, epaisseur, intensite et fondu reglables.
+Dans OBS, ajoutez Capture de fenetre : ChartsHub - Input Viewer.
+Les reglages sont conserves localement. Les entrees jouees ne sont pas stockees.
+Les guitares USB non exposees par Gamepad API ne sont pas reconnues ; le clavier
+fonctionne uniquement quand la fenetre du viewer est active.
+
+Highway, Score et Paroles disposent chacun d'une capture recadree. Choisissez
+la fenetre de Clone Hero, demarrez la capture puis dessinez chaque zone.
+Le fond present dans la zone reste visible. Aucune capture ne demarre seule.
+
+Le mini-widget ReShade retablit son affichage au-dessus des fenetres lorsqu'il
+est rouvert. Si le plein ecran exclusif le masque, utilisez le mode sans bordure
+ou fenetre dans le jeu.
+
+MelonLoader, l'assistant Calibration BETA et les mesures Accuracy associees ne
+sont plus distribues. Les widgets independants du connecteur restent disponibles
+et les anciens profils sont conserves. Le viewer affiche les entrees ; il ne
+mesure pas leur avance ou retard par rapport aux notes de la chart.
+
+HISTORIQUE DES VERSIONS PRECEDENTES
 
 NOUVEAUTES 0.14.24 - INTERACTIONS ET BIBLIOTHEQUE
 
@@ -602,48 +629,28 @@ sans cookies de compte. Les charts de démonstration ne sont pas téléchargeabl
 Cette étape prépare les fichiers ; elle ne valide pas leur jouabilité,
 ne les installe pas automatiquement et ne crée pas d'association de catalogue.
 
-CALIBRATION AUDIO ET VIDÉO
-Dans Mesures du jeu et widgets, déplier Aide à la calibration audio et vidéo.
-1. Choisir Audio ou Vidéo. Chaque réglage garde sa saisie et son historique.
-2. Choisir la méthode : assistée avec l'outil du jeu, essai manuel avec cet
-   outil, ou analyse d'un passage de chart en jeu. Utiliser un passage connu
-   et régulier pour éviter de confondre les imprécisions de la chart et du jeu.
-3. Faire l'essai en suivant les instructions. Pour les essais manuels et en
-   jeu, recopier d'abord le réglage réellement présent dans Clone Hero.
-4. Lire le résultat. La méthode assistée affiche la valeur absolue retenue
-   par l'outil natif ; ce n'est pas une correction à ajouter. Les essais
-   affichent moyenne signée (négatif = tôt, positif = tard), écart absolu
-   et dispersion. Confirmer le même passage, la même vitesse et l'autre
-   réglage inchangé avant de comparer les deux derniers essais.
+WIDGETS DU MORCEAU
+Le titre, l’artiste, le charter, l’instrument et la difficulté restent
+configurables séparément pour Jeu et Stream. Les profils sont conservés.
+La version publique ne propose pas l’assistant de calibration, MelonLoader
+ou le connecteur de mesures. Accuracy, combo, FC, progression mesurée et
+objectifs/historique basés sur ce connecteur ne sont pas proposés.
 
-ChartsHub ne change aucun réglage du jeu. Une valeur native ne suit pas vos
-modifications manuelles ultérieures. L'analyse utilise les jugements du jeu,
-sans mesurer directement le délai physique des haut-parleurs ou de l'écran
-ni calculer une nouvelle valeur de calibration. Les données nécessitent le
-connecteur local compatible ; un essai interrompu doit être recommencé.
-Un changement de vitesse explicitement transmis pendant un essai d'analyse
-en jeu invalide cet essai : démarrer un nouvel essai à la vitesse choisie.
+PAROLES DU JEU
+Utilisez la capture recadrée Paroles décrite ci-dessous. Elle reprend les
+paroles affichées par Clone Hero, avec le fond visible dans cette zone.
+Aucun connecteur, horloge reconstruite ou service de paroles externe n’est
+nécessaire. Les paroles doivent être présentes et affichées dans le jeu.
+Le texte synchronisé de la chart locale n’est pas proposé sans horloge de
+jeu compatible. Ses anciens réglages restent conservés dans les profils.
 
-PAROLES DE LA CHART LOCALE
-Le widget Paroles est désactivé au départ. Dans les réglages des widgets,
-l'activer pour Jeu et/ou Stream, choisir sa police, sa taille et sa couleur,
-puis cocher si souhaité l'affichage de la phrase suivante. Les dispositions
-Jeu et Stream sont indépendantes. Les événements de notes.chart ou notes.mid
-proviennent uniquement du morceau de la bibliothèque Songs scannée.
-
-Une horloge de jeu récente avec une vitesse explicite est nécessaire. Les
-paroles suivent pause, lecture et déplacements dans le morceau ; elles sont
-masquées sans paroles, pendant les plages instrumentales, ou si l'horloge
-est absente ou périmée. Aucun service de paroles externe n'est interrogé.
-Un ancien connecteur qui fournit la position sans vitesse ne suffit pas.
-
-HIGHWAY ET SCORE DU JEU — CAPTURE RECADRÉE POUR OBS
+HIGHWAY, SCORE ET PAROLES — CAPTURES RECADRÉES POUR OBS
 1. Dans Stream / OBS, choisir Choisir la fenêtre et les zones.
 2. Choisir explicitement la fenêtre Clone Hero puis Démarrer la capture.
 3. Choisir Highway et notes, puis tracer sa zone sur l'aperçu. Refaire
-   l'opération avec Panneau du score. Ouvrir les deux fenêtres de sortie.
-4. Dans OBS, ajouter deux sources Capture de fenêtre et sélectionner
-   ChartsHub — Highway et ChartsHub — Score. Garder l'aperçu et ces fenêtres
+   l'opération avec Panneau du score et Paroles. Ouvrir les fenêtres souhaitées.
+4. Dans OBS, ajouter les sources Capture de fenêtre souhaitées :
+   ChartsHub — Highway, ChartsHub — Score et ChartsHub — Paroles. Garder l'aperçu et ces fenêtres
    ouverts. Le fond présent dans chaque zone du jeu reste dans l'image.
 
 Cette capture utilise l'image réelle du jeu et reste locale, vidéo seule.

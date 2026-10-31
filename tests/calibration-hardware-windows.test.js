@@ -11,15 +11,18 @@ const embedded = /Add-Type -TypeDefinition @'\r?\n([\s\S]*?)\r?\n'@/.exec(source
 
 test('Windows metadata helper contains no stream, recording or settings-write calls', () => {
     assert.ok(embedded, 'the fixed helper includes its COM interface definitions');
-    const calls = [...embedded.matchAll(/\b(?:client|device|store|enumerator)\.([A-Za-z]+)\s*\(/g)].map(match => match[1]);
-    assert.deepEqual(calls, ['GetDefaultAudioEndpoint', 'OpenPropertyStore', 'GetValue', 'Activate', 'GetMixFormat', 'GetDevicePeriod']);
+    const calls = [...embedded.matchAll(/\b(?:client|device|devices|store|enumerator)\.([A-Za-z]+)\s*\(/g)].map(match => match[1]);
+    assert.deepEqual(calls, ['EnumAudioEndpoints', 'GetCount', 'Item', 'OpenPropertyStore', 'GetValue', 'GetDefaultAudioEndpoint', 'OpenPropertyStore', 'GetValue', 'Activate', 'GetMixFormat', 'GetDevicePeriod']);
     assert.doesNotMatch(embedded, /\.\s*(?:Initialize|Start|Stop|GetStreamLatency|SetValue|Commit)\s*\(/);
     assert.doesNotMatch(source, /(?:Get-Credential|Get-Content|Set-Content|Out-File|Invoke-Expression|Invoke-WebRequest|Start-Process|Add-Content)\b/i);
     assert.doesNotMatch(source, /\$(?:args|input)\b/);
     assert.match(source, /GetDefaultAudioEndpoint\(0, 0, out device\)/);
     assert.match(source, /PNPClass = 'Keyboard'/);
     assert.match(source, /-Property Name, PNPClass -OperationTimeoutSec 3/);
-    assert.match(source, /\$inputs\.Count -ge 16/);
+    assert.match(source, /\$items\.Count -ge 32/);
+    assert.match(source, /\$outputs\.Count -ge 16/);
+    assert.match(source, /UTF8\.GetByteCount\(\$json\) -gt 15000/);
+    assert.ok(Buffer.from(source, 'utf16le').toString('base64').length <= 30000, 'the fixed command stays below the Windows argument limit');
     assert.match(source, /\$safe\.Substring\(0, 120\)/);
     assert.match(source, /name = \$name; kind = 'candidate'/);
     assert.match(source, /defaultPeriod \/ 10000\.0/);

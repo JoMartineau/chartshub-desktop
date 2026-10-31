@@ -4,6 +4,7 @@ const video = $('game'), selection = $('selection'), context = selection.getCont
 let snapshot = null, stream = null, starting = false, disposed = false, drag = null, frame = null;
 let listed = [], selectedId = '', lastWidth = 0, lastHeight = 0;
 const peers = new Map(), canvases = new Map(), pendingCandidates = new Map();
+const regions = ['highway','score','lyrics'];
 const tr = (fr, en) => snapshot?.language === 'en' ? en : fr;
 function status(fr, en) { $('status').textContent = tr(fr, en); }
 async function command(name, value) { const result = await api.command(name, value); if (!result?.ok) throw Error('capture'); return result; }
@@ -38,8 +39,8 @@ function drawSelections() {
   const rows = Object.entries(snapshot?.crops ?? {}).filter(([,r]) => r);
   if (drag) rows.push([$('region').value, rectFrom(drag.from, drag.to)]);
   for (const [kind, r] of rows) {
-    context.strokeStyle = kind === 'highway' ? '#5ae1fc' : '#ffd778';
-    context.fillStyle = kind === 'highway' ? '#5ae1fc20' : '#ffd77820';
+    context.strokeStyle = kind === 'highway' ? '#5ae1fc' : kind === 'score' ? '#ffd778' : '#cb9bff';
+    context.fillStyle = context.strokeStyle + '20';
     context.fillRect(r.x * selection.width, r.y * selection.height, r.width * selection.width, r.height * selection.height);
     context.strokeRect(r.x * selection.width, r.y * selection.height, r.width * selection.width, r.height * selection.height);
   }
@@ -85,22 +86,22 @@ async function receiveSignal({kind, revision, signal}) {
 function render(value) {
   snapshot = value; const active = value.phase !== 'stopped';
   document.documentElement.lang = value.language;
-  $('heading').textContent = tr('Highway et score du jeu', 'Game highway and score');
-  $('intro').textContent = tr('Choisissez la fenêtre Clone Hero, démarrez l’aperçu, puis tracez les deux zones à la souris. Les notes et le panneau sont ceux du jeu ; le fond présent dans chaque zone est également capturé.', 'Choose the Clone Hero window, start the preview, then draw both regions. These are the game’s actual notes and score panel; each region also includes the game background behind it.');
+  $('heading').textContent = tr('Highway, score et paroles du jeu', 'Game highway, score and lyrics');
+  $('intro').textContent = tr('Choisissez la fenêtre Clone Hero, démarrez l’aperçu, puis tracez les zones souhaitées à la souris. Les notes, le score et les paroles sont ceux du jeu ; le fond présent dans chaque zone est également capturé. Les paroles ne demandent ni connecteur ni horloge.', 'Choose the Clone Hero window, start the preview, then draw the regions you want. Notes, score and lyrics come directly from the game, including the background inside each region. Lyrics require neither a connector nor a clock.');
   $('refresh').textContent = tr('Actualiser les fenêtres', 'Refresh windows');
   $('start').textContent = tr('Démarrer la capture', 'Start capture'); $('stop').textContent = tr('Arrêter la capture', 'Stop capture');
   $('region-label').textContent = tr('Zone à tracer', 'Region to draw');
-  $('region').options[0].textContent = tr('Highway et notes', 'Highway and notes'); $('region').options[1].textContent = tr('Panneau du score', 'Score panel');
-  $('open-highway').textContent = tr('Ouvrir Highway pour OBS', 'Open Highway for OBS'); $('open-score').textContent = tr('Ouvrir Score pour OBS', 'Open Score for OBS');
-  $('instructions').textContent = tr('Dans OBS, ajoutez deux sources « Capture de fenêtre » : ChartsHub — Highway et ChartsHub — Score. Conservez ces fenêtres et cet aperçu ouverts. Cette capture contient le fond du jeu, sans transparence séparant ses éléments.', 'In OBS, add two Window Capture sources: ChartsHub — Highway and ChartsHub — Score. Keep these windows and this preview open. The game background inside each region remains part of the image.');
+  $('region').options[0].textContent = tr('Highway et notes', 'Highway and notes'); $('region').options[1].textContent = tr('Panneau du score', 'Score panel'); $('region').options[2].textContent = tr('Paroles du jeu', 'Game lyrics');
+  $('open-highway').textContent = tr('Ouvrir Highway pour OBS', 'Open Highway for OBS'); $('open-score').textContent = tr('Ouvrir Score pour OBS', 'Open Score for OBS'); $('open-lyrics').textContent = tr('Ouvrir Paroles pour OBS', 'Open Lyrics for OBS');
+  $('instructions').textContent = tr('Dans OBS, ajoutez les sources « Capture de fenêtre » souhaitées : ChartsHub — Highway, ChartsHub — Score ou ChartsHub — Paroles. Conservez ces fenêtres et cet aperçu ouverts. Chaque zone contient le fond du jeu ; le texte des paroles reste une image, sans transparence ni extraction de texte.', 'In OBS, add the Window Capture sources you want: ChartsHub — Highway, ChartsHub — Score or ChartsHub — Paroles. Keep these windows and this preview open. Each region includes the game background; lyrics remain an image without transparency or text extraction.');
   $('safety').textContent = tr('La capture reste arrêtée à l’ouverture. Fermer cet aperçu ou cliquer sur Arrêter met fin à la capture. Une fenêtre disparue doit être choisie à nouveau.', 'Capture starts only when you click Start. Closing this preview or clicking Stop ends capture. A lost window must be selected again.');
   $('source').disabled = active || starting; $('refresh').disabled = active || starting;
   $('start').disabled = active || starting || !value.selected; $('stop').disabled = !active && !starting;
   $('region').disabled = value.phase !== 'capturing';
-  for (const kind of ['highway','score']) $('open-'+kind).disabled = value.phase !== 'capturing' || !value.crops[kind];
+  for (const kind of regions) $('open-'+kind).disabled = value.phase !== 'capturing' || !value.crops[kind];
   sizePreview();
   if (value.error) status('Capture interrompue. Actualisez les fenêtres et choisissez Clone Hero à nouveau.', 'Capture stopped. Refresh the window list and select Clone Hero again.');
-  else if (value.phase === 'capturing') status('Aperçu actif. Tracez la highway et le panneau du score.', 'Preview active. Draw the highway and score regions.');
+  else if (value.phase === 'capturing') status('Aperçu actif. Tracez la highway, le score ou les paroles.', 'Preview active. Draw highway, score or lyrics regions.');
   else if (value.phase === 'starting') status('Démarrage de la capture…', 'Starting capture…');
   else status('Capture arrêtée.', 'Capture stopped.');
   if (!value.selected) { selectedId = ''; $('source').value = ''; }
@@ -142,7 +143,7 @@ $('start').addEventListener('click', async () => {
   finally { starting = false; if (snapshot) render(snapshot); }
 });
 $('stop').addEventListener('click', () => { starting = false; cleanup(); void command('stop').catch(() => {}); });
-for (const kind of ['highway','score']) $('open-'+kind).addEventListener('click', () => { void command('output', {kind}).catch(() => status('Sélectionnez cette zone sur l’aperçu.', 'Select this region in the preview.')); });
+for (const kind of regions) $('open-'+kind).addEventListener('click', () => { void command('output', {kind}).catch(() => status('Sélectionnez cette zone sur l’aperçu.', 'Select this region in the preview.')); });
 function point(event) { const r = selection.getBoundingClientRect(); return {x:Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(event.clientY-r.top)/r.height))}; }
 function rectFrom(a,b) { return {x:Math.min(a.x,b.x),y:Math.min(a.y,b.y),width:Math.abs(a.x-b.x),height:Math.abs(a.y-b.y)}; }
 selection.addEventListener('pointerdown', event => { if (snapshot?.phase !== 'capturing' || event.button !== 0) return; drag = {from:point(event),to:point(event)}; selection.setPointerCapture(event.pointerId); });

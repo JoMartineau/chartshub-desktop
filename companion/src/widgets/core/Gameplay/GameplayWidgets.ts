@@ -66,6 +66,10 @@ export const gameplayWidgets = definitions.map(definition => ({definition,compon
     if (!state.lyrics?.current || !['playing','paused'].includes(state.gameplay.state)) return null;
     return content([state.lyrics.current,...(validateLyricsConfig(instance.config).showNextLine && state.lyrics.next ? [state.lyrics.next] : [])]);
   }
+  // A retained attempt is history once the real provider leaves its chart.
+  // Editing previews may use a demo gameplay state; only the provider's own
+  // phase can make live measurement widgets visible.
+  if (definition.category === 'gameplay' && (!state.performance?.connected || !['playing', 'paused', 'results'].includes(state.performance.phase))) return null;
   return state.performance ? definition.type === 'gameplay.accuracy' ? accuracy(state.performance,validateAccuracyConfig(instance.config)) : renderers[definition.type]!(state.performance) : null;
 }) as WidgetComponent}));
 export function createGameplayWidgets(): WidgetInstance[] {

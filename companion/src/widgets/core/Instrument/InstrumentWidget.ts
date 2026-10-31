@@ -1,6 +1,6 @@
 import type { WidgetDefinition } from '../../../core/types/Widget.js';
 import type { WidgetComponent } from '../../engine/WidgetRegistry.js';
-import { selectInstrument } from '../../engine/WidgetSelectors.js';
+import { selectLocalizedInstrument } from '../../engine/WidgetSelectors.js';
 
 export const instrumentDefinition: WidgetDefinition = {
   type: 'song.instrument', version: 1, displayName: 'Instrument', category: 'song',
@@ -8,6 +8,6 @@ export const instrumentDefinition: WidgetDefinition = {
 };
 
 export const InstrumentWidget: WidgetComponent = state => {
-  const text = selectInstrument(state);
+  const text = selectLocalizedInstrument(state);
   return text === null ? null : { text };
 };

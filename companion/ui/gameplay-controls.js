@@ -1,7 +1,113 @@
 /** Measurements come from the local connector, never from a percentage or a screenshot. */
+class ConnectorSetupControls {
+    constructor(owner, parent) {
+        this.owner = owner;
+        const calibrationBeta = owner.calibrationBeta === true;
+        const node = (tag, container = parent, css = '') => owner.node(tag, container, css);
+        const text = (tag, fr, en, container = parent) => owner.text(tag, fr, en, container);
+        this.root = node('details', parent, 'performance-connector-setup');
+        text('summary', 'Installer le connecteur · étapes de démarrage', 'Install the connector · getting started', this.root);
+        text('p', ...(calibrationBeta ? ['Le connecteur fournit les frappes réelles. L’installation est facultative ; la calibration dans le jeu reste possible sans lui.', 'The connector provides real hit measurements. Installation is optional; in-game calibration remains available without it.'] : ['Le connecteur fournit les mesures réelles pour Accuracy, le combo et les widgets. Son installation est facultative et demande votre confirmation.', 'The connector supplies real measurements for Accuracy, combo and widgets. Installation is optional and requires your confirmation.']), this.root);
+        this.steps = node('ol', this.root, 'performance-connector-steps');
+        for (const [fr, en] of [
+            ['Choisir le dossier du jeu et vérifier sa version.', 'Choose the game folder and check its version.'],
+            calibrationBeta ? ['Vérifier la compatibilité. Une version non reconnue utilise le guide manuel ci-dessous.', 'Check compatibility. An unrecognized version uses the manual guide below.'] : ['Vérifier la compatibilité. Les limites des versions non reconnues sont expliquées ci-dessous.', 'Check compatibility. Limitations for unrecognized versions are explained below.'],
+            ['Fermer Clone Hero et son lanceur, puis confirmer l’ajout de MelonLoader et du connecteur.', 'Close Clone Hero and its launcher, then confirm adding MelonLoader and the connector.'],
+            ['Lancer le jeu vous-même, activer « Recevoir les mesures » et jouer quelques notes pour vérifier la connexion.', 'Start the game yourself, enable “Receive measurements” and play a few notes to verify the connection.'],
+            ...(calibrationBeta ? [
+                ['Calibrer l’audio avec votre chart connue, en gardant le délai vidéo inchangé.', 'Calibrate audio with your known chart, keeping video delay unchanged.'],
+                ['Calibrer la vidéo séparément, en gardant le délai audio obtenu, la même chart et le même matériel.', 'Calibrate video separately, keeping the resulting audio delay, the same chart and hardware.']
+            ] : [])
+        ]) text('li', fr, en, this.steps);
+        this.status = node('p', this.root, 'performance-connector-status'); this.status.id = 'connector-setup-status'; this.status.setAttribute('role', 'status');
+        this.compatibility = node('p', this.root, 'helper-text');
+        this.destination = node('p', this.root, 'helper-text performance-connector-destination'); this.destination.id = 'connector-setup-destination'; this.destination.hidden = true;
+        this.scope = node('p', this.root, 'helper-text performance-connector-scope'); this.scope.id = 'connector-setup-scope'; this.scope.hidden = true;
+        this.problem = node('p', this.root, 'performance-connector-problem'); this.problem.hidden = true;
+        const buttons = node('div', this.root, 'performance-actions');
+        const button = (id, fr, en, action) => { const b = text('button', fr, en, buttons); b.type = 'button'; b.className = 'button secondary'; b.id = id; owner.listen(b, 'click', action); return b; };
+        this.choose = button('connector-setup-choose', 'Choisir le dossier du jeu', 'Choose game folder', () => void owner.run('telemetry.connectorChoose'));
+        this.prepare = button('connector-setup-prepare', 'Vérifier la compatibilité', 'Check compatibility', () => void owner.run('telemetry.connectorPrepare', { hideConsole: this.hideConsole.checked }));
+        this.cancel = button('connector-setup-cancel', 'Annuler cette préparation', 'Cancel this preparation', () => void owner.run('telemetry.connectorCancel'));
+        const hidden = node('label', this.root, 'performance-calibration-comparable');
+        this.hideConsole = node('input', hidden); this.hideConsole.type = 'checkbox'; this.hideConsole.checked = true; this.hideConsole.id = 'connector-setup-hide-console';
+        text('span', 'Masquer la console MelonLoader lors de la nouvelle installation', 'Hide the MelonLoader console for a new installation', hidden);
+        owner.listen(this.hideConsole, 'change', () => { this.changedPlan = true; this.consent.checked = false; this.render(); });
+        const consent = node('label', this.root, 'performance-calibration-comparable');
+        this.consent = node('input', consent); this.consent.type = 'checkbox'; this.consent.id = 'connector-setup-consent';
+        this.consentText = node('span', consent);
+        owner.listen(this.consent, 'change', () => this.render());
+        const operations = node('div', this.root, 'performance-actions');
+        this.install = text('button', 'Installer le connecteur', 'Install the connector', operations); this.install.id = 'connector-setup-install'; this.install.type = 'button'; this.install.className = 'button';
+        owner.listen(this.install, 'click', () => void owner.run('telemetry.connectorInstall', { planId: owner.snapshot?.connectorSetup?.planId, confirmation: true }));
+        this.remove = text('button', 'Retirer cette installation', 'Remove this installation', operations); this.remove.id = 'connector-setup-remove'; this.remove.type = 'button'; this.remove.className = 'button secondary';
+        owner.listen(this.remove, 'click', () => void owner.run('telemetry.connectorRollback', { receiptId: owner.snapshot?.connectorSetup?.receiptId, confirmation: true }));
+        this.connection = node('p', this.root, 'helper-text');
+        text('p', 'Aucun jeu n’est lancé automatiquement. Au premier lancement, MelonLoader peut préparer ses composants et télécharger ses propres dépendances. ChartsHub conserve les fichiers déjà présents ; une installation en conflit demande une vérification manuelle.', 'No game is started automatically. At first launch, MelonLoader may prepare components and download its own dependencies. ChartsHub preserves existing files; a conflicting installation requires manual review.', this.root);
+        const manual = node('details', this.root, 'performance-connector-manual');
+        text('summary', ...(calibrationBeta ? ['Continuer sans connecteur · calibration manuelle', 'Continue without a connector · manual calibration'] : ['Versions non reconnues · possibilités et limites', 'Unrecognized versions · possibilities and limitations']), manual);
+        const guide = node('ol', manual, 'performance-connector-steps');
+        for (const [fr, en] of calibrationBeta ? [
+            ['Dans les réglages de votre version de Clone Hero, repérez la calibration audio/vidéo. Notez les deux valeurs actuelles avant un changement.', 'In your Clone Hero version’s settings, locate audio/video calibration. Write down both current values before changing anything.'],
+            ['Audio : suivez l’outil natif du jeu ou votre chart de calibration connue. Ajustez uniquement le délai audio et gardez le délai vidéo inchangé.', 'Audio: follow the game’s native tool or your known calibration chart. Adjust only audio delay and leave video delay unchanged.'],
+            ['Vidéo : testez séparément l’alignement visuel avec la fenêtre de frappe si votre version la propose. Gardez le réglage audio, le même écran et la même fréquence.', 'Video: separately test visual alignment using the hit window if your version provides it. Keep audio, display and refresh rate unchanged.'],
+            ['Rejouez le même passage à la même vitesse. Si l’outil natif a modifié les deux délais, vérifiez-les de nouveau. Sans connecteur compatible, ChartsHub ne reçoit ni frappes ni résultats automatiques.', 'Replay the same passage at the same speed. If the native tool changed both delays, check them again. Without a compatible connector, ChartsHub receives neither hits nor automatic results.']
+        ] : [
+            ['L’installation automatique est proposée uniquement pour la version du jeu vérifiée ci-dessus. Une version non reconnue ne reçoit aucun ajout.', 'Automatic installation is offered only for the verified game build shown above. An unrecognized version receives no additions.'],
+            ['Vous pouvez continuer à utiliser les fonctions de ChartsHub indépendantes de ces mesures. Les widgets qui les nécessitent restent en attente d’une source compatible.', 'You can continue using ChartsHub features that do not depend on these measurements. Widgets that require them wait for a compatible source.']
+        ]) text('li', fr, en, guide);
+    }
+    render() {
+        const o = this.owner, tr = (fr, en) => o.tr(fr, en), s = o.snapshot?.connectorSetup;
+        const identity = JSON.stringify([s?.status, s?.planId, s?.receiptId]);
+        if (identity !== this.identity) { this.identity = identity; this.consent.checked = false; if (s?.status === 'ready') this.changedPlan = false; }
+        const statuses = { idle: ['Choisissez le dossier du jeu pour commencer.', 'Choose the game folder to begin.'], selected: ['Dossier choisi. Vérifiez sa compatibilité.', 'Folder selected. Check compatibility.'], unsupported: ['Cette version n’est pas validée. Utilisez la calibration manuelle ci-dessous.', 'This version is not validated. Use manual calibration below.'], ready: ['Compatible : installation prête à confirmer.', 'Compatible: installation ready for confirmation.'], installed: ['Le connecteur est présent. Vérifiez ensuite la connexion dans le jeu.', 'The connector is present. Next verify the live game connection.'], conflict: ['Fichiers existants incompatibles : aucune modification. Vérifiez votre installation.', 'Existing files conflict: no changes made. Review your installation.'], busy: ['Vérification ou installation en cours…', 'Checking or installing…'], error: ['Cette opération ne peut pas être terminée. Vérifiez le dossier, les droits et que le jeu et son lanceur sont fermés.', 'This operation could not finish. Check the folder, permissions, and that the game and launcher are closed.'] };
+        if (!o.calibrationBeta) statuses.unsupported = ['Cette version ne possède pas encore de connecteur validé. Consultez les possibilités et limites ci-dessous.', 'This version does not yet have a validated connector. See the possibilities and limitations below.'];
+        this.status.textContent = tr(...(statuses[s?.busy ? 'busy' : s?.status] || statuses.idle)) + (s?.gameLabel ? ' · ' + s.gameLabel : '') + (s?.version ? ' · ' + s.version : '');
+        this.compatibility.textContent = tr('Installation automatique : Windows x64, Clone Hero 1.1.0.6142 IL2CPP vérifié. MelonLoader 0.7.3 et connecteur 0.2.2. ', 'Automatic setup: verified Windows x64 Clone Hero 1.1.0.6142 IL2CPP. MelonLoader 0.7.3 and connector 0.2.2. ') + (o.calibrationBeta ? tr('Les autres versions restent en mode manuel tant qu’elles ne sont pas validées.', 'Other versions remain manual until validated.') : tr('Les mesures de frappe des autres versions ne sont pas encore prises en charge.', 'Hit measurements from other versions are not yet supported.'));
+        const destination = typeof s?.destination === 'string' && s.destination.length > 0 && s.destination.length <= 240 && !/[\x00-\x1f\x7f]/.test(s.destination) ? s.destination : null;
+        this.destination.hidden = !destination; this.destination.textContent = destination ? tr('Installation choisie : ', 'Selected installation: ') + destination : '';
+        this.scope.hidden = s?.status !== 'ready'; this.scope.textContent = tr('Ajouts prévus : ', 'Planned additions: ') + 'version.dll · MelonLoader/ · Mods/ChartsHub.CloneHero.Telemetry.dll · UserData/Loader.cfg';
+        const reasons = {
+            GAME_REQUIRED: ['Choisissez d’abord le dossier qui contient le jeu.', 'First choose the folder containing the game.'],
+            GAME_INVALID: ['Le dossier choisi ne contient pas les fichiers attendus du jeu. Choisissez le dossier de Clone Hero.exe.', 'The chosen folder does not contain the expected game files. Choose the Clone Hero.exe folder.'],
+            GAME_UNSUPPORTED: ['Cette version ne possède pas encore de connecteur validé. Le guide manuel reste disponible.', 'This version does not yet have a validated connector. The manual guide remains available.'],
+            PLATFORM_UNSUPPORTED: ['L’installation de ce connecteur est proposée sous Windows x64. Utilisez le guide manuel sur cet appareil.', 'This connector installer is available on Windows x64. Use the manual guide on this device.'],
+            GAME_RUNNING: ['Fermez Clone Hero et son lanceur, puis vérifiez de nouveau. Aucun fichier du jeu n’a été ajouté.', 'Close Clone Hero and its launcher, then check again. No game file was added.'],
+            PROCESS_UNKNOWN: ['ChartsHub ne peut pas vérifier que le jeu et son lanceur sont fermés. L’installation reste bloquée.', 'ChartsHub cannot verify that the game and launcher are closed. Installation remains blocked.'],
+            CONFLICT: ['Un chargeur, un mod ou un fichier de configuration déjà présent serait en conflit. Il est conservé. Vérifiez-le avant une nouvelle préparation.', 'An existing loader, mod or configuration file conflicts. It is preserved. Review it before preparing again.'],
+            PAYLOAD_INVALID: ['Les fichiers du connecteur n’ont pas passé la vérification. N’installez pas de fichier de remplacement non vérifié.', 'Connector files did not pass verification. Do not install an unverified replacement.'],
+            DOWNLOAD_FAILED: ['La préparation des composants a échoué. Aucun lancement automatique du jeu ne sera tenté.', 'Component preparation failed. No automatic game launch will be attempted.'],
+            PREPARE_REQUIRED: ['Vérifiez la compatibilité avant de confirmer l’installation.', 'Check compatibility before confirming installation.'],
+            CONSENT_REQUIRED: ['Cochez la confirmation de cette opération avant de continuer.', 'Check the confirmation for this operation before continuing.'],
+            PLAN_CHANGED: ['La préparation a changé. Vérifiez à nouveau la compatibilité, puis confirmez le nouveau résultat.', 'Preparation changed. Check compatibility again, then confirm the new result.'],
+            RECEIPT_INVALID: ['Le reçu de cette installation ne peut pas être vérifié. Le retrait automatique reste bloqué.', 'This installation receipt cannot be verified. Automatic removal remains blocked.'],
+            ROLLBACK_CHANGED: ['Des fichiers ont changé depuis leur installation. ChartsHub les conserve ; vérifiez-les manuellement avant de retirer le connecteur.', 'Files changed after installation. ChartsHub preserves them; review them manually before removing the connector.'],
+            RECOVERY_REQUIRED: ['Installation interrompue. Fermez le jeu et son lanceur, puis confirmez le retrait des fichiers inchangés de cette installation avant de recommencer. Les fichiers modifiés seront conservés.', 'Installation was interrupted. Close the game and launcher, then confirm removal of this installation’s unchanged files before starting again. Modified files will be preserved.'],
+            INSTALL_FAILED: ['L’installation s’est arrêtée. Vérifiez son état avant de relancer une préparation ; le jeu ne sera pas lancé.', 'Installation stopped. Check its state before preparing again; the game will not be started.'],
+            BUSY: ['Attendez la fin de l’opération en cours.', 'Wait for the current operation to finish.']
+        };
+        this.problem.hidden = !reasons[s?.errorCode]; this.problem.textContent = reasons[s?.errorCode] ? tr(...reasons[s.errorCode]) : '';
+        if (s?.status === 'ready' && Number.isSafeInteger(s.files) && s.files > 0) this.status.textContent += tr(' · ', ' · ') + s.files + tr(' fichiers à ajouter · console ', ' files to add · console ') + (this.hideConsole.checked ? tr('masquée', 'hidden') : tr('visible', 'visible'));
+        const busy = o.busy || s?.busy === true || s?.status === 'busy', canRemove = (s?.status === 'installed' || s?.recoveryRequired === true) && typeof s.receiptId === 'string';
+        this.choose.disabled = busy || !s;
+        this.prepare.disabled = busy || !s || s.status === 'idle';
+        this.cancel.hidden = s?.status !== 'ready'; this.cancel.disabled = busy;
+        this.hideConsole.disabled = busy || s?.status === 'installed' || s?.recoveryRequired === true;
+        if (s?.status === 'installed' && typeof s.hideConsole === 'boolean') this.hideConsole.checked = s.hideConsole;
+        this.consent.disabled = busy || (!canRemove && s?.status !== 'ready') || this.changedPlan;
+        this.consentText.textContent = canRemove ? tr('Je confirme le retrait des seuls fichiers installés par ChartsHub et restés inchangés.', 'I confirm removal only of files installed by ChartsHub that remain unchanged.') : tr('J’autorise les ajouts prévus dans l’installation choisie ci-dessus. Mes chansons et réglages de jeu sont conservés.', 'I authorize the planned additions to the selected installation above. My songs and game settings are preserved.');
+        this.install.hidden = s?.status === 'installed'; this.install.disabled = busy || s?.status !== 'ready' || this.changedPlan || !this.consent.checked;
+        this.remove.hidden = !canRemove; this.remove.disabled = busy || !canRemove || !this.consent.checked;
+        if (s?.recoveryRequired === true) this.remove.textContent = tr('Retirer les fichiers de l’installation interrompue', 'Remove interrupted installation files');
+        this.connection.textContent = o.snapshot?.connected ? tr('Connexion vérifiée : des mesures compatibles sont reçues du jeu.', 'Connection verified: compatible measurements are being received from the game.') : s?.status === 'installed' ? tr('Étape suivante : lancez Clone Hero vous-même, activez la réception et jouez quelques notes. La présence des fichiers seule ne confirme pas la connexion.', 'Next: start Clone Hero yourself, enable receiving and play a few notes. File presence alone does not confirm a connection.') : this.changedPlan && s?.status === 'ready' ? tr('L’option console a changé : vérifiez à nouveau la compatibilité avant de confirmer.', 'The console option changed: check compatibility again before confirming.') : '';
+    }
+}
 export class GameplayControls {
-    constructor({ root, command }) {
+    constructor({ root, calibrationRoot = root, gameplayMeasurements = false, calibrationBeta = false, command }) {
         this.root = root;
+        this.gameplayMeasurements = gameplayMeasurements === true;
+        this.calibrationBeta = this.gameplayMeasurements && calibrationBeta === true;
         this.command = command;
         this.language = 'fr';
         this.snapshot = null;
@@ -11,6 +117,7 @@ export class GameplayControls {
         this.labels = [];
         this.listeners = [];
         this.calibrationDrafts = { audio: '', video: '' };
+        if (!this.gameplayMeasurements) return;
         this.node = (tag, parent = root, className = '') => { const e = root.ownerDocument.createElement(tag); e.className = className; parent.append(e); return e; };
         this.label = (node, fr, en) => { this.labels.push([node, fr, en]); return node; };
         this.text = (tag, fr, en, parent = root) => this.label(this.node(tag, parent), fr, en);
@@ -65,28 +172,51 @@ export class GameplayControls {
         });
         this.text('p', 'Les widgets utilisent la source Navigateur OBS ci-dessous. Activez les éléments souhaités dans la liste des widgets ; leurs couleurs et positions restent modifiables.', 'Widgets use the OBS Browser source below. Enable the items you want in the widget list; colors and positions remain editable.');
         this.availability = this.node('ul', root, 'performance-availability');
-        const details = this.node('details', root, 'performance-calibration');
+        const dedicatedCalibration = this.calibrationBeta && calibrationRoot && calibrationRoot !== root;
+        if (this.calibrationBeta) {
+        if (dedicatedCalibration) {
+            const heading = this.node('div', calibrationRoot, 'card-heading calibration-heading'), title = this.node('div', heading);
+            const h2 = this.text('h2', 'Calibration audio et vidéo', 'Audio and video calibration', title); h2.id = 'calibration-title';
+            const beta = this.node('span', heading, 'calibration-beta-badge'); beta.textContent = 'BETA';
+            this.text('p', 'Fonction en cours d’essai : suivez les étapes, vérifiez les résultats et conservez vos réglages précédents. La précision dépend du jeu, du matériel et de vos frappes.', 'Experimental feature: follow the steps, verify results and keep your previous settings. Precision depends on the game, hardware and your hits.', calibrationRoot);
+            const receive = this.node('label', calibrationRoot, 'performance-enable calibration-enable');
+            this.calibrationEnabled = this.node('input', receive); this.calibrationEnabled.type = 'checkbox'; this.calibrationEnabled.id = 'calibration-receive-measurements';
+            this.text('span', 'Recevoir les mesures pour la calibration', 'Receive calibration measurements', receive);
+            this.listen(this.calibrationEnabled, 'change', () => void this.run('telemetry.enabled', { enabled: this.calibrationEnabled.checked }));
+            this.calibrationStatus = this.node('p', calibrationRoot, 'performance-status calibration-status'); this.calibrationStatus.setAttribute('role', 'status');
+        }
+        const details = this.node('details', calibrationRoot || root, 'performance-calibration');
+        details.open = dedicatedCalibration;
         this.text('summary', 'Aide à la calibration audio et vidéo', 'Audio and video calibration helper', details);
         this.text('p', 'Calibrez l’audio et la vidéo séparément. Chaque réglage garde sa saisie et ses essais. Vous pouvez commencer par celui de votre choix.', 'Calibrate audio and video separately. Each setting keeps its own input and trials. Start with either one.', details);
         this.text('p', 'L’analyse suit les jugements mesurés par le jeu. Elle ne mesure pas directement le délai physique des haut-parleurs ou de l’écran et ne garantit pas une calibration parfaite.', 'Analysis follows the judgments measured by the game. It does not directly measure physical speaker or display delay and cannot guarantee perfect calibration.', details);
+        this.connectorSetup = new ConnectorSetupControls(this, details);
         const hardware = this.node('details', details, 'performance-calibration-hardware');
         this.text('summary', 'Reconnaître le matériel et adapter les essais', 'Recognize hardware and adapt trials', hardware);
         this.text('p', 'La détection lit les noms du matériel et les modes déclarés par le système, uniquement à votre demande. Aucun son, enregistrement ou capture d’écran. Retard physique non mesuré.', 'Detection reads hardware names and modes reported by the system, only on request. No sound, recording or screen capture. Physical delay is not measured.', hardware);
-        this.hardwareRefresh = button(hardware, 'Détecter / actualiser le matériel', 'Detect / refresh hardware', () => void this.run('telemetry.hardwareRefresh'));
+        this.hardwareRefresh = button(hardware, 'Détecter / actualiser le matériel', 'Detect / refresh hardware', () => void this.refreshHardware());
         this.hardwareRefresh.id = 'calibration-hardware-detect';
         this.hardwareStatus = this.node('p', hardware, 'helper-text');
         this.hardwareStatus.setAttribute('role', 'status');
         this.hardwareAudio = this.node('p', hardware, 'helper-text');
         this.hardwareVideo = this.node('p', hardware, 'helper-text');
         this.hardwareInputs = this.node('p', hardware, 'helper-text');
+        const hardwareChoice = (fr, en, id) => {
+            const label = this.node('label', hardware, 'performance-field');
+            this.text('span', fr, en, label);
+            const select = this.node('select', label); select.id = id;
+            return select;
+        };
         const hardwareField = (fr, en, id) => {
             const label = this.node('label', hardware, 'performance-field');
             this.text('span', fr, en, label);
             const input = this.node('input', label); input.type = 'text'; input.maxLength = 120; input.id = id;
             return input;
         };
-        this.hardwareOutput = hardwareField('Sortie audio réellement utilisée dans Clone Hero', 'Audio output actually used in Clone Hero', 'calibration-hardware-output');
-        this.hardwareInput = hardwareField('Guitare / clavier réellement utilisé', 'Guitar / keyboard actually used', 'calibration-hardware-input');
+        this.hardwareOutputChoice = hardwareChoice('Choisir une sortie audio détectée', 'Choose a detected audio output', 'calibration-hardware-output-choice');
+        this.hardwareOutput = hardwareField('Sortie audio réellement utilisée · saisie libre', 'Audio output actually used · manual entry', 'calibration-hardware-output');
+        this.hardwareInputChoice = hardwareChoice('Choisir une guitare / un clavier détecté', 'Choose a detected guitar / keyboard', 'calibration-hardware-input-choice');
+        this.hardwareInput = hardwareField('Guitare / clavier réellement utilisé · saisie libre', 'Guitar / keyboard actually used · manual entry', 'calibration-hardware-input');
         this.hardwareInputList = this.node('datalist', hardware); this.hardwareInputList.id = 'calibration-hardware-inputs';
         this.hardwareInput.setAttribute('list', this.hardwareInputList.id);
         const displayLabel = this.node('label', hardware, 'performance-field');
@@ -97,8 +227,14 @@ export class GameplayControls {
         this.hardwareConfirmed = this.node('input', confirmed); this.hardwareConfirmed.type = 'checkbox'; this.hardwareConfirmed.id = 'calibration-hardware-confirmed';
         this.text('span', 'J’ai vérifié ces choix dans le jeu. Joindre cette configuration aux prochains essais.', 'I checked these choices in the game. Attach this setup to future trials.', confirmed);
         this.text('p', 'Le défaut Windows ne prouve pas la sortie utilisée par Clone Hero. Les entrées proposées sont des candidates. Les informations restent locales à cette session ; vous pouvez continuer sans détection.', 'The Windows default does not prove which output Clone Hero uses. Suggested inputs are candidates. Information stays local to this session; trials remain available without detection.', hardware);
+        this.text('p', 'Détectez les appareils disponibles, choisissez ceux du jeu puis confirmez. Si un appareil manque, utilisez « Autre / saisie manuelle » : les champs restent toujours accessibles.', 'Detect available devices, choose those used by the game, then confirm. If a device is missing, use “Other / manual entry”: the fields always remain available.', hardware);
+        this.text('p', 'Une guitare peut apparaître comme périphérique USB, composite USB ou HID, sans porter son nom habituel. Ces propositions ne prouvent pas quel contrôleur le jeu utilise.', 'A guitar may appear as a USB, composite USB or HID device without its usual name. These suggestions do not prove which controller the game uses.', hardware);
         const hardwareChanged = () => { this.hardwareConfirmed.checked = false; this.comparable.checked = false; this.render(); };
-        for (const field of [this.hardwareOutput, this.hardwareInput, this.hardwareNote]) this.listen(field, 'input', hardwareChanged);
+        for (const [select, field, flag] of [[this.hardwareOutputChoice, this.hardwareOutput, 'hardwareOutputManual'], [this.hardwareInputChoice, this.hardwareInput, 'hardwareInputManual']]) {
+            this.listen(select, 'change', () => { this[flag] = select.value === '__manual__'; if (select.value && !this[flag]) field.value = select.value; hardwareChanged(); if (this[flag]) field.focus(); });
+            this.listen(field, 'input', () => { this[flag] = true; hardwareChanged(); });
+        }
+        this.listen(this.hardwareNote, 'input', hardwareChanged);
         this.listen(this.hardwareDisplay, 'change', hardwareChanged);
         this.listen(this.hardwareConfirmed, 'change', () => {
             if (this.hardwareConfirmed.checked && (!this.hardwareOutput.value.trim() || !this.hardwareInput.value.trim())) {
@@ -190,17 +326,22 @@ export class GameplayControls {
         this.listen(this.stage, 'change', () => { this.setting.value = this.calibrationDrafts[this.stage.value]; this.comparable.checked = false; this.render(); });
         this.listen(this.method, 'change', () => { this.comparable.checked = false; this.render(); });
         button(details, 'Guide officiel Clone Hero', 'Official Clone Hero guide', () => void this.run('telemetry.guide'));
-        this.feedback = this.node('p', root, 'performance-feedback');
+        } else {
+            this.connectorSetup = new ConnectorSetupControls(this, root);
+        }
+        this.feedback = this.node('p', this.calibrationBeta ? calibrationRoot || root : root, 'performance-feedback');
         this.feedback.hidden = true;
         this.feedback.setAttribute('role', 'status');
+        if (dedicatedCalibration) { this.summaryFeedback = this.node('p', root, 'performance-summary-feedback'); this.summaryFeedback.hidden = true; this.summaryFeedback.setAttribute('role', 'status'); }
         this.render();
     }
     tr(fr, en) { return this.language === 'en' ? en : fr; }
-    showFeedback(fr, en) { this.feedbackMessage = [fr, en]; this.feedback.textContent = this.tr(fr, en); this.feedback.classList.remove('is-error'); this.feedback.hidden = false; }
+    feedbackNodes() { return [this.feedback, this.summaryFeedback].filter(Boolean); }
+    showFeedback(fr, en) { this.feedbackMessage = [fr, en]; for (const node of this.feedbackNodes()) { node.textContent = this.tr(fr, en); node.classList.remove('is-error'); node.hidden = false; } }
     format(value, decimals = 1) { return typeof value === 'number' && Number.isFinite(value) ? new Intl.NumberFormat(this.language, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(value) : '—'; }
     calibrationSource() { return this.method.value === 'gameplay' ? 'gameplay' : 'tool'; }
     hardwareContext() {
-        if (!this.hardwareConfirmed.checked) return null;
+        if (!this.hardwareConfirmed?.checked) return null;
         const display = this.snapshot?.hardware?.displays?.find(value => value.key === this.hardwareDisplay.value);
         return { version: 1, audioOutput: this.hardwareOutput.value.trim(), input: this.hardwareInput.value.trim(), display: display ? { key: display.key, label: display.label, widthPx: display.widthPx, heightPx: display.heightPx, refreshHz: display.refreshHz } : null, note: this.hardwareNote.value.trim() };
     }
@@ -215,14 +356,24 @@ export class GameplayControls {
         const identity = context => [context.audioOutput, context.input, context.display?.key, context.display?.label, context.display?.widthPx, context.display?.heightPx, context.display?.refreshHz, context.note];
         return JSON.stringify(identity(a)) === JSON.stringify(identity(b));
     }
+    async refreshHardware() {
+        if (!this.hardwareRefresh || this.hardwareRefreshPending || this.snapshot?.hardware?.status === 'checking' || this.disposed) return;
+        this.hardwareRefreshPending = true; this.hardwareRefreshError = false; this.renderHardware();
+        try { const result = await this.command('telemetry.hardwareRefresh', {}); if (!result?.ok) this.hardwareRefreshError = true; }
+        catch { this.hardwareRefreshError = true; }
+        finally { this.hardwareRefreshPending = false; if (!this.disposed) this.renderHardware(); }
+    }
     renderHardware() {
-        const h = this.snapshot?.hardware, displays = h?.displays || [];
-        this.hardwareRefresh.disabled = this.busy || h?.status === 'checking';
-        this.hardwareStatus.textContent = h?.status === 'checking' ? this.tr('Lecture du matériel…', 'Reading hardware…') : h?.checkedAt ? this.tr('Informations système actualisées à la demande. Confirmez le matériel réellement utilisé.', 'System information refreshed on request. Confirm the hardware actually used.') : this.tr('Aucune détection effectuée. Vous pouvez renseigner votre matériel manuellement.', 'No detection performed. You can enter your hardware manually.');
-        const identity = JSON.stringify([h?.audio, displays, h?.inputs]);
+        if (!this.hardwareRefresh) return;
+        const h = this.snapshot?.hardware, displays = h?.displays || [], outputs = h?.outputs || (h?.audio?.outputName ? [{ name: h.audio.outputName, windowsDefault: true }] : []), inputs = h?.inputs || [];
+        const checking = this.hardwareRefreshPending || h?.status === 'checking';
+        this.hardwareRefresh.disabled = checking;
+        this.hardwareRefresh.title = checking ? this.tr('Détection en cours ; attendez la fin de la lecture.', 'Detection in progress; wait for the reading to finish.') : '';
+        this.hardwareStatus.textContent = checking ? this.tr('Lecture du matériel… La détection n’exige pas de connexion à Clone Hero.', 'Reading hardware… Detection does not require a Clone Hero connection.') : this.hardwareRefreshError ? this.tr('Détection indisponible. Réessayez ou utilisez les champs manuels ci-dessous.', 'Detection unavailable. Retry or use the manual fields below.') : h?.checkedAt ? this.tr('Informations système actualisées à la demande. Choisissez les appareils réellement utilisés, puis confirmez.', 'System information refreshed on request. Choose the devices actually used, then confirm.') : this.tr('Aucune détection effectuée. Cliquez sur Détecter ou renseignez votre matériel manuellement.', 'No detection performed. Click Detect or enter your hardware manually.');
+        const identity = JSON.stringify([h?.audio, outputs, displays, inputs]);
         if (identity !== this.hardwareIdentity) {
             const selected = this.hardwareDisplay.value;
-            this.hardwareIdentity = identity; this.hardwareConfirmed.checked = false;
+            this.hardwareIdentity = identity; this.hardwareConfirmed.checked = false; this.comparable.checked = false;
             this.hardwareDisplay.replaceChildren();
             const unknown = this.node('option', this.hardwareDisplay); unknown.value = '';
             for (const display of displays) {
@@ -230,7 +381,21 @@ export class GameplayControls {
             }
             this.hardwareDisplay.value = displays.some(display => display.key === selected) ? selected : '';
             this.hardwareInputList.replaceChildren();
-            for (const candidate of h?.inputs || []) this.node('option', this.hardwareInputList).value = candidate.name;
+            for (const candidate of inputs) this.node('option', this.hardwareInputList).value = candidate.name;
+            for (const [select, candidates] of [[this.hardwareOutputChoice, outputs], [this.hardwareInputChoice, inputs]]) {
+                select.replaceChildren(); this.node('option', select).value = '';
+                for (const candidate of candidates) this.node('option', select).value = candidate.name;
+                this.node('option', select).value = '__manual__';
+            }
+        }
+        for (const [select, field, candidates, manual] of [[this.hardwareOutputChoice, this.hardwareOutput, outputs, this.hardwareOutputManual], [this.hardwareInputChoice, this.hardwareInput, inputs, this.hardwareInputManual]]) {
+            select.options[0].textContent = candidates.length ? this.tr('Choisir dans la liste · aucun appareil confirmé', 'Choose from the list · no device confirmed') : this.tr('Aucun appareil détecté · saisie manuelle disponible', 'No device detected · manual entry available');
+            for (let index = 0; index < candidates.length; index++) {
+                const candidate = candidates[index], categories = { input: ['Entrée candidate', 'Input candidate'], 'usb-device': ['Appareil USB candidat', 'USB device candidate'], 'usb-bus': ['Bus / concentrateur USB · à identifier', 'USB bus / hub · identify before choosing'], hid: ['Périphérique HID candidat', 'HID device candidate'] };
+                select.options[index + 1].textContent = candidate.name + (candidate.windowsDefault ? this.tr(' · défaut Windows, à vérifier', ' · Windows default, verify in game') : categories[candidate.category] ? ' · ' + this.tr(...categories[candidate.category]) : '');
+            }
+            select.options[select.options.length - 1].textContent = this.tr('Autre / saisie manuelle', 'Other / manual entry');
+            select.value = manual || (field.value && !candidates.some(candidate => candidate.name === field.value)) ? '__manual__' : candidates.some(candidate => candidate.name === field.value) ? field.value : '';
         }
         this.hardwareDisplay.options[0].textContent = this.tr('Non renseigné / détection indisponible', 'Not recorded / detection unavailable');
         for (let index = 0; index < displays.length; index++) {
@@ -251,7 +416,7 @@ export class GameplayControls {
     signed(value) { return (value > 0 ? '+' : '') + this.format(value) + ' ms'; }
     trialMetrics(result) { return this.tr('moyenne signée', 'signed mean') + ' ' + this.signed(result.meanOffsetMs) + (result.meanOffsetMs < 0 ? this.tr(' (tôt)', ' (early)') : result.meanOffsetMs > 0 ? this.tr(' (tard)', ' (late)') : '') + ' · ' + this.tr('écart absolu', 'absolute offset') + ' ' + this.format(result.meanAbsoluteOffsetMs) + ' ms · ' + this.tr('dispersion', 'deviation') + ' ' + this.format(result.standardDeviationMs) + ' ms'; }
     async run(name, payload, clear = false) {
-        if (this.busy || this.disposed)
+        if (this.gameplayMeasurements === false || this.busy || this.disposed)
             return;
         this.busy = true;
         this.feedbackMessage = null;
@@ -262,16 +427,15 @@ export class GameplayControls {
             if (this.disposed)
                 return;
             if (!result?.ok)
-                throw Error(result?.error || this.tr('Cette action n’a pas pu être appliquée.', 'This action could not be applied.'));
+                throw Error(name.startsWith('telemetry.connector') ? this.tr('Cette étape n’a pas pu être terminée. Consultez l’indication de l’assistant.', 'This step could not finish. See the setup assistant’s guidance.') : result?.error || this.tr('Cette action n’a pas pu être appliquée.', 'This action could not be applied.'));
             if (clear)
                 this.dirty = false;
             this.showFeedback(...(name === 'telemetry.calibrationStart' ? ['Essai démarré. Aucun réglage du jeu n’a été changé.', 'Trial started. No game setting was changed.'] : name === 'telemetry.calibrationFinish' ? ['Essai conservé dans l’historique de ce réglage et de cette méthode.', 'Trial kept in the history for this setting and method.'] : ['Action terminée.', 'Action completed.']));
         }
         catch (error) {
             if (!this.disposed) {
-                this.feedback.textContent = error?.message || this.tr('Réessayez dans un instant.', 'Please try again shortly.');
-                this.feedback.classList.add('is-error');
-                this.feedback.hidden = false;
+                this.feedbackMessage = null;
+                for (const node of this.feedbackNodes()) { node.textContent = error?.message || this.tr('Réessayez dans un instant.', 'Please try again shortly.'); node.classList.add('is-error'); node.hidden = false; }
             }
         }
         finally {
@@ -283,22 +447,25 @@ export class GameplayControls {
     update(snapshot) { if (this.disposed)
         return; this.snapshot = snapshot?.telemetry || null; this.language = snapshot?.language === 'en' ? 'en' : 'fr'; this.render(); }
     render() {
+        if (this.gameplayMeasurements === false) return;
         for (const [node, fr, en] of this.labels)
             node.textContent = this.tr(fr, en);
-        if (this.feedbackMessage) this.feedback.textContent = this.tr(...this.feedbackMessage);
+        if (this.feedbackMessage) for (const node of this.feedbackNodes()) node.textContent = this.tr(...this.feedbackMessage);
         const p = this.snapshot, connected = p?.connected === true, c = p?.capabilities || {};
-        this.renderHardware();
+        this.connectorSetup.render();
+        if (this.calibrationBeta) this.renderHardware();
         const status = { disabled: ['Mesures désactivées', 'Measurements disabled'], waiting: ['Connecteur non connecté', 'Connector not connected'], connecting: ['Connexion au jeu…', 'Connecting to game…'], connected: ['Mesures réelles connectées', 'Real measurements connected'], unsupported: ['Version du jeu non validée', 'Game version not validated'], stale: ['Mesures interrompues', 'Measurements interrupted'], error: ['Connexion aux mesures indisponible', 'Measurements unavailable'] }[p?.status || 'waiting'];
         this.status.textContent = this.tr(...status) + (p?.gameVersion ? ' · Clone Hero ' + p.gameVersion : '');
         this.status.dataset.connected = String(connected);
         this.enabled.checked = p?.enabled === true;
         this.enabled.disabled = this.busy || !p || p.canWrite === false;
+        if (this.calibrationEnabled) { this.calibrationEnabled.checked = this.enabled.checked; this.calibrationEnabled.disabled = this.enabled.disabled; this.calibrationStatus.textContent = this.status.textContent; this.calibrationStatus.dataset.connected = String(connected); }
         const timing = p?.timing || {};
         for (const [key, node] of Object.entries(this.metrics)) {
             const value = timing[key];
             node.textContent = this.format(value, key === 'sampleCount' ? 0 : 1) + (typeof value === 'number' ? (key === 'sampleCount' ? '' : key === 'withinWindowPercent' ? ' %' : ' ms') : '');
         }
-        this.coverage.textContent = !connected ? this.tr('Les valeurs sont masquées quand la source est interrompue.', 'Values are hidden when the source is interrupted.') : this.tr('Décalage négatif : tôt. Positif : tard. ', 'Negative offset: early. Positive: late. ') + (timing.coverage === 'complete' ? this.tr('Mesures depuis le début de l’essai.', 'Measured from the start of the attempt.') : timing.coverage === 'since-connect' ? this.tr('Mesures depuis la connexion.', 'Measured since connection.') : this.tr('Mesures partielles après une interruption.', 'Partial measurements after an interruption.'));
+        this.coverage.textContent = !connected ? this.tr('Les valeurs sont masquées quand la source est interrompue.', 'Values are hidden when the source is interrupted.') : ['idle', 'menu', 'loading'].includes(p.phase) ? timing.sampleCount > 0 ? this.tr('Aucune chart en cours · dernières mesures conservées.', 'No chart in progress · previous measurements retained.') : this.tr('En attente d’une chart · aucune mesure de frappe reçue.', 'Waiting for a chart · no hit measurement received.') : this.tr('Décalage négatif : tôt. Positif : tard. ', 'Negative offset: early. Positive: late. ') + (timing.coverage === 'complete' ? this.tr('Mesures depuis le début de l’essai.', 'Measured from the start of the attempt.') : timing.coverage === 'since-connect' ? this.tr('Mesures depuis la connexion.', 'Measured since connection.') : this.tr('Mesures partielles après une interruption.', 'Partial measurements after an interruption.'));
         if (!this.dirty && p?.settings) {
             this.window.value = String(p.settings.windowMs);
             this.goal.value = p.settings.goal.kind;
@@ -314,6 +481,11 @@ export class GameplayControls {
             const li = this.node('li', this.availability);
             li.textContent = this.tr(fr, en) + ' · ' + (connected && ready ? this.tr('disponible', 'available') : this.tr('en attente de données compatibles', 'waiting for compatible data'));
         }
+        if (p?.persistenceError && !this.busy) {
+            this.feedbackMessage = null;
+            for (const node of this.feedbackNodes()) { node.textContent = p.persistenceError; node.classList.add('is-error'); node.hidden = false; }
+        }
+        if (!this.calibrationBeta) return;
         const trial = p?.calibration?.trial;
         for (const [stage, nodes] of Object.entries(this.nativeResults)) {
             const result = this.nativeResult(stage);
@@ -377,12 +549,6 @@ export class GameplayControls {
         this.comparable.disabled = results.length < 2 || !hardwareMatches;
         if (!hardwareMatches) this.comparable.checked = false;
         this.comparison.textContent = results.length < 2 ? this.tr('Conservez deux essais de ce réglage avec cette méthode pour comparer avant et après.', 'Keep two trials for this setting and method to compare before and after.') : !hardwareMatches ? this.tr('Configurations différentes ou incomplètes : conservez deux nouveaux essais avec le même matériel confirmé avant de comparer.', 'Different or incomplete setups: keep two new trials with the same confirmed hardware before comparing.') : !this.comparable.checked ? this.tr('Vérifiez les conditions identiques ci-dessus pour comparer les deux derniers essais.', 'Confirm the matching conditions above to compare the two latest trials.') : this.tr('Avant', 'Before') + ' · ' + this.format(results[1].settingMs) + ' ms · ' + this.trialMetrics(results[1]) + '\n' + this.tr('Après', 'After') + ' · ' + this.format(results[0].settingMs) + ' ms · ' + this.trialMetrics(results[0]) + '\n' + this.tr('Variation de l’écart absolu moyen', 'Change in mean absolute offset') + ' : ' + this.signed(results[0].meanAbsoluteOffsetMs - results[1].meanAbsoluteOffsetMs) + '. ' + this.tr('Une baisse rapproche les frappes de zéro, sans déterminer à elle seule le bon réglage.', 'A decrease brings hits closer to zero, without determining the right setting on its own.');
-        if (p?.persistenceError && !this.busy) {
-            this.feedbackMessage = null;
-            this.feedback.textContent = p.persistenceError;
-            this.feedback.classList.add('is-error');
-            this.feedback.hidden = false;
-        }
     }
     dispose() { this.disposed = true; for (const remove of this.listeners)
         remove(); }

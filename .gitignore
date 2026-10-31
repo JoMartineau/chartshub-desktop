@@ -13,3 +13,5 @@ reshade-bridge/zig-cache/
 reshade-bridge/*.o
 reshade-bridge/test-run/
 outputs/
+# Optional game connector binaries stay in local development fixtures only.
+companion/connector-assets/*.dll

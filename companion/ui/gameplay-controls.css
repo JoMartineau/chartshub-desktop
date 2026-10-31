@@ -1,4 +1,15 @@
 #performance-panel { margin-block:20px; }
+#calibration-panel { margin-block:20px;scroll-margin-top:110px;min-width:0; }
+#calibration-controls { padding:20px; }
+#calibration-controls p { line-height:1.55;overflow-wrap:anywhere; }
+.calibration-heading { align-items:center;flex-wrap:wrap;padding:0;margin:0 0 14px; }
+.calibration-heading h2 { margin:0; }
+.calibration-beta-badge { display:inline-flex;align-items:center;padding:5px 10px;border:1px solid var(--warning,#d8a346);border-radius:6px;color:var(--warning,#e6bc73);font-size:11px;font-weight:750;letter-spacing:.08em;white-space:nowrap; }
+.calibration-enable { margin-block:16px;white-space:normal; }
+.performance-summary-feedback.is-error { color:#ffb9b9; }
+.companion-workspace-nav { min-width:0; }
+.companion-app[data-workspace=calibration] .integration-note { display:none; }
+@media(forced-colors:active) { .calibration-beta-badge { border-color:CanvasText;color:CanvasText; } }
 #performance-controls .card-heading { gap:20px;align-items:start;flex-wrap:wrap; }
 #performance-controls p { line-height:1.5; }
 .performance-enable { display:flex;align-items:center;gap:8px;white-space:nowrap; }
@@ -33,6 +44,15 @@
 .performance-calibration-hardware { margin-block:16px;padding:14px;border:1px solid #30445e;border-radius:10px;min-width:0;overflow-wrap:anywhere;scroll-margin-top:84px; }
 .performance-calibration-hardware .performance-field { max-width:560px;margin-block:12px; }
 .performance-calibration-hardware .performance-field input,.performance-calibration-hardware .performance-field select { min-width:0;box-sizing:border-box; }
+.performance-calibration-hardware .performance-field select { max-width:100%;overflow:hidden;text-overflow:ellipsis; }
 .performance-calibration-hardware .performance-field input { color:inherit;background:#122238;border:1px solid #30445e;border-radius:6px; }
 .performance-calibration-hardware .button { margin-block:12px;white-space:normal; }
+.performance-connector-setup { margin-block:16px;padding:14px;border:1px solid #30445e;border-radius:10px;min-width:0;overflow-wrap:anywhere;scroll-margin-top:84px; }
+.performance-connector-steps { display:grid;gap:8px;padding-left:24px; }
+.performance-connector-status { font-weight:600; }
+.performance-connector-destination,.performance-connector-scope { overflow-wrap:anywhere;white-space:normal; }
+.performance-connector-setup .performance-actions { margin-block:12px; }
+.performance-connector-setup .performance-calibration-comparable { margin-block:12px; }
+.performance-connector-setup .button { white-space:normal; }
+.performance-connector-manual { margin-top:16px;padding-top:12px;border-top:1px solid #30445e; }
 @media(max-width:520px) { .performance-calibration-results { grid-template-columns:1fr; } }

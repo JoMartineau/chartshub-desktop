@@ -43,7 +43,14 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (command === 'telemetry.connectorChoose' || command === 'telemetry.connectorCancel') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (command === 'telemetry.connectorPrepare') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && typeof payload.hideConsole === 'boolean';
+  if (command === 'telemetry.connectorInstall' || command === 'telemetry.connectorRollback') {
+    const key = command === 'telemetry.connectorInstall' ? 'planId' : 'receiptId';
+    return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 2 && Object.keys(payload).every(name => [key, 'confirmation'].includes(name)) && typeof payload[key] === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(payload[key]) && payload.confirmation === true;
+  }
   if (command === 'gameCapture.open') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (command === 'inputViewer.open') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'visuals.copyUrl') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && Object.keys(payload).length === 1 && ['background', 'video'].includes(payload.kind);
   if (command === 'visuals.select') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
@@ -270,9 +277,9 @@ function validCommand(command, payload, widgetIds) {
   if (command === 'widget.visibility') {
     return Number.isSafeInteger(payload.revision) && payload.revision >= 0 && widgetIds.includes(payload.id) && typeof payload.game === 'boolean'
       && (payload.stream === undefined || typeof payload.stream === 'boolean')
-      && Array.isArray(payload.gameplayVisibility) && payload.gameplayVisibility.length <= 2
+      && (!Object.hasOwn(payload, 'gameplayVisibility') || (Array.isArray(payload.gameplayVisibility) && payload.gameplayVisibility.length <= 2
       && new Set(payload.gameplayVisibility).size === payload.gameplayVisibility.length
-      && payload.gameplayVisibility.every(state => state === 'playing' || state === 'paused');
+      && payload.gameplayVisibility.every(state => state === 'playing' || state === 'paused')));
   }
   return false;
 }

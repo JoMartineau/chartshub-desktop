@@ -1,6 +1,6 @@
 import type { WidgetDefinition } from '../../../core/types/Widget.js';
 import type { WidgetComponent } from '../../engine/WidgetRegistry.js';
-import { selectDifficulty } from '../../engine/WidgetSelectors.js';
+import { selectLocalizedDifficulty } from '../../engine/WidgetSelectors.js';
 
 export const difficultyDefinition: WidgetDefinition = {
   type: 'song.difficulty', version: 1, displayName: 'Difficulty', category: 'song',
@@ -8,6 +8,6 @@ export const difficultyDefinition: WidgetDefinition = {
 };
 
 export const DifficultyWidget: WidgetComponent = state => {
-  const text = selectDifficulty(state);
+  const text = selectLocalizedDifficulty(state);
   return text === null ? null : { text };
 };

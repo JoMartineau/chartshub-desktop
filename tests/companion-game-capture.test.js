@@ -104,3 +104,33 @@ test('reloading the owned preview revokes capture and closes its outputs',async 
   await f.call(preview,'crop',{kind:'score',rect:{x:0,y:0,width:.5,height:.5}});await f.call(preview,'output',{kind:'score'});
   preview.webContents.emit('did-start-loading');assert.equal(service.snapshot().phase,'stopped');assert.equal(f.windows[1].isDestroyed(),true);
 });
+test('lyrics alone use a validated independent crop and owned video output without a connector or clock',async t=>{
+  const f=fixture(),service=await createGameCapture({root,electron:f.electron});t.after(()=>service.dispose());
+  await service.open();const preview=f.windows[0];await f.call(preview,'list');await f.call(preview,'select',{id:'window:42:0'});
+  await f.ses.display(f.request(preview),()=>{});await f.call(preview,'started',{width:1920,height:1080});
+  assert.equal((await f.call(preview,'output',{kind:'lyrics'})).ok,false,'A region must be chosen first');
+  const rect={x:.1,y:.8,width:.8,height:.15};assert.equal((await f.call(preview,'crop',{kind:'lyrics',rect})).ok,true);
+  assert.equal((await f.call(preview,'output',{kind:'lyrics'})).ok,true);const output=f.windows[1];
+  assert.equal(output.options.title,'ChartsHub — Paroles');assert.equal(output.webContents.mainFrame.url,PAGES.lyrics);
+  assert.deepEqual(output.contentSize,[720,76]);
+  const state=(await f.call(preview,'snapshot')).state;assert.deepEqual(state.crops,{highway:null,score:null,lyrics:rect});assert.equal(state.outputs.lyrics.open,true);
+  assert.equal(Object.hasOwn(state,'clock'),false);assert.equal(Object.hasOwn(state,'telemetry'),false);
+  assert.equal((await f.call(output,'crop',{kind:'lyrics',rect})).ok,false,'An output cannot change capture regions');
+  assert.equal((await f.call(preview,'crop',{kind:'lyrics',rect:{...rect,width:1}})).ok,false);
+  assert.equal((await f.call(preview,'output',{kind:'other'})).ok,false);
+  await f.call(preview,'stop');assert.equal(output.isDestroyed(),true);assert.deepEqual((await f.call(preview,'snapshot')).state.crops,{highway:null,score:null,lyrics:null});
+});
+test('three output windows keep crops and signaling isolated and stop revokes all of them',async t=>{
+  const f=fixture(),service=await createGameCapture({root,electron:f.electron});t.after(()=>service.dispose());
+  await service.open();const preview=f.windows[0];await f.call(preview,'list');await f.call(preview,'select',{id:'window:42:0'});await f.ses.display(f.request(preview),()=>{});await f.call(preview,'started',{width:1280,height:720});
+  const rects={highway:{x:.25,y:.1,width:.3,height:.7},score:{x:.65,y:.1,width:.25,height:.2},lyrics:{x:.05,y:.85,width:.9,height:.1}};
+  for(const kind of Object.keys(rects)){assert.equal((await f.call(preview,'crop',{kind,rect:rects[kind]})).ok,true);assert.equal((await f.call(preview,'output',{kind})).ok,true);}
+  assert.equal(f.windows.length,4);assert.deepEqual(f.windows.slice(1).map(w=>w.options.title),Object.values(TITLES));
+  const changed={x:.1,y:.8,width:.8,height:.15};await f.call(preview,'crop',{kind:'lyrics',rect:changed});
+  const state=(await f.call(preview,'snapshot')).state;assert.deepEqual(state.crops,{...rects,lyrics:changed});
+  const lyrics=f.windows[3],signal={description:{type:'answer',sdp:'v=0'}};
+  assert.equal((await f.call(lyrics,'signal',{revision:state.revision,signal})).ok,true);assert.equal(preview.webContents.sent.at(-1)[1].kind,'lyrics');
+  assert.equal((await f.call(lyrics,'signal',{kind:'score',revision:state.revision,signal})).ok,false,'Outputs cannot impersonate another role');
+  assert.equal(f.ses.check(lyrics.webContents,'display-capture','chartshub-companion://app',{isMainFrame:true,requestingUrl:PAGES.lyrics}),false);
+  await f.call(preview,'stop');assert(f.windows.slice(1).every(w=>w.isDestroyed()));assert.equal(service.snapshot().phase,'stopped');
+});

@@ -124,6 +124,9 @@ export class WidgetBuilder {
   }
 
   update(snapshot: BuilderSnapshot): void {
+    const phaseChanged = this.snapshot?.state.performance?.phase !== snapshot.state.performance?.phase
+      || this.snapshot?.state.performance?.connected !== snapshot.state.performance?.connected
+      || this.snapshot?.state.gameplay.state !== snapshot.state.gameplay.state;
     const gestureRevision = this.gesture?.revision ?? this.marquee?.revision;
     if (gestureRevision !== undefined && gestureRevision !== (snapshot.editor?.revision ?? 0)) {
       this.finishGesture();
@@ -133,6 +136,10 @@ export class WidgetBuilder {
     this.snapshot = snapshot;
     const existing = new Set(snapshot.state.widgets.instances.map(instance => instance.id));
     for (const id of this.selected) if (!existing.has(id)) this.selected.delete(id);
+    // Pointer moves already render the current draft. Live hit/clock snapshots
+    // must not rebuild its DOM between those moves; retain the latest data for
+    // the next move or release. A changed editor revision cancels above first.
+    if ((this.gesture || this.marquee) && !phaseChanged) return;
     this.render();
   }
 
@@ -407,7 +414,9 @@ export class WidgetBuilder {
       const locked = instance.locked === true;
       const caption = `${widgetLabel(instance.type)}${locked ? ' · verrouillé' : ''}`;
       const allowed = instance.gameplayVisibility ?? ['playing', 'paused'];
-      const ghost = !instance.enabled || !instance.visibility[this.target] || !allowed.includes(this.snapshot?.state.gameplay.state === 'paused' ? 'paused' : 'playing');
+      const performance = this.snapshot?.state.performance;
+      const unavailableMeasurement = instance.type.startsWith('gameplay.') && (!performance?.connected || !['playing', 'paused', 'results'].includes(performance.phase));
+      const ghost = !instance.enabled || !instance.visibility[this.target] || unavailableMeasurement || !allowed.includes(this.snapshot?.state.gameplay.state === 'paused' ? 'paused' : 'playing');
       box.setAttribute('aria-selected', String(selected));
       box.setAttribute('aria-label', caption);
       box.querySelector('.builder-widget-caption')!.textContent = `${caption}${ghost ? ' · masqué' : ''}`;

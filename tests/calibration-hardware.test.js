@@ -6,14 +6,14 @@ const { validCommand, trustedCatalogueWidgetCommand, trustedFiltersWidgetCommand
 const { createTelemetryModel } = require('../companion/clonehero-telemetry-model.cjs');
 const { publicTelemetrySnapshot } = require('../companion/clonehero-telemetry-view.cjs');
 const c = require('../companion/clonehero-telemetry-contract.cjs');
-const metadata = () => ({ audio: { status:'available',outputName:'USB Speakers',sampleRateHz:48000,channels:2,defaultPeriodMs:10,minimumPeriodMs:3 }, inputs:[{name:'Guitar Controller',kind:'candidate'}] });
+const metadata = () => ({ audio: { status:'available',outputName:'USB Speakers',sampleRateHz:48000,channels:2,defaultPeriodMs:10,minimumPeriodMs:3 }, outputs:[{name:'USB Speakers',kind:'candidate',windowsDefault:true}], inputs:[{name:'Guitar Controller',kind:'candidate'}] });
 const display = { id:99,label:'Test Display',size:{width:1920,height:1080},scaleFactor:1,displayFrequency:144 };
 const screen = {getAllDisplays:()=>[display],getDisplayMatching:()=>display};
 const context = () => ({version:1,audioOutput:'USB Speakers',input:'Guitar Controller',display:{key:'display-0',label:'Test Display',widthPx:1920,heightPx:1080,refreshHz:144},note:'USB · Game mode'});
 
 test('probe response accepts bounded metadata and discards malformed, oversized and extra fields', () => {
     const valid=metadata(); assert.deepEqual(parseProbe(JSON.stringify(valid)),valid);
-    for(const value of ['invalid','x'.repeat(16385),JSON.stringify({...valid,path:'private'}),JSON.stringify({...valid,audio:{...valid.audio,latency:10}}),JSON.stringify({...valid,inputs:Array(17).fill(valid.inputs[0])}),JSON.stringify({...valid,audio:{...valid.audio,channels:1.5}}),JSON.stringify({...valid,audio:{...valid.audio,sampleRateHz:1}}),JSON.stringify({...valid,audio:{...valid.audio,minimumPeriodMs:-1}}),JSON.stringify({...valid,inputs:[{name:'x',kind:'used-by-game'}]})]) {
+    for(const value of ['invalid','x'.repeat(16385),JSON.stringify({...valid,path:'private'}),JSON.stringify({...valid,audio:{...valid.audio,latency:10}}),JSON.stringify({...valid,inputs:Array(33).fill(valid.inputs[0])}),JSON.stringify({...valid,audio:{...valid.audio,channels:1.5}}),JSON.stringify({...valid,audio:{...valid.audio,sampleRateHz:1}}),JSON.stringify({...valid,audio:{...valid.audio,minimumPeriodMs:-1}}),JSON.stringify({...valid,inputs:[{name:'x',kind:'used-by-game'}]})]) {
         const result=parseProbe(value); assert.equal(result.audio.status,'unavailable'); assert.deepEqual(result.inputs,[]);
     }
     assert.equal(parseProbe(JSON.stringify({...valid,audio:{...valid.audio,outputName:'Speakers serial: PRIVATE123'}})).audio.outputName,'Speakers');

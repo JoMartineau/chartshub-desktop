@@ -18,7 +18,7 @@
 <body>
   <main id="companion-app" class="companion-app">
     <header class="app-header">
-      <nav id="companion-workspace-nav" class="companion-workspace-nav" aria-label="Rubriques du Companion" translate="no"><button type="button" data-companion-workspace="library" aria-current="page">Bibliothèque</button><button type="button" data-companion-workspace="catalogue">Catalogue</button><button type="button" data-companion-workspace="player">Lecteur</button><button type="button" data-companion-workspace="stream">Stream / OBS</button><button type="button" data-companion-workspace="requests">Demandes</button><button type="button" data-companion-workspace="status">État</button><button type="button" data-companion-workspace="settings">Réglages</button></nav>
+      <nav id="companion-workspace-nav" class="companion-workspace-nav" aria-label="Rubriques du Companion" translate="no"><button type="button" data-companion-workspace="library" aria-current="page">Bibliothèque</button><button type="button" data-companion-workspace="catalogue">Catalogue</button><button type="button" data-companion-workspace="player">Lecteur</button><button type="button" data-companion-workspace="stream">Stream / OBS</button><button type="button" data-companion-workspace="calibration" hidden inert>Calibration · BETA</button><button type="button" data-companion-workspace="requests">Demandes</button><button type="button" data-companion-workspace="status">État</button><button type="button" data-companion-workspace="settings">Réglages</button></nav>
       <span id="source-mode-badge" class="demo-badge"><span aria-hidden="true"></span><span id="source-mode-label">MODE DÉMO</span></span>
     </header>
 
@@ -300,7 +300,8 @@
       </div>
     </section>
 
-    <section id="performance-panel" class="card performance-panel" aria-label="Mesures du jeu"><div id="performance-controls"></div></section>
+    <section id="calibration-panel" hidden inert class="card calibration-panel" aria-labelledby="calibration-title"><div id="calibration-controls" translate="no"></div></section>
+    <section id="performance-panel" hidden inert class="card performance-panel" aria-label="Mesures du jeu"><div id="performance-controls"></div></section>
     <section id="stream-panel" class="card stream-panel" aria-labelledby="stream-panel-title">
       <div class="card-heading"><div><h2 id="stream-panel-title">Stream / OBS</h2><span id="stream-description" class="helper-text">Widgets du morceau et fenêtres flottantes dans OBS / Streamlabs.</span></div><label class="stream-enable-label"><input id="stream-enabled" type="checkbox" disabled> Activer le serveur Stream</label></div>
       <div class="stream-panel-content"><div class="stream-server-line"><span id="stream-status" class="status-pill">Serveur arrêté</span><span id="stream-clients" class="helper-text">0 connexions aux widgets</span></div><p class="helper-text">Ce compteur concerne uniquement la source des widgets. Le fond et la vidéo utilisent leurs propres URL ci-dessous.</p><p id="stream-feedback" class="stream-feedback" role="status" hidden></p><p id="stream-error" class="stream-feedback is-error" role="alert" hidden></p>
@@ -312,6 +313,7 @@
         <p class="stream-instructions">Dans OBS, ajoutez une <strong>Source navigateur</strong>, collez cette URL et reprenez la largeur et la hauteur ci-dessus. Le fond est transparent. Laissez ChartsHub ouvert pendant la diffusion.</p><p class="helper-text">La résolution de sortie conserve les placements sur la grille 1 280 × 720 ; les formats personnalisés centrent cette grille. Aucun morceau n’est envoyé depuis les aperçus de démonstration.</p>
         <section id="song-visuals-controls" translate="no"></section>
         <section id="game-capture-controls" translate="no"></section>
+        <section id="input-viewer-controls" translate="no"></section>
         <section class="stream-native-windows" aria-labelledby="stream-windows-heading">
           <h3 id="stream-windows-heading">Catalogue et Filtres — Capture de fenêtre</h3>
           <p id="stream-window-instructions" class="stream-instructions">Dans OBS, ajoutez une source « Capture de fenêtre » pour chaque panneau et sélectionnez son titre ci-dessous. Gardez ces fenêtres ouvertes pendant la capture.</p>

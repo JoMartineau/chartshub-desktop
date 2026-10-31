@@ -24,7 +24,7 @@ app.whenReady().then(async()=>{
   for(const widget of saved.widgets)if(widget.type==='gameplay.accuracy')widget.style={...widget.style,fontSize:16};
   await fs.mkdir(path.join(directory,'companion'),{recursive:true});await fs.writeFile(path.join(directory,'companion/settings.json'),JSON.stringify(saved,null,2)+'\n',{flag:'wx'});
  }
- host=await createCompanionHost({dataDirectory:path.join(directory,'companion'),cloneHeroCandidates:[],cloneHeroProcessProbe:async()=>({running:false,sessions:[]}),isCatalogueAvailable:()=>false,authorizeCatalogue:async()=>false,catalogueClient:{async load(){return{items:[],revision:'live-validation-no-catalogue',demo:false};},async artwork(){return null;}}});
+ host=await createCompanionHost({gameplayMeasurements:true,dataDirectory:path.join(directory,'companion'),cloneHeroCandidates:[],cloneHeroProcessProbe:async()=>({running:false,sessions:[]}),isCatalogueAvailable:()=>false,authorizeCatalogue:async()=>false,catalogueClient:{async load(){return{items:[],revision:'live-validation-no-catalogue',demo:false};},async artwork(){return null;}}});
  host.setLanguage('fr');panel=await host.open();panel.setTitle('ChartsHub — Essai Accuracy');panel.setSize(1280,900);
  await until(()=>panel.webContents.executeJavaScript("!!window.ChartsHubCompanion&&!!document.querySelector('#performance-controls .performance-status')"),'Accuracy controls');
  const command=async(name,payload={})=>{const result=await panel.webContents.executeJavaScript(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`);if(result?.ok!==true)throw Error('Unable to enable validation widget: '+name);};

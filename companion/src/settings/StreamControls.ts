@@ -132,9 +132,10 @@ export class StreamControls {
   private async toggleWidget(id: string, stream: boolean): Promise<void> {
     const widget = this.snapshot?.state.widgets.instances.find(instance => instance.id === id);
     if (!widget || this.busy) return;
+    // Destination-only edits preserve existing results/menu visibility. Explicit
+    // gameplay-state changes use the separately validated builder controls.
     await this.send('widget.visibility', {
       revision: this.revision, id, game: widget.visibility.game, stream,
-      gameplayVisibility: widget.gameplayVisibility ?? ['playing', 'paused'],
     }, false);
   }
 

@@ -38,7 +38,7 @@ app.whenReady().then(async()=>{
  const local=host.getPanelContents(),maintenance=(action,payload)=>local.executeJavaScript(`window.ChartsHubMaintenance.invoke(${JSON.stringify(action)}${payload===undefined?'':','+JSON.stringify(payload)})`);
  const command=async(name,payload)=>{const result=await local.executeJavaScript(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify({...payload,revision:host.snapshot().editor.revision})})`);assert.equal(result.ok,true,JSON.stringify(result));};
  assert.equal(host.snapshot().state.widgets.instances.length,13);assert.equal((await maintenance('backup.export')).ok,true);
- const factory=JSON.parse(fs.readFileSync(backupFile,'utf8'));assert.equal(factory.groups.overlay.widgets.length,13);assert.equal(factory.sourceVersion,'0.14.31');passed.push('actual thirteen-widget factory exports through native selection');
+ const factory=JSON.parse(fs.readFileSync(backupFile,'utf8'));assert.equal(factory.groups.overlay.widgets.length,13);assert.equal(factory.sourceVersion,require('../package.json').version);passed.push('actual thirteen-widget factory exports through native selection');
  await command('widget.accuracy',{id:'gameplay-accuracy',config:{fields:['lastOffsetMs','meanOffsetMs'],showTitle:false,showCoverage:false}});
  await command('widget.lyrics',{id:'song-lyrics',config:{showNextLine:true}});
  await command('widget.layout',{destination:'game',items:[{id:'gameplay-accuracy',x:385,y:522,width:450,height:110}]});

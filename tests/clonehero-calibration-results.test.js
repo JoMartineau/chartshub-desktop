@@ -81,16 +81,18 @@ test('OBS projection exposes neither native calibration settings nor trial ids, 
 test('actual telemetry identifies the header as Clone Hero data while legacy controls keep their selected mode', () => {
     const source=fs.readFileSync(path.join(__dirname,'../companion/ui/panel.js'),'utf8');
     const snippet=source.slice(source.indexOf('function liveSource('),source.indexOf('async function changeSource('));
-    function render(snapshot) {
+    function render(snapshot, gameplayMeasurements=true) {
         const nodes=new Map(), query=key=>{if(!nodes.has(key))nodes.set(key,{classList:{values:new Map(),toggle(name,value){this.values.set(name,value);}},dataset:{}});return nodes.get(key);};
         const controls={next:{},reset:{},state:{}},document={body:{dataset:{}}};
-        vm.runInNewContext(snippet+'\nrenderSource(input);',{query,controls,document,input:snapshot,currentSnapshot:null,sourceBusy:false,api:{}});
+        vm.runInNewContext(snippet+'\nrenderSource(input);',{query,controls,document,input:snapshot,currentSnapshot:null,sourceBusy:false,api:{},gameplayMeasurements});
         return {nodes,controls,document};
     }
     for(const mode of ['mock','live']) {
         const legacy=render({cloneHero:{mode}}),actual=render({cloneHero:{mode},telemetry:{connected:true,status:'connected'}});
         assert.equal(actual.nodes.get('#source-mode-label').textContent,'MESURES CLONE HERO');assert.equal(actual.nodes.get('#source-mode-badge').classList.values.get('is-live'),true);
         assert.deepEqual(actual.controls,legacy.controls);assert.deepEqual(actual.document,legacy.document);assert.equal(actual.nodes.get('#clonehero-mode').value,legacy.nodes.get('#clonehero-mode').value);
+        const publicView=render({cloneHero:{mode},telemetry:{connected:true,status:'connected'}},false);
+        assert.equal(publicView.nodes.get('#source-mode-label').textContent,mode==='live'?'DIRECT CLONE HERO':'MODE DÉMO');
         for(const telemetry of [{connected:true,status:'stale'},{connected:false,status:'connected'},{connected:false,status:'unsupported'},null]) {
             const blocked=render({cloneHero:{mode},telemetry});assert.equal(blocked.nodes.get('#source-mode-label').textContent,mode==='live'?'DIRECT CLONE HERO':'MODE DÉMO');assert.equal(blocked.nodes.get('#source-mode-badge').classList.values.get('is-live'),mode==='live');
         }

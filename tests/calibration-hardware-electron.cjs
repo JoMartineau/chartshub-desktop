@@ -23,12 +23,12 @@ let finished=false;async function finish(error){if(finished)return;finished=true
 const deadline=setTimeout(()=>void finish(Error('Hardware fixture timed out')),60000);process.on('uncaughtException',error=>void finish(error));process.on('unhandledRejection',error=>void finish(error));
 app.whenReady().then(async()=>{
     await fs.mkdir(directory,{recursive:true});
-    host=await createCompanionHost({dataDirectory:path.join(directory,'companion'),calibrationHardwareService:service,cloneHeroCandidates:[],cloneHeroProcessProbe:async()=>({running:false,sessions:[]}),isCatalogueAvailable:()=>false,authorizeCatalogue:async()=>false,catalogueClient:{async load(){return{items:[],revision:'fixture',demo:false};},async artwork(){return null;}}});
+    host=await createCompanionHost({gameplayMeasurements:true,calibrationBeta:true,dataDirectory:path.join(directory,'companion'),calibrationHardwareService:service,cloneHeroCandidates:[],cloneHeroProcessProbe:async()=>({running:false,sessions:[]}),isCatalogueAvailable:()=>false,authorizeCatalogue:async()=>false,catalogueClient:{async load(){return{items:[],revision:'fixture',demo:false};},async artwork(){return null;}}});
     panel=await host.open();panel.setSize(1280,900);panel.webContents.on('console-message',(_event,details)=>{if(details.level==='error')errors.push(details.message);});
     await until(()=>evaluate("!!document.querySelector('#calibration-hardware-detect')"),'hardware controls');
     await check('No hardware is read at startup; manual setup is available',async()=>{assert.equal(refreshes,0);assert.equal(await evaluate("document.querySelector('#calibration-hardware-output').value"),'');assert.match(await evaluate("document.querySelector('.performance-calibration-hardware').textContent"),/Retard physique non mesuré/);});
     await check('Native button invokes only the bounded hardware refresh through production IPC',async()=>{
-        await click('.performance-calibration > summary');await click('.performance-calibration-hardware > summary');
+        if (!await evaluate("document.querySelector('.performance-calibration').open")) await click('.performance-calibration > summary');await click('.performance-calibration-hardware > summary');
         await click('#calibration-hardware-detect');await until(()=>refreshes===1,'one explicit refresh');await until(()=>evaluate("document.querySelector('#calibration-hardware-output').placeholder==='Fixture USB Speakers'"),'metadata rendered');
         assert.equal(await evaluate("document.querySelector('#calibration-hardware-output').value"),'');assert.equal(await evaluate("document.querySelector('#calibration-hardware-display').value"),'');
         assert.match(await evaluate("document.querySelector('.performance-calibration-hardware').textContent"),/période moteur par défaut \(partagé\) 10,00 ms/);assert.match(await evaluate("document.querySelector('.performance-calibration-hardware').textContent"),/candidates/);

@@ -11,22 +11,26 @@ const name = value => typeof value === 'string' && value.trim().length > 0 && va
 const friendly = value => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, ' ').replace(/(?:USB|HID|BTHENUM|BTHLEDEVICE|SWD|PCI|ROOT)\\\S+/gi, '').replace(/\b(?:VID|PID|REV|MI)_[0-9a-f]+\b/gi, '').replace(/\b(?:serial|s\/n|sn)\s*[:=#]?\s*[a-z0-9-]+\b/gi, '').replace(/\{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\}?/gi, '').replace(/\b[0-9a-f]{12,}\b/gi, '').replace(/\s+/g, ' ').trim().slice(0, 120) : '';
 const contextName = value => name(value) && friendly(value) === value.trim() && !/(?:^|\s)(?:[a-z]:[\\/]|\\\\|\/[^\s/]+\/|file:\/\/)/i.test(value);
 const optional = (value, min, max) => value === null || finite(value, min, max);
-const unavailable = () => ({ audio: { status: 'unavailable', outputName: null, sampleRateHz: null, channels: null, defaultPeriodMs: null, minimumPeriodMs: null }, inputs: [] });
+const unavailable = () => ({ audio: { status: 'unavailable', outputName: null, sampleRateHz: null, channels: null, defaultPeriodMs: null, minimumPeriodMs: null }, outputs: [], inputs: [] });
 const copy = value => JSON.parse(JSON.stringify(value));
 
 function parseProbe(stdout) {
   if (typeof stdout !== 'string' || Buffer.byteLength(stdout, 'utf8') > MAX_BUFFER) return unavailable();
   let value;
   try { value = JSON.parse(stdout.replace(/^\uFEFF/, '').trim()); } catch { return unavailable(); }
-  if (!only(value, ['audio', 'inputs']) || !Array.isArray(value.inputs) || value.inputs.length > 16 ||
+  if (!only(value, ['audio', 'outputs', 'inputs']) || !Array.isArray(value.inputs) || value.inputs.length > 32 ||
+      (value.outputs !== undefined && (!Array.isArray(value.outputs) || value.outputs.length > 16 || value.outputs.some(entry => !only(entry, ['name', 'kind', 'windowsDefault']) || !name(entry.name) || entry.kind !== 'candidate' || typeof entry.windowsDefault !== 'boolean'))) ||
       !only(value.audio, ['status', 'outputName', 'sampleRateHz', 'channels', 'defaultPeriodMs', 'minimumPeriodMs'])) return unavailable();
   const a = value.audio;
   if (!['available', 'unavailable'].includes(a.status) || !(a.outputName === null || name(a.outputName)) ||
       !optional(a.sampleRateHz, 8000, 768000) || !optional(a.channels, 1, 64) ||
       !optional(a.defaultPeriodMs, 0.01, 1000) || !optional(a.minimumPeriodMs, 0.01, 1000) ||
       (a.channels !== null && !Number.isSafeInteger(a.channels)) || (a.sampleRateHz !== null && !Number.isSafeInteger(a.sampleRateHz)) ||
-      value.inputs.some(entry => !only(entry, ['name', 'kind']) || !name(entry.name) || entry.kind !== 'candidate')) return unavailable();
-  return { audio: { ...a, outputName: friendly(a.outputName) || null }, inputs: value.inputs.map(entry => ({ name: friendly(entry.name), kind: 'candidate' })).filter(entry => entry.name) };
+      value.inputs.some(entry => !only(entry, ['name', 'kind', 'category']) || !name(entry.name) || entry.kind !== 'candidate' || (entry.category !== undefined && !['input', 'usb-device', 'usb-bus', 'hid'].includes(entry.category)))) return unavailable();
+  const outputName = friendly(a.outputName) || null, outputs = new Map();
+  for (const entry of value.outputs || []) { const label = friendly(entry.name); if (label) outputs.set(label, { name: label, kind: 'candidate', windowsDefault: entry.windowsDefault || outputs.get(label)?.windowsDefault === true }); }
+  if (outputName && !outputs.has(outputName) && outputs.size < 16) outputs.set(outputName, { name: outputName, kind: 'candidate', windowsDefault: true });
+  return { audio: { ...a, outputName }, outputs: [...outputs.values()], inputs: value.inputs.map(entry => ({ name: friendly(entry.name), kind: 'candidate', ...(entry.category ? { category: entry.category } : {}) })).filter(entry => entry.name) };
 }
 
 function frameIntervalMs(frequency) { return finite(frequency, 1, 1000) ? 1000 / frequency : null; }

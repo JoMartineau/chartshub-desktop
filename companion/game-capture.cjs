@@ -4,8 +4,9 @@ const { pathToFileURL } = require('node:url');
 const { assetPath } = require('./security.cjs');
 const CHANNEL = 'companion:game-capture';
 const ORIGIN = 'chartshub-companion://app';
-const PAGES = { controller: `${ORIGIN}/ui/game-capture.html`, highway: `${ORIGIN}/ui/game-capture-output.html`, score: `${ORIGIN}/ui/game-capture-output.html` };
-const TITLES = { highway: 'ChartsHub — Highway', score: 'ChartsHub — Score' };
+const PAGES = { controller: `${ORIGIN}/ui/game-capture.html`, highway: `${ORIGIN}/ui/game-capture-output.html`, score: `${ORIGIN}/ui/game-capture-output.html`, lyrics: `${ORIGIN}/ui/game-capture-output.html` };
+const TITLES = { highway: 'ChartsHub — Highway', score: 'ChartsHub — Score', lyrics: 'ChartsHub — Paroles' };
+const emptyCrops = () => Object.fromEntries(Object.keys(TITLES).map(kind => [kind, null]));
 const object = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const exact = (v, keys) => object(v) && Object.keys(v).length === keys.length && keys.every(k => Object.hasOwn(v, k));
 function validCrop(v) {
@@ -43,7 +44,7 @@ async function createGameCapture({ root, onChange = () => {}, active = () => tru
   const ses = session.fromPartition('chartshub-game-capture');
   let controller = null, controllerTask = null, disposed = false, selected = null, sources = [];
   let phase = 'stopped', revision = 0, dimensions = null, error = null, monitor = null, startTimer = null;
-  let crops = { highway: null, score: null };
+  let crops = emptyCrops();
   const outputs = new Map(), outputTasks = new Map();
   const alive = () => !disposed && active();
   const state = () => ({ phase, selected: selected ? { name: selected.name } : null, dimensions, crops: structuredClone(crops), revision,
@@ -59,7 +60,7 @@ async function createGameCapture({ root, onChange = () => {}, active = () => tru
     return null;
   }
   function stop(reason = null, closeController = false) {
-    revision++; phase = 'stopped'; dimensions = null; error = reason; selected = null; sources = []; crops = { highway: null, score: null };
+    revision++; phase = 'stopped'; dimensions = null; error = reason; selected = null; sources = []; crops = emptyCrops();
     if (monitor) clearInterval(monitor); monitor = null;
     if (startTimer) clearTimeout(startTimer); startTimer = null;
     for (const window of outputs.values()) if (!window.isDestroyed()) window.destroy();
@@ -172,14 +173,14 @@ async function createGameCapture({ root, onChange = () => {}, active = () => tru
         if (!alive() || ticket !== revision || !role(event)) return { ok: false };
         sources = found.map(s => ({ id: s.id, name: s.name }));
         if (selected && !sources.some(s => s.id === selected.id && s.name === selected.name)) {
-          selected = null; crops = { highway: null, score: null }; revision++; notify();
+          selected = null; crops = emptyCrops(); revision++; notify();
         }
         return { ok: true, sources: sources.map(s => ({ ...s })) };
       }
       if (command === 'select' && phase === 'stopped' && exact(payload, ['id']) && typeof payload.id === 'string') {
-        if (payload.id === '') { revision++; selected = null; crops = { highway: null, score: null }; error = null; notify(); return { ok: true }; }
+        if (payload.id === '') { revision++; selected = null; crops = emptyCrops(); error = null; notify(); return { ok: true }; }
         const source = sources.find(s => s.id === payload.id); if (!source) return { ok: false };
-        revision++; selected = { ...source }; crops = { highway: null, score: null }; error = null; notify();
+        revision++; selected = { ...source }; crops = emptyCrops(); error = null; notify();
       } else if (command === 'started' && phase === 'starting' && exact(payload, ['width','height'])
         && [payload.width, payload.height].every(n => Number.isInteger(n) && n > 0 && n <= 16384)) {
         dimensions = { ...payload }; phase = 'capturing'; if (startTimer) clearTimeout(startTimer); startTimer = null;

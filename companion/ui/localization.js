@@ -171,7 +171,10 @@
     ['Protège sa position et son cadre dans Jeu et Stream. Son style et sa visibilité restent modifiables.','Protects its position and frame in Game and Stream. Its style and visibility remain editable.'],
     ['Les widgets masqués restent modifiables en fantôme. Placement sur une grille de 1 280 × 720, centrée dans les formats personnalisés.','Hidden widgets remain editable as ghosts. Placement uses a 1,280 × 720 grid centered in custom formats.'],
     ['Réglez la taille du texte avec − / + ou en pixels. Les changements sont immédiats, pour Jeu et Stream.','Adjust text size with − / + or in pixels. Changes apply immediately to Game and Stream.'],
-    ['Titre du morceau','Song title'],['Créateur de la chart','Chart charter'],
+    ['Titre du morceau','Song title'],['Créateur de la chart','Charter'],
+    ['Destination : overlay du jeu','Destination: game overlay'],['Non affiché dans le jeu','Not displayed in the game'],
+    ['Aucun widget activé pour le Stream','No widget enabled for Stream'],['Aucun widget à afficher','No widget to display'],
+    ['La chart est terminée. Les informations du morceau sont masquées.','The chart has ended. Song information is hidden.'],
     ['Choisissez Jeu ou Stream dans l’aperçu pour modifier chaque disposition. Les couleurs restent partagées.','Choose Game or Stream in the preview to edit each layout. Colors remain shared.'],
     ['Le scan relit toute la bibliothèque. Actualiser recherche les ajouts, suppressions et modifications.','A full scan rereads the entire library. Refresh checks for additions, removals and changes.'],
     ['Analyse complète de la bibliothèque…','Full library scan…'],['traités ·','processed ·'],['charts repérées','charts found'],
@@ -254,6 +257,8 @@
   ]);
 
   const rules = [
+    [/^(Taille du texte|Réduire le texte|Agrandir le texte) · (.+)$/, m => `${({ 'Taille du texte': 'Text size', 'Réduire le texte': 'Decrease text size', 'Agrandir le texte': 'Increase text size' })[m[1]]} · ${english(m[2])}`],
+    [/^Redimensionner : (haut droite|bas droite|bas gauche|haut gauche|haut|droite|bas|gauche)$/, m => `Resize: ${({ 'haut droite': 'top right', 'bas droite': 'bottom right', 'bas gauche': 'bottom left', 'haut gauche': 'top left', haut: 'top', droite: 'right', bas: 'bottom', gauche: 'left' })[m[1]]}`],
     [/^(\d+) connexion(?:s)? aux widgets$/, m => `${m[1]} widget connection${m[1] === '1' ? '' : 's'}`],
     [/^(\d+) widget(s?) sélectionné(?:s)?( · déplacement et alignement groupés)?$/, m => `${m[1]} widget${m[2]} selected${m[3] ? ' · move and align together' : ''}`],
     [/^(.+) · (verrouillé|masqué)$/, m => `${english(m[1])} · ${m[2] === 'verrouillé' ? 'locked' : 'hidden'}`],

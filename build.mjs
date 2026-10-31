@@ -5,6 +5,7 @@ import {createHash} from 'node:crypto';
 import {createRequire} from 'node:module';
 const version=JSON.parse(readFileSync(new URL('./package.json',import.meta.url),'utf8')).version;
 const {twitchClientId}=createRequire(import.meta.url)('./companion/song-request-config.cjs');
+const {publicMeasurementBundleIgnore}=createRequire(import.meta.url)('./companion/gameplay-measurements.cjs');
 if(typeof twitchClientId!=='string'||!/^[a-zA-Z0-9]{1,128}$/.test(twitchClientId))throw Error('Configure the public ChartsHub Twitch Client ID before packaging. See docs/SONG-REQUESTS-PUBLISHER.md.');
 const platform=process.argv[2]||process.platform,arch=process.argv[3]||process.arch;
 if(!['win32','darwin','linux'].includes(platform)||!['x64','arm64'].includes(arch))throw Error('Unsupported platform');
@@ -18,7 +19,7 @@ if(electronZipDir){
  const checksums=JSON.parse(readFileSync(new URL('./node_modules/electron/checksums.json',import.meta.url),'utf8'));
  if(!checksums[archive]||createHash('sha256').update(readFileSync(path.join(electronZipDir,archive))).digest('hex')!==checksums[archive])throw Error('Cached Electron archive failed SHA-256 verification.');
 }
-const outputs=await packager({dir:import.meta.dirname,name:'ChartsHub',appBundleId:'ca.chartshub.desktop',appVersion:version,icon:path.join(import.meta.dirname,platform==='win32'?'icon.ico':platform==='darwin'?'icon.icns':'icon.png'),platform,arch,electronVersion:'44.4.5',electronZipDir,out:outputDirectory,overwrite:true,asar:true,prune:true,download:{cacheRoot:path.resolve(import.meta.dirname,'../electron-cache')},ignore:[/^\/outputs(?:\/|$)/,/^\/dist(?:\/|$)/,/^\/tests(?:\/|$)/,/^\/\.github(?:\/|$)/,/^\/smoke-test\.js$/,/^\/build\.mjs$/,/^\/package-filters-windows\.cjs$/,/^\/package-lock\.json$/,/^\/Companion-Data(?:\/|$)/,/^\/native-filters\/(?!bin(?:\/|$)|README\.md$)/,/^\/native-filters\/bin\/(?!dxgi\.dll$|MinHook-LICENSE\.txt$)/,/^\/reshade-bridge\/(?!bin(?:\/|$)|README\.md$)/,/^\/reshade-bridge\/bin\/(?!ChartsHubReShade\.addon64$|ReShade-SDK-LICENSE\.md$|nlohmann-LICENSE\.MIT$)/]});
+const outputs=await packager({dir:import.meta.dirname,name:'ChartsHub',appBundleId:'ca.chartshub.desktop',appVersion:version,icon:path.join(import.meta.dirname,platform==='win32'?'icon.ico':platform==='darwin'?'icon.icns':'icon.png'),platform,arch,electronVersion:'44.4.5',electronZipDir,out:outputDirectory,overwrite:true,asar:true,prune:true,download:{cacheRoot:path.resolve(import.meta.dirname,'../electron-cache')},ignore:[...publicMeasurementBundleIgnore,/^\/outputs(?:\/|$)/,/^\/dist(?:\/|$)/,/^\/tests(?:\/|$)/,/^\/\.github(?:\/|$)/,/^\/smoke-test\.js$/,/^\/build\.mjs$/,/^\/package-filters-windows\.cjs$/,/^\/package-lock\.json$/,/^\/Companion-Data(?:\/|$)/,/^\/native-filters\/(?!bin(?:\/|$)|README\.md$)/,/^\/native-filters\/bin\/(?!dxgi\.dll$|MinHook-LICENSE\.txt$)/,/^\/reshade-bridge\/(?!bin(?:\/|$)|README\.md$)/,/^\/reshade-bridge\/bin\/(?!ChartsHubReShade\.addon64$|ReShade-SDK-LICENSE\.md$|nlohmann-LICENSE\.MIT$)/]});
 if(!outputs.length)throw Error('No application was built. Build on a native runner for this platform.');
 for(const output of outputs){
  copyFileSync(new URL('./COMPANION-README.txt',import.meta.url),path.join(output,'Lisez-moi.txt'));

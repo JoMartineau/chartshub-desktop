@@ -11,6 +11,21 @@ test('FC output requires a complete confirmed finish, never an abandonment, unkn
  const unknown=publicTelemetrySnapshot({...f.model.snapshot(),active:{...f.model.snapshot().active,completed:undefined}},'en');assert.equal(unknown.active.completed,null);assert.doesNotMatch(api.createDefaultRegistry().get('gameplay.fc').component({performance:unknown},{}).lines[0],/^FC · FC$|FC possible/);
  const whole=fixture();whole.model.ingest(whole.frame('attemptEnd',{completed:true,state:{phase:'results',stats}}));assert.equal(rendered(whole.model).find(w=>w.type==='gameplay.fc').lines[0],'FC · FC');
 });
+
+test('retained measurements never appear as live widgets without a real chart while session history remains available',()=>{
+ const f=fixture();f.model.ingest(f.frame('hit',{offsetMs:7}));f.model.ingest(f.frame('attemptEnd',{completed:true,state:{phase:'results',stats}}));
+ assert.equal(rendered(f.model).filter(widget=>widget.type.startsWith('gameplay.')).length,5,'confirmed results remain visible');
+ for(const phase of ['idle','menu','loading']){
+  f.model.ingest(f.frame('state',{phase}));assert.equal(f.model.snapshot().timing.lastOffsetMs,7,'the underlying last attempt remains available for history');
+  const models=rendered(f.model);assert.deepEqual(models.filter(widget=>widget.type.startsWith('gameplay.')),[],phase);
+  assert(models.some(widget=>widget.type==='session.history'));assert(models.some(widget=>widget.type==='session.goal'));
+  const p=publicTelemetrySnapshot(f.model.snapshot(),'en'),registration=api.createDefaultRegistry().get('gameplay.accuracy');
+  assert.equal(registration.component({performance:p,gameplay:{state:'playing',isChartActive:true}},{}),null,'a builder demo phase cannot turn retained timing into live data');
+ }
+ f.model.connection('stale','PROVIDER_NOT_RUNNING');assert.deepEqual(rendered(f.model).filter(widget=>widget.type.startsWith('gameplay.')),[]);
+ f.model.connection('waiting');assert.deepEqual(rendered(f.model).filter(widget=>widget.type.startsWith('gameplay.')),[]);
+ const connected=fixture();connected.model.ingest(connected.frame('hit',{offsetMs:5}));for(const phase of ['playing','paused']){connected.model.ingest(connected.frame('state',{phase,clock:{positionSeconds:10,durationSeconds:100,speed:1},stats}));assert.equal(rendered(connected.model).filter(widget=>widget.type.startsWith('gameplay.')).length,5,phase);}
+});
 test('all seven actual stream models render with six accuracy lines and five completed historical attempts',()=>{
  const f=fixture();for(let i=0;i<5;i++){f.attempt('old-'+i);f.model.ingest(f.frame('reset',{reason:'song',state:{phase:'playing',metadata}}));f.model.ingest(f.frame('hit',{offsetMs:2}));f.model.ingest(f.frame('attemptEnd',{completed:true,state:{phase:'results',stats}}));}
  f.attempt('current');f.model.ingest(f.frame('reset',{reason:'song',state:{phase:'playing',metadata,stats,clock:{positionSeconds:20,durationSeconds:100,speed:1}}}));f.model.ingest(f.frame('hit',{offsetMs:-5,stats}));const models=rendered(f.model);assert.equal(models.length,7);assert.equal(models.find(w=>w.type==='gameplay.accuracy').lines.length,6);assert.equal(models.find(w=>w.type==='session.history').lines.length,6);assert.match(models.find(w=>w.type==='gameplay.fc').text,/FC possible/);
