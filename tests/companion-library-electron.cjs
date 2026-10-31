@@ -22,6 +22,7 @@ async function verifyLibrary(panel, host, data, passed) {
   const root = path.join(data, 'library-fixture-' + randomUUID());
   const originalDialog = dialog.showOpenDialog;
   const originalOpenPath = shell.openPath;
+  const originalGameCapturedAt = performance.now();
   const originalGame = structuredClone(host.snapshot().state);
   const originalEditorRevision = host.snapshot().editor.revision;
   const evaluate = code => panel.webContents.executeJavaScript(code);
@@ -72,8 +73,12 @@ async function verifyLibrary(panel, host, data, passed) {
     await evaluate(`(()=>{const node=document.querySelector(${JSON.stringify(selector)});if(node.disabled)throw Error('Library filter is disabled.');node.value=${JSON.stringify(value)};node.dispatchEvent(new Event('change',{bubbles:true}));})()`);
   };
   const scrollToEnd = async (expected, contains) => {
-    panel.focus(); panel.webContents.focus();
-    await waitFor(() => panel.isFocused() && panel.webContents.isFocused(), 'library wheel focus');
+    // Closing the stream browser can leave focus on another fixture window.
+    panel.show();
+    await waitFor(() => {
+      panel.focus(); panel.webContents.focus();
+      return panel.isFocused() && panel.webContents.isFocused();
+    }, 'library wheel focus');
     const state = () => evaluate(`(()=>{
       const node=document.querySelector('#library-table-container'),rect=node.getBoundingClientRect();
       const point={x:Math.round(rect.left+rect.width/2),y:Math.round(rect.top+rect.height/2)};
@@ -251,7 +256,16 @@ async function verifyLibrary(panel, host, data, passed) {
     assert.equal(await evaluate("document.querySelector('#library-root').textContent"), root);
     assert.equal(await evaluate("document.querySelector('#library-watch').checked"), false);
     assert.equal(await evaluate("document.querySelector('#library-refresh-on-start').checked"), false);
-    assert.deepEqual(host.snapshot().state, originalGame, 'local library actions must not replace simulated gameplay or overlay data');
+    const currentGame = structuredClone(host.snapshot().state);
+    const originalDuration = originalGame.performance.session.durationSeconds;
+    const currentDuration = currentGame.performance.session.durationSeconds;
+    const elapsedSeconds = (performance.now() - originalGameCapturedAt) / 1000;
+    assert.ok(Number.isFinite(originalDuration) && originalDuration >= 0);
+    assert.ok(Number.isFinite(currentDuration) && currentDuration >= originalDuration);
+    assert.ok(currentDuration - originalDuration <= elapsedSeconds + 1, 'session duration advances only with elapsed wall time');
+    // Only the running session clock advances while the library is exercised.
+    currentGame.performance.session.durationSeconds = originalDuration;
+    assert.deepEqual(currentGame, originalGame, 'local library actions must not replace simulated gameplay or overlay data');
     assert.equal(host.snapshot().editor.revision, originalEditorRevision);
     await revealWorkspace(panel,"#library-panel");
     await evaluate("document.querySelector('#library-panel').scrollIntoView({block:'start',inline:'nearest'})");

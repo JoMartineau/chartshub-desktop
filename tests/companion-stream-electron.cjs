@@ -49,6 +49,9 @@ function renderedWidgets(root) {
 /** Run from the native verification app; no OBS installation or Electron bridge is used by the browser page. */
 async function verifyStream(panel, host, data, passed) {
   const initial = structuredClone(host.snapshot());
+  const metadataIds = ['song-title', 'song-artist', 'song-charter', 'song-instrument', 'song-difficulty'];
+  const metadataWidgets = initial.state.widgets.instances.filter(widget => metadataIds.includes(widget.id));
+  assert.deepEqual(metadataWidgets.map(widget => widget.id).sort(), [...metadataIds].sort(), 'the stream fixture has every metadata widget');
   const originalGameGeometry = geometry(initial.state.widgets.instances);
   const evaluate = code => panel.webContents.executeJavaScript(code);
   const revision = () => host.snapshot().editor.revision;
@@ -187,7 +190,7 @@ async function verifyStream(panel, host, data, passed) {
     const port = await freePort();
     assert.ok(Number.isInteger(port) && port >= 1024 && port <= 65535);
     await command('stream.settings', { revision: revision(), settings: { ...settings(), port } });
-    for (const widget of host.snapshot().state.widgets.instances) {
+    for (const widget of metadataWidgets) {
       if (!widget.enabled) await command('widget.enabled', { id: widget.id, enabled: true });
       await command('widget.visibility', { revision: revision(), id: widget.id, game: false, stream: true, gameplayVisibility: ['playing', 'paused'] });
     }
@@ -293,6 +296,9 @@ async function verifyStream(panel, host, data, passed) {
     assert.equal(pageLoads, 1, 'reconnection does not reload the page');
     assert.equal(await browserEvaluate('window.__streamVerificationMarker'), marker);
     await sameRender('reconnected browser still matches stream preview');
+    for (const original of initial.state.widgets.instances.filter(widget => !metadataIds.includes(widget.id))) {
+      assert.deepEqual(host.snapshot().state.widgets.instances.find(widget => widget.id === original.id), original, 'metadata stream verification preserves optional widget ' + original.id);
+    }
     passed.push('restart preserves the source URL and the existing page reconnects automatically without navigation or an Electron bridge');
   } catch (error) {
     primaryFailure = error;
@@ -310,7 +316,7 @@ async function verifyStream(panel, host, data, passed) {
     if (!panel.isDestroyed()) {
       try {
         await command('mock.state', { state: 'menu' });
-        for (const original of initial.state.widgets.instances) {
+        for (const original of metadataWidgets) {
           const current = host.snapshot().state.widgets.instances.find(widget => widget.id === original.id);
           if (!current) continue;
           if (current.enabled !== original.enabled) await command('widget.enabled', { id: original.id, enabled: original.enabled });

@@ -34,7 +34,12 @@ async function waitFor(check, label) {
   throw Error('Timed out: ' + label);
 }
 
-async function reloadPanel(panel, expectedGameplay) {
+async function reloadPanel(panel, expectedGameplay, host) {
+  const expectedControls = host.snapshot().state.widgets.instances
+    .map(({ id, enabled }) => ({ id, enabled }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+  assert.ok(expectedControls.length > 0, 'reload has configured widget controls');
+  assert.equal(new Set(expectedControls.map(widget => widget.id)).size, expectedControls.length);
   await new Promise((resolve, reject) => {
     const completed = () => { clearTimeout(timer); resolve(); };
     const timer = setTimeout(() => {
@@ -46,7 +51,9 @@ async function reloadPanel(panel, expectedGameplay) {
   });
   await waitFor(() => panel.webContents.executeJavaScript(`
     document.body.dataset.gameplayState===${JSON.stringify(expectedGameplay)} &&
-    document.querySelectorAll('#widget-settings input[data-widget-id]').length===5 &&
+    JSON.stringify([...document.querySelectorAll('#widget-settings input[data-widget-id]')]
+      .map(input=>({id:input.dataset.widgetId,enabled:input.checked}))
+      .sort((a,b)=>a.id.localeCompare(b.id)))===${JSON.stringify(JSON.stringify(expectedControls))} &&
     document.querySelector('#connection-status')?.textContent.includes('Mock Clone Hero')
   `), 'reloaded panel initial state synchronization');
 }
@@ -129,7 +136,8 @@ async function verifyBuilder(panel, host) {
   assert.equal(host.snapshot().state.nowPlaying, null);
   await click('#builder-toggle');
   await waitFor(() => evaluate("document.querySelector('#builder-toggle').getAttribute('aria-pressed')==='true'"), 'builder enabled');
-  await waitFor(() => evaluate("document.querySelectorAll('#builder-canvas [data-builder-widget-id]').length===5"), 'five independent layout targets');
+  const expectedBuilderIds = host.snapshot().state.widgets.instances.map(widget => widget.id).sort();
+  await waitFor(() => evaluate(`JSON.stringify([...document.querySelectorAll('#builder-canvas [data-builder-widget-id]')].map(node=>node.dataset.builderWidgetId).sort())===${JSON.stringify(JSON.stringify(expectedBuilderIds))}`), 'every configured widget has an independent layout target');
   assert.equal(host.snapshot().state.gameplay.state, 'menu');
   assert.equal(host.snapshot().state.nowPlaying, null, 'editor sample metadata never enters shared store');
   assert.equal(host.getOverlay().isVisible(), false);
@@ -138,6 +146,11 @@ async function verifyBuilder(panel, host) {
   passed.push('builder is off by default; menu editing keeps sample metadata local and native overlay empty');
 
   if (!(await evaluate("document.querySelector('#builder-snap').checked"))) await click('#builder-snap');
+  await click(widgetSelector('song-charter'));
+  await waitFor(async () => JSON.stringify(await selected()) === '["song-charter"]', 'native widget selection');
+  // Optional widgets may overlap the title; the layer list brings it forward for pointer editing.
+  await click('#builder-list [data-select-widget-id="song-title"]');
+  await waitFor(async () => JSON.stringify(await selected()) === '["song-title"]', 'overlapping title selected from the layer list');
   await click(widgetSelector('song-title'));
   await waitFor(async () => JSON.stringify(await selected()) === '["song-title"]', 'native widget selection');
   assert.equal(await evaluate("document.querySelectorAll('#builder-canvas [data-resize-handle]').length"), 8);
@@ -209,7 +222,7 @@ async function verifyBuilder(panel, host) {
   await host.saveSettings();
   const savedDocument = JSON.parse(await fs.readFile(path.join(data, 'settings/settings.json'), 'utf8'));
   assert.deepEqual(savedDocument.widgets.find(item => item.id === 'song-title'), savedTitle);
-  await reloadPanel(panel, 'playing');
+  await reloadPanel(panel, 'playing', host);
   await waitFor(() => evaluate("document.querySelector('#builder-toggle')?.getAttribute('aria-pressed')==='false'"), 'reload exits editing');
   await waitFor(() => evaluate("document.querySelector('#widget-settings input[data-widget-id=\"song-title\"]')?.checked===true"), 'reload restores controls');
   assert.deepEqual(widget('song-title'), savedTitle);
@@ -537,7 +550,7 @@ async function verifyThemes(panel, host) {
   const document = JSON.parse(await fs.readFile(path.join(data, 'settings/settings.json'), 'utf8'));
   assert.equal(document.version, 3);
   assert.deepEqual({ widgets: document.widgets, theme: document.theme }, expected);
-  await reloadPanel(panel, 'playing');
+  await reloadPanel(panel, 'playing', host);
   await waitFor(() => evaluate("!document.querySelector('#theme-preset').disabled"), 'theme controls restored after reload');
   if (await evaluate("!!document.querySelector('#ch-bloom-open')")) await click('#ch-bloom-open');
   await sameStyles('reloaded theme renders identically on both surfaces');
@@ -598,7 +611,7 @@ app.whenReady().then(async () => {
     await state('menu', 0); assert.equal(host.snapshot().state.nowPlaying, null);
     await state('idle', 0); await state('loading', 0); await state('playing', 4);
     passed.push('returning to menu clears stale metadata and the native overlay');
-    await reloadPanel(panel, 'playing');
+    await reloadPanel(panel, 'playing', host);
     await waitFor(() => evaluate("document.querySelector('#widget-settings input[data-widget-id=\"song-artist\"]')?.checked === false"), 'reload settings');
     await waitFor(async () => (await count()) === 4, 'reloaded render');
     passed.push('renderer reload restores saved checkbox and current state');
