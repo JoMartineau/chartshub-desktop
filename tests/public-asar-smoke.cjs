@@ -82,7 +82,7 @@ async function main() {
   assert.deepEqual(members.filter(name => publicMeasurementBundleIgnore.some(pattern => pattern.test('/' + name))), [], 'Private service or asset subtree present');
   assert.deepEqual(members.filter(name => /(?:^|\/)ChartsHub\.CloneHero\.Telemetry\.dll$/i.test(name)), [], 'Connector binary present under another path');
   for (const name of PUBLIC_MEMBERS) assert(memberSet.has(name), 'Public production module missing: ' + name);
-  const publicHashes = Object.fromEntries(PUBLIC_MEMBERS.map(name => [name, hash(asar.extractFile(archive, name))]));
+  const publicHashes = Object.fromEntries(PUBLIC_MEMBERS.map(name => [name, hash(asar.extractFile(archive, path.join(...name.split('/'))))]));
   const version = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8')).version;
   assert.equal(version, require('../package.json').version, 'Archive and reviewed source versions differ');
   const archiveBefore = hash(fs.readFileSync(archive)), sourcesBefore = sourceHashes();
