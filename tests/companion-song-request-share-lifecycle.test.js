@@ -24,7 +24,7 @@ function clock(){let now=0,next=0;const jobs=new Map();return {
 function fixture({status,publish,remove,prepare}={}){
  const calls=[],cancelled=[],rules={maxDurationMinutes:null,instrument:'all',difficulty:'all'},scope={rootKey:'a'.repeat(64),revision:1},time=clock();
  const libraryState={status:'ready',count:1,settings:{watch:false,refreshOnStart:true}},items=[{id:'b'.repeat(64),fingerprint:'original',title:'Synthetic song',artist:'Synthetic artist',charter:'Synthetic charter'}];
- let preparationCancelled=0,watched=0;
+ let preparationCancelled=0,watched=0,visualStops=0;
  const catalogue={cancelSearch:(scope,clear)=>cancelled.push({scope,clear})};
  const sharingClient={capture:async()=>({userId:'opaque-test-owner',generation:1}),status:status??(async()=>({url:null,count:0,updatedAt:null})),
   publish:async(...args)=>{calls.push('PUT');return publish?publish(...args):{url:'https://chartshub.test/new',count:1,updatedAt:'2026-10-10T00:00:00.000Z'};},
@@ -33,7 +33,7 @@ function fixture({status,publish,remove,prepare}={}){
   configure:async value=>{Object.assign(libraryState.settings,value);watched++;},cancelLibrarySharing:async()=>{preparationCancelled++;},
   requestLibraryForSharing:prepare??(async()=>({songs:items.map(({fingerprint,...item})=>item),...scope,unavailableCount:0}))};
  const songRequests={snapshot:()=>({rules:structuredClone(rules)})};
- const create=new vm.Script(`(function(sharingClient,library,songRequests,catalogue){
+ const create=new vm.Script(`(function(sharingClient,library,songRequests,catalogue,songVisuals){
   let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0;
   const publishPanel=()=>{};
   const logger={warn:()=>{}};
@@ -46,7 +46,7 @@ function fixture({status,publish,remove,prepare}={}){
    close:()=>{disposing=true;hostActive=false;lifecycleRevision++;songRequestShareRevision++;songRequestShareController?.abort();songRequestShare.busy=false;return songRequestShareSync.pause();}};
  })`,{filename:'companion/host.cjs share orchestration'}).runInNewContext({structuredClone,AbortController,songRequestShareKey,
   createSongRequestShareSync:options=>createSongRequestShareSync({...options,...time}),shareErrorCode:require('../companion/song-request-share-contract.cjs').shareErrorCode});
- return {host:create(sharingClient,library,songRequests,catalogue),calls,cancelled,scope,rules,time,items,libraryState,watched:()=>watched,preparationCancelled:()=>preparationCancelled};
+ return {host:create(sharingClient,library,songRequests,catalogue,{stop(){visualStops++;}}),calls,cancelled,scope,rules,time,items,libraryState,watched:()=>watched,preparationCancelled:()=>preparationCancelled,visualStops:()=>visualStops};
 }
 
 test('an old status response cannot overwrite a successful explicit removal',async()=>{
@@ -83,6 +83,7 @@ test('account invalidation removes cached share capabilities and ignores the old
  const f=fixture({status:()=>++reads===1?old.promise:Promise.resolve({url:'https://chartshub.test/new-owner',count:5,updatedAt:'2026-10-10T00:00:00.000Z'})});
  await f.host.change();assert.equal(f.host.state().url,'https://chartshub.test/new');
  const refreshing=f.host.refresh();f.host.available(false);assert.equal(f.host.state().url,null);assert.equal(f.host.state().count,0);
+ assert.equal(f.visualStops(),1,'account invalidation revokes the injected visual source');
  assert.deepEqual(f.cancelled,[{scope:'panel',clear:true},{scope:'widget',clear:true}]);
  f.host.available(true);await new Promise(resolve=>setImmediate(resolve));assert.equal(f.host.state().url,'https://chartshub.test/new-owner');
  old.resolve({url:'https://chartshub.test/old-owner',count:9,updatedAt:'2026-10-09T00:00:00.000Z'});await refreshing;

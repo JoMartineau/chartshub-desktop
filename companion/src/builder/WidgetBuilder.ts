@@ -3,6 +3,7 @@ import type { WidgetDestination, WidgetInstance } from '../core/types/Widget.js'
 import { projectStreamState } from '../overlay/stream/StreamConfig.js';
 import { alignWidgets, moveWidgets, patchWidgetGeometry, resizeWidget } from '../layout/WidgetLayoutEngine.js';
 import type { LayoutAlignment, ResizeHandle } from '../layout/WidgetLayoutEngine.js';
+import { widgetLabel } from '../widgets/engine/WidgetLabels.js';
 
 export interface BuilderSnapshot {
   state: AppState;
@@ -27,15 +28,15 @@ interface Gesture {
   current: WidgetInstance[];
 }
 
-const labels: Record<string, string> = {
-  'song.title': 'Titre du morceau', 'song.artist': 'Artiste', 'song.charter': 'Créateur de la chart',
-  'song.instrument': 'Instrument', 'song.difficulty': 'Difficulté',
-};
+interface Marquee {
+  pointerId: number; revision: number; clientX: number; clientY: number;
+  x: number; y: number; scale: number; originalIds: string[]; additive: boolean;
+}
 const handles: ResizeHandle[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw'];
 const handleLabels: Record<ResizeHandle, string> = {
   n: 'haut', ne: 'haut droite', e: 'droite', se: 'bas droite', s: 'bas', sw: 'bas gauche', w: 'gauche', nw: 'haut gauche',
 };
-const fallbackSong = { songId: 'builder-preview', title: 'Everlong', artist: 'Foo Fighters', charter: 'ExampleCharter', instrument: 'Guitar', difficulty: 'Expert' };
+const fallbackSong = { songId: 'builder-preview', title: 'Signal d’aurore', artist: 'Groupe Exemple', charter: 'Charter Démo', instrument: 'Guitar', difficulty: 'Expert' };
 
 /** Local edit preview only. Real game state changes exclusively through the host. */
 export class WidgetBuilder {
@@ -47,6 +48,8 @@ export class WidgetBuilder {
   private readonly selected = new Set<string>();
   private snapshot: BuilderSnapshot | null = null;
   private gesture: Gesture | null = null;
+  private marquee: Marquee | null = null;
+  private readonly selectionRectangle: HTMLDivElement;
   private draft: WidgetInstance[] | null = null;
   private busy = false;
   private active = false;
@@ -56,11 +59,18 @@ export class WidgetBuilder {
 
   constructor(private readonly options: WidgetBuilderOptions) {
     this.canvas = this.element('#builder-canvas');
+    this.selectionRectangle = options.root.ownerDocument.createElement('div');
+    this.selectionRectangle.className = 'builder-selection-rectangle';
+    this.selectionRectangle.hidden = true;
+    this.selectionRectangle.setAttribute('aria-hidden', 'true');
+    this.canvas.append(this.selectionRectangle);
     this.canvas.dataset.destination = this.target;
     const signal = this.abort.signal;
     this.element<HTMLButtonElement>('#builder-toggle').addEventListener('click', () => this.setEnabled(!this.active), { signal });
     this.element('#builder-undo').addEventListener('click', () => { void this.history('editor.undo'); }, { signal });
     this.element('#builder-redo').addEventListener('click', () => { void this.history('editor.redo'); }, { signal });
+    this.element('#builder-select-all').addEventListener('click', () => this.selectAll(), { signal });
+    this.element('#builder-select-none').addEventListener('click', () => { this.selected.clear(); this.status = ''; this.render(); }, { signal });
     this.element('#builder-snap').addEventListener('change', () => this.render(), { signal });
     this.options.root.querySelectorAll<HTMLButtonElement>('[data-align]').forEach(button => {
       button.addEventListener('click', () => {
@@ -87,9 +97,9 @@ export class WidgetBuilder {
     this.canvas.addEventListener('pointermove', this.pointerMove, { signal });
     this.canvas.addEventListener('pointerup', this.pointerUp, { signal });
     this.canvas.addEventListener('pointercancel', () => this.cancelGesture('Déplacement annulé.'), { signal });
-    this.canvas.addEventListener('lostpointercapture', () => { if (this.gesture) this.cancelGesture('Déplacement annulé.'); }, { signal });
+    this.canvas.addEventListener('lostpointercapture', () => { if (this.gesture || this.marquee) this.cancelGesture('Déplacement annulé.'); }, { signal });
     this.options.root.ownerDocument.addEventListener('keydown', this.keyDown, { signal });
-    this.options.root.ownerDocument.defaultView?.addEventListener('blur', () => { if (this.gesture) this.cancelGesture('Déplacement annulé.'); }, { signal });
+    this.options.root.ownerDocument.defaultView?.addEventListener('blur', () => { if (this.gesture || this.marquee) this.cancelGesture('Déplacement annulé.'); }, { signal });
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(options.surface);
     this.resize();
@@ -114,7 +124,8 @@ export class WidgetBuilder {
   }
 
   update(snapshot: BuilderSnapshot): void {
-    if (this.gesture && this.gesture.revision !== (snapshot.editor?.revision ?? 0)) {
+    const gestureRevision = this.gesture?.revision ?? this.marquee?.revision;
+    if (gestureRevision !== undefined && gestureRevision !== (snapshot.editor?.revision ?? 0)) {
       this.finishGesture();
       this.status = 'La disposition a changé. Le geste en cours a été annulé.';
     }
@@ -159,7 +170,7 @@ export class WidgetBuilder {
     const width = this.options.surface.clientWidth;
     const height = this.options.surface.clientHeight;
     const scale = Math.max(.001, Math.min(width / 1280, height / 720));
-    const cancelled = !!this.gesture && Math.abs(this.scale - scale) > .000001;
+    const cancelled = !!(this.gesture || this.marquee) && Math.abs(this.scale - scale) > .000001;
     if (cancelled) { this.finishGesture(); this.status = 'L’aperçu a changé de taille. Le geste en cours a été annulé.'; }
     this.scale = scale;
     Object.assign(this.canvas.style, {
@@ -179,18 +190,32 @@ export class WidgetBuilder {
     this.render();
   }
 
+  private selectAll(): void {
+    if (!this.active || this.busy) return;
+    this.finishGesture(); this.selected.clear();
+    for (const instance of this.layoutInstances()) this.selected.add(instance.id);
+    this.status = ''; this.render(); this.canvas.focus({ preventScroll: true });
+  }
+
   private readonly pointerDown = (event: PointerEvent): void => {
     if (!this.active || this.busy || !this.snapshot || event.button !== 0) return;
     const target = event.target as Element;
     const box = target.closest<HTMLElement>('[data-builder-widget-id]');
     if (!box) {
-      if (!event.shiftKey) this.selected.clear();
+      event.preventDefault();
+      const rect = this.canvas.getBoundingClientRect();
+      const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+      this.marquee = { pointerId: event.pointerId, revision: this.snapshot.editor?.revision ?? 0,
+        clientX: event.clientX, clientY: event.clientY, x: (event.clientX - rect.left) / this.scale,
+        y: (event.clientY - rect.top) / this.scale, scale: this.scale, originalIds: [...this.selected], additive };
+      if (!additive) this.selected.clear();
+      this.canvas.setPointerCapture(event.pointerId);
       this.status = ''; this.render(); this.canvas.focus({ preventScroll: true }); return;
     }
     event.preventDefault();
     const id = box.dataset.builderWidgetId!;
     const handle = target.closest<HTMLElement>('[data-resize-handle]')?.dataset.resizeHandle as ResizeHandle | undefined;
-    if (!handle) this.select(id, event.shiftKey);
+    if (!handle) this.select(id, event.ctrlKey || event.metaKey || event.shiftKey);
     if (!this.selected.has(id)) return;
     this.canvas.focus({ preventScroll: true });
     const original = this.layoutInstances();
@@ -207,6 +232,21 @@ export class WidgetBuilder {
   };
 
   private readonly pointerMove = (event: PointerEvent): void => {
+    const marquee = this.marquee;
+    if (marquee && event.pointerId === marquee.pointerId) {
+      event.preventDefault();
+      if (Math.hypot(event.clientX - marquee.clientX, event.clientY - marquee.clientY) < 3) return;
+      const x = Math.max(0, Math.min(1280, marquee.x + (event.clientX - marquee.clientX) / marquee.scale));
+      const y = Math.max(0, Math.min(720, marquee.y + (event.clientY - marquee.clientY) / marquee.scale));
+      const left = Math.min(marquee.x, x), top = Math.min(marquee.y, y), right = Math.max(marquee.x, x), bottom = Math.max(marquee.y, y);
+      this.selected.clear();
+      if (marquee.additive) for (const id of marquee.originalIds) this.selected.add(id);
+      for (const instance of this.layoutInstances()) {
+        if (instance.position.x < right && instance.position.x + instance.size.width > left && instance.position.y < bottom && instance.position.y + instance.size.height > top) this.selected.add(instance.id);
+      }
+      Object.assign(this.selectionRectangle.style, { left: `${left}px`, top: `${top}px`, width: `${right-left}px`, height: `${bottom-top}px` });
+      this.selectionRectangle.hidden = false; this.render(); return;
+    }
     const gesture = this.gesture;
     if (!gesture || event.pointerId !== gesture.pointerId) return;
     event.preventDefault();
@@ -221,6 +261,7 @@ export class WidgetBuilder {
   };
 
   private readonly pointerUp = (event: PointerEvent): void => {
+    if (this.marquee?.pointerId === event.pointerId) { this.finishGesture(); this.render(); return; }
     if (!this.gesture || event.pointerId !== this.gesture.pointerId) return;
     const instances = this.gesture.current;
     this.finishGesture();
@@ -228,13 +269,14 @@ export class WidgetBuilder {
   };
 
   private finishGesture(): void {
-    const gesture = this.gesture;
-    this.gesture = null;
+    const gesture = this.gesture ?? this.marquee;
+    this.gesture = null; this.marquee = null; this.selectionRectangle.hidden = true;
     if (gesture && this.canvas.hasPointerCapture(gesture.pointerId)) this.canvas.releasePointerCapture(gesture.pointerId);
   }
 
   private cancelGesture(message: string): void {
-    if (!this.gesture) return;
+    if (!this.gesture && !this.marquee) return;
+    if (this.marquee) { this.selected.clear(); for (const id of this.marquee.originalIds) this.selected.add(id); }
     this.finishGesture(); this.status = message; this.render();
   }
 
@@ -242,16 +284,17 @@ export class WidgetBuilder {
     if (!this.active || event.defaultPrevented || (event.target as Element | null)?.closest('input, textarea, select, [contenteditable="true"]')) return;
     if (event.key === 'Escape') {
       event.preventDefault();
-      if (this.gesture) this.cancelGesture('Déplacement annulé.');
+      if (this.gesture || this.marquee) this.cancelGesture('Déplacement annulé.');
       else { this.selected.clear(); this.status = ''; this.render(); }
       return;
     }
     if (this.busy) return;
     const modifier = event.ctrlKey || event.metaKey;
     const key = event.key.toLowerCase();
+    if (modifier && key === 'a') { event.preventDefault(); this.selectAll(); return; }
     if (modifier && (key === 'z' || key === 'y')) {
       event.preventDefault();
-      if (this.gesture) { this.cancelGesture('Déplacement annulé.'); return; }
+      if (this.gesture || this.marquee) { this.cancelGesture('Déplacement annulé.'); return; }
       void this.history(key === 'y' || event.shiftKey ? 'editor.redo' : 'editor.undo');
       return;
     }
@@ -327,9 +370,10 @@ export class WidgetBuilder {
       this.renderInspector(instances);
       const selectedInstance = instances.find(instance => this.selected.has(instance.id));
       const selection = this.selected.size === 1
-        ? `${labels[selectedInstance?.type ?? ''] ?? 'Widget'}${selectedInstance?.locked === true ? ' · verrouillé' : ''}`
+        ? `${selectedInstance ? widgetLabel(selectedInstance.type) : 'Widget'}${selectedInstance?.locked === true ? ' · verrouillé' : ''}`
         : this.selected.size ? `${this.selected.size} widgets sélectionnés` : 'Sélectionnez un widget pour le placer.';
       this.element('#builder-selection-status').textContent = this.status || selection;
+      this.element('#builder-selection-count').textContent = `${this.selected.size} widget${this.selected.size === 1 ? '' : 's'} sélectionné${this.selected.size === 1 ? '' : 's'}`;
       this.canvas.classList.toggle('show-grid', this.element<HTMLInputElement>('#builder-snap').checked);
       this.canvas.setAttribute('aria-busy', String(this.busy));
     } else this.options.renderPreview(state, this.target);
@@ -337,9 +381,12 @@ export class WidgetBuilder {
     this.element<HTMLButtonElement>('#builder-undo').disabled = this.busy || !this.snapshot.editor?.canUndo;
     this.element<HTMLButtonElement>('#builder-redo').disabled = this.busy || !this.snapshot.editor?.canRedo;
     this.element<HTMLInputElement>('#builder-snap').disabled = this.busy;
+    this.element<HTMLButtonElement>('#builder-select-all').disabled = this.busy;
+    this.element<HTMLButtonElement>('#builder-select-none').disabled = this.busy || !this.selected.size;
     const movableSelection = instances.some(instance => this.selected.has(instance.id) && instance.locked !== true);
     this.options.root.querySelectorAll<HTMLButtonElement>('[data-align]').forEach(button => { button.disabled = this.busy || !movableSelection; });
-    this.options.root.querySelectorAll<HTMLInputElement>('#widget-settings input').forEach(input => { input.disabled = this.busy; });
+    // Preserve each settings control's own validation/busy state while editing geometry.
+    this.element('#widget-settings').inert = this.busy;
     this.options.root.querySelectorAll<HTMLButtonElement>('#preview-game-tab, #preview-stream-tab').forEach(button => { button.disabled = this.busy; });
   }
 
@@ -353,17 +400,17 @@ export class WidgetBuilder {
       if (!box) {
         box = document.createElement('div'); box.className = 'builder-widget-box';
         box.dataset.builderWidgetId = instance.id; box.setAttribute('role', 'option');
-        const caption = document.createElement('span'); caption.className = 'builder-widget-caption'; caption.textContent = labels[instance.type] ?? instance.type;
+        const caption = document.createElement('span'); caption.className = 'builder-widget-caption'; caption.textContent = widgetLabel(instance.type);
         box.append(caption); this.canvas.append(box); this.boxes.set(instance.id, box);
       }
       const selected = this.selected.has(instance.id);
       const locked = instance.locked === true;
-      const caption = `${labels[instance.type] ?? instance.type}${locked ? ' · verrouillé' : ''}`;
+      const caption = `${widgetLabel(instance.type)}${locked ? ' · verrouillé' : ''}`;
       const allowed = instance.gameplayVisibility ?? ['playing', 'paused'];
       const ghost = !instance.enabled || !instance.visibility[this.target] || !allowed.includes(this.snapshot?.state.gameplay.state === 'paused' ? 'paused' : 'playing');
       box.setAttribute('aria-selected', String(selected));
       box.setAttribute('aria-label', caption);
-      box.querySelector('.builder-widget-caption')!.textContent = caption;
+      box.querySelector('.builder-widget-caption')!.textContent = `${caption}${ghost ? ' · masqué' : ''}`;
       box.classList.toggle('is-ghost', ghost);
       box.classList.toggle('is-locked', locked);
       Object.assign(box.style, { left: `${instance.position.x}px`, top: `${instance.position.y}px`, width: `${instance.size.width}px`, height: `${instance.size.height}px` });
@@ -381,8 +428,9 @@ export class WidgetBuilder {
         row.className = 'builder-list-item'; row.setAttribute('role', 'option');
         row.addEventListener('click', event => {
           if (this.busy) return;
-          if (!event.shiftKey) this.selected.clear();
-          this.select(instance.id, event.shiftKey);
+          const additive = event.ctrlKey || event.metaKey || event.shiftKey;
+          if (!additive) this.selected.clear();
+          this.select(instance.id, additive);
         }, { signal: this.abort.signal });
         this.element('#builder-list').append(row); this.rows.set(instance.id, row);
       }
@@ -398,7 +446,7 @@ export class WidgetBuilder {
   private renderInspector(instances: WidgetInstance[]): void {
     const id = this.singleId();
     const instance = instances.find(widget => widget.id === id);
-    this.element('#builder-inspector-selection').textContent = instance ? labels[instance.type] ?? instance.type : this.selected.size ? `${this.selected.size} widgets sélectionnés · déplacement et alignement groupés` : 'Aucune sélection';
+    this.element('#builder-inspector-selection').textContent = instance ? widgetLabel(instance.type) : this.selected.size ? `${this.selected.size} widgets sélectionnés · déplacement et alignement groupés` : 'Aucune sélection';
     const values = { x: instance?.position.x, y: instance?.position.y, width: instance?.size.width, height: instance?.size.height };
     for (const key of ['x', 'y', 'width', 'height'] as const) {
       const input = this.element<HTMLInputElement>(`#builder-${key}`);

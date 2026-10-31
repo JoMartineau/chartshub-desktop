@@ -20,6 +20,8 @@ import { SongRequestControls } from '../dist/settings/SongRequestControls.js';
 import { LocalMusicPlayerControls } from '../dist/settings/LocalMusicPlayerControls.js';
 
 import { WorkspaceNavigation } from './workspace-navigation.js';
+import { GameplayControls } from './gameplay-controls.js';
+import { SongVisualControls } from './song-visuals-controls.js';
 import { UpdatesControls } from '../dist/settings/UpdatesControls.js';
 import { StatusControls } from '../dist/settings/StatusControls.js';
 import { ConfigurationBackupControls } from '../dist/settings/ConfigurationBackupControls.js';
@@ -58,7 +60,7 @@ const streamPreview = new StreamRenderer(query('#stream-preview'), new WidgetRen
 const themePreview = new GameOverlay(query('#theme-preview'), new WidgetRenderer(createDefaultRegistry()));
 const settings = new WidgetSettings(query('#widget-settings'), (id, enabled) => {
   void command('widget.enabled', { id, enabled });
-}, payload => command('widget.fontSize', payload));
+}, payload => command('widget.fontSize', payload), payload => command('widget.accuracy', payload));
 const builder = new WidgetBuilder({
   root: query('#companion-app'),
   surface: query('.preview-surface'),
@@ -71,6 +73,8 @@ const builder = new WidgetBuilder({
 });
 const themes = new ThemeControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const stream = new StreamControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
+const gameplayControls = new GameplayControls({ root: query('#performance-controls'), command: (name, payload) => command(name, payload) });
+const songVisualControls = new SongVisualControls({ root: query('#song-visuals-controls'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const badSongs = new BadSongsCleanupControls({ root: query('#library-bad-songs'), command: (name, payload) => command(name, payload) });
 const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
@@ -114,13 +118,14 @@ function exportedSong(snapshot = currentSnapshot) {
 
 function renderSource(snapshot) {
   const live = liveSource(snapshot), source = snapshot?.cloneHero;
+  const measurements = snapshot?.telemetry?.connected === true && snapshot.telemetry.status === 'connected';
   query('#clonehero-mode').value = live ? 'live' : 'mock';
   query('#clonehero-mode').disabled = sourceBusy || !source || !api;
   for (const id of ['#clonehero-choose-file', '#clonehero-detect']) query(id).disabled = sourceBusy || !source || !live || !api;
   query('#clonehero-live-controls').hidden = !live;
   query('#clonehero-capabilities').hidden = !live;
-  query('#source-mode-label').textContent = live ? 'DIRECT CLONE HERO' : 'MODE DÉMO';
-  query('#source-mode-badge').classList.toggle('is-live', live);
+  query('#source-mode-label').textContent = measurements ? 'MESURES CLONE HERO' : live ? 'DIRECT CLONE HERO' : 'MODE DÉMO';
+  query('#source-mode-badge').classList.toggle('is-live', live || measurements);
   document.body.dataset.cloneheroMode = live ? 'live' : 'mock';
   const path = query('#clonehero-file-path');
   path.textContent = source?.filePath || 'Aucun fichier sélectionné';
@@ -192,6 +197,8 @@ function applySnapshot(snapshot) {
   builder.update(snapshot);
   themes.update(snapshot);
   stream.update(snapshot);
+  gameplayControls.update(snapshot);
+  songVisualControls.update(snapshot);
   library.update(snapshot);
   badSongs.update(snapshot);
   cleanupHistory.update({ rootPath: snapshot.library?.settings?.rootPath ?? null, revision: snapshot.library?.revision ?? 0 });
@@ -212,7 +219,7 @@ function applySnapshot(snapshot) {
   themePreview.render({
     ...state,
     gameplay: { state: 'playing', isChartActive: true },
-    nowPlaying: state.nowPlaying ?? { songId: 'theme-preview', title: 'Everlong', artist: 'Foo Fighters', charter: 'ExampleCharter', instrument: 'Guitar', difficulty: 'Expert' },
+    nowPlaying: state.nowPlaying ?? { songId: 'theme-preview', title: 'Signal d’aurore', artist: 'Groupe Exemple', charter: 'Charter Démo', instrument: 'Guitar', difficulty: 'Expert' },
     widgets: { ...state.widgets, instances: state.widgets.instances.map(instance => ({ ...instance, enabled: true, visibility: { ...instance.visibility, game: true }, gameplayVisibility: ['playing', 'paused'] })) },
   });
   query('#persistence-feedback').hidden = !snapshot.persistenceError;
@@ -374,6 +381,8 @@ window.addEventListener('beforeunload', () => {
   themes.dispose();
   themePreview.dispose();
   stream.dispose();
+  gameplayControls.dispose();
+  songVisualControls.dispose();
   streamPreview.dispose();
   library.dispose();
   cleanupHistory.dispose();

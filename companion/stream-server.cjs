@@ -3,7 +3,9 @@ const http = require('node:http');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { timingSafeEqual } = require('node:crypto');
+const { Readable } = require('node:stream');
 const { WebSocket, WebSocketServer } = require('ws');
+const { publicTelemetrySnapshot } = require('./clonehero-telemetry-view.cjs');
 
 const MAX_SNAPSHOT = 256 * 1024, MAX_CLIENTS = 8, MAX_BUFFERED = 1024 * 1024;
 const GAMEPLAY = ['idle', 'menu', 'loading', 'playing', 'paused', 'results'];
@@ -60,16 +62,20 @@ function theme(value) {
 }
 function widget(value) {
   if (!object(value) || !identifier(value.id) || !identifier(value.type)) return null;
+  let config = {};
+  if (value.type === 'gameplay.accuracy') {
+    try { config = require('./dist/widgets/core/Gameplay/AccuracyConfig.js').validateAccuracyConfig(value.config ?? {}); } catch { return null; }
+  }
   return {
     id: value.id, type: value.type, enabled: value.enabled === true,
     position: { x: number(value.position?.x, 0, 0, 8192), y: number(value.position?.y, 0, 0, 8192) },
     size: { width: number(value.size?.width, 200, 1, 8192), height: number(value.size?.height, 40, 1, 8192) },
     visibility: { game: value.visibility?.game === true, stream: value.visibility?.stream === true },
     ...(Array.isArray(value.gameplayVisibility) ? { gameplayVisibility: [...new Set(value.gameplayVisibility.filter(item => GAMEPLAY.includes(item)))] } : {}),
-    style: style(value.style), config: {}
+    style: style(value.style), config
   };
 }
-/** Explicit public projection: no logs, account data, file paths or widget config. */
+/** Explicit public projection: no private data; Accuracy exposes only its strict display choices. */
 function publicState(input) {
   const source = object(input) ? input : {};
   const state = GAMEPLAY.includes(source.gameplay?.state) ? source.gameplay.state : 'idle';
@@ -98,9 +104,11 @@ function publicState(input) {
     return { id: instance.id, x: number(item.x, 0, 0, 1280 - width), y: number(item.y, 0, 0, 720 - height), width, height };
   });
   const resolvedTheme = theme(source.theme);
+  const performance = publicTelemetrySnapshot(source.performance, source.performance?.language);
   return {
     gameplay: { state, isChartActive }, nowPlaying, serviceHealth: {}, widgets: { instances },
     ...(resolvedTheme ? { theme: resolvedTheme } : {}),
+    ...(performance ? { performance } : {}),
     stream: {
       port: Math.round(number(source.stream?.port, 38473, 1024, 65535)),
       canvas: {
@@ -112,12 +120,13 @@ function publicState(input) {
   };
 }
 
-function createLocalOverlayServer({ root, token, onStatus } = {}) {
+function createLocalOverlayServer({ root, token, onStatus, visuals } = {}) {
   if (typeof root !== 'string' || typeof token !== 'string' || !/^[0-9a-f]{64}$/i.test(token)) throw Error('Invalid local overlay configuration.');
   const directory = path.resolve(root), secret = Buffer.from(token, 'hex'), accessToken = token.toLowerCase();
   let current = null, desired = false, generation = 0, chain = Promise.resolve(), startTask = null, stopTask = null;
   let lastError = '', lastNotified = '', latest = JSON.stringify({ type: 'snapshot', state: publicState(null) }), fps = 60;
-  const status = () => ({ enabled: !!current && !current.closing, url: current && !current.closing ? `${origin(current)}/overlay?token=${accessToken}` : null, clients: current && !current.closing ? current.ws.clients.size : 0, error: lastError || null });
+  const status = () => ({ enabled: !!current && !current.closing, url: current && !current.closing ? `${origin(current)}/overlay?token=${accessToken}` : null, clients: current && !current.closing ? current.ws.clients.size : 0, error: lastError || null,
+    ...(visuals ? { backgroundUrl: current && !current.closing ? `${origin(current)}/background?token=${accessToken}` : null, videoUrl: current && !current.closing ? `${origin(current)}/video?token=${accessToken}` : null } : {}) });
   function notify() {
     const snapshot = status(), signature = JSON.stringify(snapshot);
     if (signature === lastNotified) return;
@@ -138,16 +147,18 @@ function createLocalOverlayServer({ root, token, onStatus } = {}) {
     if (raw.split('?')[0].split('/').some(part => part === '.' || part === '..')) return null;
     try { const url = new URL(raw, `http://${expectedHost}`); return url.origin === `http://${expectedHost}` ? url : null; } catch { return null; }
   }
-  function headers(context) {
+  function headers(context, visual = false) {
     return {
       'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
       'Cross-Origin-Resource-Policy': 'same-origin',
-      'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ws://127.0.0.1:${context.server.address()?.port ?? context.port}; img-src 'none'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`
+      'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ${visual ? "'self'" : `ws://127.0.0.1:${context.server.address()?.port ?? context.port}`}; img-src ${visual ? "'self'" : "'none'"}; media-src ${visual ? "'self'" : "'none'"}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`
     };
   }
   async function asset(urlPath) {
     let relative;
     if (urlPath === '/overlay') relative = 'ui/stream.html';
+    else if (visuals && ['/background', '/video'].includes(urlPath)) relative = 'ui/song-visuals.html';
+    else if (visuals && ['/ui/song-visuals.js', '/ui/song-visuals.css', '/ui/song-visuals-sync.js'].includes(urlPath)) relative = urlPath.slice(1);
     else if (urlPath === '/ui/stream.js' || urlPath === '/ui/stream.css') relative = urlPath.slice(1);
     else if (/^\/dist\/(?:widgets\/(?:engine|core)\/[a-zA-Z0-9_/-]+|themes\/[a-zA-Z0-9_-]+|overlay\/stream\/[a-zA-Z0-9_-]+|core\/types\/[a-zA-Z0-9_-]+|layout\/WidgetLayoutEngine|overlay\/game\/GameOverlay)\.js$/.test(urlPath)) relative = urlPath.slice(1);
     else return null;
@@ -161,9 +172,45 @@ function createLocalOverlayServer({ root, token, onStatus } = {}) {
     } catch { return null; }
   }
   async function handleRequest(context, request, response) {
-    const securityHeaders = headers(context), url = requestUrl(context, request);
+    const url = requestUrl(context, request), visualRoute = !!url && (['/background', '/video', '/visual-state', '/visual-error'].includes(url.pathname) || url.pathname.startsWith('/visual-media/'));
+    const securityHeaders = headers(context, visualRoute);
     const finish = (code, message) => { if (!response.destroyed) { response.writeHead(code, { ...securityHeaders, 'Content-Type': 'text/plain; charset=utf-8' }); response.end(message); } };
     if (!url || context.closing) return finish(403, 'Forbidden');
+    if (visualRoute) {
+      if (!visuals || !validToken(url) || [...url.searchParams.keys()].some(key => key !== 'token')) return finish(403, 'Forbidden');
+      if (request.headers.referer) { try { if (new URL(request.headers.referer).origin !== origin(context)) return finish(403, 'Forbidden'); } catch { return finish(403, 'Forbidden'); } }
+      // This bounded diagnostic cannot select files, control the game or change
+      // any settings. All media and snapshot routes remain read-only.
+      if (url.pathname === '/visual-error') {
+        if (request.method !== 'POST') return finish(405, 'Method not allowed');
+        if (request.headers.origin !== origin(context) || request.headers['content-type'] !== 'application/json') return finish(403, 'Forbidden');
+        let bytes = 0, body = '';
+        for await (const chunk of request) { bytes += chunk.length; if (bytes > 256) return finish(413, 'Too large'); body += chunk.toString('utf8'); }
+        let value; try { value = JSON.parse(body); } catch { return finish(400, 'Invalid report'); }
+        if (!visuals.reportError(value)) return finish(400, 'Invalid report');
+        response.writeHead(204, securityHeaders); response.end(); return;
+      }
+      if (!['GET', 'HEAD'].includes(request.method)) return finish(405, 'Method not allowed');
+      if (url.pathname === '/visual-state') {
+        const bytes = JSON.stringify(visuals.browserSnapshot());
+        response.writeHead(200, { ...securityHeaders, 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(bytes) });
+        response.end(request.method === 'HEAD' ? undefined : bytes); return;
+      }
+      const media = /^\/visual-media\/(background|video)\/([a-f0-9]{64})$/.exec(url.pathname);
+      if (media) {
+        const controller = new AbortController(), abort = () => controller.abort(); response.once('close', abort);
+        try {
+          const result = await visuals.serve(media[1], media[2], new Request(url, { method: request.method, headers: request.headers.range ? { range: request.headers.range } : {}, signal: controller.signal }));
+          if (response.destroyed || context.closing) { await result.body?.cancel(); return; }
+          response.writeHead(result.status, { ...securityHeaders, ...Object.fromEntries(result.headers) });
+          if (!result.body || request.method === 'HEAD') { response.end(); return; }
+          const body = Readable.fromWeb(result.body); body.on('error', () => response.destroy()); body.pipe(response);
+          response.once('close', () => body.destroy());
+        } catch { if (!response.headersSent) finish(404, 'Not found'); else response.destroy(); }
+        return;
+      }
+      if (!['/background', '/video'].includes(url.pathname)) return finish(404, 'Not found');
+    }
     if (request.method !== 'GET') return finish(405, 'Method not allowed');
     if (url.pathname === '/overlay' && !validToken(url)) return finish(403, 'Forbidden');
     const content = await asset(url.pathname);

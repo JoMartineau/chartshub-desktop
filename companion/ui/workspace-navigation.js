@@ -8,7 +8,7 @@ export const WORKSPACES=Object.freeze([
  {id:'status',fr:'État',en:'Status',descriptionFr:'Connexions, bibliothèque, OBS et reprise après un redémarrage.',descriptionEn:'Connections, library, OBS and recovery after a restart.'},
  {id:'settings',fr:'Réglages',en:'Settings',descriptionFr:'Connexions du jeu, apparence, sauvegardes et mises à jour.',descriptionEn:'Game connections, appearance, backups and updates.'}
 ]);
-const sections={library:['#library-panel'],catalogue:['#catalogue-panel','#downloads-panel','.floating-panels-card'],player:['#local-music-player-panel'],stream:['#profiles-panel','.preview-card','#builder-inspector','.settings-card','.destinations-card','.behavior-note','#stream-panel','.overlay-switch'],requests:['#song-requests-panel'],status:['#status-panel'],settings:['#clonehero-source','#game-filters','#simulation-panel','#theme-panel','.theme-widget-section','#updates-panel','#config-backup-panel']};
+const sections={library:['#library-panel'],catalogue:['#catalogue-panel','#downloads-panel','.floating-panels-card'],player:['#local-music-player-panel'],stream:['#performance-panel','#profiles-panel','.preview-card','#builder-inspector','.settings-card','.destinations-card','.behavior-note','#stream-panel','.overlay-switch'],requests:['#song-requests-panel'],status:['#status-panel'],settings:['#clonehero-source','#game-filters','#simulation-panel','#theme-panel','.theme-widget-section','#updates-panel','#config-backup-panel']};
 const key='chartshub:companion-workspace-v1';
 export class WorkspaceNavigation{
  constructor(root,{storage,language='fr'}={}){

@@ -12,7 +12,7 @@ const { createLibraryCleanup } = require('./library-cleanup.cjs');
 const { createLibraryBulkCleanup } = require('./library-bulk-cleanup.cjs');
 const { createLibraryCleanupHistory } = require('./library-cleanup-history.cjs');
 const { resolveInstalledSong } = require('./song-request-library.cjs');
-const { preparePlaybackMedia } = require('./library-media.cjs');
+const { preparePlaybackMedia, prepareVisualMedia } = require('./library-media.cjs');
 const { captureBundleSnapshot } = require('./chart-bundle.cjs');
 const { INSTRUMENTS, DIFFICULTIES } = require('./song-requests.cjs');
 const { MAX_SONGS, MAX_BYTES, shareError } = require('./song-request-share-contract.cjs');
@@ -557,9 +557,22 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     const { queryMusicLibrary } = require('./music-library-query.cjs');
     return queryMusicLibrary(document, options);
   }
+  async function resolveVisualSong(id) {
+    const index = matchingSnapshot(), requestedEpoch = epoch;
+    const item = typeof id === 'string' && /^[a-f0-9]{64}$/.test(id) ? document.items.find(value => value.id === id) : null;
+    const root = document.settings.rootPath;
+    const current = () => requestedEpoch === epoch && !run && !stopTask && phase === 'ready'
+      && matchingSnapshot().rootKey === index.rootKey && matchingSnapshot().revision === index.revision;
+    if (!item || !root || !current()) throw Object.assign(safeError('Actualisez la bibliothèque pour accéder aux médias.'), { code: 'LIBRARY_MEDIA_SAFE' });
+    const media = await prepareVisualMedia({ root, item });
+    if (!current() || await captureBundleSnapshot({ rootPath: root, relativePath: item.relativePath, format: item.format }) !== item.cleanupSnapshot || !current())
+      throw Object.assign(safeError('Les médias ont changé. Actualisez la bibliothèque.'), { code: 'LIBRARY_MEDIA_SAFE' });
+    return { ...media, rootKey: index.rootKey, revision: index.revision };
+  }
   return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, keepDuplicateVersions, verifyAllDuplicates, cancelDuplicateVerification, resolveSongFolder, matchingSnapshot,
     resolveRequestSong,
     resolvePlaybackSong,
+    resolveVisualSong,
     queryPlayback,
     requestLibraryForSharing,
     cancelLibrarySharing: () => { if (sharingPreparation) sharingPreparation.cancelled = true; },

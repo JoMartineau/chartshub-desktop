@@ -19,6 +19,8 @@ const { createCatalogueService } = require('./catalogue-service.cjs');
 const { createDownloadService } = require('./download-service.cjs');
 const { createLibraryDownloadRefresh } = require('./library-download-refresh.cjs');
 const { createCloneHeroSource } = require('./clonehero-source.cjs');
+const { createTelemetrySource } = require('./clonehero-telemetry-source.cjs');
+const { publicTelemetrySnapshot, telemetryStateView } = require('./clonehero-telemetry-view.cjs');
 const { createCharterColorResolver } = require('./charter-color-resolver.cjs');
 const { createCloneHeroProcessProbe } = require('./clonehero-process.cjs');
 const { createOverlayProfiles } = require('./overlay-profiles.cjs');
@@ -34,6 +36,7 @@ const { createSongRequestShareSync, songRequestShareKey } = require('./song-requ
 const { createSongRequestPublicBroker } = require('./song-request-public-broker.cjs');
 const { attachEditContextMenu } = require('../desktop/edit-context-menu.cjs');
 const { createMusicPlayer } = require('./music-player.cjs');
+const { createSongVisuals } = require('./song-visuals.cjs');
 const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs');
 const { changeMusicPlaylist } = require('./music-playlists.cjs');
 const SCHEME = 'chartshub-companion';
@@ -44,7 +47,7 @@ function registerCompanionScheme() {
 async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
-  const [{ ServiceContainer }, { MockCloneHeroIntegration }, { createDefaultRegistry, createDefaultWidgets }, { WidgetRenderer }, { SettingsRepository, validateSettings }, { SnapshotHistory }, { ThemeService, createDefaultTheme }, { validateWidgetStyle }, { createDefaultStream, validateStream }] = await Promise.all([
+  const [{ ServiceContainer }, { MockCloneHeroIntegration }, { createDefaultRegistry, createDefaultWidgets, ensureGameplayDocument }, { WidgetRenderer }, { SettingsRepository, validateSettings }, { SnapshotHistory }, { ThemeService, createDefaultTheme }, { validateWidgetStyle }, { createDefaultStream, validateStream }] = await Promise.all([
     import('./dist/core/services/ServiceContainer.js'), import('./dist/integrations/clonehero/MockCloneHeroIntegration.js'),
     import('./dist/widgets/core/index.js'), import('./dist/widgets/engine/WidgetRenderer.js'), import('./dist/storage/SettingsRepository.js'), import('./dist/layout/WidgetHistory.js'),
     import('./dist/themes/ThemeService.js'), import('./dist/themes/ThemeResolver.js'), import('./dist/overlay/stream/StreamConfig.js')
@@ -57,6 +60,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let logTail = Promise.resolve(), pendingSave = Promise.resolve();
   let streamServer = null, streamInit = null, streamTask = Promise.resolve(), streamDesired = false, streamError = null;
   let library = null, rootPickerOpen = false;
+  let songVisuals = null;
   let musicPlayer = null, playerWindow = null, playerWindowLoad = null, playerSpectrumAt = 0;
   let playerPreferencesTask = Promise.resolve();
   const playerPreferences = createMusicPlayerPreferences({ dataDirectory });
@@ -89,6 +93,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let reshadeSetup = null, reshadeSetupStarting = false;
   let lifecycleRevision = 0;
   let language = 'fr';
+  let telemetry = null;
   let buttonMotion = { economy: false };
   const tr = (fr, en) => language === 'fr' ? fr : en;
   let preferredProfileId = null;
@@ -113,6 +118,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     logger.warn('Settings could not be loaded');
   }
   const profiles = createOverlayProfiles({ dataDirectory, validateSettings });
+  ({ widgets, theme, stream } = validateSettings(ensureGameplayDocument({ version: 3, widgets, theme, stream })));
   await profiles.load();
   const floatingPanels = createFloatingPanels({ dataDirectory });
   await floatingPanels.load();
@@ -126,6 +132,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   });
   const services = new ServiceContainer({ integration, initialWidgets: widgets, logger });
   services.store.setState(state => ({ ...state, theme, stream }));
+  telemetry = await createTelemetrySource({ dataDirectory, onChange: () => { if (!disposing) publish(); } });
   const history = new SnapshotHistory({ widgets, theme, stream });
   const themeService = new ThemeService();
   let editorRevision = 0;
@@ -176,7 +183,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), widget: songRequestPreferences.status().widget,
     publicRequests: songRequestShareBroker?.status(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare, autoSync: songRequestShareSync?.status(),
     progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
-  const snapshot = () => ({ language, buttonMotion: { ...buttonMotion }, state: services.store.getState(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const stateView = () => telemetryStateView(services.store.getState(), telemetry?.snapshot(), { language, liveMetadata: integration.status().mode === 'live' });
+  const telemetryPanel = () => { const value = telemetry?.snapshot(); return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, reason: value.reason } : null; };
+  const snapshot = () => ({ language, buttonMotion: { ...buttonMotion }, state: stateView(), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
     return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
@@ -199,10 +208,18 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   };
   function syncOverlay() {
     if (!overlay || overlay.isDestroyed()) return;
-    const visible = overlayEnabled && renderer.renderWidgetModels(services.store.getState(), 'game').length > 0;
+    const visible = overlayEnabled && renderer.renderWidgetModels(stateView(), 'game').length > 0;
     if (visible && !overlay.webContents.isLoading()) overlay.showInactive(); else overlay.hide();
   }
+  function updateVisuals() {
+    if (!songVisuals) return;
+    const view = stateView(), performance = view.performance;
+    const real = performance?.connected === true || (integration.status().mode === 'live' && integration.status().status === 'active');
+    void songVisuals.update({ live: real && hostActive && !disposing && !stopTask, phase: view.gameplay.state,
+      song: view.nowPlaying, clock: performance?.connected ? performance.active?.clock : null });
+  }
   function publish() {
+    updateVisuals();
     const value = snapshot();
     publishPanel(value);
     if (overlay && !overlay.isDestroyed() && !overlay.webContents.isLoading()) overlay.webContents.send('companion:changed', { ...value, songRequests: undefined, player: undefined });
@@ -246,6 +263,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     await shell.trashItem(target);
   }, onChange: () => {
     musicPlayer?.libraryChanged();
+    updateVisuals();
     const requestState = library?.status(), requestRoot = library?.matchingSnapshot().rootKey;
     const refreshingRequestRoot = requestState?.status === 'scanning' && requestState.count > 0 && !!requestRoot && requestRoot === libraryRequestRoot;
     if (requestState?.status === 'ready') libraryRequestRoot = requestRoot;
@@ -264,6 +282,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!disposing) publishPanel();
   } });
   await library.load();
+  songVisuals = createSongVisuals({ library, onChange: () => { if (!disposing) publishPanel(); } });
   musicPlayer = createMusicPlayer({ library, preferences: playerPreferences.status(), onChange: () => { if (!disposing) publishPanel(); }, onAction: value => {
     if (playerWindow && !playerWindow.isDestroyed() && !playerWindow.webContents.isLoading()) playerWindow.webContents.send('companion:player-action', value);
   } });
@@ -621,13 +640,15 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         }
       }
       if (!/^[a-f0-9]{64}$/.test(token)) throw Error('Invalid stream access key');
-      streamServer = createLocalOverlayServer({ root: __dirname, token, onStatus: publish });
+      streamServer = createLocalOverlayServer({ root: __dirname, token, onStatus: publish, visuals: songVisuals });
       return streamServer;
     })().finally(() => { streamInit = null; });
     return streamInit;
   }
   function setStream(enabled) {
     streamDesired = enabled;
+    songVisuals?.setEnabled(enabled);
+    updateVisuals();
     streamTask = streamTask.catch(() => {}).then(async () => {
       if (!streamDesired || disposing || stopTask) {
         await streamServer?.stop();
@@ -637,7 +658,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       try {
         const server = await ensureStreamServer();
         if (!streamDesired || disposing || stopTask) { await server.stop(); return; }
-        server.publish(services.store.getState());
+        server.publish(stateView());
         await server.start(services.store.getState().stream.port);
         if (!server.status().enabled) streamDesired = false;
         streamError = null;
@@ -691,6 +712,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (typeof enabled !== 'boolean') throw TypeError('Invalid catalogue availability');
     catalogueAccess = enabled;
     if (!enabled) {
+      songVisuals?.stop();
       void songRequestShareBroker?.stop();
       void songRequestShareSync?.pause({ forget: true });
       songRequestShareManualBusy = null;
@@ -811,7 +833,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const mini = catalogueAllowed() && trustedCatalogueWidgetCommand(event, catalogueWidget, command, payload);
     const playerSender = trustedPlayer(event) && typeof command === 'string' && (command.startsWith('player.') || (command === 'panels.appearance' && payload?.panel === 'player'));
     if (disposing || stopTask || maintenanceLocked || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini || playerSender) || !validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
-    if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
+    if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.accuracy', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
       if (command === 'player.report' || command === 'player.spectrum' || command === 'player.ended') {
         if (!trustedPlayer(event)) return { ok: false };
@@ -911,6 +933,17 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       else if (command === 'filters.widget') await setFiltersWidget(payload.enabled);
       else if (command === 'filters.openPanel') { await open(); filtersFocusRevision++; }
       else if (command === 'clonehero.mode') await integration.setMode(payload.mode);
+      else if (command === 'telemetry.enabled') await telemetry.setEnabled(payload.enabled);
+      else if (command === 'telemetry.configure') await telemetry.configure(payload);
+      else if (command === 'telemetry.sessionReset') telemetry.resetSession();
+      else if (command === 'telemetry.calibrationStart') telemetry.startCalibration(payload.stage, payload.settingMs, payload.source);
+      else if (command === 'telemetry.calibrationFinish') telemetry.finishCalibration();
+      else if (command === 'telemetry.guide') await shell.openExternal('https://wiki.clonehero.net/books/guides-and-tutorials/page/calibrating-audio-and-video');
+      else if (command === 'telemetry.widgets') {
+        const next = ensureGameplayDocument({ version: 3, ...editorDocument() });
+        const types = new Set(['gameplay.accuracy','gameplay.combo','gameplay.fc','gameplay.progress','gameplay.comparison','session.goal','session.history']);
+        commitEditorState({ ...next, widgets: next.widgets.map(widget => types.has(widget.type) ? { ...widget, enabled: true, visibility: { ...widget.visibility, stream: true } } : widget) });
+      }
       else if (command === 'clonehero.detect') await integration.detect();
       else if (command === 'clonehero.chooseFile') {
         if (cloneHeroPickerOpen) return { ok: false, error: 'Le choix du fichier est déjà ouvert.' };
@@ -956,6 +989,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       } else if (command === 'widget.fontSize') {
         commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id
           ? { ...widget, style: { ...widget.style, fontSize: payload.fontSize } } : widget));
+      } else if (command === 'widget.accuracy') {
+        if (services.store.getState().widgets.instances.find(widget => widget.id === payload.id)?.type !== 'gameplay.accuracy') return { ok: false, error: 'Ce réglage concerne uniquement Accuracy.' };
+        const config = require('./dist/widgets/core/Gameplay/AccuracyConfig.js').validateAccuracyConfig(payload.config);
+        commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id ? { ...widget, config } : widget));
       } else if (command === 'widget.locked') {
         commitWidgets(services.store.getState().widgets.instances.map(widget => widget.id === payload.id ? { ...widget, locked: payload.locked } : widget));
       } else if (command === 'editor.undo' || command === 'editor.redo') {
@@ -972,6 +1009,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       } else if (command === 'stream.enabled') {
         await setStream(payload.enabled);
         if (payload.enabled && !streamStatus().enabled) return { ok: false, error: streamStatus().error || streamError || 'Le serveur OBS est indisponible.' };
+      } else if (command === 'visuals.select') {
+        await songVisuals.select(payload);
+      } else if (command === 'visuals.copyUrl') {
+        const value = streamStatus(), url = payload.kind === 'background' ? value.backgroundUrl : value.videoUrl;
+        if (!value.enabled || !url) return { ok: false, error: 'Activez le serveur OBS pour copier cette source.' };
+        clipboard.writeText(url);
       } else if (command === 'stream.copyUrl') {
         const status = streamStatus();
         if (!status.enabled || !status.url) return { ok: false, error: 'Activez le serveur OBS avant de copier son adresse.' };
@@ -1155,6 +1198,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'library.compareDuplicates' || command === 'library.chooseDuplicate' || command === 'library.keepDuplicateVersions') {
         return { ok: false, error: error?.code === 'LIBRARY_COMPARISON_SAFE' ? error.message : 'La comparaison n’a pas pu être terminée. Vérifiez les fichiers puis recomparez les versions.' };
       }
+      if (command.startsWith('telemetry.')) return { ok: false, error: 'Vérifiez la connexion aux mesures, le réglage testé et les 30 jugements continus avant de terminer un essai.' };
       if (command.startsWith('profile.')) {
         publish();
         return { ok: false, ...(error?.code === 'STALE_PROFILES' ? { code: error.code } : {}), error: ['PROFILE_SAFE', 'STALE_PROFILES'].includes(error?.code) ? error.message : 'Le profil n’a pas pu être enregistré ou chargé. Réessayez.' };
@@ -1164,6 +1208,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function stop() {
     if (stopTask) return stopTask;
     lifecycleRevision++;
+    telemetry.stop();
+    songVisuals?.stop();
     libraryDownloadRefresh?.stop();
     const songRequestSharingStop = songRequestShareSync?.pause();
     const songRequestPublicStop = songRequestShareBroker?.stop();
@@ -1212,6 +1258,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (disposing || embedded?.ownerWindow.isDestroyed()) return null;
       const openingRevision = lifecycleRevision;
       await services.start();
+      telemetry.start();
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
       hostActive = true;
       void refreshSongRequestShare();
@@ -1281,7 +1328,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     else app.removeListener('before-quit', beforeQuit);
     unsubscribe(); ipcMain.removeHandler('companion:snapshot'); ipcMain.removeHandler('companion:command');
     disposeTask = (async () => {
-      await stop(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
+      await stop(); await telemetry.dispose(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
       if (embedded && panelContents && !panelContents.isDestroyed()) {
         const contents = panelContents;
         await new Promise(resolve => { contents.once('destroyed', resolve); contents.close(); });

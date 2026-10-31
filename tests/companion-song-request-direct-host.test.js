@@ -66,7 +66,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
   const received = [], sent = [], events = [], providers = {};
   const state = { enabled: false, rules: { ...rules }, requests: [] };
   const libraryState = { status: 'ready', count: 1, revision: 1 };
-  const stopped = { bridge: 0, twitch: 0, tiktok: 0, flush: 0 };
+  const stopped = { bridge: 0, twitch: 0, tiktok: 0, flush: 0, telemetry: 0, visuals: 0, visualUpdates: 0 };
   let bridgeEnabled = false, bridgeError = null;
   const bridge = {
     status: () => ({ enabled: bridgeEnabled, port: 38474, error: bridgeError }),
@@ -94,6 +94,9 @@ function fixture({ save, start, consent = false, receive } = {}) {
     providers[platform] = transport; return transport;
   };
   const adapters = {
+    telemetry: { stop() { stopped.telemetry++; events.push('telemetry-stop'); } },
+    songVisuals: { stop() { stopped.visuals++; events.push('visuals-stop'); } },
+    updateVisuals() { stopped.visualUpdates++; },
     songRequests: {
       configure(patch) { Object.assign(state, patch); return structuredClone(state); },
       snapshot: () => structuredClone(state),
@@ -106,7 +109,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
     createSongRequestServer: options => { bridge.receive = options.receive; return bridge; }
   };
   const create = new vm.Script(`(function(adapters) {
-    const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer}=adapters;
+    const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer,telemetry,songVisuals,updateVisuals}=adapters;
     let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0,songRequestBusy=false,maintenanceLocked=false;
     let songRequestServer=null,songRequestConnections=null,songRequestShareBroker=null;
     const publishedTwitchClientId='syntheticclient',shell={openExternal:async()=>{}},language='fr',publishPanel=()=>{};
@@ -147,7 +150,13 @@ test('native reception remains usable when the optional localhost bridge port is
   assert.equal(f.providers.twitch.receiving(), true);
   f.providers.twitch.message(); await idle();
   assert.equal(f.received.length, 1); assert.deepEqual(f.sent, [{ platform: 'twitch', message: 'La file est vide.' }]);
-  await f.host.stop();
+  const closing = f.host.stop();
+  assert.equal(f.host.stop(), closing, 'overlapping lifecycle stops share the same task');
+  await closing;
+  assert.equal(f.stopped.telemetry, 1, 'the extracted lifecycle stops the injected telemetry source exactly once');
+  assert.equal(f.events.filter(event => event === 'telemetry-stop').length, 1);
+  assert.equal(f.stopped.visuals, 1, 'overlapping stops revoke the injected visual source once');
+  assert.equal(f.providers.twitch.receiving(), false);
 });
 
 test('closing during a preference write prevents an old enable request from starting providers', async () => {
@@ -173,6 +182,7 @@ test('library loss during awaited setup prevents reception from being reenabled'
     const f = fixture(pending === 'preferences' ? { save: wait } : { start: wait });
     const enabling = f.host.configure(enable()); await entered.promise;
     f.libraryState.status = 'unavailable'; f.libraryState.count = 0; f.host.libraryChange(); gate.resolve();
+    assert.equal(f.stopped.visualUpdates, 1, 'library changes update the separate media lifecycle');
     assert.equal((await enabling).ok, false, `${pending} cannot enable an unavailable library`);
     assert.equal(f.state.enabled, false); assert.equal(f.providers.twitch.receiving(), false);
     await f.host.stop();

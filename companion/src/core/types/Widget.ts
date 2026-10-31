@@ -1,7 +1,7 @@
 import type { GameplayState } from './GameplayState.js';
 
 export type WidgetDestination = 'game' | 'stream';
-export type Capability = 'song.title' | 'song.artist' | 'song.charter' | 'song.instrument' | 'song.difficulty';
+export type Capability = 'song.title' | 'song.artist' | 'song.charter' | 'song.instrument' | 'song.difficulty' | 'gameplay.timing' | 'gameplay.combo' | 'gameplay.fc' | 'gameplay.progress' | 'gameplay.comparison' | 'session.goal' | 'session.history';
 export interface WidgetStyle {
   colorMode?: 'theme' | 'custom';
   useSourceColors?: boolean;

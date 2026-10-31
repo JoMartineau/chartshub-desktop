@@ -187,6 +187,37 @@ function rangeFor(value, size) {
   }
   return { start, end, status: 206 };
 }
+
+/** Separate OBS visuals need no audio stem. Only the reserved files of this
+ * already-scanned chart are considered; album art is never a background. */
+async function prepareVisualMedia({ root, item } = {}) {
+  if (item?.format === 'sng') throw unsupported('Les médias des chansons SNG ne sont pas pris en charge.');
+  const relative = item?.relativePath, extension = { chart: '.chart', midi: '.mid' }[item?.format];
+  if (typeof root !== 'string' || !path.isAbsolute(root) || !relativeValid(relative) || !extension
+    || path.posix.extname(relative).toLowerCase() !== extension || !/^notes\.(?:chart|mid)$/i.test(path.posix.basename(relative))
+    || item.id !== hash(relative) || !/^[a-f0-9]{64}$/.test(item.cleanupSnapshot ?? '')) throw failure();
+  root = path.resolve(root);
+  const directory = path.posix.dirname(relative), options = { rootPath: root, relativePath: relative, format: item.format };
+  if (directory === '.' || !relativeValid(directory) || await captureBundleSnapshot(options) !== item.cleanupSnapshot) throw failure();
+  const bundle = { relativePath: relative, format: item.format, snapshot: item.cleanupSnapshot };
+  const names = await fs.readdir(path.join(root, ...directory.split('/')));
+  if (names.filter(name => /^notes\.(?:chart|mid)$/i.test(name)).length !== 1) throw failure();
+  async function visual(role, kind, supported, limit, matchesPrefix) {
+    const candidates = names.filter(name => path.basename(name, path.extname(name)).toLowerCase() === role);
+    if (!candidates.length) return { entry: null, reason: 'missing' };
+    if (candidates.length !== 1) return { entry: null, reason: 'ambiguous' };
+    const name = candidates[0], type = supported[path.extname(name).toLowerCase()];
+    if (!type) return { entry: null, reason: 'unsupported' };
+    const entry = await entryFor(root, directory, name, kind, type, bundle);
+    if (!entry.size || entry.size > limit || !matchesPrefix(await readPrefix(entry, 12), type)) return { entry: null, reason: 'unsupported' };
+    return { entry, reason: null };
+  }
+  const background = await visual('background', 'background', IMAGES, ARTWORK_LIMIT, artworkMatches);
+  const video = await visual('video', 'video', { '.webm': 'video/webm', '.mp4': 'video/mp4' }, VIDEO_LIMIT, videoMatches);
+  const metadata = await metadataFromIni(root, directory, names, bundle);
+  if (await captureBundleSnapshot(options) !== item.cleanupSnapshot) throw failure();
+  return { background: background.entry, backgroundUnavailable: background.reason, video: video.entry, videoUnavailable: video.reason, videoStartTimeMs: metadata.videoStartTimeMs };
+}
 function validEntry(entry) {
   return entry && typeof entry.rootPath === 'string' && path.isAbsolute(entry.rootPath) && relativeValid(entry.relativePath)
     && samePath(entry.path, path.join(entry.rootPath, ...entry.relativePath.split('/')))
@@ -197,6 +228,8 @@ function validEntry(entry) {
     && ((entry.kind === 'audio' && ROLES.includes(entry.role) && path.basename(entry.name, path.extname(entry.name)).toLowerCase() === entry.role
       && AUDIO[path.extname(entry.name).toLowerCase()] === entry.contentType)
       || (entry.kind === 'artwork' && entry.size <= ARTWORK_LIMIT && path.basename(entry.name, path.extname(entry.name)).toLowerCase() === 'album'
+        && IMAGES[path.extname(entry.name).toLowerCase()] === entry.contentType)
+      || (entry.kind === 'background' && entry.size <= ARTWORK_LIMIT && path.basename(entry.name, path.extname(entry.name)).toLowerCase() === 'background'
         && IMAGES[path.extname(entry.name).toLowerCase()] === entry.contentType)
       || (entry.kind === 'video' && entry.size <= VIDEO_LIMIT && path.basename(entry.name, path.extname(entry.name)).toLowerCase() === 'video'
         && VIDEOS[path.extname(entry.name).toLowerCase()] === entry.contentType));
@@ -236,10 +269,10 @@ async function mediaResponse(entry, request, { signal, isAllowed, onClose } = {}
     await verifyBundle();
     handle = await openChecked(entry); guard();
     await verifyBundle();
-    if (entry.kind === 'artwork' || entry.kind === 'video') {
+    if (entry.kind === 'artwork' || entry.kind === 'background' || entry.kind === 'video') {
       const bytes = Buffer.alloc(Math.min(12, entry.size));
       const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
-      if (bytesRead !== bytes.length || !(entry.kind === 'artwork' ? artworkMatches(bytes, entry.contentType) : videoMatches(bytes, entry.contentType))) throw failure();
+      if (bytesRead !== bytes.length || !(entry.kind !== 'video' ? artworkMatches(bytes, entry.contentType) : videoMatches(bytes, entry.contentType))) throw failure();
     }
     const range = rangeFor(request.headers.get('range'), entry.size);
     if (!range) { await close(); return new Response(null, { status: 416, headers: { ...headers, 'Content-Range': 'bytes */' + entry.size } }); }
@@ -276,4 +309,4 @@ async function mediaResponse(entry, request, { signal, isAllowed, onClose } = {}
   }
 }
 
-module.exports = { preparePlaybackMedia, mediaResponse };
+module.exports = { preparePlaybackMedia, prepareVisualMedia, mediaResponse };

@@ -1,0 +1,21 @@
+#performance-panel { margin-block:20px; }
+#performance-controls .card-heading { gap:20px;align-items:start;flex-wrap:wrap; }
+#performance-controls p { line-height:1.5; }
+.performance-enable { display:flex;align-items:center;gap:8px;white-space:nowrap; }
+.performance-status { color:#aebbd0;font-weight:600; }.performance-status[data-connected="true"] { color:#6fe5cb; }
+.performance-metrics { display:grid;grid-template-columns:repeat(3,minmax(150px,1fr));gap:10px;margin:18px 0; }
+.performance-metrics>div { border:1px solid #30445e;border-radius:10px;padding:12px;background:#101d30; }
+.performance-metrics dt { color:#b5c7dd;font-size:.85rem; }.performance-metrics dd { margin:8px 0 0;font-size:1.3rem;font-variant-numeric:tabular-nums; }
+.performance-settings { display:flex;align-items:end;gap:12px;flex-wrap:wrap;margin-block:16px; }
+.performance-field { display:grid;gap:7px;min-width:140px;max-width:240px; }.performance-field input,.performance-field select { width:100%;min-height:38px;padding:8px; }
+.performance-actions { display:flex;gap:10px;flex-wrap:wrap; }
+.performance-availability { display:grid;grid-template-columns:repeat(2,minmax(240px,1fr));gap:8px;padding-left:20px;color:#b5c7dd; }
+.performance-calibration { border-top:1px solid #30445e;padding-top:16px;margin-top:20px; }.performance-calibration summary { cursor:pointer;font-weight:600; }.performance-trials { display:grid;gap:10px;padding-left:24px;font-variant-numeric:tabular-nums; }
+.performance-feedback.is-error { color:#ffb9b9; }
+@media(max-width:1000px) { .performance-metrics{grid-template-columns:repeat(2,minmax(140px,1fr));}.performance-availability{grid-template-columns:1fr;} }
+.performance-calibration-results { display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-block:16px; }
+.performance-calibration-result { min-width:0;border:1px solid #30445e;border-radius:10px;padding:14px;background:#101d30; }
+.performance-calibration-result h3 { margin:0;font-size:1rem; }
+.performance-calibration-result-value { margin:8px 0;font-size:1.6rem;font-weight:650;font-variant-numeric:tabular-nums;color:#7cdbff; }
+.performance-calibration-result .helper-text { margin-block:0;overflow-wrap:anywhere; }
+@media(max-width:520px) { .performance-calibration-results { grid-template-columns:1fr; } }

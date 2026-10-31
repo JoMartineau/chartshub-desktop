@@ -229,7 +229,7 @@ async function verifyStream(panel, host, data, passed) {
     await command('mock.state', { state: 'playing' });
     await sameRender('five stream widgets match the panel preview and browser source');
     const texts = await browserEvaluate("[...document.querySelectorAll('#stream-overlay .companion-widget')].map(node=>node.textContent)");
-    assert.deepEqual(texts, ['Everlong', 'Foo Fighters', 'ExampleCharter', 'Guitar', 'Expert']);
+    assert.deepEqual(texts, ['Signal d’aurore', 'Groupe Exemple', 'Charter Démo', 'Guitar', 'Expert']);
     await waitFor(() => !host.getOverlay().isVisible(), 'game overlay remains hidden for stream-only widgets');
     assert.equal(await host.getOverlay().webContents.executeJavaScript("document.querySelectorAll('.companion-widget').length"), 0);
     assert.deepEqual(geometry(host.snapshot().state.widgets.instances), originalGameGeometry);

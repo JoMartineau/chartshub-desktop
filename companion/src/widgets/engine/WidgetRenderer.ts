@@ -13,6 +13,7 @@ export interface WidgetRenderModel {
   type: string;
   text: string;
   segments?: ColoredTextSegment[];
+  lines?: string[];
   position: { x: number; y: number };
   size: { width: number; height: number };
   style: ResolvedWidgetStyle;
@@ -44,11 +45,14 @@ export class WidgetRenderer {
         // Source formatting is restricted to validated charter text, even for a custom registry.
         const segments = instance.type === 'song.charter' && style.useSourceColors
           ? validateColoredTextSegments(content?.segments, text) : undefined;
+        const lines = Array.isArray(content?.lines) && content.lines.length <= 8
+          ? content.lines.map(meaningfulText).filter((line): line is string => line !== null).map(line => line.slice(0,512)) : undefined;
         return {
           id: instance.id,
           type: instance.type,
           text,
           ...(segments ? { segments } : {}),
+          ...(lines?.length ? { lines } : {}),
           position: {
             x: boundedNumber(instance.position.x, 0, -100000, 100000),
             y: boundedNumber(instance.position.y, 0, -100000, 100000)
@@ -70,6 +74,7 @@ export class WidgetRenderer {
     const fragment = document.createDocumentFragment();
     for (const model of this.renderWidgetModels(state, destination)) {
       this.boundary.run(model, () => {
+        const fixedGameplayLines = !!model.lines?.length && ['gameplay.accuracy','gameplay.combo','gameplay.fc','gameplay.progress','gameplay.comparison','session.goal','session.history'].includes(model.type);
         const element = document.createElement('span');
         element.className = 'companion-widget';
         element.dataset.widgetId = model.id;
@@ -84,7 +89,7 @@ export class WidgetRenderer {
             if (segment.color) run.style.color = segment.color;
             text.appendChild(run);
           }
-        } else text.textContent = model.text;
+        } else text.textContent = model.lines ? model.lines.join('\n') : model.text;
         Object.assign(element.style, {
           position: 'absolute',
           left: `${model.position.x}px`,
@@ -97,7 +102,7 @@ export class WidgetRenderer {
           fontSize: `${model.style.fontSize}px`,
           fontWeight: String(model.style.fontWeight),
           lineHeight: '1.25',
-          whiteSpace: 'nowrap',
+          whiteSpace: fixedGameplayLines ? 'pre' : model.lines ? 'pre-line' : 'nowrap',
           overflow: 'visible',
           pointerEvents: 'none'
         });
@@ -115,7 +120,7 @@ export class WidgetRenderer {
           height: `${Math.max(model.size.height, model.style.fontSize * 1.25) + padding * 2}px`,
           padding: `${padding}px`,
           margin: `-${padding}px`,
-          whiteSpace: 'nowrap',
+          whiteSpace: fixedGameplayLines ? 'pre' : model.lines ? 'pre-line' : 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           textShadow: shadows.join(', '),

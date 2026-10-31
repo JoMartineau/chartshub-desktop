@@ -43,6 +43,18 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (command === 'visuals.copyUrl') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === 1 && ['background', 'video'].includes(payload.kind);
+  if (command === 'visuals.select') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === 2 && Object.keys(payload).every(key => ['id','selectionKey'].includes(key))
+    && [payload.id,payload.selectionKey].every(value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value));
+  if (['telemetry.sessionReset', 'telemetry.calibrationFinish', 'telemetry.widgets', 'telemetry.guide'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (command === 'telemetry.enabled') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && typeof payload.enabled === 'boolean';
+  if (command === 'telemetry.configure') { try { require('./clonehero-telemetry-model.cjs').validSettings(payload); return true; } catch { return false; } }
+  if (command === 'telemetry.calibrationStart') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === 3 && Object.keys(payload).every(key => ['stage','source','settingMs'].includes(key))
+    && ['audio','video'].includes(payload.stage) && ['gameplay','tool'].includes(payload.source)
+    && typeof payload.settingMs === 'number' && Number.isFinite(payload.settingMs) && payload.settingMs >= -1000 && payload.settingMs <= 1000;
   if (command === 'capture.player') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'player.search') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && Object.keys(payload).every(key => ['query', 'offset', 'limit', 'filters'].includes(key))
@@ -170,6 +182,10 @@ function validCommand(command, payload, widgetIds) {
   if (command === 'widget.fontSize') return Number.isSafeInteger(payload.revision) && payload.revision >= 0
     && widgetIds.includes(payload.id) && typeof payload.fontSize === 'number' && Number.isFinite(payload.fontSize) && payload.fontSize >= 8 && payload.fontSize <= 200
     && Object.keys(payload).every(key => ['revision', 'id', 'fontSize'].includes(key));
+  if (command === 'widget.accuracy') {
+    if (!Number.isSafeInteger(payload.revision) || payload.revision < 0 || !widgetIds.includes(payload.id) || Object.keys(payload).some(key => !['revision','id','config'].includes(key))) return false;
+    try { require('./dist/widgets/core/Gameplay/AccuracyConfig.js').validateAccuracyConfig(payload.config); return true; } catch { return false; }
+  }
   if (command === 'downloads.enqueue') return typeof payload.chartId === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/.test(payload.chartId) && Object.keys(payload).every(key => key === 'chartId');
   if (command === 'catalogue.favorite') return Object.keys(payload).length === 2 && Object.keys(payload).every(key => ['chartId', 'favorite'].includes(key))
     && typeof payload.chartId === 'string' && /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/.test(payload.chartId) && typeof payload.favorite === 'boolean';

@@ -7,6 +7,7 @@ import type { ThemeSettings } from '../themes/types.js';
 import { createDefaultTheme, validateTheme } from '../themes/ThemeService.js';
 import { validateWidgetStyle } from '../themes/ThemeResolver.js';
 import { normalizeColor } from '../themes/normalizeColor.js';
+import { validateAccuracyConfig } from '../widgets/core/Gameplay/AccuracyConfig.js';
 import { createDefaultStream, validateStream, type StreamSettings } from '../overlay/stream/StreamConfig.js';
 
 export interface SettingsDocument { version: 3; widgets: WidgetInstance[]; theme: ThemeSettings; stream: StreamSettings; }
@@ -33,6 +34,7 @@ export function validateSettings(value: unknown): SettingsDocument {
     if (typeof w.enabled !== 'boolean' || !record(w.position) || !number(w.position.x, 0, 8192) || !number(w.position.y, 0, 8192) || !record(w.size) || !number(w.size.width, 1, 8192) || !number(w.size.height, 1, 8192) || !record(w.visibility) || typeof w.visibility.game !== 'boolean' || typeof w.visibility.stream !== 'boolean') throw Error('Disposition de widget invalide.');
     if (w.gameplayVisibility !== undefined && (!Array.isArray(w.gameplayVisibility) || w.gameplayVisibility.length > 6 || w.gameplayVisibility.some(s => !states.includes(s as GameplayState)))) throw Error('Visibilité de widget invalide.');
     if (!record(w.style) || !record(w.config)) throw Error('Configuration de widget invalide.');
+    if (w.type === 'gameplay.accuracy') validateAccuracyConfig(w.config);
     const style = validateWidgetStyle(w.style);
     if (value.version === 1 && w.style.colorMode === undefined) {
       const legacyColor = Object.hasOwn(legacyColors, w.type) ? normalizeColor(legacyColors[w.type]!) : null;

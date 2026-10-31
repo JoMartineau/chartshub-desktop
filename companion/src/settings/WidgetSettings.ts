@@ -1,12 +1,8 @@
 import type { WidgetInstance } from '../core/types/Widget.js';
+import { widgetLabel } from '../widgets/engine/WidgetLabels.js';
+import { ACCURACY_FIELDS, validateAccuracyConfig, type AccuracyField, type AccuracyConfig } from '../widgets/core/Gameplay/AccuracyConfig.js';
 
-const labels: Record<string, string> = {
-  'song.title': 'Titre du morceau',
-  'song.artist': 'Artiste',
-  'song.charter': 'Créateur de la chart',
-  'song.instrument': 'Instrument',
-  'song.difficulty': 'Difficulté',
-};
+interface AccuracyControls { fields: Map<AccuracyField, HTMLInputElement>; title: HTMLInputElement; coverage: HTMLInputElement; saved: AccuracyConfig; }
 
 interface SettingRow {
   element: HTMLDivElement;
@@ -19,6 +15,7 @@ interface SettingRow {
   feedback: HTMLParagraphElement;
   savedFontSize: number;
   dirty: boolean;
+  accuracy?: AccuracyControls;
 }
 
 interface FontSizeChange { revision: number; id: string; fontSize: number; }
@@ -35,6 +32,7 @@ export class WidgetSettings {
     private readonly container: HTMLElement,
     private readonly onToggle: (id: string, enabled: boolean) => void,
     private readonly onFontSize?: (change: FontSizeChange) => Promise<unknown>,
+    private readonly onAccuracy?: (change: { revision: number; id: string; config: AccuracyConfig }) => Promise<unknown>,
   ) {}
 
   render(instances: readonly WidgetInstance[], revision = 0): void {
@@ -49,6 +47,7 @@ export class WidgetSettings {
     }
     for (const instance of instances) {
       let row = this.rows.get(instance.id);
+      if (row && Boolean(row.accuracy) !== (instance.type === 'gameplay.accuracy')) { row.element.remove(); this.rows.delete(instance.id); row = undefined; }
       if (!row) {
         const document = this.container.ownerDocument;
         const signal = this.abort.signal;
@@ -88,6 +87,18 @@ export class WidgetSettings {
         row = { element, checkbox, name, destination, fontSize, decrease, increase, feedback, savedFontSize: 20, dirty: false };
         this.rows.set(instance.id, row);
         const setting = row;
+        if (instance.type === 'gameplay.accuracy') {
+          const choices = document.createElement('fieldset'); choices.className = 'widget-accuracy-fields'; choices.dataset.widgetAccuracyFields = instance.id;
+          const legend = document.createElement('legend'); legend.textContent = 'Valeurs affichées dans Accuracy'; choices.append(legend);
+          const fields = new Map<AccuracyField, HTMLInputElement>();
+          const choice = (key: string, label: string) => { const line = document.createElement('label'), input = document.createElement('input'); input.type = 'checkbox'; input.dataset.accuracyField = key; const name = document.createElement('span'); name.textContent = label; line.append(input, name); choices.append(line); input.addEventListener('change', () => { void this.commitAccuracy(instance.id); }, { signal }); return input; };
+          const names = ['Dernier décalage', 'Moyenne signée', 'Écart absolu moyen', 'Dispersion', 'Dans la fenêtre ±', 'Nombre de jugements'];
+          ACCURACY_FIELDS.forEach((key, index) => fields.set(key, choice(key, names[index]!)));
+          const title = choice('showTitle', 'Afficher le titre Accuracy'), coverage = choice('showCoverage', 'Afficher la couverture des mesures');
+          setting.accuracy = { fields, title, coverage, saved: validateAccuracyConfig(instance.config) };
+          const hint = document.createElement('p'); hint.className = 'helper-text'; hint.textContent = 'Pour deux lignes : gardez Dernier et Moyenne, puis décochez le titre et la couverture. Les réglages s’appliquent à Jeu et OBS.'; choices.append(hint);
+          element.append(choices);
+        }
         fontSize.addEventListener('input', () => { setting.dirty = true; this.feedback(setting); this.availability(); }, { signal });
         fontSize.addEventListener('change', () => { void this.commit(instance.id); }, { signal });
         fontSize.addEventListener('blur', () => { if (setting.dirty) void this.commit(instance.id); }, { signal });
@@ -103,15 +114,20 @@ export class WidgetSettings {
         this.container.append(element);
       }
       row.checkbox.checked = instance.enabled;
-      row.name.textContent = labels[instance.type] ?? instance.type;
+      row.name.textContent = widgetLabel(instance.type);
       row.destination.textContent = instance.visibility.game ? 'Jeu' : 'Masqué';
       row.destination.title = instance.visibility.game ? 'Destination : overlay du jeu' : 'Non affiché dans le jeu';
       const fontSize = instance.style.fontSize;
-      row.savedFontSize = typeof fontSize === 'number' && Number.isFinite(fontSize) ? Math.min(200, Math.max(8, fontSize)) : 20;
+      row.savedFontSize = typeof fontSize === 'number' && Number.isFinite(fontSize) ? Math.min(200, Math.max(8, fontSize)) : instance.type === 'gameplay.accuracy' ? 16 : 20;
       if (!row.dirty && this.container.ownerDocument.activeElement !== row.fontSize) row.fontSize.value = String(row.savedFontSize);
       row.fontSize.setAttribute('aria-label', `Taille du texte · ${row.name.textContent}`);
       row.decrease.setAttribute('aria-label', `Réduire le texte · ${row.name.textContent}`);
       row.increase.setAttribute('aria-label', `Agrandir le texte · ${row.name.textContent}`);
+      if (row.accuracy) {
+        const config = row.accuracy.saved = validateAccuracyConfig(instance.config);
+        for (const [field,input] of row.accuracy.fields) input.checked = config.fields.includes(field);
+        row.accuracy.title.checked = config.showTitle; row.accuracy.coverage.checked = config.showCoverage;
+      }
     }
     this.availability();
   }
@@ -135,6 +151,11 @@ export class WidgetSettings {
       row.fontSize.readOnly = this.busy || !this.onFontSize;
       row.decrease.disabled = this.busy || !this.onFontSize || value <= 8;
       row.increase.disabled = this.busy || !this.onFontSize || value >= 200;
+      if (row.accuracy) {
+        const count = [...row.accuracy.fields.values()].filter(input => input.checked).length;
+        for (const input of row.accuracy.fields.values()) input.disabled = this.busy || !this.onAccuracy || count === 1 && input.checked;
+        row.accuracy.title.disabled = row.accuracy.coverage.disabled = this.busy || !this.onAccuracy;
+      }
     }
   }
 
@@ -166,6 +187,27 @@ export class WidgetSettings {
     } finally {
       this.busy = false;
       if (!this.disposed) this.availability();
+    }
+  }
+
+  private async commitAccuracy(id: string): Promise<void> {
+    const row = this.rows.get(id), controls = row?.accuracy;
+    if (!row || !controls || this.disposed || this.busy || !this.onAccuracy) return;
+    const fields = [...controls.fields].filter(([,input]) => input.checked).map(([key]) => key);
+    if (!fields.length) { for (const [field,input] of controls.fields) input.checked = controls.saved.fields.includes(field); this.feedback(row, 'Gardez au moins une mesure.'); this.availability(); return; }
+    const config = validateAccuracyConfig({ fields, showTitle: controls.title.checked, showCoverage: controls.coverage.checked });
+    this.busy = true; this.feedback(row); this.availability();
+    try {
+      const result = await this.onAccuracy({ revision: this.revision, id, config });
+      if (!result || typeof result !== 'object' || !('ok' in result) || result.ok !== true) this.feedback(row, 'Les valeurs affichées n’ont pas été enregistrées. Réessayez.');
+    } catch { if (!this.disposed) this.feedback(row, 'Les valeurs affichées n’ont pas été enregistrées. Réessayez.'); }
+    finally {
+      this.busy = false;
+      if (!this.disposed) {
+        for (const [field,input] of controls.fields) input.checked = controls.saved.fields.includes(field);
+        controls.title.checked = controls.saved.showTitle; controls.coverage.checked = controls.saved.showCoverage;
+        this.availability();
+      }
     }
   }
 

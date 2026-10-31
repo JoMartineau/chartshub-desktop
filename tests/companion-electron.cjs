@@ -575,7 +575,7 @@ app.whenReady().then(async () => {
     passed.push('isolated local renderer, no Node or catalogue bridge');
     await click('#step-mock'); await waitFor(() => evaluate("document.body.dataset.gameplayState === 'loading'"), 'mock loading'); assert.equal(await count(), 0);
     await click('#step-mock'); await waitFor(async () => (await count()) === 5, 'mock playing');
-    for (const value of ['Everlong', 'Foo Fighters', 'ExampleCharter', 'Guitar', 'Expert']) assert.ok(await evaluate(`document.querySelector('#game-preview').textContent.includes(${JSON.stringify(value)})`));
+    for (const value of ['Signal d’aurore', 'Groupe Exemple', 'Charter Démo', 'Guitar', 'Expert']) assert.ok(await evaluate(`document.querySelector('#game-preview').textContent.includes(${JSON.stringify(value)})`));
     passed.push('deterministic next buttons and all five values rendered');
     await delay(180);
     await fs.writeFile(path.join(data, 'companion-playing.png'), (await panel.webContents.capturePage()).toPNG());
@@ -620,7 +620,7 @@ app.whenReady().then(async () => {
       const el=document.createElement('div');new WidgetRenderer(broken).render(el,snapshot.state);
       return [...el.querySelectorAll('.companion-widget')].map(node=>node.textContent);
     })()`);
-    assert.equal(fault.length, 3); assert.ok(fault.includes('Everlong')); assert.ok(!fault.includes('ExampleCharter'));
+    assert.equal(fault.length, 3); assert.ok(fault.includes('Signal d’aurore')); assert.ok(!fault.includes('Charter Démo'));
     passed.push('injected Charter failure leaves every other enabled DOM widget working');
     await verifyBuilder(panel, host);
     await verifyThemes(panel, host);

@@ -214,7 +214,13 @@ test('panel appearance remains independent, rejects unsafe colors and flushes on
   assert.equal((await f.invoke(mini, 'panels.appearance', { revision: 0, panel: 'catalogue', appearance })).code, 'STALE_FLOATING_PANELS');
   const revision = f.host.snapshot().floatingPanels.revision;
   for (const color of ['url(https://outside)', 'red;display:none', 'var(--user-controlled)']) assert.equal((await f.invoke(panel, 'panels.appearance', { revision, panel: 'catalogue', appearance: { ...appearance, backgroundColor: color } })).ok, false);
-  assert.deepEqual(f.host.snapshot().state, initial);
+  const current = f.host.snapshot().state;
+  const initialDuration = initial.performance.session.durationSeconds, currentDuration = current.performance.session.durationSeconds;
+  assert.ok(Number.isFinite(initialDuration) && initialDuration >= 0, 'the initial session clock is a finite nonnegative duration');
+  assert.ok(Number.isFinite(currentDuration) && currentDuration >= initialDuration, 'the session clock advances monotonically while appearance is edited');
+  const comparable = structuredClone(current);
+  comparable.performance.session.durationSeconds = initialDuration;
+  assert.deepEqual(comparable, initial, 'appearance must preserve every other state field');
   await f.host.stop();
   const stored = JSON.parse(await fs.readFile(path.join(f.directory, 'floating-panels.json'), 'utf8'));
   assert.equal(stored.appearance.catalogue.fontSize, 18); assert.equal(stored.appearance.filters.fontSize, 14);
