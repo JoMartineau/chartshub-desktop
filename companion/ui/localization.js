@@ -147,6 +147,7 @@
     ['Ce compteur concerne uniquement la source des widgets. Le fond et la vidéo utilisent leurs propres URL ci-dessous.','This counter only tracks the widget source. The background and video use their own URLs below.'],
     ['Résolution','Resolution'],['Images / seconde','Frames / second'],['Port local','Local port'],['Appliquer les réglages','Apply settings'],['Réglages enregistrés.','Settings saved.'],
     ['Widgets dans le Stream','Widgets in Stream'],['Source navigateur','Browser Source'],
+    [', collez cette URL et reprenez la largeur et la hauteur ci-dessus. Le fond est transparent. Laissez ChartsHub ouvert pendant la diffusion.', ', paste this URL and use the width and height shown above. The background is transparent. Keep ChartsHub open while streaming.'],
     ['Thèmes et couleurs','Themes and colors'],['Apparence de l’overlay uniquement','Overlay appearance only'],['Thème global','Global theme'],['Preset','Preset'],['Restaurer ce thème','Restore this theme'],
     ['Lueur du texte','Text glow'],['Activer la lueur','Enable glow'],['Diffusion','Spread'],['Dégradé du texte','Text gradient'],['Activer le dégradé','Enable gradient'],
     ['Début','Start'],['Fin','End'],['Angle','Angle'],['Appliquer les effets','Apply effects'],['Aperçu du thème','Theme preview'],['Données de démonstration','Demo data'],

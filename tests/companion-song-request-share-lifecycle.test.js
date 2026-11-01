@@ -24,7 +24,7 @@ function clock(){let now=0,next=0;const jobs=new Map();return {
 function fixture({status,publish,remove,prepare}={}){
  const calls=[],cancelled=[],rules={maxDurationMinutes:null,instrument:'all',difficulty:'all'},scope={rootKey:'a'.repeat(64),revision:1},time=clock();
  const libraryState={status:'ready',count:1,settings:{watch:false,refreshOnStart:true}},items=[{id:'b'.repeat(64),fingerprint:'original',title:'Synthetic song',artist:'Synthetic artist',charter:'Synthetic charter'}];
- let preparationCancelled=0,watched=0,visualStops=0;
+ let preparationCancelled=0,watched=0,visualStops=0,gameWidgetUpdates=0,gameModPreflightStops=0;
  const catalogue={cancelSearch:(scope,clear)=>cancelled.push({scope,clear})};
  const sharingClient={capture:async()=>({userId:'opaque-test-owner',generation:1}),status:status??(async()=>({url:null,count:0,updatedAt:null})),
   publish:async(...args)=>{calls.push('PUT');return publish?publish(...args):{url:'https://chartshub.test/new',count:1,updatedAt:'2026-10-10T00:00:00.000Z'};},
@@ -33,7 +33,7 @@ function fixture({status,publish,remove,prepare}={}){
   configure:async value=>{Object.assign(libraryState.settings,value);watched++;},cancelLibrarySharing:async()=>{preparationCancelled++;},
   requestLibraryForSharing:prepare??(async()=>({songs:items.map(({fingerprint,...item})=>item),...scope,unavailableCount:0}))};
  const songRequests={snapshot:()=>({rules:structuredClone(rules)})};
- const create=new vm.Script(`(function(sharingClient,library,songRequests,catalogue,songVisuals){
+ const create=new vm.Script(`(function(sharingClient,library,songRequests,catalogue,songVisuals,gameWidgetIntegrations,gameModPreflight){
   let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0;
   let unifiedChat=null,songRequestConnections=null,songRequestDiscovery=null,sessionActivity=null,sessionWidgetSettings={},sessionWidgetRevision=0;
   const activityDownloadScopes=new Map();
@@ -48,7 +48,10 @@ function fixture({status,publish,remove,prepare}={}){
    close:()=>{disposing=true;hostActive=false;lifecycleRevision++;songRequestShareRevision++;songRequestShareController?.abort();songRequestShare.busy=false;return songRequestShareSync.pause();}};
  })`,{filename:'companion/host.cjs share orchestration'}).runInNewContext({structuredClone,AbortController,songRequestShareKey,
   createSongRequestShareSync:options=>createSongRequestShareSync({...options,...time}),shareErrorCode:require('../companion/song-request-share-contract.cjs').shareErrorCode});
- return {host:create(sharingClient,library,songRequests,catalogue,{stop(){visualStops++;}}),calls,cancelled,scope,rules,time,items,libraryState,watched:()=>watched,preparationCancelled:()=>preparationCancelled,visualStops:()=>visualStops};
+ return {host:create(sharingClient,library,songRequests,catalogue,{stop(){visualStops++;}},
+  {update(){gameWidgetUpdates++;}}, {stop(){gameModPreflightStops++;}}),
+  calls,cancelled,scope,rules,time,items,libraryState,watched:()=>watched,preparationCancelled:()=>preparationCancelled,visualStops:()=>visualStops,
+  gameWidgetUpdates:()=>gameWidgetUpdates,gameModPreflightStops:()=>gameModPreflightStops};
 }
 
 test('an old status response cannot overwrite a successful explicit removal',async()=>{
@@ -86,8 +89,12 @@ test('account invalidation removes cached share capabilities and ignores the old
  await f.host.change();assert.equal(f.host.state().url,'https://chartshub.test/new');
  const refreshing=f.host.refresh();f.host.available(false);assert.equal(f.host.state().url,null);assert.equal(f.host.state().count,0);
  assert.equal(f.visualStops(),1,'account invalidation revokes the injected visual source');
+ assert.equal(f.gameWidgetUpdates(),1,'account invalidation rechecks the optional widget session context');
+ assert.equal(f.gameModPreflightStops(),1,'account invalidation revokes a pending optional-module diagnostic');
  assert.deepEqual(f.cancelled,[{scope:'panel',clear:true},{scope:'widget',clear:true}]);
  f.host.available(true);await new Promise(resolve=>setImmediate(resolve));assert.equal(f.host.state().url,'https://chartshub.test/new-owner');
+ assert.equal(f.gameWidgetUpdates(),2,'revalidated access rechecks context without activating a source');
+ assert.equal(f.gameModPreflightStops(),1,'revalidated access does not restart or repeat a diagnostic');
  old.resolve({url:'https://chartshub.test/old-owner',count:9,updatedAt:'2026-10-09T00:00:00.000Z'});await refreshing;
  assert.equal(f.host.state().url,'https://chartshub.test/new-owner');assert.equal(f.host.state().error,null);
 });

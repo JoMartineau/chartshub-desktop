@@ -48,3 +48,43 @@ test('fatal native editor, discovery and note errors clear running audio before 
   for(let tick=0;tick<20;tick++)f.service.status();assert.equal(f.children.length,1,'snapshots must not restart a failed audio process');
  }
 });
+
+test('Stop cancels opening a saved editor before asynchronous file checks can start a helper',async t=>{
+ const base=await fixture(t);const preferences={load:async()=>({version:1,pluginPath:base.instrument,settings:defaultSettings(),canWrite:true}),save:async()=>{throw Error('Editor must not save preferences');},flush:async()=>{}};
+ const f=await fixture(t,{preferences});
+ const opening=f.service.command('drums.editor',{open:true});const rejected=assert.rejects(opening,{code:'DRUM_CANCELLED'});
+ await f.service.command('drums.stop',{});await rejected;
+ assert.equal(f.children.length,0,'Stop must prevent a delayed helper launch after the user cancelled');
+ assert.equal(f.service.status().busy,false);assert.equal(f.service.status().phase,'stopped');
+});
+
+test('an acknowledged Stop releases an unanswered editor without waiting for its ten-second timeout',async t=>{
+ let editorEntered;const entered=new Promise(resolve=>editorEntered=resolve);
+ const f=await fixture(t,{onRequest(req){if(req.command==='editor'){editorEntered();return true;}}});
+ await f.service.command('drums.choosePlugin',{});
+ const opening=f.service.command('drums.editor',{open:true});const rejected=assert.rejects(opening,{code:'DRUM_CANCELLED'});await entered;
+ await f.service.command('drums.stop',{});await Promise.resolve();await Promise.resolve();
+ assert.equal(f.service.status().busy,false,'Stop already returned but the editor kept every setting locked');
+ await rejected;assert.notEqual(f.service.status().phase,'running');
+});
+
+test('an old cancelled editor cannot unlock or terminate a newer explicit device action',async t=>{
+ let deviceReply;const base=await fixture(t);const preferences={load:async()=>({version:1,pluginPath:base.instrument,settings:defaultSettings(),canWrite:true}),save:async()=>{},flush:async()=>{}};
+ const f=await fixture(t,{preferences,onRequest(req,reply){if(req.command==='devices'){deviceReply=reply;return true;}}});
+ const opening=f.service.command('drums.editor',{open:true});const cancelled=assert.rejects(opening,{code:'DRUM_CANCELLED'});
+ await f.service.command('drums.stop',{});
+ const discovering=f.service.command('drums.refreshDevices',{});while(!deviceReply)await pause(1);await cancelled;
+ assert.equal(f.service.status().busy,true);assert.equal(f.service.status().operation,'devices');assert.equal(f.children.length,1);assert.equal(f.children[0].killed,false);
+ deviceReply({audio:[],midi:[],xinput:[]});await discovering;assert.equal(f.service.status().busy,false);
+});
+
+test('Stop during an accepted atomic settings save keeps the serialization lock and saved instrument identity',async t=>{
+ const f=await fixture(t);let release,entered;const ready=new Promise(resolve=>entered=resolve),save=f.preferences.save;
+ f.preferences.save=async value=>{entered();await new Promise(resolve=>release=resolve);await save(value);};
+ const choosing=f.service.command('drums.choosePlugin',{});await ready;
+ await f.service.command('drums.stop',{});assert.equal(f.service.status().busy,true);assert.equal(f.service.status().operation,'configure');
+ await assert.rejects(f.service.command('drums.configure',{revision:0,settings:defaultSettings()}),{code:'DRUM_BUSY'});
+ release();await choosing;f.preferences.save=save;assert.equal(f.saved.pluginPath,f.instrument);assert.equal(f.service.status().plugin.loaded,true);assert.equal(f.service.status().busy,false);
+ const settings=defaultSettings();settings.source='manual';await f.service.command('drums.configure',{revision:1,settings});await f.service.command('drums.start',{});
+ assert.equal(f.calls.filter(call=>call.command==='load').at(-1).payload.path,f.instrument);
+});

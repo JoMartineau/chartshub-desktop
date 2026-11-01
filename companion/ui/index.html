@@ -9,6 +9,7 @@
   <link rel="stylesheet" href="./floating-panels-controls.css">
   <link rel="stylesheet" href="./music-player.css">
   <link rel="stylesheet" href="./quick-import-controls.css">
+  <link rel="stylesheet" href="./game-widget-controls.css">
   <link rel="stylesheet" href="./request-discovery-controls.css">
   <link rel="stylesheet" href="./unified-chat-controls.css">
   <link rel="stylesheet" href="./session-widget-controls.css">
@@ -241,7 +242,11 @@
       <div class="card-heading"><div><p class="eyebrow">FILE DE TÉLÉCHARGEMENTS</p><h2 id="downloads-title">Téléchargements</h2><span class="helper-text">Préparez les dossiers de charts depuis le catalogue ChartsHub.</span></div><span id="downloads-count" class="status-pill">0 téléchargement</span></div>
       <div class="downloads-content">
         <div class="downloads-folder-row"><div><span>Dossier des prochains téléchargements</span><code id="downloads-root">Aucun dossier sélectionné</code></div><button id="downloads-choose-root" class="button secondary" type="button" disabled>Choisir un dossier</button></div>
-        <section id="quick-import-panel" class="quick-import-panel" aria-label="Quick Import BETA" translate="no"></section>
+        <section id="game-integrations-panel" class="game-integrations-panel" aria-labelledby="game-integrations-title" translate="no">
+          <h3 id="game-integrations-title">Intégrations Clone Hero · BÊTA</h3>
+          <section id="quick-import-panel" class="quick-import-panel" aria-label="Quick Import BETA"></section>
+          <section id="game-widget-integrations" class="quick-import-panel" aria-label="Paroles et Accuracy BETA"></section>
+        </section>
         <p id="downloads-status" class="downloads-status" role="status">La file est vide.</p>
         <p id="downloads-error" class="downloads-feedback is-error" role="alert" hidden></p><p id="downloads-feedback" class="downloads-feedback" role="status" hidden></p>
         <div id="downloads-empty" class="downloads-empty"><strong>Ajoutez une chart depuis le catalogue</strong><p>Choisissez le dossier de destination, puis utilisez « Ajouter à la file » sur une chart téléchargeable.</p></div>

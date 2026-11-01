@@ -43,6 +43,9 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (command === 'gameWidgets.check') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && Number.isSafeInteger(payload.revision) && payload.revision >= 0;
+  if (command === 'gameWidgets.configure') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 3 && Object.keys(payload).every(key => ['revision','accuracy','lyrics'].includes(key)) && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && typeof payload.accuracy === 'boolean' && typeof payload.lyrics === 'boolean';
+  if (command === 'gameWidgets.openPackage' || command === 'gameWidgets.prerequisites') return payload == null || typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
   if (typeof command === 'string' && command.startsWith('quickImport.')) return require('./quick-import-service.cjs').validQuickImportCommand(command, payload);
   if (typeof command === 'string' && command.startsWith('drums.')) return require('./drum-vst-service.cjs').validDrumCommand(command, payload);
   if (command === 'telemetry.connectorChoose' || command === 'telemetry.connectorCancel') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);

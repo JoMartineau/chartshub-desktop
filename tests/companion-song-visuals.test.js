@@ -61,9 +61,13 @@ test('visual media Range and HEAD responses use actual bounded file bytes',async
 test('direct and worker library RPC resolve visuals only for a scanned immutable item',async t=>{
  const f=await fixture(t);await fs.writeFile(f.file('background.png'),png);
  for(const [index,create]of[createInstalledLibraryService,createBackgroundLibraryService].entries()){
-  const library=create({dataDirectory:path.join(f.data,String(index))});f.cleanup.push(library);await library.load();await library.selectRoot(f.root);await library.requestScan('full');await until(()=>library.status().status==='ready');
+  // selectRoot already starts its full scan. Queuing another scan creates an
+  // intermediate ready notification before that second scan, so a worker RPC
+  // sent at that boundary must correctly refuse access to the changing index.
+  const library=create({dataDirectory:path.join(f.data,String(index))});f.cleanup.push(library);await library.load();await library.selectRoot(f.root);await until(()=>library.status().status==='ready'&&library.matchingSnapshot().items.length===1);
   const id=library.matchingSnapshot().items[0]?.id;assert.ok(id);const p=await library.resolveVisualSong(id);assert.equal(p.background.kind,'background');assert.equal(p.video,null);assert.equal(p.revision,library.matchingSnapshot().revision);
-  await assert.rejects(library.resolveVisualSong('f'.repeat(64)));await library.stop();
+  await assert.rejects(library.resolveVisualSong('f'.repeat(64)),e=>e.code==='LIBRARY_MEDIA_SAFE');
+  await fs.appendFile(f.file('background.png'),'changed');await assert.rejects(library.resolveVisualSong(id),e=>e.code==='LIBRARY_MEDIA_SAFE');await library.stop();await fs.writeFile(f.file('background.png'),png);
  }
 });
 test('only real current song metadata selects one exact charter and never mock metadata',async t=>{

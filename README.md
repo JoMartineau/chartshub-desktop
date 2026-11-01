@@ -41,6 +41,14 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.37
+
+**Intégrations Clone Hero · BÊTA** regroupe Quick Import, Accuracy et les paroles synchronisées, avec une seule installation MelonLoader partagée. Chaque fonction reste indépendante et désactivée à l’ouverture de ChartsHub. Un diagnostic à la demande vérifie la version exacte du jeu, le chargeur, le module et les prérequis avant l’installation. Compatibilité validée : **Clone Hero 1.1.0.6142-final Stable · Windows x64**. [Notes 0.14.37](docs/RELEASE-0.14.37.md) · [Installation et retrait du module des widgets](game-widgets-mod/README.md).
+
+Le catalogue distingue maintenant la maintenance du site d’une limite de recherche ChorusEncore : la recherche peut être relancée après la réouverture du site, sans conserver une attente artificielle. Les limites réellement imposées par le service sont respectées.
+
+L’Input Viewer propose des compteurs par bouton, une remise à zéro manuelle et, avec le module des widgets actif, des options d’affichage au début du morceau et de remise à zéro à sa fin. Le correctif VST rétablit les mises à jour de l’éditeur et permet d’annuler une ouverture restée en attente. [Guide Input Viewer](docs/INPUT-VIEWER.md).
+
 ### Version 0.14.36
 
 **Quick Import · BÊTA** propose l’ajout des nouvelles charts téléchargées sans scan complet, avec une connexion facultative et des étapes numérotées. Compatible et testé avec **Clone Hero 1.1.0.6142-final Stable sous Windows x64**, avec module Quick Import et MelonLoader. Les autres versions ne sont pas validées. L’option reste désactivée au démarrage ; les téléchargements et les autres widgets fonctionnent sans elle. [Guide](docs/QUICK-IMPORT.md) · [Notes 0.14.36](docs/RELEASE-0.14.36.md).
@@ -51,7 +59,7 @@ Le nouvel espace **Batterie / VST** permet de jouer un instrument VST3 x64 sous 
 
 ### Widgets et sorties conservés
 
-Les widgets du morceau se règlent séparément pour Jeu et Stream et ne nécessitent pas MelonLoader. Le connecteur de mesures et l’assistant de calibration sont retirés de la version publique ; Quick Import est une intégration facultative distincte. Stream / OBS fournit des captures recadrées de la highway, du score et des paroles réellement affichées par le jeu : choisissez sa fenêtre puis démarrez explicitement la capture. Le fond reste présent dans chaque zone ; la séparation transparente des éléments natifs est indisponible. Le texte des paroles locales et la vidéo ne peuvent pas se synchroniser sans une horloge de jeu compatible. Un Input Viewer personnalisable pour guitare et batterie propose une détection Windows XInput, douze styles, six effets de trails, cymbales, étoile Star Power, couleurs indépendantes et alignement sur une grille dont l’aimantation peut être désactivée. Son éditeur opaque explique l’association des touches ; un widget compact se place au-dessus du jeu et une source Navigateur OBS utilise un lien dédié. Il fonctionne sans accès aux données du jeu. [Mode d’emploi](docs/INPUT-VIEWER.md). [Notes et limites de la version](docs/RELEASE-0.14.34.md).
+Les widgets du morceau se règlent séparément pour Jeu et Stream. Les widgets ordinaires ne nécessitent pas MelonLoader ; Accuracy et les paroles synchronisées utilisent le module facultatif décrit ci-dessus. L’assistant de calibration reste retiré de la version publique. Stream / OBS fournit aussi des captures recadrées de la highway, du score et des paroles réellement affichées par le jeu : choisissez sa fenêtre puis démarrez explicitement la capture. Le fond reste présent dans chaque zone ; la séparation transparente des éléments natifs est indisponible. La vidéo du morceau et le texte des paroles locales nécessitent une horloge de jeu compatible pour se synchroniser. Un Input Viewer personnalisable pour guitare et batterie propose une détection Windows XInput, douze styles, six effets de trails, cymbales, étoile Star Power, couleurs indépendantes et alignement sur une grille dont l’aimantation peut être désactivée. Son éditeur opaque explique l’association des touches ; un widget compact se place au-dessus du jeu et une source Navigateur OBS utilise un lien dédié. Il fonctionne sans accès aux données du jeu. [Mode d’emploi](docs/INPUT-VIEWER.md). [Notes et limites de la version](docs/RELEASE-0.14.34.md).
 
 ### Version 0.14.8
 

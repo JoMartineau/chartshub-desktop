@@ -13,7 +13,7 @@ function fixture() {
 test('output requires the product schema/sampler and starts empty without input or profile access', () => {
   assert.throws(() => createInputViewerOutputState(), /model and clock/);
   const {state} = fixture();
-  assert.deepEqual(state.snapshot(), { version:1, revision:0, phase:'stopped', config:null, pressed:{} });
+  assert.deepEqual(state.snapshot(), { version:1, revision:0, phase:'stopped', config:null, pressed:{}, counts:{} });
   assert.equal(state.updateGamepad({connected:true}), false); assert.equal(state.updatePressed({fret0:true}), false);
 });
 
@@ -21,7 +21,7 @@ test('canonical config is isolated and output snapshots contain only display fie
   const {state} = fixture(), original = plain(model.preset());
   original.controls[0].mapping = {kind:'button', index:11, direction:1, threshold:.5, key:'KeyQ'};
   const first = state.configure(original);
-  assert.deepEqual(Object.keys(first.config).sort(), ['background','bloom','controls','height','renderStyle','showNames','trails','width'].sort());
+  assert.deepEqual(Object.keys(first.config).sort(), ['background','bloom','controls','height','renderStyle','showNames','showCounts','trails','width'].sort());
   assert.equal(first.config.controls[0].mapping, undefined); assert.equal(first.config.source, undefined); assert.equal(first.config.deadzone, undefined);
   assert.equal(first.config.grid, undefined); assert(!/mapping|KeyQ|deviceId|axes|buttons/.test(JSON.stringify(first)));
   original.controls[0].x = 900; original.controls[0].palette.idle = '#000000';

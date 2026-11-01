@@ -135,6 +135,8 @@ int run() {
   DWORD mainThread = GetCurrentThreadId();
   MSG msg{};
   PeekMessage(&msg, nullptr, WM_USER, WM_USER, PM_NOREMOVE);
+  const UINT_PTR hostTimer = SetTimer(nullptr, 0, 100, nullptr);
+  require(hostTimer != 0, "host_timer_failed");
   std::mutex queueMutex;
   std::deque<std::string> queue;
   std::atomic<bool> read{true};
@@ -169,7 +171,6 @@ int run() {
     }
     PostThreadMessage(mainThread, eofMessage, 0, 0);
   });
-  SetTimer(nullptr, 1, 100, nullptr);
   output({{"schema", 1}, {"event", "status"}, {"phase", "stopped"}});
   bool quitting = false;
   while (!quitting && GetMessage(&msg, nullptr, 0, 0) > 0) {
@@ -263,7 +264,10 @@ int run() {
       }
     } else if (msg.message == eofMessage) {
       quitting = true;
-    } else if (msg.message == WM_TIMER) {
+    } else if (msg.message == WM_TIMER && msg.hwnd == nullptr && msg.wParam == hostTimer) {
+      // Consume only our thread timer. Plug-in HWND timers and unrelated
+      // TimerProc callbacks must reach DispatchMessage to keep editor controls,
+      // pad-release animations and settings windows responsive.
       host.pollController();
       auto error = engine.takeError();
       if (!error.empty()) {
@@ -281,6 +285,7 @@ int run() {
       DispatchMessage(&msg);
     }
   }
+  KillTimer(nullptr, hostTimer);
   engine.stop();
   read = false;
   CancelSynchronousIo(reader.native_handle());

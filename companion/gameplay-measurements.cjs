@@ -1,7 +1,6 @@
 'use strict';
-// Public builds retain ordinary widgets without loading the experimental
-// provider, game installer or hardware probe. Only an explicit local Host
-// option enables their factories; no saved preference can enable them.
+// The legacy private experiment remains separate from the optional public
+// Accuracy/lyrics reader. Public availability never loads calibration or setup.
 function loadMeasurementFactories(enabled, load = require) {
   if (enabled !== true) return null;
   const { createTelemetrySource } = load('./clonehero-telemetry-source.cjs');
@@ -12,12 +11,17 @@ function loadMeasurementFactories(enabled, load = require) {
   }
   return Object.freeze({ createTelemetrySource, createCalibrationHardware, createConnectorSetup });
 }
+function loadGameWidgetFactories(load = require) {
+  const { createTelemetrySource } = load('./clonehero-telemetry-source.cjs');
+  if (typeof createTelemetrySource !== 'function') throw Error('Optional game widget reader unavailable');
+  return Object.freeze({ createTelemetrySource });
+}
 // Electron Packager normalizes ignored paths to a leading forward slash.
-// Source fixtures may still test these files; public distributions omit them.
+// Source fixtures may still test the retired files; public distributions omit
+// all calibration/hardware/old setup assets. Only the read-only consumer ships.
 const publicMeasurementBundleIgnore = Object.freeze([
   /^\/companion\/connector-assets(?:\/|$)/,
   /^\/companion\/connector-setup(?:-download|-payload)?\.cjs$/,
-  /^\/companion\/calibration-hardware(?:-windows\.ps1|\.cjs)$/,
-  /^\/companion\/clonehero-telemetry-(?:source|model)\.cjs$/
+  /^\/companion\/calibration-hardware(?:-windows\.ps1|\.cjs)$/
 ]);
-module.exports = { loadMeasurementFactories, publicMeasurementBundleIgnore };
+module.exports = { loadMeasurementFactories, loadGameWidgetFactories, publicMeasurementBundleIgnore };

@@ -67,7 +67,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
   const received = [], sent = [], events = [], providers = {};
   const state = { enabled: false, rules: { ...rules }, requests: [] };
   const libraryState = { status: 'ready', count: 1, revision: 1 };
-  const stopped = { bridge: 0, twitch: 0, tiktok: 0, flush: 0, telemetry: 0, visuals: 0, capture: 0, inputViewer: 0, visualUpdates: 0, drums: 0, quickImport: 0 };
+  const stopped = { bridge: 0, twitch: 0, tiktok: 0, flush: 0, telemetry: 0, visuals: 0, capture: 0, inputViewer: 0, visualUpdates: 0, drums: 0, quickImport: 0, gameWidgets: 0, gameModPreflight: 0 };
   let bridgeEnabled = false, bridgeError = null;
   const bridge = {
     status: () => ({ enabled: bridgeEnabled, port: 38474, error: bridgeError }),
@@ -95,6 +95,8 @@ function fixture({ save, start, consent = false, receive } = {}) {
     providers[platform] = transport; return transport;
   };
   const adapters = {
+    gameWidgetIntegrations: { update() {}, stop() { stopped.gameWidgets++; events.push('game-widgets-stop'); } },
+    gameModPreflight: { stop() { stopped.gameModPreflight++; events.push('game-mod-preflight-stop'); } },
     quickImport: { update() {}, async stop() { stopped.quickImport++; events.push('quick-import-stop'); } },
     drums: { async stop() { stopped.drums++; events.push('drums-stop'); } },
     telemetry: { stop() { stopped.telemetry++; events.push('telemetry-stop'); } },
@@ -114,7 +116,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
     createSongRequestServer: options => { bridge.receive = options.receive; return bridge; }
   };
   const create = new vm.Script(`(function(adapters) {
-    const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer,telemetry,songVisuals,gameCapture,inputViewer,updateVisuals,drums,quickImport}=adapters;
+    const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer,telemetry,songVisuals,gameCapture,inputViewer,updateVisuals,drums,quickImport,gameWidgetIntegrations,gameModPreflight}=adapters;
     let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0,songRequestBusy=false,maintenanceLocked=false;
     let songRequestServer=null,songRequestConnections=null,songRequestShareBroker=null,songRequestDiscovery=null,unifiedChat=null;
     let sessionActivity=null,sessionWidgetSettings={},sessionWidgetRevision=0;
@@ -160,6 +162,10 @@ test('native reception remains usable when the optional localhost bridge port is
   const closing = f.host.stop();
   assert.equal(f.host.stop(), closing, 'overlapping lifecycle stops share the same task');
   await closing;
+  assert.equal(f.stopped.gameWidgets, 1, 'overlapping stops revoke the optional widget session once');
+  assert.equal(f.stopped.gameModPreflight, 1, 'overlapping stops revoke the read-only module diagnostic once');
+  assert.deepEqual(f.events.filter(event => ['game-widgets-stop','game-mod-preflight-stop','telemetry-stop'].includes(event)),
+    ['game-widgets-stop','game-mod-preflight-stop','telemetry-stop'], 'the lifecycle revokes both optional capabilities before the underlying source');
   assert.equal(f.stopped.telemetry, 1, 'the extracted lifecycle stops the injected telemetry source exactly once');
   assert.equal(f.events.filter(event => event === 'telemetry-stop').length, 1);
   assert.equal(f.stopped.visuals, 1, 'overlapping stops revoke the injected visual source once');

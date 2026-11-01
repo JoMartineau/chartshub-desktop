@@ -146,3 +146,28 @@ test('pending output opens cannot resurrect after hide, stopped outputs revoke a
  await assert.rejects(service.showOutput({editing:true}),/Synthetic load failure/);const failed=f.windows.at(-1);assert.equal(failed.isDestroyed(),true);assert.equal(service.status().outputOpen,false);
  const restored=await service.showOutput({editing:true});assert.notEqual(restored,failed);assert.equal(restored.isVisible(),true);restored.webContents.emit('render-process-gone');assert.equal(restored.isDestroyed(),true);assert.equal(service.status().outputOpen,false);assert.equal(service.status().phase,'stopped');
 });
+
+test('counter snapshots and reset require the owned editor while chart events remain main-only',async t=>{
+ const f=fixture(),service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron});t.after(()=>service.dispose());const editor=await service.open(),invoke=(name,payload={})=>f.handlers.get(CHANNEL)(f.event(editor),name,payload);
+ await invoke('configure',{config:model.preset()});assert.equal((await invoke('counterSnapshot')).mode,'guitar');assert.equal((await invoke('resetCounts')).counts.fret0,0);
+ for(const name of ['counterSnapshot','resetCounts']){assert.equal((await invoke(name,{counts:{fret0:99}})).ok,false);assert.equal((await f.handlers.get(CHANNEL)({sender:editor.webContents,senderFrame:{url:PAGE}},name,{})).ok,false);}
+ for(const name of ['confirmChartStart','confirmChartEnd'])assert.equal((await invoke(name,{id:'synthetic'})).ok,false);
+ assert.equal(service.status().phase,'stopped');assert.equal(f.windows.length,1);
+});
+
+test('confirmed chart starts are opt-in, require explicit reading and reuse the separate locked output once',async t=>{
+ const f=fixture(),service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron});t.after(()=>service.dispose());const editor=await service.open(),invoke=(name,payload={})=>f.handlers.get(CHANNEL)(f.event(editor),name,payload),config=plain(model.preset());
+ await invoke('configure',{config});assert.equal(await service.confirmChartStart('off'),false);config.autoShowOnChartStart=true;await invoke('configure',{config});assert.equal(await service.confirmChartStart('stopped'),false);assert.equal(f.windows.length,1);
+ await invoke('start');for(const id of ['',null,{},'bad/path'])assert.equal(await service.confirmChartStart(id),false);
+ assert.equal(await service.confirmChartStart('playing:1'),true);const output=service.getOutputWindow();assert.equal(output.ignoresMouse,true);assert.equal(service.status().outputEditing,false);assert.equal(f.windows.length,2);
+ service.hideOutput();assert.equal(await service.confirmChartStart('playing:1'),false);assert.equal(output.isVisible(),false);assert.equal(await service.confirmChartStart('playing:2'),true);assert.equal(service.getOutputWindow(),output);assert.equal(f.windows.length,2);assert.equal(service.status().phase,'running');
+});
+
+test('pending automatic output respects Stop, changed options and authorization guards after loading',async t=>{
+ for(const cancellation of ['stop','option','guard','active','throw']){
+  const f=fixture();let active=true,allowed=true;const service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron,active:()=>active});t.after(()=>service.dispose());const editor=await service.open(),invoke=(name,payload={})=>f.handlers.get(CHANNEL)(f.event(editor),name,payload),config=plain(model.preset());config.autoShowOnChartStart=true;await invoke('configure',{config});await invoke('start');
+  let release;f.load.nextOutput=()=>new Promise(resolve=>{release=resolve;});const pending=service.confirmChartStart('start:'+cancellation,()=>{if(allowed==='throw')throw Error('Synthetic revoked');return allowed;});await new Promise(resolve=>setImmediate(resolve));assert.equal(f.windows.length,2);
+  if(cancellation==='stop')await invoke('stop');else if(cancellation==='option'){config.autoShowOnChartStart=false;await invoke('configure',{config});}else if(cancellation==='active')active=false;else allowed=cancellation==='throw'?'throw':false;
+  release();assert.equal(await pending,false,cancellation);assert.equal(f.windows[1].isVisible(),false,cancellation);await service.dispose();
+ }
+});

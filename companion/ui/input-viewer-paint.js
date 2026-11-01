@@ -147,5 +147,10 @@ function paintBaseControl(ctx,c,down,config){
  ctx.restore();
 }
 const extraBase=Object.freeze({plasma:'energy',crystal:'glass',synthwave:'hologram',industrial:'metal'});
-export function paintControl(ctx,c,down,config){const base=extraBase[config.renderStyle];if(!base){paintBaseControl(ctx,c,down,config);return;}paintBaseControl(ctx,c,down,{...config,renderStyle:base});paintStyleAccent(ctx,c,down,config);}
+export function paintControl(ctx,c,down,config,count=0){const base=extraBase[config.renderStyle];paintBaseControl(ctx,c,down,base?{...config,renderStyle:base}:config);if(base)paintStyleAccent(ctx,c,down,config);if(config.showCounts===true)paintCount(ctx,c,count);}
+function paintCount(ctx,c,value){
+ const count=Number.isSafeInteger(value)&&value>=0?value:0,text=String(count),font=Math.max(8,Math.min(14,c.fontSize*.8,c.height*.2));
+ const width=Math.min(c.width-4,Math.max(font*1.8,text.length*font*.65+8)),height=Math.min(c.height-2,font+6),x=c.x+(c.width-width)/2,y=c.y+Math.min(c.height-height-1,c.height*(c.shape==='cymbal'?.12:.73));
+ ctx.save();ctx.shadowBlur=0;ctx.fillStyle=c.palette?.idle||'#101d30';ctx.fillRect(x,y,width,height);ctx.strokeStyle=c.color;ctx.lineWidth=1;ctx.strokeRect(x,y,width,height);ctx.fillStyle=c.palette?.label||'#f3f8ff';ctx.font='700 '+font+'px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(text,x+width/2,y+height/2,Math.max(2,width-4));ctx.restore();
+}
 export function paintTrail(ctx,c,ghost,config,trace,now){paintAfterglow(ctx,c,ghost,config,trace,now);}

@@ -27,6 +27,7 @@ import { GameCaptureControls } from './game-capture-controls.js';
 import { InputViewerControls } from './input-viewer-controls.js';
 import { DrumVstControls } from './drum-vst-controls.js';
 import { QuickImportControls } from './quick-import-controls.js';
+import { GameWidgetControls } from './game-widget-controls.js';
 import { RequestDiscoveryControls } from './request-discovery-controls.js';
 import { UnifiedChatControls } from './unified-chat-controls.js';
 import { SessionWidgetControls } from './session-widget-controls.js';
@@ -92,6 +93,7 @@ const songVisualControls = new SongVisualControls({ root: query('#song-visuals-c
 const gameCaptureControls = new GameCaptureControls({ root: query('#game-capture-controls'), command: (name, payload) => command(name, payload) });
 const drumVstControls = new DrumVstControls({ root: query('#drum-vst-panel'), command: (name, payload) => command(name, payload) });
 const quickImportControls = new QuickImportControls({ root: query('#quick-import-panel'), command: (name, payload) => command(name, payload) });
+const gameWidgetControls = new GameWidgetControls({ root: query('#game-widget-integrations'), command: (name, payload) => command(name, payload), navigate: () => { workspaceNavigation.select('stream', { scroll: true }); const target=query('#widget-settings'); target?.scrollIntoView({block:'start',behavior:'instant'}); } });
 const inputViewerControls = new InputViewerControls({ root: query('#input-viewer-controls'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const badSongs = new BadSongsCleanupControls({ root: query('#library-bad-songs'), command: (name, payload) => command(name, payload) });
@@ -139,7 +141,7 @@ function exportedSong(snapshot = currentSnapshot) {
 
 function renderSource(snapshot) {
   const live = liveSource(snapshot), source = snapshot?.cloneHero;
-  const measurements = gameplayMeasurements && snapshot?.telemetry?.connected === true && snapshot.telemetry.status === 'connected';
+  const measurements = snapshot?.gameWidgets?.connected === true || gameplayMeasurements && snapshot?.telemetry?.connected === true && snapshot.telemetry.status === 'connected';
   query('#clonehero-mode').value = live ? 'live' : 'mock';
   query('#clonehero-mode').disabled = sourceBusy || !source || !api;
   for (const id of ['#clonehero-choose-file', '#clonehero-detect']) query(id).disabled = sourceBusy || !source || !live || !api;
@@ -159,10 +161,10 @@ function renderSource(snapshot) {
   query('#clonehero-message').textContent = typeof source?.message === 'string' && source.message
     ? source.message
     : live ? 'Sélectionnez currentsong.txt. Le morceau en cours sera repris si Clone Hero est détecté.' : 'Le scénario ci-dessous simule les étapes d’une chart.';
-  query('#simulation-panel').hidden = live;
+  query('#simulation-panel').hidden = live || measurements;
   for (const control of [controls.next, controls.reset, controls.state]) {
-    control.hidden = live;
-    control.disabled = live || sourceBusy || !api;
+    control.hidden = live || measurements;
+    control.disabled = live || measurements || sourceBusy || !api;
   }
   query('#behavior-visible').textContent = live ? 'Affichage du morceau exporté par Clone Hero.' : 'Visible en jeu et en pause.';
   query('#behavior-hidden').textContent = live ? 'La lecture, la pause et les menus ne sont pas détectés.' : 'Masqué au menu, au chargement et aux résultats.';
@@ -193,6 +195,7 @@ async function changeSource(name, payload) {
 function applySnapshot(snapshot) {
   drumVstControls.update(snapshot);
   quickImportControls.update(snapshot);
+  gameWidgetControls.update(snapshot);
   requestDiscoveryControls.update(snapshot);
   unifiedChatControls.update(snapshot);
   sessionWidgetControls.update(snapshot);
@@ -427,7 +430,7 @@ window.addEventListener('beforeunload', () => {
   gameplayControls?.dispose();
   songVisualControls.dispose();
   gameCaptureControls.dispose();
-  inputViewerControls.dispose(); drumVstControls.dispose(); quickImportControls.dispose(); requestDiscoveryControls.dispose(); unifiedChatControls.dispose(); sessionWidgetControls.dispose();
+  inputViewerControls.dispose(); drumVstControls.dispose(); quickImportControls.dispose(); gameWidgetControls.dispose(); requestDiscoveryControls.dispose(); unifiedChatControls.dispose(); sessionWidgetControls.dispose();
   streamPreview.dispose();
   library.dispose();
   cleanupHistory.dispose();

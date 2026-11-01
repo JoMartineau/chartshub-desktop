@@ -60,8 +60,8 @@ finally {
 finally {
     await fs.unlink(temporary).catch(() => { });
 } }
-async function createTelemetrySource({ dataDirectory, connectionDirectory = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ChartsHub', 'Telemetry', 'v1'), platform = process.platform, supportedBuilds = SUPPORTED_BUILDS, onChange = () => { }, connectTransport = name => net.createConnection('\\\\.\\pipe\\' + name), now = Date.now, pollMs = 2000, staleMs = 5000 } = {}) {
-    if (typeof dataDirectory !== 'string' || !path.isAbsolute(dataDirectory) || typeof connectionDirectory !== 'string' || !path.isAbsolute(connectionDirectory) || typeof onChange !== 'function' || !Number.isFinite(pollMs) || pollMs < 10 || pollMs > 60000 || !Number.isFinite(staleMs) || staleMs < 100 || staleMs > 60000)
+async function createTelemetrySource({ dataDirectory, connectionDirectory = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ChartsHub', 'Telemetry', 'v1'), platform = process.platform, supportedBuilds = SUPPORTED_BUILDS, onChange = () => { }, onChartEvent = () => { }, connectTransport = name => net.createConnection('\\\\.\\pipe\\' + name), now = Date.now, pollMs = 2000, staleMs = 5000, startDisabled = true } = {}) {
+    if (typeof dataDirectory !== 'string' || !path.isAbsolute(dataDirectory) || typeof connectionDirectory !== 'string' || !path.isAbsolute(connectionDirectory) || typeof onChange !== 'function' || typeof onChartEvent !== 'function' || typeof startDisabled !== 'boolean' || !Number.isFinite(pollMs) || pollMs < 10 || pollMs > 60000 || !Number.isFinite(staleMs) || staleMs < 100 || staleMs > 60000)
         throw Error('Configuration de télémétrie invalide.');
     const settingsFile = path.join(dataDirectory, 'clonehero-telemetry.json'), recordsFile = path.join(dataDirectory, 'clonehero-records.json'), descriptorFile = path.join(connectionDirectory, 'connection.json');
     let settings = { windowMs: 20, goal: { kind: 'songs', target: 10 } }, enabled = true, canWrite = true, persistenceError = null, recordsWritable = true;
@@ -80,17 +80,49 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
         enabled = false;
         persistenceError = 'Les réglages de télémétrie existants sont conservés sans modification.';
     }
+    // Public opt-ins belong to this Host session, never a saved activation flag.
+    // Explicit private fixtures can retain the earlier persisted behaviour.
+    if (startDisabled) enabled = false;
     const model = createTelemetryModel({ now, settings });
-    try {
-        const raw = await ordinary(recordsFile, { limit: 512 * 1024, missing: true });
-        if (raw)
-            model.importRecords(JSON.parse(raw));
-    }
-    catch {
-        recordsWritable = false;
-        persistenceError = 'Les anciens records locaux sont conservés sans modification.';
+    // Optional public widgets consume only this session. Legacy private records
+    // are neither inspected nor loaded, even when an older file is present.
+    if (!startDisabled) {
+        try {
+            const raw = await ordinary(recordsFile, { limit: 512 * 1024, missing: true });
+            if (raw)
+                model.importRecords(JSON.parse(raw));
+        }
+        catch {
+            recordsWritable = false;
+            persistenceError = 'Les anciens records locaux sont conservés sans modification.';
+        }
     }
     let wanted = false, disposed = false, generation = 0, socket = null, pollTimer = null, healthTimer = null, notificationTimer = null, persistence = Promise.resolve(), controls = Promise.resolve(), lastPublished = '';
+    // Main-process session hooks only. No identities, events or seen sets are
+    // persisted or added to Companion/OBS snapshots. Keep de-duplication across
+    // reconnects so the same attempt cannot reopen/reset an output twice.
+    const chartEvents = { start: new Set(), end: new Set() };
+    function notifyChartEvent(frame, current) {
+        if (!current() || frame.playerId !== 0) return;
+        const type = frame.type === 'state' && frame.data.phase === 'playing' ? 'start'
+            : frame.type === 'attemptEnd' && frame.data.completed === true ? 'end' : null;
+        if (!type) return;
+        const accepted = model.snapshot();
+        if (!current() || !accepted.connected || !accepted.active
+            || (type === 'start' && accepted.active.ended)
+            || (type === 'end' && (!accepted.active.ended || accepted.active.completed !== true))) return;
+        const id = 'chart-' + crypto.createHash('sha256').update(JSON.stringify([frame.sessionId, frame.attemptId, frame.playerId])).digest('hex');
+        const seen = chartEvents[type];
+        if (seen.has(id)) return;
+        seen.add(id);
+        if (seen.size > 2000) seen.delete(seen.values().next().value);
+        if (!current()) return;
+        try {
+            const observation = onChartEvent(Object.freeze({ type, id }));
+            if (observation && typeof observation.then === 'function') Promise.resolve(observation).catch(() => { });
+        }
+        catch { /* A UI observer cannot disconnect or own the transport. */ }
+    }
     const snapshot = () => ({ ...model.snapshot(), enabled, canWrite, persistenceError });
     function publish(force = false) { if (disposed)
         return; const value = snapshot(), signature = JSON.stringify(value); if (!force && signature === lastPublished)
@@ -101,8 +133,8 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
     function schedulePublish() { if (notificationTimer || disposed)
         return; notificationTimer = setTimeout(() => { notificationTimer = null; publish(); }, 16); notificationTimer.unref?.(); }
     function save() { if (!canWrite)
-        return Promise.reject(Error('Les réglages sont en lecture seule.')); const copy = { version: 1, enabled, ...structuredClone(settings) }; const next = persistence.then(() => atomic(settingsFile, copy)); persistence = next.catch(() => { }); return next; }
-    function saveRecords() { if (!recordsWritable)
+        return Promise.reject(Error('Les réglages sont en lecture seule.')); const copy = { version: 1, enabled: startDisabled ? false : enabled, ...structuredClone(settings) }; const next = persistence.then(() => atomic(settingsFile, copy)); persistence = next.catch(() => { }); return next; }
+    function saveRecords() { if (startDisabled || !recordsWritable)
         return; const copy = model.exportRecords(); persistence = persistence.then(() => atomic(recordsFile, copy)).catch(() => { recordsWritable = false; persistenceError = 'Les records locaux ne peuvent pas être enregistrés.'; publish(); }); }
     function arm(token) { if (!wanted || disposed || token !== generation || socket)
         return; clearTimeout(pollTimer); pollTimer = setTimeout(() => { pollTimer = null; void attempt(token); }, pollMs); pollTimer.unref?.(); }
@@ -112,6 +144,7 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
         let descriptor;
         try {
             const raw = await ordinary(descriptorFile, { limit: 4096, missing: true });
+            if (!wanted || disposed || token !== generation) return;
             if (!raw) {
                 model.connection('waiting', 'PROVIDER_NOT_RUNNING');
                 publish();
@@ -138,16 +171,20 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
             return;
         model.connection('connecting');
         publish();
+        if (!wanted || disposed || token !== generation) return;
         let peer;
         try {
             peer = connectTransport(descriptor.pipeName);
         }
         catch {
-            model.connection('waiting', 'PROVIDER_NOT_RUNNING');
-            publish();
-            arm(token);
+            if (wanted && !disposed && token === generation) {
+                model.connection('waiting', 'PROVIDER_NOT_RUNNING');
+                publish();
+                arm(token);
+            }
             return;
         }
+        if (!wanted || disposed || token !== generation) { peer.destroy(); return; }
         socket = peer;
         const decoder = new TextDecoder('utf-8', { fatal: true });
         let pending = '', hello = false, dead = false, lastFrameAt = now(), budgetAt = now(), bytesThisSecond = 0, framesThisSecond = 0, connectionTimer = null;
@@ -180,6 +217,7 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
                     throw error('TELEMETRY_FRAME_TOO_LARGE');
                 let newline;
                 while ((newline = pending.indexOf('\n')) >= 0) {
+                    if (!current()) return;
                     const line = pending.slice(0, newline).replace(/\r$/, '');
                     pending = pending.slice(newline + 1);
                     if (!line)
@@ -194,9 +232,12 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
                     if (hello && frame.type === 'hello')
                         throw error('DUPLICATE_HELLO');
                     const accepted = model.ingest(frame);
+                    if (!current()) return;
                     hello = true;
                     if (accepted)
                         lastFrameAt = now();
+                    if (accepted) notifyChartEvent(frame, current);
+                    if (!current()) return;
                     if (accepted && frame.type === 'attemptEnd')
                         saveRecords();
                     schedulePublish();
@@ -219,7 +260,7 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
         healthTimer = connectionTimer;
         connectionTimer.unref?.();
     }
-    function stop() { wanted = false; ++generation; clearTimeout(pollTimer); clearInterval(healthTimer); clearTimeout(notificationTimer); pollTimer = healthTimer = notificationTimer = null; const peer = socket; socket = null; peer?.destroy(); model.connection(enabled ? 'waiting' : 'disabled', enabled ? 'PROVIDER_NOT_RUNNING' : null); publish(); }
+    function stop() { wanted = false; if (startDisabled) enabled = false; ++generation; clearTimeout(pollTimer); clearInterval(healthTimer); clearTimeout(notificationTimer); pollTimer = healthTimer = notificationTimer = null; const peer = socket; socket = null; peer?.destroy(); model.connection(enabled ? 'waiting' : 'disabled', enabled ? 'PROVIDER_NOT_RUNNING' : null); publish(); }
     function start() { if (disposed || wanted || !enabled)
         return; if (platform !== 'win32') {
         model.connection('unsupported', 'PLATFORM_NOT_VALIDATED');
@@ -242,6 +283,13 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
         throw e;
     } if (enabled)
         start(); publish(true); return snapshot(); }
+    function sessionEnabled(value) {
+        if (typeof value !== 'boolean') throw Error('Activation invalide.');
+        if (disposed) throw Error('Source fermée.');
+        enabled = value;
+        if (value) start(); else stop();
+        publish(true); return snapshot();
+    }
     async function configure(value) { const next = validSettings(value), before = settings; settings = next; try {
         await save();
     }
@@ -257,6 +305,11 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
     async function dispose() { if (disposed)
         return; stop(); disposed = true; await controls; await persistence; }
     model.connection(enabled ? 'waiting' : 'disabled', enabled ? 'PROVIDER_NOT_RUNNING' : null);
-    return { snapshot, start, stop, setEnabled: value => queue(() => setEnabled(value)), configure: value => queue(() => configure(value)), startCalibration, finishCalibration, resetSession, dispose };
+    return { snapshot, start, stop, setEnabled: value => {
+        // Apply session revocation before returning a promise. It must not wait
+        // behind a preference write and reopen a revoked connection afterward.
+        if (startDisabled) { try { return Promise.resolve(sessionEnabled(value)); } catch (e) { return Promise.reject(e); } }
+        return queue(() => setEnabled(value));
+    }, configure: value => queue(() => configure(value)), startCalibration, finishCalibration, resetSession, dispose };
 }
 module.exports = { SUPPORTED_BUILDS, createTelemetrySource, ordinary };

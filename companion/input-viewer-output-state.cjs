@@ -18,7 +18,7 @@ function displayConfig(config) {
   for (const key of ['style','enabled','durationMs','intensity','length','speedPxPerSecond','thickness','direction','fade']) trails[key] = config.trails[key];
   return {
     width: config.width, height: config.height, background: config.background,
-    bloom: config.bloom, showNames: config.showNames, renderStyle: config.renderStyle, trails,
+    bloom: config.bloom, showNames: config.showNames, showCounts: config.showCounts === true, renderStyle: config.renderStyle, trails,
     controls: config.controls.map(control => ({
       id: control.id, label: control.label, color: control.color,
       x: control.x, y: control.y, width: control.width, height: control.height,
@@ -38,19 +38,26 @@ function projectOutputSnapshot(value) {
     const config = displayConfig(value.config);
     const pressed = Object.fromEntries((config?.controls || []).filter(control => control.visible).map(control =>
       [control.id, value.phase === 'running' && object(value.pressed) && Object.hasOwn(value.pressed, control.id) && value.pressed[control.id] === true]));
-    return freeze(copy({ version: 1, revision: value.revision, phase: value.phase, config, pressed }));
+    const counts = Object.fromEntries((config?.controls || []).filter(control => control.visible).map(control =>
+      [control.id, object(value.counts) && Object.hasOwn(value.counts, control.id) && Number.isSafeInteger(value.counts[control.id]) && value.counts[control.id] >= 0 ? value.counts[control.id] : 0]));
+    return freeze(copy({ version: 1, revision: value.revision, phase: value.phase, config, pressed, counts }));
   } catch { return null; }
 }
 
 function createInputViewerOutputState({ validateConfig, sampleControls, now = Date.now } = {}) {
   if (typeof validateConfig !== 'function' || typeof sampleControls !== 'function' || typeof now !== 'function') throw TypeError('Viewer model and clock required');
-  let config = null, canonicalBytes = null, pressed = {}, running = false, revision = 0, lastInputAt = null;
+  let config = null, canonicalBytes = null, pressed = {}, running = false, revision = 0, lastInputAt = null, armed = {};
+  // Session totals never enter settings, profiles or device payloads. A held
+  // input after selection/reconnection must first be released before counting.
+  const totals = new Map(), completions = new Set();
+  const keyFor = id => config.mode + ':' + id;
+  const counts = () => Object.fromEntries((config?.controls || []).filter(control => control.visible).map(control => [control.id, totals.get(keyFor(control.id)) ?? 0]));
 
   const emptyPressed = () => Object.fromEntries((config?.controls || []).filter(control => control.visible).map(control => [control.id, false]));
   function replacePressed(next) {
     if (JSON.stringify(next) !== JSON.stringify(pressed)) { pressed = next; revision++; }
   }
-  function clear() { lastInputAt = null; replacePressed(emptyPressed()); }
+  function clear() { lastInputAt = null; armed = {}; replacePressed(emptyPressed()); }
   function expire() {
     if (lastInputAt === null) return;
     const current = now(), elapsed = current - lastInputAt;
@@ -60,7 +67,7 @@ function createInputViewerOutputState({ validateConfig, sampleControls, now = Da
   }
   function snapshot() {
     expire();
-    return projectOutputSnapshot({ version: 1, revision, phase: running ? 'running' : 'stopped', config, pressed });
+    return projectOutputSnapshot({ version: 1, revision, phase: running ? 'running' : 'stopped', config, pressed, counts: counts() });
   }
   function configure(rawConfig) {
     // The injected product validator is the single authoritative config schema.
@@ -69,7 +76,7 @@ function createInputViewerOutputState({ validateConfig, sampleControls, now = Da
     const next = copy(validateConfig(copy(rawConfig))), bytes = JSON.stringify(next);
     if (bytes.length > 16384) throw TypeError('Viewer configuration too large');
     if (bytes !== canonicalBytes) {
-      config = next; canonicalBytes = bytes; lastInputAt = null; pressed = emptyPressed(); revision++;
+      config = next; canonicalBytes = bytes; lastInputAt = null; armed = {}; pressed = emptyPressed(); revision++;
     }
     return snapshot();
   }
@@ -87,7 +94,15 @@ function createInputViewerOutputState({ validateConfig, sampleControls, now = Da
         clear(); return false;
       }
       const current = now(); if (!Number.isFinite(current)) { clear(); return false; }
+      expire();
       const next = Object.fromEntries(config.controls.filter(control => control.visible).map(control => [control.id, Object.hasOwn(map, control.id) && map[control.id] === true]));
+      for (const [id, down] of Object.entries(next)) {
+        if (!down) armed[id] = true;
+        else if (armed[id] === true && pressed[id] !== true) {
+          const key = keyFor(id), previous = totals.get(key) ?? 0;
+          if (previous < Number.MAX_SAFE_INTEGER) { totals.set(key, previous + 1); revision++; }
+        }
+      }
       lastInputAt = current; replacePressed(next); return true;
     } catch { clear(); return false; }
   }
@@ -98,7 +113,18 @@ function createInputViewerOutputState({ validateConfig, sampleControls, now = Da
     catch { clear(); return false; }
   }
 
-  return { configure, setRunning, clear, updateGamepad, updatePressed, snapshot, getSource: () => config?.source ?? null };
+  function resetCounts() { totals.clear(); revision++; return snapshot(); }
+  function confirmChartEnd(id) {
+    if (typeof id !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(id) || completions.has(id)) return false;
+    completions.add(id);
+    // Bounded deduplication. Replays from an earlier connection must not be
+    // accepted by the caller; this broker never observes menus or empty files.
+    if (completions.size > 256) completions.delete(completions.values().next().value);
+    if (config?.autoResetOnChartEnd !== true) return false;
+    resetCounts(); return true;
+  }
+
+  return { configure, setRunning, clear, updateGamepad, updatePressed, resetCounts, confirmChartEnd, snapshot, getSource: () => config?.source ?? null, getMode: () => config?.mode ?? null, getAutoShowOnChartStart: () => config?.autoShowOnChartStart === true };
 }
 
 module.exports = { createInputViewerOutputState, projectOutputSnapshot };

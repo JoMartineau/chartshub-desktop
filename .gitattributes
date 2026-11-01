@@ -3,3 +3,4 @@
 /quick-import-mod/** -text
 # The reviewed Windows manifest retains CRLF; other whitespace checks still apply.
 /quick-import-mod/MODULE.json whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol
+/game-widgets-mod/** -text

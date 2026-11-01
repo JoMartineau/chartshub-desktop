@@ -356,7 +356,9 @@ function createQuickImportService({ dataDirectory, getContext = () => ({ active:
     disposed = true; disable();
     await prefs.flush().catch(() => {});
   }
-  return Object.freeze({ load, status, command, observeDownloads, observeCompletedDownload, update, stop, dispose });
+  // Trusted main-only getter. Paths never enter status(), command() or IPC.
+  function selectedGameRoot() { return disposed ? null : gameRoot; }
+  return Object.freeze({ load, status, command, observeDownloads, observeCompletedDownload, update, stop, dispose, selectedGameRoot });
 }
 
 module.exports = { createQuickImportService, validQuickImportCommand, PUBLIC_QUICK_IMPORT_CODES: Object.freeze([...CODES]) };

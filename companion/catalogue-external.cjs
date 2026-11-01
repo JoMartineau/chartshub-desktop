@@ -82,10 +82,10 @@ function createExternalCatalogue({ client, now = Date.now } = {}) {
       } catch (problem) {
         if (controller.signal.aborted || expected !== current.generation || !active) throw problem;
         const known = typeof problem?.code === 'string' && problem.code.startsWith('ENCHOR_') ? problem : failure();
-        if (Number.isSafeInteger(known.retryAfterSeconds) && known.retryAfterSeconds > 0) retryUntil = Math.max(retryUntil, now() + Math.min(known.retryAfterSeconds * 1000, Number.MAX_SAFE_INTEGER - now()));
+        if (!['ENCHOR_MAINTENANCE', 'ENCHOR_ACCESS_DENIED', 'ENCHOR_RECOVERY_REQUIRED'].includes(known.code) && Number.isSafeInteger(known.retryAfterSeconds) && known.retryAfterSeconds > 0) retryUntil = Math.max(retryUntil, now() + Math.min(known.retryAfterSeconds * 1000, Number.MAX_SAFE_INTEGER - now()));
         if (known.code === 'ENCHOR_DISABLED') enabled = false;
         if (['ENCHOR_ACCESS_DENIED', 'ENCHOR_RECOVERY_REQUIRED'].includes(known.code)) suspended = true;
-        current.status = retryUntil > now() ? 'cooldown' : !enabled && enabled !== null ? 'disabled' : suspended ? 'suspended' : 'error'; current.error = failure(known.code).message;
+        current.status = retryUntil > now() ? 'cooldown' : known.code === 'ENCHOR_MAINTENANCE' ? 'maintenance' : !enabled && enabled !== null ? 'disabled' : suspended ? 'suspended' : 'error'; current.error = failure(known.code).message;
       } finally { if (current.controller === controller) current.controller = null; }
     });
     transport = work.catch(() => {}); await work; guard();

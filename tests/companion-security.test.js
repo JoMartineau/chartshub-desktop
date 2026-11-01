@@ -61,6 +61,18 @@ test('companion command validation rejects unknown widgets, states and writes', 
   assert.equal(validCommand('mock.next', { unexpected: true }, []), false);
 });
 
+test('optional game widgets accept independent explicit flags and a revision, never installation targets', () => {
+  for (const accuracy of [true, false]) for (const lyrics of [true, false]) assert.equal(validCommand('gameWidgets.configure', { revision: 0, accuracy, lyrics }, []), true);
+  for (const payload of [null, [], {}, { revision: 0, accuracy: true }, { revision: 0, accuracy: 1, lyrics: false }, { revision: -1, accuracy: true, lyrics: true }, { revision: 0, accuracy: true, lyrics: true, path: 'C:/Game' }]) assert.equal(validCommand('gameWidgets.configure', payload, []), false);
+  assert.equal(validCommand('gameWidgets.check', { revision: 0 }, []), true);
+  for (const payload of [{}, { revision: 1, root: 'C:/Game' }, { revision: 1.5 }, { revision: -1 }]) assert.equal(validCommand('gameWidgets.check', payload, []), false);
+  for (const name of ['gameWidgets.openPackage', 'gameWidgets.prerequisites']) {
+    assert.equal(validCommand(name, {}, []), true);
+    assert.equal(validCommand(name, { path: 'C:/Game', url: 'https://other.test' }, []), false);
+  }
+  assert.equal(validCommand('gameWidgets.install', {}, []), false);
+});
+
 test('player capture accepts only an empty action and floating appearance validates the three named panels', () => {
   for (const payload of [undefined, null, {}]) assert.equal(validCommand('capture.player', payload, []), true);
   for (const payload of [[], false, { enabled: true }, { path: 'private.wav' }, { play: true }, { windowId: 1 }]) assert.equal(validCommand('capture.player', payload, []), false);
@@ -273,7 +285,7 @@ test('public Host leaves measurement files and profiles alone, rejects telemetry
     for(const name of privateFiles){const file=path.join(directory,name);await fs.mkdir(path.dirname(file),{recursive:true});await fs.writeFile(file,'existing private data preserved: '+name);}
   }});
   const panel=await f.host.open(),initial=structuredClone(f.host.snapshot()),invoke=(name,payload)=>f.handlers.get('companion:command')(f.eventFor(panel),name,payload);
-  assert.deepEqual(initial.features,{gameplayMeasurements:false,calibrationBeta:false});assert.equal(initial.telemetry,null);assert.equal(initial.state.performance,null);assert.equal(serviceCalls,0);
+  assert.deepEqual(initial.features,{gameplayMeasurements:false,calibrationBeta:false,gameWidgets:true});assert.equal(initial.telemetry,null);assert.equal(initial.state.performance,null);assert.equal(serviceCalls,0);
   const original=structuredClone(initial.state.widgets);
   for(const name of ['telemetry.enabled','telemetry.configure','telemetry.widgets','telemetry.sessionReset','telemetry.hardwareRefresh','telemetry.connectorChoose','telemetry.connectorPrepare','telemetry.connectorInstall','telemetry.connectorRollback','telemetry.connectorCancel','telemetry.calibrationStart','telemetry.calibrationFinish','telemetry.guide','telemetry.futureOperation']){
     const result=await invoke(name,{untrusted:'unused'});assert.equal(result.ok,false,name);assert.equal(result.code,'GAMEPLAY_MEASUREMENTS_UNAVAILABLE',name);
@@ -291,7 +303,7 @@ test('public Host leaves measurement files and profiles alone, rejects telemetry
 
 test('an explicit private Host option preserves isolated measurement development without enabling it from truthy values',async t=>{
   const publicHost=await hostFixture(t,{measurementOptions:{gameplayMeasurements:'true',calibrationBeta:true}});const publicPanel=await publicHost.host.open();assert.equal(publicHost.host.snapshot().telemetry,null);assert.equal(publicPanel.options.webPreferences.additionalArguments.includes('--chartshub-gameplay-measurements'),false);assert.equal(publicPanel.options.webPreferences.additionalArguments.includes('--chartshub-calibration-beta'),false);await publicHost.host.dispose();
-  const privateHost=await hostFixture(t,{measurementOptions:{gameplayMeasurements:true,calibrationBeta:true}});const privatePanel=await privateHost.host.open();assert.deepEqual(privateHost.host.snapshot().features,{gameplayMeasurements:true,calibrationBeta:true});assert(privateHost.host.snapshot().telemetry);assert(privatePanel.options.webPreferences.additionalArguments.includes('--chartshub-gameplay-measurements'));assert(privatePanel.options.webPreferences.additionalArguments.includes('--chartshub-calibration-beta'));
+  const privateHost=await hostFixture(t,{measurementOptions:{gameplayMeasurements:true,calibrationBeta:true}});const privatePanel=await privateHost.host.open();assert.deepEqual(privateHost.host.snapshot().features,{gameplayMeasurements:true,calibrationBeta:true,gameWidgets:false});assert(privateHost.host.snapshot().telemetry);assert(privatePanel.options.webPreferences.additionalArguments.includes('--chartshub-gameplay-measurements'));assert(privatePanel.options.webPreferences.additionalArguments.includes('--chartshub-calibration-beta'));
 });
 
 test('right-click editing stays in the exact local Companion contents in tabbed and separate windows', async t => {

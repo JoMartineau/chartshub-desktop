@@ -1,0 +1,5 @@
+ChartsHub.CloneHero.Telemetry.dll
+source/vendor/
+source/bin/
+source/obj/
+.build/
