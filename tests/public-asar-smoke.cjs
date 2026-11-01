@@ -1,6 +1,6 @@
 'use strict';
 // Run the public production modules from the archive that will be distributed.
-// The two external fixtures own only disposable profiles and synthetic video.
+// External fixtures own only disposable profiles and synthetic media/controls.
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
@@ -33,12 +33,16 @@ const PUBLIC_MEMBERS = Object.freeze([
   'companion/input-viewer.cjs', 'companion/input-viewer-preload.cjs',
   'companion/ui/input-viewer.html', 'companion/ui/input-viewer.js',
   'companion/ui/input-viewer.css', 'companion/ui/input-viewer-model.js',
-  'companion/ui/input-viewer-controls.js'
+  'companion/ui/input-viewer-controls.js', 'companion/ui/input-viewer-paint.js',
+  'companion/ui/input-viewer-extra-styles.js', 'companion/ui/input-viewer-trail-paint.js',
+  'companion/input-viewer-xinput.cjs', 'companion/input-viewer-xinput-windows.ps1'
 ]);
 const FIXTURES = Object.freeze([
   { name: 'public-gameplay-removal-electron.cjs', count: 9, kind: 'public' },
   { name: 'companion-game-capture-lyrics-electron.cjs', count: 8, kind: 'lyrics' },
-  { name: 'input-viewer-electron.cjs', count: 9, kind: 'input-viewer' }
+  { name: 'input-viewer-electron.cjs', count: 9, kind: 'input-viewer' },
+  { name: 'input-viewer-detection-electron.cjs', count: 15, kind: 'input-detection' },
+  { name: 'input-viewer-afterglow-electron.cjs', count: 6, kind: 'input-afterglow' }
 ]);
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const repo = path.resolve(__dirname, '..');
@@ -107,7 +111,9 @@ async function main() {
       assert.equal(report.result, 'passed');
       assert.equal(report.error, null);
       assert.equal(report.checks.length, fixture.count);
-      assert.equal(new Set(report.checks).size, fixture.count);
+      const checkNames = report.checks.map(check => typeof check === 'string' ? check : check?.name);
+      assert(checkNames.every(name => typeof name === 'string' && name.length > 0), 'Named fixture checks required');
+      assert.equal(new Set(checkNames).size, fixture.count);
       assert.equal(report.loadedFromAsar, true);
       assert.equal(path.resolve(report.productRoot), archive);
       assert.equal(report.realGameRead, false);
@@ -126,9 +132,24 @@ async function main() {
         for (const name of Object.keys(report.sourceHashesBefore)) assert.equal(report.sourceHashesBefore[name], publicHashes[name], 'Actual Host module hash differs: ' + name);
         assert.deepEqual(report.sourceHashesAfter, report.sourceHashesBefore);
         for (const name of ['realGameExecuted', 'realHardwareRead', 'realMediaRead', 'realSongsRead', 'realUserProfileRead', 'realInstallation']) assert.equal(report[name], false);
-      } else if (fixture.kind === 'input-viewer') {
+      } else if (fixture.kind === 'input-afterglow') {
+        assert.equal(report.productionPaint, true);
+        assert.equal(report.paintOverride, null);
+        assert.equal(report.actualRendererRaster, true);
+        assert.equal(report.syntheticButtons, true);
+        assert.equal(report.defaultRendererSecurity, true);
+        for (const name of ['realInputRead', 'realDevicesRead', 'realProfileRead']) assert.equal(report[name], false);
+        assert(report.checks.every(check => check && typeof check === 'object' && check.passed === true));
+        assert.deepEqual(report.errors, []);
+        assert.equal(report.evidence.trailStyles.length, 6);
+        assert.equal(new Set(report.evidence.trailStyles.map(entry => entry.style)).size, 6);
+        for (const name of ['ui/input-viewer-paint.js', 'ui/input-viewer-trail-paint.js', 'ui/input-viewer-extra-styles.js', 'ui/input-viewer-model.js', 'ui/input-viewer.js']) {
+          assert.equal(report.sourceHashes[name], publicHashes['companion/' + name], 'Actual afterglow module hash differs: ' + name);
+        }
+      } else if (fixture.kind === 'input-viewer' || fixture.kind === 'input-detection') {
         assert.equal(report.syntheticGamepads, true);
-        assert.equal(report.syntheticKeyboard, true);
+        if (fixture.kind === 'input-viewer') assert.equal(report.syntheticKeyboard, true);
+        else assert.equal(report.syntheticWindowsTransport, true);
         assert.equal(report.realInputRead, false);
         assert.equal(report.realDevicesRead, false);
         assert.equal(report.realProfileRead, false);
@@ -159,7 +180,7 @@ async function main() {
   };
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   if (failure) throw failure;
-  assert.equal(report.totalNativeChecks, 26);
+  assert.equal(report.totalNativeChecks, 47);
   console.log(JSON.stringify({ result: report.result, privateMembersAbsent: 13, nativeChecks: report.totalNativeChecks, version, archiveSha256: archiveBefore, output }));
 }
 
