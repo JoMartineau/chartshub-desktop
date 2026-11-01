@@ -1,12 +1,12 @@
-ChartsHub Desktop 0.14.33 - Catalogue et Companion
+ChartsHub Desktop 0.14.34 - Catalogue et Companion
 
-NOUVEAUTES 0.14.33 - INPUT VIEWER PERSONNALISABLE
+NOUVEAUTES 0.14.34 - WIDGET DU JEU ET LIEN OBS
 
-- Detection Windows XInput des guitares/manettes compatibles, sans pilote supplementaire.
-- Douze rendus et six effets de trails, cymbales et etoile Star Power.
-- Couleurs, visibilite et direction de lueur par element.
-- Grille visible independamment de son aimantation ; placements libres possibles.
-- Anciens reglages conserves pour un retour a 0.14.32.
+- Fenetre de reglages opaque, deplacable et redimensionnable.
+- Widget compact du jeu : deplacer/redimensionner, verrouiller, masquer.
+- Lien Navigateur OBS dedie, sans capturer les reglages.
+- Guide Demarrer > Choisir la guitare > Associer les touches et compteur d associations.
+- Douze rendus, six trails et reglages existants conserves.
 - Companion > Stream / OBS > Ouvrir et personnaliser l Input Viewer.
 
 FONCTIONS CONSERVEES - WIDGETS SANS CONNECTEUR
@@ -16,10 +16,13 @@ ou Batterie, puis Demarrer et votre manette compatible. Associez chaque entree
 en relachant puis en appuyant sur le bouton souhaite. Les couleurs, formes,
 positions, tailles et noms sont modifiables. Les trainees ont quatre directions,
 avec vitesse, duree, longueur, epaisseur, intensite et fondu reglables.
-Dans OBS, ajoutez Capture de fenetre : ChartsHub - Input Viewer.
+Dans OBS, ajoutez une source Navigateur puis collez Copier le lien navigateur OBS.
+Pour le jeu, utilisez Afficher au-dessus du jeu puis Deplacer et redimensionner.
+Verrouiller la position laisse passer les clics ; Masquer retire le widget du jeu.
 Les reglages sont conserves localement. Les entrees jouees ne sont pas stockees.
-Les guitares USB non exposees par Gamepad API ne sont pas reconnues ; le clavier
-fonctionne uniquement quand la fenetre du viewer est active.
+Sous Windows, les controles XInput completent Gamepad API. Les appareils proposes
+par aucune des deux methodes ne sont pas reconnus. Gardez l editeur ouvert ou
+reduit ; le fermer arrete la lecture. Le clavier demande sa fenetre active.
 
 Highway, Score et Paroles disposent chacun d'une capture recadree. Choisissez
 la fenetre de Clone Hero, demarrez la capture puis dessinez chaque zone.

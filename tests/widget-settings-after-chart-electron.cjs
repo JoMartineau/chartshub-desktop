@@ -13,10 +13,41 @@ const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms)),evaluate=source=>pa
 const id='gameplay-combo',revision=()=>host.snapshot().editor.revision;
 const widget=()=>host.snapshot().state.widgets.instances.find(value=>value.id===id);
 const geometry=destination=>destination==='game'?{x:widget().position.x,y:widget().position.y,width:widget().size.width,height:widget().size.height}:structuredClone(host.snapshot().state.stream.layout.find(value=>value.id===id));
+// Observe only this fixture's settings transaction. No retries, extra saves or
+// polling changes: the original filesystem operations and errors are preserved.
+const settingsFile=path.join(directory,'companion/settings.json'),diagnosticStarted=Date.now();
+const settingsDiagnostic={expected:null,lastRead:null,lastReadError:null,operations:[]};
+function settingsPathKind(value){if(typeof value!=='string')return null;const file=path.resolve(value),target=path.resolve(settingsFile);return file===target?'settings':file===target+'.bak'?'backup':file.startsWith(target+'.')&&file.endsWith('.tmp')?'temporary':null;}
+function observeSettings(operation,details){settingsDiagnostic.operations.push({operation,elapsedMs:Date.now()-diagnosticStarted,...details});if(settingsDiagnostic.operations.length>256)settingsDiagnostic.operations.shift();}
+for(const operation of ['rename','copyFile','open']){
+ const original=fs[operation].bind(fs);
+ fs[operation]=async(...args)=>{
+  const kinds=(operation==='open'?args.slice(0,1):args.slice(0,2)).map(settingsPathKind),observed=kinds.length>0&&kinds.every(Boolean);
+  try{
+   const result=await original(...args);
+   if(observed){
+    observeSettings(operation,{paths:kinds,result:'success'});
+    if(operation==='open'){
+     for(const method of ['writeFile','sync']){
+      const originalHandleMethod=result[method].bind(result);
+      result[method]=async(...handleArgs)=>{try{const value=await originalHandleMethod(...handleArgs);observeSettings(method,{paths:kinds,result:'success'});return value;}catch(error){observeSettings(method,{paths:kinds,result:'error',code:typeof error.code==='string'?error.code.slice(0,40):'unknown'});throw error;}};
+     }
+    }
+   }
+   return result;
+  }catch(error){if(observed)observeSettings(operation,{paths:kinds,result:'error',code:typeof error.code==='string'?error.code.slice(0,40):'unknown'});throw error;}
+ };
+}
+function captureSettingsDiagnostic(){
+ try{
+ const value=host?.snapshot(),game=value?.state.widgets.instances.find(item=>item.id===id),stream=value?.state.stream.layout.find(item=>item.id===id);
+ return structuredClone({...settingsDiagnostic,capturedBeforeHostDispose:true,persistenceError:typeof value?.persistenceError==='string'?value.persistenceError.slice(0,300):'',editorRevision:value?.editor?.revision??null,observed:{game:game?{...game.position,...game.size}:null,stream:stream?{...stream}:null},logs:(value?.logs??[]).filter(item=>/settings|réglages/i.test(item.message)).slice(-10).map(item=>({level:item.level,message:item.message.slice(0,200)}))});
+ }catch{return{capturedBeforeHostDispose:true,diagnosticUnavailable:true};}
+}
 async function until(check,label,timeout=10000){const until=Date.now()+timeout;while(Date.now()<until){if(await check())return;await delay(25);}throw Error('Timed out: '+label);}
 function send(type,data={}){assert(peer&&!peer.destroyed);peer.write(JSON.stringify({schema:contract.SCHEMA,provider,game,sessionId,attemptId,playerId:0,sequence:sequence++,type,data})+'\n');}
 async function command(name,payload={}){const result=await evaluate('window.ChartsHubCompanion.command('+JSON.stringify(name)+','+JSON.stringify(payload)+')');assert.equal(result.ok,true,JSON.stringify(result));return result;}
-async function savedSettings(predicate,label){let stored;await until(async()=>{try{stored=JSON.parse(await fs.readFile(path.join(directory,'companion/settings.json'),'utf8'));return predicate(stored);}catch{return false;}},label);return stored;}
+async function savedSettings(predicate,label){let stored;await until(async()=>{try{const text=await fs.readFile(settingsFile,'utf8');stored=JSON.parse(text);settingsDiagnostic.lastRead={label,elapsedMs:Date.now()-diagnosticStarted,bytes:Buffer.byteLength(text),settings:Buffer.byteLength(text)<=65536?structuredClone(stored):null,tooLargeForDiagnostic:Buffer.byteLength(text)>65536};settingsDiagnostic.lastReadError=null;return predicate(stored);}catch(error){settingsDiagnostic.lastReadError={label,elapsedMs:Date.now()-diagnosticStarted,code:typeof error.code==='string'?error.code.slice(0,40):error instanceof SyntaxError?'INVALID_JSON':'unknown'};return false;}},label);return stored;}
 function mouse(type,point,modifiers=[]){panel.webContents.sendInputEvent({type,...point,modifiers,...(type==='mouseMove'?{}:{button:'left',clickCount:1})});}
 async function click(selector){await revealWorkspace(panel,selector);const point=await evaluate(`(async()=>{const n=document.querySelector(${JSON.stringify(selector)});if(!n||n.disabled||n.closest('[inert]'))throw Error('Unavailable control '+${JSON.stringify(selector)});n.scrollIntoView({block:'center',behavior:'instant'});await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));const b=n.getBoundingClientRect(),p={x:Math.round(b.left+b.width/2),y:Math.round(b.top+b.height/2)},h=document.elementFromPoint(p.x,p.y);if(!(h===n||n.contains(h)))throw Error('Covered control '+${JSON.stringify(selector)});return p;})()`);panel.focus();panel.webContents.focus();mouse('mouseMove',point);mouse('mouseDown',point);mouse('mouseUp',point);await delay(70);}
 async function builderReady(){await until(()=>evaluate("document.querySelector('#builder-canvas').getAttribute('aria-busy')!=='true'&&!document.querySelector('#widget-settings').inert"),'builder and settings interactive');}
@@ -29,6 +60,7 @@ async function move(destination,phase){
  panel.focus();panel.webContents.focus();mouse('mouseMove',start);mouse('mouseDown',start);for(let step=1;step<=5;step++){mouse('mouseMove',{x:Math.round(start.x+(end.x-start.x)*step/5),y:Math.round(start.y+(end.y-start.y)*step/5)},['leftButtonDown']);await delay(25);}mouse('mouseUp',end);
  await until(()=>revision()===rev+1,'one '+phase+' '+destination+' drag persisted');await builderReady();
  const after=geometry(destination);assert.equal(after.x-before.x,40);assert.equal(after.y-before.y,24);assert.deepEqual(geometry(destination==='game'?'stream':'game'),other,'Other destination remains independent');
+ settingsDiagnostic.expected={phase,destination,widgetId:id,geometry:structuredClone(after)};
  const stored=await savedSettings(settings=>{const entry=destination==='game'?settings.widgets.find(value=>value.id===id):settings.stream.layout.find(value=>value.id===id);return(destination==='game'?entry.position.x:entry.x)===after.x&&(destination==='game'?entry.position.y:entry.y)===after.y;},'updated '+phase+' '+destination+' layout reaches durable settings'),saved=destination==='game'?stored.widgets.find(value=>value.id===id):stored.stream.layout.find(value=>value.id===id);
  assert.equal(destination==='game'?saved.position.x:saved.x,after.x);assert.equal(destination==='game'?saved.position.y:saved.y,after.y);evidence.push({phase,destination,before,after,revisionBefore:rev,revisionAfter:revision()});
 }
@@ -40,6 +72,7 @@ async function controls(phase){
   const previous=widget().enabled;await click('#widget-settings input[data-widget-id="'+id+'"]');await until(()=>widget().enabled===!previous,'native checkbox persisted');
   await click('#widget-settings input[data-widget-id="'+id+'"]');await until(()=>widget().enabled===previous,'native checkbox restored');
   const before=widget().style.fontSize;await click('#widget-settings [data-widget-font-increase="'+id+'"]');await until(()=>widget().style.fontSize===before+2,'native font size persisted');await builderReady();
+  settingsDiagnostic.expected={phase,destination:'controls',widgetId:id,enabled:previous,streamVisible:previousStream,fontSize:before+2,gameplayVisibility:originalPhases};
   const saved=await savedSettings(settings=>{const entry=settings.widgets.find(value=>value.id===id);return entry.enabled===previous&&entry.visibility.stream===previousStream&&entry.style.fontSize===before+2;},'updated '+phase+' controls reach durable settings'),stored=saved.widgets.find(value=>value.id===id);assert.equal(stored.enabled,previous);assert.equal(stored.visibility.stream,previousStream);assert.equal(stored.style.fontSize,before+2);assert.deepEqual(stored.gameplayVisibility,originalPhases);
  });
  if(!await evaluate("document.querySelector('#builder-toggle').getAttribute('aria-pressed')==='true'"))await click('#builder-toggle');
@@ -47,8 +80,9 @@ async function controls(phase){
 }
 const deadline=setTimeout(()=>void finish(Error('End-of-chart widget fixture exceeded100seconds')),100000);
 async function finish(error){if(finished)return;finished=true;clearTimeout(deadline);clearInterval(timer);if(error)console.error(error.stack||error);
+ const persistenceDiagnostic=captureSettingsDiagnostic();
  try{if(error&&panel&&!panel.isDestroyed())await fs.writeFile(path.join(directory,'failure.png'),(await panel.webContents.capturePage()).toPNG());for(const socket of peers)socket.destroy();if(server?.listening)await new Promise(resolve=>server.close(resolve));if(host)await host.dispose();assert.equal(BrowserWindow.getAllWindows().length,0);disposeMaintenance();}catch(failure){error=error||failure;}
- await fs.mkdir(directory,{recursive:true});const report={result:error?'failed':'passed',checks,evidence,errors,error:error?String(error.stack||error):null,syntheticTelemetry:true,actualHostAndIpc:true,actualWindowsNamedPipe:true,realGameRead:false,realUserProfileRead:false};await fs.writeFile(path.join(directory,'report.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify({directory,result:report.result,checks:checks.length}));if(error)app.exit(1);else app.quit();}
+ await fs.mkdir(directory,{recursive:true});const report={result:error?'failed':'passed',checks,evidence,errors,persistenceDiagnostic,error:error?String(error.stack||error):null,syntheticTelemetry:true,actualHostAndIpc:true,actualWindowsNamedPipe:true,realGameRead:false,realUserProfileRead:false};await fs.writeFile(path.join(directory,'report.json'),JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify({directory,result:report.result,checks:checks.length}));if(error)app.exit(1);else app.quit();}
 process.on('uncaughtException',error=>void finish(error));process.on('unhandledRejection',error=>void finish(error));
 app.whenReady().then(async()=>{
  await fs.mkdir(directory,{recursive:true});const connection=path.join(process.env.LOCALAPPDATA,'ChartsHub/Telemetry/v1');await fs.mkdir(connection,{recursive:true});

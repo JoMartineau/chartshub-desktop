@@ -35,14 +35,18 @@ const PUBLIC_MEMBERS = Object.freeze([
   'companion/ui/input-viewer.css', 'companion/ui/input-viewer-model.js',
   'companion/ui/input-viewer-controls.js', 'companion/ui/input-viewer-paint.js',
   'companion/ui/input-viewer-extra-styles.js', 'companion/ui/input-viewer-trail-paint.js',
-  'companion/input-viewer-xinput.cjs', 'companion/input-viewer-xinput-windows.ps1'
+  'companion/input-viewer-xinput.cjs', 'companion/input-viewer-xinput-windows.ps1',
+  'companion/input-viewer-output-state.cjs', 'companion/input-viewer-output-preload.cjs',
+  'companion/ui/input-viewer-output.html', 'companion/ui/input-viewer-output.js',
+  'companion/ui/input-viewer-output.css'
 ]);
 const FIXTURES = Object.freeze([
   { name: 'public-gameplay-removal-electron.cjs', count: 9, kind: 'public' },
   { name: 'companion-game-capture-lyrics-electron.cjs', count: 8, kind: 'lyrics' },
   { name: 'input-viewer-electron.cjs', count: 9, kind: 'input-viewer' },
   { name: 'input-viewer-detection-electron.cjs', count: 15, kind: 'input-detection' },
-  { name: 'input-viewer-afterglow-electron.cjs', count: 6, kind: 'input-afterglow' }
+  { name: 'input-viewer-afterglow-electron.cjs', count: 6, kind: 'input-afterglow' },
+  { name: 'input-viewer-output-electron.cjs', count: 10, kind: 'input-output' }
 ]);
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const repo = path.resolve(__dirname, '..');
@@ -146,6 +150,15 @@ async function main() {
         for (const name of ['ui/input-viewer-paint.js', 'ui/input-viewer-trail-paint.js', 'ui/input-viewer-extra-styles.js', 'ui/input-viewer-model.js', 'ui/input-viewer.js']) {
           assert.equal(report.sourceHashes[name], publicHashes['companion/' + name], 'Actual afterglow module hash differs: ' + name);
         }
+      } else if (fixture.kind === 'input-output') {
+        assert.equal(report.actualDirectorAndPreloads, true);
+        assert.equal(report.actualOutputRenderer, true);
+        assert.equal(report.actualLocalObsServerAndBrowser, true);
+        assert.equal(report.defaultRendererSecurity, true);
+        assert.equal(report.syntheticWindowsTransport, true);
+        assert.equal(report.syntheticGamepads, true);
+        for (const name of ['realInputRead', 'realDevicesRead', 'realProfileRead']) assert.equal(report[name], false);
+        assert.deepEqual(report.errors, []);
       } else if (fixture.kind === 'input-viewer' || fixture.kind === 'input-detection') {
         assert.equal(report.syntheticGamepads, true);
         if (fixture.kind === 'input-viewer') assert.equal(report.syntheticKeyboard, true);
@@ -180,7 +193,7 @@ async function main() {
   };
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   if (failure) throw failure;
-  assert.equal(report.totalNativeChecks, 47);
+  assert.equal(report.totalNativeChecks, 57);
   console.log(JSON.stringify({ result: report.result, privateMembersAbsent: 13, nativeChecks: report.totalNativeChecks, version, archiveSha256: archiveBefore, output }));
 }
 

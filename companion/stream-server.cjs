@@ -6,8 +6,11 @@ const { timingSafeEqual } = require('node:crypto');
 const { Readable } = require('node:stream');
 const { WebSocket, WebSocketServer } = require('ws');
 const { publicTelemetrySnapshot } = require('./clonehero-telemetry-view.cjs');
+const { projectOutputSnapshot } = require('./input-viewer-output-state.cjs');
 
 const MAX_SNAPSHOT = 256 * 1024, MAX_CLIENTS = 8, MAX_BUFFERED = 1024 * 1024;
+const MAX_INPUT_VIEWER_SNAPSHOT = 32 * 1024;
+const INPUT_VIEWER_ASSETS = new Set(['/ui/input-viewer-output.js', '/ui/input-viewer-output.css', '/ui/input-viewer-model.js', '/ui/input-viewer-paint.js', '/ui/input-viewer-extra-styles.js', '/ui/input-viewer-trail-paint.js']);
 const GAMEPLAY = ['idle', 'menu', 'loading', 'playing', 'paused', 'results'];
 const TOKENS = ['primary', 'secondary', 'accent', 'text', 'mutedText', 'background', 'border', 'progress', 'glow', 'shadow'];
 const PRESETS = ['chartshub', 'dark', 'light', 'neon', 'cyberpunk', 'retro', 'transparent', 'high-contrast'];
@@ -128,13 +131,15 @@ function publicState(input) {
   };
 }
 
-function createLocalOverlayServer({ root, token, onStatus, visuals } = {}) {
+function createLocalOverlayServer({ root, token, onStatus, visuals, inputViewer } = {}) {
   if (typeof root !== 'string' || typeof token !== 'string' || !/^[0-9a-f]{64}$/i.test(token)) throw Error('Invalid local overlay configuration.');
+  if (inputViewer !== undefined && (!object(inputViewer) || typeof inputViewer.snapshot !== 'function')) throw Error('Invalid input viewer provider.');
   const directory = path.resolve(root), secret = Buffer.from(token, 'hex'), accessToken = token.toLowerCase();
   let current = null, desired = false, generation = 0, chain = Promise.resolve(), startTask = null, stopTask = null;
   let lastError = '', lastNotified = '', latest = JSON.stringify({ type: 'snapshot', state: publicState(null) }), fps = 60;
   const status = () => ({ enabled: !!current && !current.closing, url: current && !current.closing ? `${origin(current)}/overlay?token=${accessToken}` : null, clients: current && !current.closing ? current.ws.clients.size : 0, error: lastError || null,
-    ...(visuals ? { backgroundUrl: current && !current.closing ? `${origin(current)}/background?token=${accessToken}` : null, videoUrl: current && !current.closing ? `${origin(current)}/video?token=${accessToken}` : null } : {}) });
+    ...(visuals ? { backgroundUrl: current && !current.closing ? `${origin(current)}/background?token=${accessToken}` : null, videoUrl: current && !current.closing ? `${origin(current)}/video?token=${accessToken}` : null } : {}),
+    ...(inputViewer ? { inputViewerUrl: current && !current.closing ? `${origin(current)}/input-viewer?token=${accessToken}` : null } : {}) });
   function notify() {
     const snapshot = status(), signature = JSON.stringify(snapshot);
     if (signature === lastNotified) return;
@@ -155,16 +160,18 @@ function createLocalOverlayServer({ root, token, onStatus, visuals } = {}) {
     if (raw.split('?')[0].split('/').some(part => part === '.' || part === '..')) return null;
     try { const url = new URL(raw, `http://${expectedHost}`); return url.origin === `http://${expectedHost}` ? url : null; } catch { return null; }
   }
-  function headers(context, visual = false) {
+  function headers(context, visual = false, viewer = false) {
     return {
       'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
       'Cross-Origin-Resource-Policy': 'same-origin',
-      'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ${visual ? "'self'" : `ws://127.0.0.1:${context.server.address()?.port ?? context.port}`}; img-src ${visual ? "'self'" : "'none'"}; media-src ${visual ? "'self'" : "'none'"}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`
+      'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ${visual || viewer ? "'self'" : `ws://127.0.0.1:${context.server.address()?.port ?? context.port}`}; img-src ${visual ? "'self'" : "'none'"}; media-src ${visual ? "'self'" : "'none'"}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`
     };
   }
   async function asset(urlPath) {
     let relative;
     if (urlPath === '/overlay') relative = 'ui/stream.html';
+    else if (inputViewer && urlPath === '/input-viewer') relative = 'ui/input-viewer-output.html';
+    else if (inputViewer && INPUT_VIEWER_ASSETS.has(urlPath)) relative = urlPath.slice(1);
     else if (visuals && ['/background', '/video'].includes(urlPath)) relative = 'ui/song-visuals.html';
     else if (visuals && ['/ui/song-visuals.js', '/ui/song-visuals.css', '/ui/song-visuals-sync.js'].includes(urlPath)) relative = urlPath.slice(1);
     else if (urlPath === '/ui/stream.js' || urlPath === '/ui/stream.css') relative = urlPath.slice(1);
@@ -181,9 +188,32 @@ function createLocalOverlayServer({ root, token, onStatus, visuals } = {}) {
   }
   async function handleRequest(context, request, response) {
     const url = requestUrl(context, request), visualRoute = !!url && (['/background', '/video', '/visual-state', '/visual-error'].includes(url.pathname) || url.pathname.startsWith('/visual-media/'));
-    const securityHeaders = headers(context, visualRoute);
+    const viewerRoute = !!url && ['/input-viewer', '/input-viewer-state'].includes(url.pathname), viewerAsset = !!url && INPUT_VIEWER_ASSETS.has(url.pathname);
+    const securityHeaders = headers(context, visualRoute, viewerRoute || viewerAsset);
     const finish = (code, message) => { if (!response.destroyed) { response.writeHead(code, { ...securityHeaders, 'Content-Type': 'text/plain; charset=utf-8' }); response.end(message); } };
     if (!url || context.closing) return finish(403, 'Forbidden');
+    if (viewerRoute || viewerAsset) {
+      if (!inputViewer || url.hash || (viewerRoute ? !validToken(url) || [...url.searchParams.keys()].some(key => key !== 'token') : url.search !== '')) return finish(403, 'Forbidden');
+      if (request.headers.referer) { try { if (new URL(request.headers.referer).origin !== origin(context)) return finish(403, 'Forbidden'); } catch { return finish(403, 'Forbidden'); } }
+      if (!['GET', 'HEAD'].includes(request.method)) return finish(405, 'Method not allowed');
+      if (url.pathname === '/input-viewer-state') {
+        const empty = '{"version":1,"revision":0,"phase":"stopped","config":null,"pressed":{}}';
+        let bytes = empty;
+        try {
+          // The broker owns input reads and canonical configuration validation.
+          // This boundary exports only its bounded display projection, never
+          // bindings, source selection, devices, paths or controller metadata.
+          const value = projectOutputSnapshot(inputViewer.snapshot());
+          if (value) { const encoded = JSON.stringify(value); if (Buffer.byteLength(encoded) <= MAX_INPUT_VIEWER_SNAPSHOT) bytes = encoded; }
+        } catch { /* A stopped/failed viewer must not affect other OBS sources. */ }
+        response.writeHead(200, { ...securityHeaders, 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(bytes) });
+        response.end(request.method === 'HEAD' ? undefined : bytes); return;
+      }
+      const content = await asset(url.pathname);
+      if (!content || context.closing) return finish(404, 'Not found');
+      if (!response.destroyed) { response.writeHead(200, { ...securityHeaders, 'Content-Type': content.type, 'Content-Length': content.bytes.length }); response.end(request.method === 'HEAD' ? undefined : content.bytes); }
+      return;
+    }
     if (visualRoute) {
       if (!visuals || !validToken(url) || [...url.searchParams.keys()].some(key => key !== 'token')) return finish(403, 'Forbidden');
       if (request.headers.referer) { try { if (new URL(request.headers.referer).origin !== origin(context)) return finish(403, 'Forbidden'); } catch { return finish(403, 'Forbidden'); } }
