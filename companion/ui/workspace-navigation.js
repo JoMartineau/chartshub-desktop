@@ -4,12 +4,13 @@ export const WORKSPACES=Object.freeze([
  {id:'catalogue',fr:'Catalogue',en:'Catalogue',descriptionFr:'Rechercher, télécharger et retrouver les derniers ajouts.',descriptionEn:'Search, download and find recent additions.'},
  {id:'player',fr:'Lecteur',en:'Player',descriptionFr:'Écouter les morceaux de votre bibliothèque.',descriptionEn:'Listen to songs in your library.'},
  {id:'stream',fr:'Stream / OBS',en:'Stream / OBS',descriptionFr:'Préparer les widgets, profils et sources du stream.',descriptionEn:'Prepare stream widgets, profiles and sources.'},
+ {id:'drums',fr:'Batterie / VST',en:'Drums / VST',descriptionFr:'Jouer avec un instrument virtuel et préparer le son pour OBS.',descriptionEn:'Play a virtual instrument and prepare its audio for OBS.'},
  {id:'calibration',fr:'Calibration · BETA',en:'Calibration · BETA',descriptionFr:'Préparer le connecteur et comparer vos essais audio et vidéo séparément.',descriptionEn:'Set up the connector and compare audio and video trials separately.'},
  {id:'requests',fr:'Demandes',en:'Requests',descriptionFr:'Recevoir et gérer les demandes des spectateurs.',descriptionEn:'Receive and manage viewer requests.'},
  {id:'status',fr:'État',en:'Status',descriptionFr:'Connexions, bibliothèque, OBS et reprise après un redémarrage.',descriptionEn:'Connections, library, OBS and recovery after a restart.'},
  {id:'settings',fr:'Réglages',en:'Settings',descriptionFr:'Connexions du jeu, apparence, sauvegardes et mises à jour.',descriptionEn:'Game connections, appearance, backups and updates.'}
 ]);
-const sections={library:['#library-panel'],catalogue:['#catalogue-panel','#downloads-panel','.floating-panels-card'],player:['#local-music-player-panel'],stream:['#performance-panel','#profiles-panel','.preview-card','#builder-inspector','.settings-card','.destinations-card','.behavior-note','#stream-panel','.overlay-switch'],calibration:['#calibration-panel'],requests:['#song-requests-panel'],status:['#status-panel'],settings:['#clonehero-source','#game-filters','#simulation-panel','#theme-panel','.theme-widget-section','#updates-panel','#config-backup-panel']};
+const sections={drums:['#drum-vst-panel'],library:['#library-panel'],catalogue:['#catalogue-panel','#downloads-panel','.floating-panels-card'],player:['#local-music-player-panel'],stream:['#performance-panel','#profiles-panel','.preview-card','#builder-inspector','.settings-card','.destinations-card','.behavior-note','#stream-panel','.overlay-switch'],calibration:['#calibration-panel'],requests:['#song-requests-panel'],status:['#status-panel'],settings:['#clonehero-source','#game-filters','#simulation-panel','#theme-panel','.theme-widget-section','#updates-panel','#config-backup-panel']};
 const key='chartshub:companion-workspace-v1';
 export class WorkspaceNavigation{
  constructor(root,{storage,language='fr',gameplayMeasurements=false,calibrationBeta=false}={}){

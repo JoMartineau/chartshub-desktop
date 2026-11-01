@@ -24,6 +24,8 @@ const PRIVATE_MEMBERS = Object.freeze([
   'companion/clonehero-telemetry-model.cjs'
 ]);
 const PUBLIC_MEMBERS = Object.freeze([
+  'companion/drum-vst-model.cjs', 'companion/drum-vst-service.cjs',
+  'companion/drum-vst-preferences.cjs', 'companion/drum-mt-installer.cjs', 'companion/ui/drum-vst-controls.js',
   'package.json', 'companion/host.cjs', 'companion/preload.cjs',
   'companion/gameplay-measurements.cjs', 'companion/game-capture.cjs',
   'companion/ui/panel.js', 'companion/ui/gameplay-features.js',
@@ -46,7 +48,8 @@ const FIXTURES = Object.freeze([
   { name: 'input-viewer-electron.cjs', count: 9, kind: 'input-viewer' },
   { name: 'input-viewer-detection-electron.cjs', count: 15, kind: 'input-detection' },
   { name: 'input-viewer-afterglow-electron.cjs', count: 6, kind: 'input-afterglow' },
-  { name: 'input-viewer-output-electron.cjs', count: 10, kind: 'input-output' }
+  { name: 'input-viewer-output-electron.cjs', count: 10, kind: 'input-output' },
+  { name: 'drum-vst-electron.cjs', count: 8, kind: 'drums' }
 ]);
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const repo = path.resolve(__dirname, '..');
@@ -90,6 +93,7 @@ async function main() {
   assert.deepEqual(members.filter(name => publicMeasurementBundleIgnore.some(pattern => pattern.test('/' + name))), [], 'Private service or asset subtree present');
   assert.deepEqual(members.filter(name => /(?:^|\/)ChartsHub\.CloneHero\.Telemetry\.dll$/i.test(name)), [], 'Connector binary present under another path');
   for (const name of PUBLIC_MEMBERS) assert(memberSet.has(name), 'Public production module missing: ' + name);
+  assert(!members.some(name => name.startsWith('native-drum-host/')), 'Native SDK, sources and test plug-in must remain outside the application archive');
   const publicHashes = Object.fromEntries(PUBLIC_MEMBERS.map(name => [name, hash(asar.extractFile(archive, path.join(...name.split('/'))))]));
   const version = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8')).version;
   assert.equal(version, require('../package.json').version, 'Archive and reviewed source versions differ');
@@ -122,7 +126,16 @@ async function main() {
       assert.equal(path.resolve(report.productRoot), archive);
       assert.equal(report.realGameRead, false);
       assert.deepEqual(report.externalRequests, []);
-      if (fixture.kind === 'public') {
+      if (fixture.kind === 'drums') {
+        assert.equal(report.actualHostAndIpc, true);
+        assert.equal(report.actualPreloadAndRenderer, true);
+        assert.equal(report.syntheticDrumService, true);
+        assert.equal(report.rendererSandboxDisabled, false);
+        assert.equal(report.visibilityUnexpected, false);
+        for (const flag of ['realAudioOpened', 'realMidiRead', 'realXInputRead', 'realHardwareRead', 'realProfileRead', 'realUserProfileRead', 'realDesktopCaptured', 'realPluginLoaded', 'realDownload']) assert.equal(report[flag], false);
+        assert.deepEqual(report.errors, []);
+        for (const count of Object.values(report.forbiddenCalls)) assert.equal(count, 0);
+      } else if (fixture.kind === 'public') {
         assert.equal(report.actualHostAndIpc, true);
         assert.equal(report.publicHostDefault, true);
         assert.equal(report.privateServicesInjectedButNeverAccessed, true);
@@ -193,7 +206,7 @@ async function main() {
   };
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   if (failure) throw failure;
-  assert.equal(report.totalNativeChecks, 57);
+  assert.equal(report.totalNativeChecks, 65);
   console.log(JSON.stringify({ result: report.result, privateMembersAbsent: 13, nativeChecks: report.totalNativeChecks, version, archiveSha256: archiveBefore, output }));
 }
 

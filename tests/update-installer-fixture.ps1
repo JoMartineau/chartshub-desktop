@@ -1,6 +1,7 @@
 #requires -Version 5.1
 param([Parameter(Mandatory=$true)][string]$FixtureRoot)
 $ErrorActionPreference='Stop';Set-StrictMode -Version Latest
+[Console]::Error.WriteLine('Synthetic updater fixture: importing production functions')
 . (Join-Path $PSScriptRoot '../desktop/update-install.ps1') -FunctionsOnly
 $FixtureRoot=Full-Path $FixtureRoot
 if ((Split-Path $FixtureRoot -Leaf) -notlike 'chartshub-update-fixture-*') { throw 'Synthetic fixture directory required' }
@@ -11,7 +12,7 @@ function Get-Process { [CmdletBinding()]param([int]$Id) if($global:ChartsHubFixt
 $passed=[Collections.Generic.List[string]]::new()
 function Check($Condition,[string]$Message){if(!$Condition){throw $Message}}
 function Refuse([scriptblock]$Action,[string]$Pattern){$message=$null;try{& $Action | Out-Null}catch{$message=$_.Exception.Message};Check ($message -and $message -match $Pattern) "Expected refusal $Pattern, got $message"}
-function Case([string]$Name,[scriptblock]$Action){& $Action;$passed.Add($Name)}
+function Case([string]$Name,[scriptblock]$Action){[Console]::Error.WriteLine('Synthetic updater case start: '+$Name);& $Action;$passed.Add($Name);[Console]::Error.WriteLine('Synthetic updater case passed: '+$Name)}
 function Asar([string]$Version,[string]$Name='chartshub-desktop'){
  $package=[Text.Encoding]::UTF8.GetBytes((@{name=$Name;version=$Version}|ConvertTo-Json -Compress))
  $json=[Text.Encoding]::UTF8.GetBytes('{"files":{"package.json":{"size":'+$package.Length+',"offset":"0","unpacked":false}}}')

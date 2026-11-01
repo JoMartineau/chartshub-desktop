@@ -1,6 +1,14 @@
-ChartsHub Desktop 0.14.34 - Catalogue et Companion
+ChartsHub Desktop 0.14.35 - Catalogue et Companion
 
-NOUVEAUTES 0.14.34 - WIDGET DU JEU ET LIEN OBS
+NOUVEAUTES 0.14.35 - BATTERIE / VST
+
+Companion > Batterie / VST : instrument VST3 x64, sortie audio et pads MIDI,
+manette XInput ou boutons a cliquer. Aucun son ne demarre sans votre action.
+MT Power Drum Kit : lire puis accepter sa licence avant sa preparation privee.
+OBS : Capture audio d application > ChartsHubDrumHost.exe.
+Moteur Windows x64 uniquement. Guide complet : Batterie VST/Guide.md.
+
+FONCTIONS CONSERVEES 0.14.34 - WIDGET DU JEU ET LIEN OBS
 
 - Fenetre de reglages opaque, deplacable et redimensionnable.
 - Widget compact du jeu : deplacer/redimensionner, verrouiller, masquer.

@@ -1,0 +1,6 @@
+/vendor/
+/tools/
+/build/
+/bin/
+/out/
+/out-build.log

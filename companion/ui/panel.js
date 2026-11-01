@@ -24,6 +24,7 @@ import { GameplayControls } from './gameplay-controls.js';
 import { SongVisualControls } from './song-visuals-controls.js';
 import { GameCaptureControls } from './game-capture-controls.js';
 import { InputViewerControls } from './input-viewer-controls.js';
+import { DrumVstControls } from './drum-vst-controls.js';
 import { UpdatesControls } from '../dist/settings/UpdatesControls.js';
 import { StatusControls } from '../dist/settings/StatusControls.js';
 import { ConfigurationBackupControls } from '../dist/settings/ConfigurationBackupControls.js';
@@ -83,6 +84,7 @@ const stream = new StreamControls({ root: query('#companion-app'), command: (nam
 const gameplayControls = gameplayMeasurements ? new GameplayControls({ root: query('#performance-controls'), calibrationRoot: query('#calibration-controls'), gameplayMeasurements, calibrationBeta, command: (name, payload) => command(name, payload) }) : null;
 const songVisualControls = new SongVisualControls({ root: query('#song-visuals-controls'), command: (name, payload) => command(name, payload) });
 const gameCaptureControls = new GameCaptureControls({ root: query('#game-capture-controls'), command: (name, payload) => command(name, payload) });
+const drumVstControls = new DrumVstControls({ root: query('#drum-vst-panel'), command: (name, payload) => command(name, payload) });
 const inputViewerControls = new InputViewerControls({ root: query('#input-viewer-controls'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const badSongs = new BadSongsCleanupControls({ root: query('#library-bad-songs'), command: (name, payload) => command(name, payload) });
@@ -179,6 +181,7 @@ async function changeSource(name, payload) {
 }
 
 function applySnapshot(snapshot) {
+  drumVstControls.update(snapshot);
   if (disposed || !snapshot?.state) return;
   const completeStreamSettings = snapshot.state.stream;
   snapshot = visibleWidgetSnapshot(snapshot, gameplayMeasurements);
@@ -329,7 +332,7 @@ async function command(name, payload, control) {
   const sourceCommand = name.startsWith('clonehero.');
   const profileCommand = name.startsWith('profile.');
   const songRequestCommand = name.startsWith('songRequests.');
-  const playerCommand = name.startsWith('player.');
+  const playerCommand = name.startsWith('player.') || name.startsWith('drums.');
   const filtersCommand = name.startsWith('filters.') || name.startsWith('reshade.');
   if (!libraryQuery && !catalogueCommand && !downloadsCommand && !sourceCommand && !filtersCommand && !profileCommand) controls.feedback.hidden = true;
   if (control) control.disabled = true;
@@ -408,7 +411,7 @@ window.addEventListener('beforeunload', () => {
   gameplayControls?.dispose();
   songVisualControls.dispose();
   gameCaptureControls.dispose();
-  inputViewerControls.dispose();
+  inputViewerControls.dispose(); drumVstControls.dispose();
   streamPreview.dispose();
   library.dispose();
   cleanupHistory.dispose();

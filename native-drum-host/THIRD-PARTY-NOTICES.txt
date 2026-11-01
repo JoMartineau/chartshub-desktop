@@ -1,0 +1,16 @@
+ChartsHub native drum instrument host
+
+Steinberg VST 3 SDK 3.8.1, commit 3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96
+Copyright (c) 2026 Steinberg Media Technologies GmbH
+MIT license: licenses/VST3-SDK-MIT.txt
+https://github.com/steinbergmedia/vst3sdk
+
+nlohmann JSON 3.12.0, commit 65ee68451d8eb2b5f3a30b410476ab83deb3289b
+Copyright (c) 2013-2025 Niels Lohmann
+MIT license: licenses/nlohmann-json-MIT.txt
+https://github.com/nlohmann/json
+
+VST is a trademark of Steinberg Media Technologies GmbH.
+ChartsHub uses its own Windows audio/MIDI host integration. No Steinberg
+instrument, MT Power Drum Kit plugin, factory samples, JACK server, ASIO
+driver or virtual audio cable is bundled with this helper.

@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "vst3sdk": {
+    "repository": "https://github.com/steinbergmedia/vst3sdk.git",
+    "tag": "v3.8.1_build_84",
+    "commit": "3cdf9ca5d1f5b1b21e0a86832aa4abe55607bd96",
+    "licenseSha256": "b99e03d84202686308ba0c6556fcdff70885897cab8a87c02e75e4964a29aa76",
+    "submodules": {
+      "base": "fcf9da0bd27a16f7f03773a3a39822f28f5c8477",
+      "cmake": "054c9143cbb8d47fc4694e473f2ee3b4d951a8f5",
+      "pluginterfaces": "4f547e8e102b47de4a8b8aaf343c73b700786372",
+      "public.sdk": "586dc5e6c8012c3e4b01c79389375cbe96bdb1da"
+    }
+  },
+  "json": {
+    "repository": "https://github.com/nlohmann/json",
+    "commit": "65ee68451d8eb2b5f3a30b410476ab83deb3289b",
+    "version": "3.12.0",
+    "headerSha256": "aaf127c04cb31c406e5b04a63f1ae89369fccde6d8fa7cdda1ed4f32dfc5de63",
+    "licenseSha256": "46a65cffd1ea955132d95a8dd921640714a8d6b537d2e4e482d31145ae95b603"
+  },
+  "cmake": {
+    "version": "4.1.2",
+    "url": "https://github.com/Kitware/CMake/releases/download/v4.1.2/cmake-4.1.2-windows-x86_64.zip",
+    "sha256": "82730741149681597510a4bc7095da1460b472dac24eaf9c23ad7440f47753ab",
+    "executableSha256": "bce3d4c9e2bb3eab0c90eae3fe7ea9626d9dc35263194adc9132cf5349d628a3",
+    "checksumsUrl": "https://github.com/Kitware/CMake/releases/download/v4.1.2/cmake-4.1.2-SHA-256.txt",
+    "buildToolOnly": true
+  }
+}
