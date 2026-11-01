@@ -70,6 +70,34 @@ jobs:
           node -e "const p=require('./package-quick-import.cjs').inspectQuickImport(process.cwd());require('node:fs').writeFileSync(process.argv[1],JSON.stringify({...p,result:'QUICK_IMPORT_PRODUCTION_REPRODUCED',sdkVersion:'10.0.401',loaderArchiveSha256:'5b2b2f3d1cd42b59ec886c5bdc2663edae87a0097a4f4a8f58c0965a99dda416',gameAccessed:false,loaderExecuted:false,installationPerformed:false,thirdPartyBinariesDistributed:false},null,2)+'\n',{flag:'wx'});" "$proofRoot/report.json"
           if ($LASTEXITCODE -ne 0) { throw 'Optional module package provenance incomplete' }
           'CHARTSHUB_REQUIRE_QUICK_IMPORT_PACKAGE=1' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Collect optional module reproduction diagnostics
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:RUNNER_TEMP 'quick-import-module-build/source'
+          if (!(Test-Path -LiteralPath $source)) { exit 0 }
+          $diagnostic = Join-Path $env:RUNNER_TEMP 'quick-import-module-diagnostics'
+          New-Item -ItemType Directory -Path $diagnostic | Out-Null
+          dotnet --info | Set-Content -LiteralPath (Join-Path $diagnostic 'dotnet-info.txt')
+          $inputs = @(Get-ChildItem -LiteralPath $source -Recurse -File | Where-Object { $_.Extension -in @('.cs','.csproj','.dll') } | ForEach-Object {
+            [pscustomobject]@{path=[IO.Path]::GetRelativePath($source,$_.FullName);bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
+          })
+          $inputs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $diagnostic 'input-identities.json')
+          Push-Location $source
+          try { dotnet msbuild 'ChartsHub.QuickImport.csproj' -nologo -p:ProductionCandidate=true -t:ResolveReferences -getProperty:TargetFramework,RuntimeFrameworkVersion,LangVersion,DebugType,DebugSymbols,Optimize,Deterministic,DeterministicSourcePaths,PathMap,AssemblyVersion,FileVersion,InformationalVersion,SourceRevisionId,ContinuousIntegrationBuild,IncludeSourceRevisionInInformationalVersion,EnableSourceControlManagerQueries,NETCoreSdkVersion,NETCoreSdkRuntimeIdentifier -getItem:ReferencePath | Set-Content -LiteralPath (Join-Path $diagnostic 'build-properties.json') } finally { Pop-Location }
+          foreach ($name in @('ChartsHub.QuickImport.dll','ChartsHub.QuickImport.pdb')) {
+            $compiled = Join-Path $source ('bin/ProductionCandidate/net6.0/'+$name)
+            if (Test-Path -LiteralPath $compiled) { Copy-Item -LiteralPath $compiled -Destination (Join-Path $diagnostic $name) }
+          }
+          $generated = Join-Path $source 'obj/ProductionCandidate/net6.0'
+          if (Test-Path -LiteralPath $generated) { Get-ChildItem -LiteralPath $generated -File | Where-Object Extension -eq '.cs' | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $diagnostic $_.Name) } }
+      - uses: actions/upload-artifact@v4
+        if: failure() && runner.os == 'Windows'
+        with:
+          name: companion-quick-import-module-diagnostics
+          path: ${{ runner.temp }}/quick-import-module-diagnostics/*
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'Windows'
         with:
