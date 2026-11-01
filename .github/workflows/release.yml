@@ -176,6 +176,7 @@ jobs:
             ${{ runner.temp }}/ui-palette-sync/restart-report.json
             ${{ runner.temp }}/clonehero-gameplay-start/**/report.json
             ${{ runner.temp }}/config-backup-widgets/report.json
+            ${{ runner.temp }}/config-backup-widgets/failure.json
             ${{ runner.temp }}/calibration-hardware/**/report.json
             ${{ runner.temp }}/connector-setup/**/report.json
             ${{ runner.temp }}/calibration-beta/**/report.json

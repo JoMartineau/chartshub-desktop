@@ -9,11 +9,12 @@ if(!process.argv[2]||directory===root||!path.basename(directory).startsWith('con
 fs.mkdirSync(directory,{recursive:true});app.setPath('userData',path.join(directory,'profile'));app.disableHardwareAcceleration();
 if(process.env.CHARTSHUB_TEST_NO_SANDBOX==='1')app.commandLine.appendSwitch('no-sandbox');
 const data=path.join(app.getPath('userData'),'companion'),settings=path.join(data,'settings.json');
-let desktop,host,backupFile=path.join(directory,'factory.json'),relaunches=0,quitRequested=false,failing=false;
+let desktop,host,backupFile=path.join(directory,'factory.json'),relaunches=0,quitRequested=false,failing=false,phase='startup',applyCompletion=null;
 const passed=[],errors=[],delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 app.relaunch=()=>{relaunches++;};app.quit=()=>{quitRequested=true;};
-async function waitFor(check,label){const until=Date.now()+20000;while(Date.now()<until){if(await check()){passed.push(label);return;}await delay(30);}throw Error('Timed out: '+label);}
-async function fail(error){if(failing)return;failing=true;console.error(error.stack||error);fs.writeFileSync(path.join(directory,'failure.json'),JSON.stringify({error:String(error.stack||error),passed,errors,relaunches,quitRequested},null,2));try{await host?.dispose();await desktop?.dispose();}catch{}app.exit(1);}
+function progress(value){phase=value;console.log(JSON.stringify({phase}));}
+async function waitFor(check,label){progress('waiting: '+label);const until=Date.now()+20000;while(Date.now()<until){if(await check()){passed.push(label);progress('passed: '+label);return;}await delay(30);}throw Error('Timed out: '+label);}
+async function fail(error){if(failing)return;failing=true;console.error('Configuration backup phase: '+phase);console.error(error.stack||error);fs.writeFileSync(path.join(directory,'failure.json'),JSON.stringify({error:String(error.stack||error),phase,passed,errors,relaunches,quitRequested,applyCompletion},null,2));try{await host?.dispose();await desktop?.dispose();}catch{}app.exit(1);}
 process.on('unhandledRejection',fail);process.on('uncaughtException',fail);setTimeout(()=>fail(Error('Native configuration backup fixture timed out')),120000).unref();
 const originalLoad=Module._load;
 Module._load=function(name,parent){
@@ -52,13 +53,22 @@ app.whenReady().then(async()=>{
  await command('widget.layout',{destination:'game',items:[{id:'gameplay-accuracy',x:10,y:20,width:400,height:184}]});
  const preview=await maintenance('backup.preview');assert.equal(preview.ok,true,JSON.stringify(preview));assert.equal(preview.preview.groups.find(g=>g.key==='overlay').count,13);
  assert.equal(JSON.stringify(preview).includes(directory),false);passed.push('native-selected preview exposes only the bounded category summary');
- const apply=maintenance('backup.apply',{id:preview.preview.id}).catch(error=>({rendererClosed:String(error.message)}));
- await waitFor(()=>relaunches===1,'authorized close completes restoration and requests relaunch');await apply;
+ // Applying intentionally destroys this renderer. Electron may leave an
+ // executeJavaScript promise pending after its IPC context disappears: observe
+ // that actual lifecycle event instead of waiting forever for a dead context.
+ // The real relaunch and every restored-file assertion below remain required.
+ let applyReplySettled=false;
+ const rendererClosed=new Promise(resolve=>local.once('destroyed',()=>resolve({kind:'renderer-destroyed'})));
+ const apply=maintenance('backup.apply',{id:preview.preview.id}).then(value=>{applyReplySettled=true;return{kind:'reply',value};},error=>{applyReplySettled=true;return{kind:'transport-closed',error:String(error.message)};});
+ await waitFor(()=>relaunches===1,'authorized close completes restoration and requests relaunch');progress('observing apply response or destroyed renderer');
+ const completion=await Promise.race([apply,rendererClosed]);
+ if(completion.kind==='reply'){assert.equal(completion.value.ok,true,JSON.stringify(completion.value));assert.equal(completion.value.restarting,true);}else assert.equal(local.isDestroyed(),true,'Only the actual authorized renderer destruction can replace its IPC response');
+ applyCompletion={kind:completion.kind,replySettled:applyReplySettled,rendererDestroyed:local.isDestroyed()};progress('restoration completed: '+completion.kind);
  assert.deepEqual(errors,[]);const restored=JSON.parse(fs.readFileSync(settings,'utf8'));
  assert.equal(restored.widgets.length,13);assert.deepEqual(restored.widgets.find(w=>w.id==='gameplay-accuracy'),expectedAccuracy);assert.deepEqual(restored.widgets.find(w=>w.id==='song-lyrics'),expectedLyrics);
  assert.deepEqual(restored.stream.layout,exported.groups.overlay.stream.layout);assert.equal(fs.readFileSync(path.join(data,'accounts.json'),'utf8'),'PRIVATE_ACCOUNT_FIXTURE');
  assert.equal(fs.existsSync(path.join(data,'.configuration-import.lock')),false);assert.equal(fs.readdirSync(path.join(data,'.configuration-pending')).length,0);passed.push('actual shutdown/apply restores all widgets and keeps private files unchanged');
  const {validateSettings}=await import('../companion/dist/storage/SettingsRepository.js'),{ensureGameplayDocument}=await import('../companion/dist/widgets/core/index.js');
  assert.deepEqual(ensureGameplayDocument(validateSettings(restored)),restored);passed.push('restored thirteen-widget document is ready for the next native startup');
- const report={result:'CONFIG_BACKUP_NATIVE_OK',passed,relaunches,quitRequested,isolatedProfile:app.getPath('userData')};fs.writeFileSync(path.join(directory,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));app.exit(0);
+ const report={result:'CONFIG_BACKUP_NATIVE_OK',passed,relaunches,quitRequested,applyCompletion,isolatedProfile:app.getPath('userData')};fs.writeFileSync(path.join(directory,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));app.exit(0);
 }).catch(fail);
