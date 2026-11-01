@@ -32,13 +32,14 @@ const openCompanion=async()=>{
  if(!companionHostPromise)companionHostPromise=createCompanionHost({sharingClient:songRequestSharing,isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
  const host=await companionHostPromise;
  activeCompanionHost=host;
+ desktop.setLanguage?.(companionLanguage);
  host.setLanguage?.(companionLanguage);
  host.setButtonMotion?.(buttonMotion);
  if(cataloguePalette)host.setUIPalette?.(cataloguePalette);
  if(closing||!companionAvailable||requestedTab!=='companion')return;
  return host.open();
 };
-const showCompanion=()=>void selectTab('companion').catch(error=>dialog.showErrorBox('ChartsHub Companion',error?.code==='BACKUP_RECOVERY_REQUIRED'?'Une restauration interrompue demande une vérification manuelle. Les fichiers et leurs sauvegardes ont été conservés.':'Le Companion ne peut pas démarrer. Vérifiez que la distribution est complète.'));
+const showCompanion=()=>void selectTab('companion').catch(error=>dialog.showErrorBox(companionLanguage==='fr'?'ChartsHub — Tableau de bord':'ChartsHub — Dashboard',error?.code==='BACKUP_RECOVERY_REQUIRED'?(companionLanguage==='fr'?'Une restauration interrompue demande une vérification manuelle. Les fichiers et leurs sauvegardes ont été conservés.':'An interrupted restore requires manual review. Files and backups have been preserved.'):(companionLanguage==='fr'?'Le Tableau de bord ne peut pas démarrer. Vérifiez que la distribution est complète.':'The Dashboard cannot start. Check that the distribution is complete.')));
 async function selectTab(tab){
  if(closing||!['catalogue','companion'].includes(tab))return;
  requestedTab=tab;
@@ -97,6 +98,10 @@ else{
   };
   const catalogueAlive=()=>win&&!win.isDestroyed()&&web&&!web.isDestroyed();
   const downloads=createAccountBoundDownloads({readAccount,cancel:()=>job?.abort(),publish:snapshot=>{if(catalogueAlive()&&trusted(web.getURL()))web.send('chartshub:download-state',snapshot);}});
+  const completedForQuickImport=require('./desktop/quick-import-download-completion.cjs').createQuickImportDownloadCompletion({
+   getHost:()=>activeCompanionHost,isAvailable:()=>!closing&&!maintenanceLocked&&companionAvailable
+  });
+  const noteCompletedDownload=(endpoint,result,event,token,signal)=>completedForQuickImport({endpoint,result,authorized:!signal.aborted&&allowedSender(event)&&downloads.current(token)});
   let accountRevision=0;
   songRequestSharing=require('./desktop/song-request-sharing.cjs').createSongRequestSharing({fetcher:(url,options)=>ses.fetch(url,options),readAccount,generation:()=>accountRevision});
   updater=require('./desktop/update-service.cjs').createUpdateService({currentVersion:require('./package.json').version,platform:process.platform,arch:process.arch,packaged:app.isPackaged===true,
@@ -203,6 +208,7 @@ else{
   ipcMain.handle('chartshub:language',(event,value)=>{
    if(!allowedSender(event)||!['fr','en'].includes(value))return false;
    companionLanguage=value;
+   desktop.setLanguage?.(value);
    if(companionHostPromise)void companionHostPromise.then(host=>host.setLanguage(value)).catch(()=>{});
    return true;
   });
@@ -252,6 +258,7 @@ else{
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const items=normalizeBatch(endpoints),identities=items.map(item=>item.endpoint),requests=items.map(item=>item.request||item.endpoint);
    const controller=new AbortController();job=controller;
+   const completedFolders=[];
    let result,token,notificationScope;
    try{
     const account=await refreshAccount();if(!account.ok)throw Error('Le compte ne peut pas être vérifié. Réessayez.');
@@ -261,8 +268,11 @@ else{
     const directory=await chooseFolder('catalogue');
     if(!directory)return result={ok:false,cancelled:true,results:[]};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    result=await downloadBatch({endpoints:requests,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data)});
-    await refreshAccount();return downloads.current(token)?result:{ok:false,cancelled:true,results:[]};
+    result=await downloadBatch({endpoints:requests,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data),onDownloaded:value=>completedFolders.push(value)});
+    await refreshAccount();
+    if(!downloads.current(token))return {ok:false,cancelled:true,results:[]};
+    for(const value of completedFolders)noteCompletedDownload(value.endpoint,value.result,event,token,controller.signal);
+    return result;
    }catch(error){return result={ok:false,error:error.message,cancelled:controller.signal.aborted};}
    finally{downloads.finish(token,result);notificationBroker.finishNative(notificationScope,identities,result);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
@@ -281,6 +291,7 @@ else{
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
     const result=await downloadChart({endpoint,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,{...data,endpoint,itemPercent:data.percent})});
     await refreshAccount();if(!downloads.current(token))return outcome={ok:false,cancelled:true};
+    noteCompletedDownload(endpoint,result,event,token,controller.signal);
     // Only a path produced by this download operation is passed to the OS.
     shell.showItemInFolder(result.destination);
     return outcome={ok:true,folderName:result.folderName,files:result.files};
@@ -309,6 +320,7 @@ else{
     const result=await downloadEnchor({request,directory,outputPath,format,includeVideo,overwriteConfirmed:format!=='folder',fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,{...data,endpoint,itemPercent:data.percent})});
     controller.signal.throwIfAborted();
     await refreshAccount();if(!downloads.current(token))return outcome={ok:false,cancelled:true};
+    noteCompletedDownload(endpoint,result,event,token,controller.signal);
     shell.showItemInFolder(result.destination);
     return outcome={ok:true,folderName:result.folderName,fileName:result.fileName,files:result.files,format:result.format,output:format};
    }catch(error){return outcome=controller.signal.aborted?{ok:false,cancelled:true}:{ok:false,error:error.message};}

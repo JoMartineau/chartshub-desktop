@@ -2,17 +2,23 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),{EventEmitter}=require('node:events');
 const ORIGIN='https://chartshub.ca',md5='0123456789abcdef0123456789abcdef',payload={md5,title:'Song',artist:'Band'};
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
-async function desktop({saveDialog}={}){
- const ipc=new Map(),events=[],shown=[],saved=[];let win,web,user={id:'member-a',emailVerified:true,staffRole:null},transfer,resolveDownload,calls=0;
- const session=Object.assign(new EventEmitter(),{setPermissionRequestHandler(){},setPermissionCheckHandler(){},cookies:new EventEmitter(),fetch:async()=>Response.json({user})});
+async function desktop({saveDialog,quickImport=false}={}){
+ const ipc=new Map(),events=[],shown=[],saved=[],imports=[];let win,web,user={id:'member-a',emailVerified:true,staffRole:null},transfer,resolveDownload,calls=0,shellOptions,accountFails=false;
+ const session=Object.assign(new EventEmitter(),{setPermissionRequestHandler(){},setPermissionCheckHandler(){},cookies:new EventEmitter(),fetch:async()=>{if(accountFails)throw Error('account unavailable');return Response.json({user});}});
  const contents=()=>Object.assign(new EventEmitter(),{mainFrame:{url:ORIGIN+'/'},getURL:()=>ORIGIN+'/',isDestroyed:()=>false,setWindowOpenHandler(){},send:(name,data)=>events.push({name,data}),loadURL:()=>Promise.resolve()});
  class Window extends EventEmitter{constructor(){super();win=this;this.webContents=contents();}setMenuBarVisibility(){}isDestroyed(){return false;}loadURL(){return Promise.resolve();}setProgressBar(){}isMinimized(){return false;}restore(){}show(){}focus(){} }
- const createDesktopShell=()=>({window:new Window(),catalogueView:{webContents:web=contents()},ready:Promise.resolve(),showTab(){},setCompanionAvailable(){},setTheme(){},dispose(){}});
+ const createDesktopShell=options=>{shellOptions=options;return{window:new Window(),catalogueView:{webContents:web=contents()},ready:Promise.resolve(),showTab(){},setCompanionAvailable(){},setTheme(){},dispose(){}};};
+ const host={open(){},setLanguage(){},setButtonMotion(){},setCatalogueAvailable(){},acceptDownloadedChart:value=>imports.push(value)};
+ const backupStub={createConfigBackupIpc:()=>({getState:()=>({busy:false})})};
  const electron={BrowserWindow:Window,app:Object.assign(new EventEmitter(),{requestSingleInstanceLock:()=>true,whenReady:()=>Promise.resolve(),getPath:()=>'/exports'}),session:{fromPartition:()=>session},ipcMain:{handle:(name,fn)=>ipc.set(name,fn)},Menu:{setApplicationMenu(){}},shell:{showItemInFolder:value=>shown.push(value)},dialog:{showSaveDialog:async(_window,options)=>{saved.push(options);return saveDialog?saveDialog(options):{canceled:false,filePath:'/downloads/chosen.'+options.filters[0].extensions[0]};}},nativeTheme:{}};
- const localRequire=name=>name==='electron'?electron:name==='./desktop/controller.cjs'?{createDesktopShell}:name==='./companion/host.cjs'?{registerCompanionScheme(){},createCompanionHost(){throw Error('Companion remains lazy');}}:name==='./enchor-download'?{...require('../enchor-download'),downloadEnchor:options=>{transfer=options;calls++;return new Promise(resolve=>{resolveDownload=resolve;});}}:name==='./batch-download'?{...require('../batch-download'),downloadBatch:options=>{transfer=options;calls++;return new Promise(resolve=>{resolveDownload=resolve;});}}:name==='./download-folder'?{folderPreferences:()=>({get:async()=>'/exports'})}:require(name.startsWith('./')?path.join(__dirname,'..',name):name);
+ const localRequire=name=>name==='electron'?electron:name==='./desktop/controller.cjs'?{createDesktopShell}:name==='./desktop/config-backup-ipc.cjs'?backupStub:name==='./companion/host.cjs'?{registerCompanionScheme(){},createCompanionHost(){if(quickImport)return Promise.resolve(host);throw Error('Companion remains lazy');}}:name==='./enchor-download'?{...require('../enchor-download'),downloadEnchor:options=>{transfer=options;calls++;return new Promise(resolve=>{resolveDownload=resolve;});}}:name==='./batch-download'?{...require('../batch-download'),downloadBatch:options=>{transfer=options;calls++;return new Promise(resolve=>{resolveDownload=resolve;});}}:name==='./download-folder'?{folderPreferences:()=>({get:async()=>'/exports'})}:require(name.startsWith('./')?path.join(__dirname,'..',name):name);
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../main.js'),'utf8'),{require:localRequire,process,URL,AbortController,AbortSignal,__dirname:path.join(__dirname,'..'),setInterval,clearInterval});await settle();
  const event=()=>({sender:web,senderFrame:web.mainFrame});
- return {ipc,events,session,shown,saved,win,web,get calls(){return calls;},get transfer(){return transfer;},setUser:next=>{user=next;},invoke:(name,...args)=>ipc.get('chartshub:'+name)(event(),...args),finish:()=>resolveDownload({destination:transfer.outputPath||'/exports/Band - Song/Band - Song.sng',folderName:'Band - Song',fileName:transfer.outputPath?'chosen.'+transfer.format:'Band - Song.sng',files:3,format:transfer.format==='zip'?'zip':'sng'}),finishBatch:()=>resolveDownload({ok:true,cancelled:transfer.signal.aborted,results:require('../batch-download').normalizeBatch(transfer.endpoints).map(item=>({endpoint:item.endpoint,ok:true,folderName:'Saved',files:3}))})};
+ return {ipc,events,session,shown,saved,imports,win,web,get calls(){return calls;},get transfer(){return transfer;},setUser:next=>{user=next;},failAccount:()=>{accountFails=true;},openCompanion:()=>shellOptions.onSelectTab('companion'),invoke:(name,...args)=>ipc.get('chartshub:'+name)(event(),...args),finish:()=>resolveDownload({destination:transfer.outputPath||'/exports/Band - Song/Band - Song.sng',folderName:'Band - Song',fileName:transfer.outputPath?'chosen.'+transfer.format:'Band - Song.sng',files:3,format:transfer.format==='zip'?'zip':'sng'}),finishBatch:()=>{
+  const items=require('../batch-download').normalizeBatch(transfer.endpoints);
+  for(const item of items)transfer.onDownloaded?.({endpoint:item.endpoint,result:{destination:'/exports/Saved',folderName:'Saved',files:3,...(item.request?{format:'folder'}:{})}});
+  resolveDownload({ok:true,cancelled:transfer.signal.aborted,results:items.map(item=>({endpoint:item.endpoint,ok:true,folderName:'Saved',files:3}))});
+ }};
 }
 test('native external imports require the active ChartsHub main frame and a hash-only download destination',async()=>{
  const d=await desktop(),handler=d.ipc.get('chartshub:download-enchor');
@@ -68,5 +74,21 @@ test('account changes and cancellation while a native save dialog is open never 
   let choose;const d=await desktop({saveDialog:()=>new Promise(resolve=>{choose=resolve;})}),pending=d.invoke('download-enchor',{...payload,format:'sng'});await settle();assert.equal(d.saved.length,1);assert.equal(d.calls,0);
   if(action==='cancel')await d.invoke('cancel');else{d.setUser({id:'member-b',emailVerified:true,staffRole:null});d.session.cookies.emit('changed',{}, {name:'chartshub_session',domain:'chartshub.ca'});await settle();}
   choose({canceled:false,filePath:'/downloads/chosen.sng'});assert.equal((await pending).cancelled,true);assert.equal(d.calls,0);assert.equal(d.shown.length,0);
+ }
+});
+test('batch Quick Import waits for final account validation before forwarding private completed folders',async()=>{
+ const endpoint='/api/charts/12345678-1234-1234-1234-123456789012/chartabcdef1/download-manifest';
+ for(const denied of [false,true]){
+  const d=await desktop({quickImport:true});await d.openCompanion();
+  const pending=d.invoke('download-batch',[endpoint,payload]);await settle();
+  assert.equal(d.imports.length,0);
+  if(denied)d.failAccount();d.finishBatch();assert.equal(d.imports.length,0);
+  const result=await pending;
+  assert.equal(d.imports.length,denied?0:2);
+  if(denied)assert.equal(result.cancelled,true);
+  else{
+   assert.equal(result.ok,true);assert.equal(d.imports.every(value=>value.destination==='/exports/Saved'),true);
+   assert.equal(JSON.stringify(result).includes('/exports/Saved'),false);
+  }
  }
 });

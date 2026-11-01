@@ -43,6 +43,67 @@ jobs:
       - run: npm ci
       - name: Check native runner architecture
         run: node -e "if(process.platform!=='${{ matrix.platform }}'||process.arch!=='${{ matrix.arch }}')throw Error('A native runner is required for this target')"
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '10.0.401'
+      - name: Reproduce optional Quick Import from public sources without running a game or loader
+        if: runner.os == 'Windows'
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reproRoot = Join-Path $env:RUNNER_TEMP 'quick-import-module-build'
+          $proofRoot = Join-Path $env:RUNNER_TEMP 'quick-import-module-proof'
+          if ((Test-Path -LiteralPath $reproRoot) -or (Test-Path -LiteralPath $proofRoot)) { throw 'Fresh module build and evidence directories required' }
+          if (@(Get-ChildItem -LiteralPath 'quick-import-mod' -Recurse -File -Force).Count -ne 20) { throw 'Only the twenty reviewed text source files may come from Git' }
+          New-Item -ItemType Directory -Path $proofRoot | Out-Null
+          Copy-Item -LiteralPath 'quick-import-mod' -Destination $reproRoot -Recurse
+          $loaderZip = Join-Path $env:RUNNER_TEMP 'quick-import-MelonLoader-0.7.3-x64.zip'
+          Invoke-WebRequest -Uri 'https://github.com/LavaGang/MelonLoader/releases/download/v0.7.3/MelonLoader.x64.zip' -OutFile $loaderZip -TimeoutSec 120
+          if ((Get-FileHash -LiteralPath $loaderZip -Algorithm SHA256).Hash.ToLowerInvariant() -cne '5b2b2f3d1cd42b59ec886c5bdc2663edae87a0097a4f4a8f58c0965a99dda416') { throw 'Official loader development archive SHA-256 mismatch' }
+          & (Join-Path $reproRoot 'Build-Module.ps1') -LoaderZip $loaderZip
+          $module = Get-Content -LiteralPath 'quick-import-mod/MODULE.json' -Raw | ConvertFrom-Json
+          $compiled = Join-Path $reproRoot 'source/bin/ProductionCandidate/net6.0/ChartsHub.QuickImport.dll'
+          if ((Get-FileHash -LiteralPath $compiled -Algorithm SHA256).Hash.ToLowerInvariant() -cne $module.moduleSha256) { throw 'Reproduced module differs from the reviewed live-tested module' }
+          Copy-Item -LiteralPath $compiled -Destination 'quick-import-mod/ChartsHub.QuickImport.dll'
+          node -e "const p=require('./package-quick-import.cjs').inspectQuickImport(process.cwd());require('node:fs').writeFileSync(process.argv[1],JSON.stringify({...p,result:'QUICK_IMPORT_PRODUCTION_REPRODUCED',sdkVersion:'10.0.401',loaderArchiveSha256:'5b2b2f3d1cd42b59ec886c5bdc2663edae87a0097a4f4a8f58c0965a99dda416',gameAccessed:false,loaderExecuted:false,installationPerformed:false,thirdPartyBinariesDistributed:false},null,2)+'\n',{flag:'wx'});" "$proofRoot/report.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Optional module package provenance incomplete' }
+          'CHARTSHUB_REQUIRE_QUICK_IMPORT_PACKAGE=1' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Collect optional module reproduction diagnostics
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:RUNNER_TEMP 'quick-import-module-build/source'
+          if (!(Test-Path -LiteralPath $source)) { exit 0 }
+          $diagnostic = Join-Path $env:RUNNER_TEMP 'quick-import-module-diagnostics'
+          New-Item -ItemType Directory -Path $diagnostic | Out-Null
+          dotnet --info | Set-Content -LiteralPath (Join-Path $diagnostic 'dotnet-info.txt')
+          $inputs = @(Get-ChildItem -LiteralPath $source -Recurse -File | Where-Object { $_.Extension -in @('.cs','.csproj','.dll') } | ForEach-Object {
+            [pscustomobject]@{path=[IO.Path]::GetRelativePath($source,$_.FullName);bytes=$_.Length;sha256=(Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()}
+          })
+          $inputs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $diagnostic 'input-identities.json')
+          Push-Location $source
+          try { dotnet msbuild 'ChartsHub.QuickImport.csproj' -nologo -p:ProductionCandidate=true -p:Configuration=Release -t:ResolveReferences -getProperty:TargetFramework,RuntimeFrameworkVersion,LangVersion,DebugType,DebugSymbols,Optimize,Deterministic,DeterministicSourcePaths,PathMap,AssemblyVersion,FileVersion,InformationalVersion,SourceRevisionId,ContinuousIntegrationBuild,IncludeSourceRevisionInInformationalVersion,EnableSourceControlManagerQueries,NETCoreSdkVersion,NETCoreSdkRuntimeIdentifier -getItem:ReferencePath | Set-Content -LiteralPath (Join-Path $diagnostic 'build-properties.json') } finally { Pop-Location }
+          foreach ($name in @('ChartsHub.QuickImport.dll','ChartsHub.QuickImport.pdb')) {
+            $compiled = Join-Path $source ('bin/ProductionCandidate/net6.0/'+$name)
+            if (Test-Path -LiteralPath $compiled) { Copy-Item -LiteralPath $compiled -Destination (Join-Path $diagnostic $name) }
+          }
+          $generated = Join-Path $source 'obj/ProductionCandidate/net6.0'
+          if (Test-Path -LiteralPath $generated) { Get-ChildItem -LiteralPath $generated -File | Where-Object Extension -eq '.cs' | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $diagnostic $_.Name) } }
+      - uses: actions/upload-artifact@v4
+        if: failure() && runner.os == 'Windows'
+        with:
+          name: companion-quick-import-module-diagnostics
+          path: ${{ runner.temp }}/quick-import-module-diagnostics/*
+          if-no-files-found: warn
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: companion-quick-import-module
+          path: ${{ runner.temp }}/quick-import-module-proof/report.json
+          if-no-files-found: warn
       - name: Compile TypeScript and run tests
         run: npm test
       - name: Verify public Companion, lyrics capture and filter mini restoration on Windows
@@ -115,6 +176,7 @@ jobs:
             ${{ runner.temp }}/ui-palette-sync/restart-report.json
             ${{ runner.temp }}/clonehero-gameplay-start/**/report.json
             ${{ runner.temp }}/config-backup-widgets/report.json
+            ${{ runner.temp }}/config-backup-widgets/failure.json
             ${{ runner.temp }}/calibration-hardware/**/report.json
             ${{ runner.temp }}/connector-setup/**/report.json
             ${{ runner.temp }}/calibration-beta/**/report.json
@@ -233,6 +295,28 @@ jobs:
             ${{ runner.temp }}/input-viewer-output/**/report.json
             ${{ runner.temp }}/input-viewer-output/**/*.png
           if-no-files-found: warn
+      - name: Verify optional Quick Import controls and main-only download completion without a game
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          node node_modules/electron/cli.js tests/quick-import-electron.cjs "--fixture-output=$env:RUNNER_TEMP/quick-import-source"
+          if ($LASTEXITCODE -ne 0) { throw 'Quick Import source verification failed' }
+          $reports = @(Get-ChildItem -LiteralPath "$env:RUNNER_TEMP/quick-import-source" -Filter report.json -Recurse -File)
+          if ($reports.Count -ne 1) { throw 'Exactly one Quick Import source report required' }
+          $report = Get-Content -LiteralPath $reports[0].FullName -Raw | ConvertFrom-Json
+          if ($report.result -ne 'passed' -or @($report.checks).Count -ne 8 -or @($report.checks | Sort-Object -Unique).Count -ne 8 -or $report.error -or @($report.errors).Count -ne 0 -or @($report.externalRequests).Count -ne 0 -or $report.loadedFromAsar -ne $false -or $report.actualHostAndIpc -ne $true -or $report.actualPreloadAndRenderer -ne $true -or $report.syntheticQuickImportService -ne $true -or $report.syntheticDownloadWorker -ne $true -or $report.rendererSandboxDisabled -ne $false -or $report.visibilityUnexpected -ne $false -or $report.nativeFloatingDisplaysSuppressed -ne $true) { throw 'Quick Import source evidence incomplete' }
+          foreach ($flag in @('realGameRead','realGameLaunched','realProviderConnected','realHardwareRead','realInputRead','realAudioOpened','realProfileRead','realUserProfileRead','realDesktopCaptured','realDownload','realNetworkUsed')) { if ($report.$flag -ne $false) { throw 'Quick Import fixture exceeded synthetic scope' } }
+          if (@($report.forbiddenCalls.PSObject.Properties).Count -ne 5) { throw 'Quick Import forbidden-call evidence incomplete' }
+          foreach ($entry in $report.forbiddenCalls.PSObject.Properties) { if ($entry.Value -ne 0) { throw 'Quick Import fixture performed a forbidden action' } }
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: companion-quick-import-source
+          path: |
+            ${{ runner.temp }}/quick-import-source/**/report.json
+            ${{ runner.temp }}/quick-import-source/**/*.png
+          if-no-files-found: warn
       - name: Verify Windows updater helper survives Electron exit
         if: runner.os == 'Windows'
         shell: pwsh
@@ -243,6 +327,29 @@ jobs:
           if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Updater launcher report missing' }
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
           if ($report.result -ne 'UPDATER_LAUNCHER_ELECTRON_OK' -or $report.count -ne 11 -or @($report.passed).Count -ne 11 -or @($report.passed | Sort-Object -Unique).Count -ne 11 -or $report.defaultProductionLauncher -ne $true -or $report.loadedFromAsar -ne $true -or $report.readyHandshakeVerified -ne $true -or $report.helperExecuted -ne $true -or $report.helperSurvivedControllerExit -ne $true -or $report.inheritedProcessPolicyRestricted -ne $true -or $report.helperProcessPolicy -cne 'Bypass' -or $report.controllerExitCode -ne 0 -or $report.timedOut -ne $false -or $report.windows -ne 0 -or $report.webContents -ne 0 -or $report.externalRequests -ne 0 -or $report.fixtureOnly -ne $true -or $report.realApplicationTouched -ne $false -or $report.realProfileTouched -ne $false -or $report.installerExecuted -ne $false) { throw 'Updater launcher evidence incomplete' }
+      - name: Verify local chat missing requests and explicit OBS sharing without providers
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          node node_modules/electron/cli.js tests/companion-session-features-electron.cjs "--fixture-output=$env:RUNNER_TEMP/session-features-source"
+          if ($LASTEXITCODE -ne 0) { throw 'Session features source verification failed' }
+          $reports = @(Get-ChildItem -LiteralPath "$env:RUNNER_TEMP/session-features-source" -Filter report.json -Recurse -File)
+          if ($reports.Count -ne 1) { throw 'Exactly one session features source report required' }
+          $report = Get-Content -LiteralPath $reports[0].FullName -Raw | ConvertFrom-Json
+          if ($report.result -ne 'passed' -or @($report.checks).Count -ne 12 -or @($report.checks | Sort-Object -Unique).Count -ne 12 -or $report.error -or @($report.errors).Count -ne 0 -or @($report.externalRequests).Count -ne 0 -or $report.loadedFromAsar -ne $false -or $report.rendererSandboxDisabled -ne $false -or $report.visibilityUnexpected -ne $false) { throw 'Session features source evidence incomplete' }
+          foreach ($flag in @('actualHostAndIpc','actualPreloadAndRenderer','actualLibraryAndRequestQueue','syntheticProviders','syntheticCatalogue','syntheticLocalBridge','syntheticDownloadWorker','syntheticDOMActions','syntheticStreamServer','syntheticClipboard','nativeFloatingDisplaysSuppressed')) { if ($report.$flag -ne $true) { throw 'Session fixture production boundary missing' } }
+          foreach ($flag in @('realGameRead','realGameLaunched','realProviderConnected','realHardwareRead','realInputRead','realAudioOpened','realProfileRead','realUserProfileRead','realDesktopCaptured','realDownload','realNetworkUsed')) { if ($report.$flag -ne $false) { throw 'Session fixture exceeded synthetic scope' } }
+          if (@($report.forbiddenCalls.PSObject.Properties).Count -ne 5) { throw 'Session forbidden-call evidence incomplete' }
+          foreach ($entry in $report.forbiddenCalls.PSObject.Properties) { if ($entry.Value -ne 0) { throw 'Session fixture performed a forbidden action' } }
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: companion-session-features-source
+          path: |
+            ${{ runner.temp }}/session-features-source/**/report.json
+            ${{ runner.temp }}/session-features-source/**/*.png
+          if-no-files-found: warn
       - name: Compile Windows filters and ReShade bridge
         if: runner.os == 'Windows'
         shell: pwsh
@@ -294,6 +401,24 @@ jobs:
             if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -cne $file.sha256 -or (Get-Item -LiteralPath $target).Length -ne $file.bytes) { throw 'Packaged drum dependency changed' }
           }
           if (($manifest.files | Where-Object name -eq 'ChartsHubDrumHost.exe').sha256 -cne $proof.helperSha256) { throw 'Packaged drum helper differs from offline-tested helper' }
+      - name: Verify optional module package bytes match the reproduced sources and DLL
+        if: runner.os == 'Windows'
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $proof = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'quick-import-module-proof/report.json') -Raw | ConvertFrom-Json
+          $directory = Join-Path $PWD 'dist/ChartsHub-win32-x64/Quick Import/quick-import-mod'
+          $manifest = Get-Content -LiteralPath (Join-Path $directory 'PACKAGE-MANIFEST.json') -Raw | ConvertFrom-Json
+          if ($proof.result -cne 'QUICK_IMPORT_PRODUCTION_REPRODUCED' -or $proof.sdkVersion -cne '10.0.401' -or $manifest.schema -ne 1 -or @($manifest.files).Count -ne 21 -or @($manifest.files | ForEach-Object name | Sort-Object -Unique).Count -ne 21 -or $manifest.moduleSha256 -cne $proof.moduleSha256 -or $manifest.build -cne $proof.build) { throw 'Optional module package provenance incomplete' }
+          foreach ($flag in @('defaultEnabled','gameBinaryIncluded','loaderArchiveIncluded','installed')) { if ($manifest.$flag -ne $false) { throw 'Optional module may not activate or install itself' } }
+          foreach ($flag in @('gameAccessed','loaderExecuted','installationPerformed','thirdPartyBinariesDistributed')) { if ($proof.$flag -ne $false) { throw 'Module reproduction exceeded compile-only scope' } }
+          if (@(Get-ChildItem -LiteralPath $directory -Recurse -File -Force).Count -ne 22) { throw 'Only the21 reviewed files and packaging receipt may be distributed' }
+          foreach ($file in $manifest.files) {
+            $expected = @($proof.files | Where-Object name -CEQ $file.name)
+            if ($expected.Count -ne 1 -or $expected[0].sha256 -cne $file.sha256 -or $expected[0].bytes -ne $file.bytes) { throw 'Optional module source or output changed after reproduction' }
+            $target = Join-Path $directory $file.name
+            if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -cne $file.sha256 -or (Get-Item -LiteralPath $target).Length -ne $file.bytes) { throw 'Packaged optional module bytes differ' }
+          }
       - name: Verify the actual public Windows ASAR before archiving
         if: runner.os == 'Windows'
         timeout-minutes: 8
@@ -302,7 +427,7 @@ jobs:
           node tests/public-asar-smoke.cjs "--asar=$PWD/dist/ChartsHub-win32-x64/resources/app.asar" "--output=$env:RUNNER_TEMP/public-asar-smoke"
           if ($LASTEXITCODE -ne 0) { throw 'Actual public ASAR smoke failed' }
           $report = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'public-asar-smoke/report.json') -Raw | ConvertFrom-Json
-          if ($report.result -ne 'PUBLIC_ASAR_SMOKE_OK' -or $report.error -or $report.privateMemberCount -ne 13 -or @($report.privateMembersAbsent).Count -ne 13 -or $report.entirePrivateSubtreeAbsent -ne $true -or $report.totalNativeChecks -ne 65 -or @($report.publicNativeChecks).Count -ne 7 -or $report.archiveSha256 -cne $report.archiveSha256After -or $report.publicHostDefault -ne $true -or $report.privateOptInOnBundle -ne $false -or $report.fixtureOnly -ne $true -or $report.realGameRead -ne $false -or $report.realUserProfileRead -ne $false -or $report.realHardwareRead -ne $false -or $report.realDesktopCaptured -ne $false -or $report.installationPerformed -ne $false) { throw 'Actual public ASAR evidence incomplete' }
+          if ($report.result -ne 'PUBLIC_ASAR_SMOKE_OK' -or $report.error -or $report.privateMemberCount -ne 13 -or @($report.privateMembersAbsent).Count -ne 13 -or $report.entirePrivateSubtreeAbsent -ne $true -or $report.totalNativeChecks -ne 85 -or @($report.publicNativeChecks).Count -ne 9 -or $report.archiveSha256 -cne $report.archiveSha256After -or $report.publicHostDefault -ne $true -or $report.privateOptInOnBundle -ne $false -or $report.fixtureOnly -ne $true -or $report.realGameRead -ne $false -or $report.realUserProfileRead -ne $false -or $report.realHardwareRead -ne $false -or $report.realDesktopCaptured -ne $false -or $report.installationPerformed -ne $false) { throw 'Actual public ASAR evidence incomplete' }
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'Windows'
         with:

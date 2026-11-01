@@ -5,7 +5,7 @@ import{updateTrails,trailGeometry}from'./input-viewer-model.js';
 // or the token-protected local HTTP snapshot used by an OBS Browser Source.
 const canvas=document.getElementById('output'),ctx=canvas.getContext('2d'),api=window.ChartsHubInputViewerOutput;
 if(api)document.body.classList.add('game-output');
-if(api?.language==='en'){document.documentElement.lang='en';document.getElementById('position-handle').textContent='⠿ Move widget · Lock it from Companion';}
+if(api?.language==='en'){document.documentElement.lang='en';document.getElementById('position-handle').textContent='⠿ Move widget · Lock it from the Dashboard';}
 let state=null,previous={},trails=[],lastReply=0,stopped=false,configBytes='',frame=null,timer=null;
 function accept(value){
  if(!value||value.version!==1||!['running','stopped'].includes(value.phase)||!Number.isSafeInteger(value.revision)||(value.config!==null&&(!Array.isArray(value.config.controls)||value.config.controls.length>24)))throw Error('Invalid display snapshot');

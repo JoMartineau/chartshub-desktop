@@ -1,0 +1,13 @@
+.quick-import-panel { margin: 16px 0; padding: 16px; border: 1px solid var(--border, #31465f); border-radius: 10px; background: var(--surface, #101d2c); }
+.quick-import-panel h3 { margin: 0 0 8px; }
+.quick-import-panel .helper-text { margin: 8px 0; line-height: 1.5; }
+.quick-import-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.quick-import-status { font-weight: 600; }
+.quick-import-feedback { color: var(--warning, #ffbd84); }
+.quick-import-jobs { max-height: 210px; overflow: auto; margin: 10px 0; padding-left: 22px; }
+.quick-import-jobs li { padding: 3px 0; overflow-wrap: anywhere; }
+@media (max-width: 640px) { .quick-import-actions .button { flex: 1 1 160px; } }
+.quick-import-compatibility { color: var(--accent, #45c6ff); font-weight: 700; }
+.quick-import-steps { margin: 12px 0; padding-left: 24px; }
+.quick-import-steps li { padding: 4px 0; }
+.quick-import-steps p { margin: 4px 0 6px; line-height: 1.5; }

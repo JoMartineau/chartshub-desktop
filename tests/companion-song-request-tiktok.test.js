@@ -44,6 +44,27 @@ test('messages use provider numeric identities and ignore ordinary chat', () => 
   for (const command of ['!queue', '!song', '!sr Song', '!vote Song', '!SR Song']) assert.equal(normalizeMessage(chat('1', { comment: command })).query, command);
 });
 
+test('ordinary TikTok comments reach the optional local feed without becoming song commands', async t => {
+  const feed = [], f = fixture(t, { onChatMessage: value => feed.push(value) });
+  await f.service.setReceiving(true); await f.service.connect({ username: 'creator' });
+  const client = f.clients[0];
+  client.emit('chat', chat('1', { comment: 'Hello everyone' })); client.emit('chat', chat('1', { comment: 'Hello everyone' }));
+  client.emit('chat', chat('2', { comment: 'x'.repeat(400) })); client.emit('chat', chat('3', { comment: '!queue' }));
+  client.emit('chat', chat('4', { comment: 'x'.repeat(501) }));
+  assert.deepEqual(feed.map(value => value.query), ['Hello everyone', 'x'.repeat(400), '!queue']);
+  assert.deepEqual(f.messages.map(value => value.query), ['!queue']);
+  assert.equal(f.calls[0].config.processInitialData, false);
+  await f.service.stop(); client.emit('chat', chat('5', { comment: 'late' })); assert.equal(feed.length, 3);
+});
+
+test('a reentrant local feed revocation prevents the same TikTok event reaching the request queue', async t => {
+  let service;
+  const f = fixture(t, { onChatMessage: () => { void service.stop(); } }); service = f.service;
+  await service.setReceiving(true); await service.connect({ username: 'creator' });
+  f.clients[0].emit('chat', chat('1', { comment: '!queue' }));
+  assert.deepEqual(f.messages, []); assert.equal(service.status().state, 'disconnected');
+});
+
 test('pinned connector v3 protobuf chat dispatch preserves numeric identity and command content', async t => {
   // Exercise the real dependency's protobuf decoder and event dispatcher without
   // calling its network connect(), rather than mirroring a guessed SDK payload.

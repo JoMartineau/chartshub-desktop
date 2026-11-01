@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr" data-theme="dark">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -14,14 +14,14 @@
   <div class="titlebar" aria-hidden="true"><img class="brand-mark small" src="../icon.png" width="18" height="18" alt="" draggable="false"><span class="brand-name">Charts<span class="brand-accent">Hub</span><span class="brand-domain">.ca</span></span></div>
   <header class="appnav">
     <div class="brand"><img class="brand-mark" src="../icon.png" width="37" height="37" alt="" draggable="false"><span class="brand-name">Charts<span class="brand-accent">Hub</span><span class="brand-domain">.ca</span></span></div>
-    <nav class="tabs" role="tablist" aria-label="Sections de ChartsHub">
+    <nav class="tabs" role="tablist" aria-label="ChartsHub sections">
       <button id="catalogue-tab" class="tab" role="tab" aria-selected="true" data-tab="catalogue" aria-controls="content-state">
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
         <span>Catalogue</span><span class="tab-spinner" aria-hidden="true" hidden></span>
       </button>
       <button id="companion-tab" class="tab" role="tab" aria-selected="false" data-tab="companion" aria-controls="content-state" tabindex="-1" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7h10c2 0 3 2 3.5 4l1 6c.3 2-2 3-3.2 1.5L16 16H8l-2.3 2.5C4.3 20 2 19 2.5 17l1-6C4 9 5 7 7 7Z"/><path d="M7 10v5m-2.5-2.5h5M16 11h.01M18 14h.01"/></svg>
-        <span>Companion</span><span class="tab-spinner" aria-hidden="true" hidden></span>
+        <span>Dashboard</span><span class="tab-spinner" aria-hidden="true" hidden></span>
       </button>
     </nav>
     <span class="shortcut" aria-hidden="true" hidden>Ctrl + Tab</span>
@@ -29,9 +29,9 @@
   <main id="content-state" class="content-state" role="tabpanel" aria-labelledby="catalogue-tab" aria-busy="true">
     <div class="state-card" role="status" aria-live="polite">
       <div class="state-icon" aria-hidden="true"><span class="spinner"></span></div>
-      <h1 id="state-title">Chargement du catalogue…</h1>
-      <p id="state-detail">Votre espace ChartsHub s’ouvre ici.</p>
-      <button id="retry" class="retry" hidden>Réessayer</button>
+      <h1 id="state-title">Loading catalogue…</h1>
+      <p id="state-detail">Your ChartsHub space opens here.</p>
+      <button id="retry" class="retry" hidden>Retry</button>
     </div>
   </main>
 </body>

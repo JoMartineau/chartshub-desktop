@@ -4,11 +4,16 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
-  <title>ChartsHub · Companion</title>
+  <title>ChartsHub · Tableau de bord</title>
   <link rel="stylesheet" href="./companion.css">
   <link rel="stylesheet" href="./floating-panels-controls.css">
   <link rel="stylesheet" href="./music-player.css">
+  <link rel="stylesheet" href="./quick-import-controls.css">
+  <link rel="stylesheet" href="./request-discovery-controls.css">
+  <link rel="stylesheet" href="./unified-chat-controls.css">
+  <link rel="stylesheet" href="./session-widget-controls.css">
   <link rel="stylesheet" href="./workspace-navigation.css">
+  <link rel="stylesheet" href="./home-controls.css">
   <link rel="stylesheet" href="./gameplay-controls.css">
   <link rel="stylesheet" href="./song-visuals-controls.css">
 <link rel="stylesheet" href="./button-motion.css">
@@ -18,17 +23,18 @@
 <body>
   <main id="companion-app" class="companion-app">
     <header class="app-header">
-      <nav id="companion-workspace-nav" class="companion-workspace-nav" aria-label="Rubriques du Companion" translate="no"><button type="button" data-companion-workspace="library" aria-current="page">Bibliothèque</button><button type="button" data-companion-workspace="catalogue">Catalogue</button><button type="button" data-companion-workspace="player">Lecteur</button><button type="button" data-companion-workspace="stream">Stream / OBS</button><button type="button" data-companion-workspace="drums">Batterie / VST</button><button type="button" data-companion-workspace="calibration" hidden inert>Calibration · BETA</button><button type="button" data-companion-workspace="requests">Demandes</button><button type="button" data-companion-workspace="status">État</button><button type="button" data-companion-workspace="settings">Réglages</button></nav>
+      <nav id="companion-workspace-nav" class="companion-workspace-nav" aria-label="Rubriques du Tableau de bord" translate="no"><button type="button" data-companion-workspace="home" aria-current="page">Accueil</button><button type="button" data-companion-workspace="library">Bibliothèque</button><button type="button" data-companion-workspace="catalogue">Catalogue</button><button type="button" data-companion-workspace="player">Lecteur</button><button type="button" data-companion-workspace="stream">Stream / OBS</button><button type="button" data-companion-workspace="drums">Batterie / VST</button><button type="button" data-companion-workspace="calibration" hidden inert>Calibration · BETA</button><button type="button" data-companion-workspace="chat">Chat</button><button type="button" data-companion-workspace="requests">Demandes</button><button type="button" data-companion-workspace="status">État</button><button type="button" data-companion-workspace="settings">Réglages</button></nav>
       <span id="source-mode-badge" class="demo-badge"><span aria-hidden="true"></span><span id="source-mode-label">MODE DÉMO</span></span>
     </header>
 
     <section class="page-heading" aria-labelledby="page-title">
-      <div><p class="eyebrow">CLONE HERO COMPANION</p><h1 id="page-title" translate="no">Bibliothèque</h1><p class="subtitle" translate="no">Vos morceaux, leurs fichiers et leur état.</p></div>
+      <div><p class="eyebrow">CLONE HERO · TABLEAU DE BORD</p><h1 id="page-title" translate="no">Bibliothèque</h1><p class="subtitle" translate="no">Vos morceaux, leurs fichiers et leur état.</p></div>
       <label class="overlay-switch"><input id="overlay-enabled" type="checkbox"><span>Activer l’overlay du jeu</span></label>
     </section>
 
     <div id="action-feedback" class="notice error-notice" role="alert" hidden></div>
     <div id="persistence-feedback" class="notice warning-notice" role="status" hidden></div>
+    <section id="home-panel" aria-label="Accueil" translate="no"></section>
     <section id="status-panel" class="card" aria-labelledby="status-title"><div id="status-controls" translate="no"></div></section>
 
     <section id="clonehero-source" class="card clonehero-source" aria-labelledby="clonehero-source-title">
@@ -96,7 +102,7 @@
         <div class="profiles-save-row"><label for="profiles-name">Nom du profil<input id="profiles-name" type="text" maxlength="40" autocomplete="off" placeholder="Ex. Stream du soir" aria-describedby="profiles-selected" disabled></label><button id="profiles-create" class="button primary" type="button" disabled>Enregistrer un nouveau profil</button><button id="profiles-update" class="button secondary" type="button" disabled>Mettre à jour</button><button id="profiles-delete" class="button secondary" type="button" disabled>Supprimer</button></div>
         <p id="profiles-selected" class="helper-text">Utilisez Gérer sur un profil pour le renommer ou le mettre à jour.</p>
         <div id="profiles-delete-prompt" class="profiles-delete-prompt" role="group" aria-labelledby="profiles-delete-message" hidden><p id="profiles-delete-message"></p><div><button id="profiles-delete-confirm" class="button secondary" type="button">Confirmer la suppression</button><button id="profiles-delete-cancel" class="button secondary" type="button">Conserver le profil</button></div></div>
-        <p id="profiles-limit" class="profiles-note" hidden>20 profils enregistrés. Mettez à jour un profil existant ou supprimez-en un pour en créer un autre.</p><p id="profiles-readonly" class="profiles-note" hidden>L’application et l’enregistrement des profils sont indisponibles. Fermez puis rouvrez le Companion pour les recharger.</p>
+        <p id="profiles-limit" class="profiles-note" hidden>20 profils enregistrés. Mettez à jour un profil existant ou supprimez-en un pour en créer un autre.</p><p id="profiles-readonly" class="profiles-note" hidden>L’application et l’enregistrement des profils sont indisponibles. Fermez puis rouvrez le Tableau de bord pour les recharger.</p>
         <p id="profiles-feedback" class="profiles-feedback" role="status" hidden></p><p id="profiles-error" class="profiles-feedback is-error" role="alert" hidden></p>
         <p class="profiles-scope">Les morceaux, la connexion à Clone Hero, le port et l’activation du serveur Stream restent indépendants des profils.</p>
       </div>
@@ -235,17 +241,19 @@
       <div class="card-heading"><div><p class="eyebrow">FILE DE TÉLÉCHARGEMENTS</p><h2 id="downloads-title">Téléchargements</h2><span class="helper-text">Préparez les dossiers de charts depuis le catalogue ChartsHub.</span></div><span id="downloads-count" class="status-pill">0 téléchargement</span></div>
       <div class="downloads-content">
         <div class="downloads-folder-row"><div><span>Dossier des prochains téléchargements</span><code id="downloads-root">Aucun dossier sélectionné</code></div><button id="downloads-choose-root" class="button secondary" type="button" disabled>Choisir un dossier</button></div>
+        <section id="quick-import-panel" class="quick-import-panel" aria-label="Quick Import BETA" translate="no"></section>
         <p id="downloads-status" class="downloads-status" role="status">La file est vide.</p>
         <p id="downloads-error" class="downloads-feedback is-error" role="alert" hidden></p><p id="downloads-feedback" class="downloads-feedback" role="status" hidden></p>
         <div id="downloads-empty" class="downloads-empty"><strong>Ajoutez une chart depuis le catalogue</strong><p>Choisissez le dossier de destination, puis utilisez « Ajouter à la file » sur une chart téléchargeable.</p></div>
         <div id="downloads-items" class="downloads-items" role="list" aria-label="File et historique des téléchargements"></div>
-        <div class="downloads-help"><p>La pause conserve les fichiers terminés. À la reprise, le fichier interrompu recommence depuis le début.</p><p>Retirer un élément incomplet supprime ses fichiers temporaires. Les dossiers terminés sont conservés.</p><p><strong>Utilisez un dossier de préparation distinct de Songs.</strong> Les charts téléchargées ne sont pas encore installées dans Clone Hero ; l’installation sera disponible à l’étape suivante.</p></div>
+        <div class="downloads-help"><p>La pause conserve les fichiers terminés. À la reprise, le fichier interrompu recommence depuis le début.</p><p>Retirer un élément incomplet supprime ses fichiers temporaires. Les dossiers terminés sont conservés.</p><p>Les fichiers sont préparés dans le dossier choisi. Pour Quick Import, les nouvelles charts doivent être téléchargées dans le dossier Songs sélectionné dans Bibliothèque et le module compatible doit être connecté. Sinon, utilisez le scan habituel de Clone Hero après installation dans Songs.</p></div>
       </div>
     </section>
 
     <section id="drum-vst-panel" class="card" aria-label="Batterie et instruments" translate="no"></section>
     <section id="local-music-player-panel" class="card local-music-player" aria-labelledby="local-player-heading-title" translate="no"></section>
 
+    <section id="unified-chat-panel" class="card" aria-label="Chat multistream" translate="no"></section>
     <section id="song-requests-panel" class="card song-requests-panel" aria-labelledby="song-requests-title">
       <div class="card-heading"><div><h2 id="song-requests-title">Song Request</h2><p id="song-requests-description" class="helper-text">Connectez votre chat, puis activez les demandes pour les morceaux de votre dossier Songs.</p></div><label><input id="song-requests-enabled" type="checkbox" disabled><span id="song-requests-enabled-label">Recevoir les demandes du chat</span></label></div>
       <div class="song-requests-content">
@@ -277,6 +285,7 @@
         <p id="song-requests-feedback" class="song-requests-feedback" role="status" hidden></p>
         <div class="song-request-queue-heading"><h3 id="song-requests-queue-title">File des demandes</h3><div><button id="song-requests-reset-order" class="button secondary" type="button" hidden disabled>Reclasser par votes</button><button id="song-requests-toggle-history" class="button secondary" type="button" aria-expanded="false" disabled>Afficher l’historique</button></div></div><p id="song-requests-queue-help" class="helper-text">Acceptez une demande, puis marquez-la jouée. Passer la retire de la file.</p><p id="song-requests-empty" role="status">Aucune demande reçue.</p><div id="song-requests-items" role="list" aria-labelledby="song-requests-queue-title"></div>
         <p id="song-requests-commands-help" class="helper-text"></p>
+        <section id="request-discovery-panel" aria-label="Demandes à rechercher" translate="no"></section>
         <details id="song-requests-rules-details" class="song-requests-details"><summary id="song-requests-rules-summary">Règles des demandes</summary>
         <form id="song-requests-rules-form"><div class="song-requests-rules">
           <label for="song-requests-max-duration"><span id="song-requests-duration-label">Durée maximale (minutes)</span><input id="song-requests-max-duration" type="number" min="1" max="60" step="1" aria-describedby="song-requests-rules-help" disabled></label>
@@ -303,6 +312,7 @@
 
     <section id="calibration-panel" hidden inert class="card calibration-panel" aria-labelledby="calibration-title"><div id="calibration-controls" translate="no"></div></section>
     <section id="performance-panel" hidden inert class="card performance-panel" aria-label="Mesures du jeu"><div id="performance-controls"></div></section>
+    <section id="session-widgets-panel" class="card" aria-label="Chat et activité OBS" translate="no"></section>
     <section id="stream-panel" class="card stream-panel" aria-labelledby="stream-panel-title">
       <div class="card-heading"><div><h2 id="stream-panel-title">Stream / OBS</h2><span id="stream-description" class="helper-text">Widgets du morceau et fenêtres flottantes dans OBS / Streamlabs.</span></div><label class="stream-enable-label"><input id="stream-enabled" type="checkbox" disabled> Activer le serveur Stream</label></div>
       <div class="stream-panel-content"><div class="stream-server-line"><span id="stream-status" class="status-pill">Serveur arrêté</span><span id="stream-clients" class="helper-text">0 connexions aux widgets</span></div><p class="helper-text">Ce compteur concerne uniquement la source des widgets. Le fond et la vidéo utilisent leurs propres URL ci-dessous.</p><p id="stream-feedback" class="stream-feedback" role="status" hidden></p><p id="stream-error" class="stream-feedback is-error" role="alert" hidden></p>
@@ -373,7 +383,7 @@
     <section id="config-backup-panel" class="card maintenance-panel" aria-label="Configuration backup"><div id="config-backup-controls" translate="no"></div></section>
     <section id="updates-panel" class="card maintenance-panel" aria-label="Application updates"><div id="updates-controls" translate="no"></div></section>
     <footer class="integration-note"><span class="integration-icon" aria-hidden="true">i</span><div><strong id="integration-note-title">Source Clone Hero simulée</strong><p id="integration-note-description">La démonstration utilise un scénario local. Choisissez Direct Clone Hero pour lire les informations exportées par le jeu.</p></div></footer>
-    <p id="connection-status" class="connection-status" role="status">Connexion au Companion…</p>
+    <p id="connection-status" class="connection-status" role="status">Connexion au Tableau de bord…</p>
   </main>
   <script type="module" src="./panel.js"></script>
 </body>

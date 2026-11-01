@@ -20,11 +20,16 @@ import { SongRequestControls } from '../dist/settings/SongRequestControls.js';
 import { LocalMusicPlayerControls } from '../dist/settings/LocalMusicPlayerControls.js';
 
 import { WorkspaceNavigation } from './workspace-navigation.js';
+import { HomeControls } from './home-controls.js';
 import { GameplayControls } from './gameplay-controls.js';
 import { SongVisualControls } from './song-visuals-controls.js';
 import { GameCaptureControls } from './game-capture-controls.js';
 import { InputViewerControls } from './input-viewer-controls.js';
 import { DrumVstControls } from './drum-vst-controls.js';
+import { QuickImportControls } from './quick-import-controls.js';
+import { RequestDiscoveryControls } from './request-discovery-controls.js';
+import { UnifiedChatControls } from './unified-chat-controls.js';
+import { SessionWidgetControls } from './session-widget-controls.js';
 import { UpdatesControls } from '../dist/settings/UpdatesControls.js';
 import { StatusControls } from '../dist/settings/StatusControls.js';
 import { ConfigurationBackupControls } from '../dist/settings/ConfigurationBackupControls.js';
@@ -37,6 +42,7 @@ const { gameplayMeasurements, calibrationBeta } = gameplayFeatureFlags(api?.feat
 const query = selector => document.querySelector(selector);
 const workspaceNavigation = new WorkspaceNavigation(query('#companion-app'), { language: document.documentElement.lang, gameplayMeasurements, calibrationBeta });
 window.ChartshubWorkspaceNavigation = workspaceNavigation;
+const homeControls = new HomeControls({ root: query('#home-panel'), navigate: destination => workspaceNavigation.select(destination, { scroll: true }) });
 const updates = window.ChartsHubMaintenance ? new UpdatesControls({root:query('#updates-controls'),bridge:window.ChartsHubMaintenance}) : null;
 const statusControls = new StatusControls({root:query('#status-controls'),bridge:window.ChartsHubMaintenance,reveal(selector){
   if (!workspaceNavigation.reveal(selector)) return;
@@ -85,10 +91,14 @@ const gameplayControls = gameplayMeasurements ? new GameplayControls({ root: que
 const songVisualControls = new SongVisualControls({ root: query('#song-visuals-controls'), command: (name, payload) => command(name, payload) });
 const gameCaptureControls = new GameCaptureControls({ root: query('#game-capture-controls'), command: (name, payload) => command(name, payload) });
 const drumVstControls = new DrumVstControls({ root: query('#drum-vst-panel'), command: (name, payload) => command(name, payload) });
+const quickImportControls = new QuickImportControls({ root: query('#quick-import-panel'), command: (name, payload) => command(name, payload) });
 const inputViewerControls = new InputViewerControls({ root: query('#input-viewer-controls'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
 const badSongs = new BadSongsCleanupControls({ root: query('#library-bad-songs'), command: (name, payload) => command(name, payload) });
 const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
+const requestDiscoveryControls = new RequestDiscoveryControls({ root: query('#request-discovery-panel'), command: (name, payload) => command(name, payload), onSearch: text => { workspaceNavigation.select('catalogue'); catalogue.searchForRequest(text); } });
+const unifiedChatControls = new UnifiedChatControls({ root: query('#unified-chat-panel'), command: (name, payload) => command(name, payload), onAccounts: () => { workspaceNavigation.select('requests'); const details=query('#song-requests-connections-details'); details.open=true; details.scrollIntoView({block:'start'}); } });
+const sessionWidgetControls = new SessionWidgetControls({ root: query('#session-widgets-panel'), command: (name, payload) => command(name, payload) });
 window.addEventListener('companion:library-focus', () => {
   window.ChartshubWorkspaceNavigation?.select('library');
   const panel = query('#library-panel'); panel?.scrollIntoView({ block: 'start', behavior: 'smooth' });
@@ -182,7 +192,12 @@ async function changeSource(name, payload) {
 
 function applySnapshot(snapshot) {
   drumVstControls.update(snapshot);
+  quickImportControls.update(snapshot);
+  requestDiscoveryControls.update(snapshot);
+  unifiedChatControls.update(snapshot);
+  sessionWidgetControls.update(snapshot);
   if (disposed || !snapshot?.state) return;
+  homeControls.update(snapshot);
   const completeStreamSettings = snapshot.state.stream;
   snapshot = visibleWidgetSnapshot(snapshot, gameplayMeasurements);
   const signature = controlSnapshotSignature(snapshot);
@@ -332,7 +347,7 @@ async function command(name, payload, control) {
   const sourceCommand = name.startsWith('clonehero.');
   const profileCommand = name.startsWith('profile.');
   const songRequestCommand = name.startsWith('songRequests.');
-  const playerCommand = name.startsWith('player.') || name.startsWith('drums.');
+  const playerCommand = name.startsWith('player.') || name.startsWith('drums.') || name.startsWith('quickImport.') || name.startsWith('chat.') || name.startsWith('sessionWidgets.');
   const filtersCommand = name.startsWith('filters.') || name.startsWith('reshade.');
   if (!libraryQuery && !catalogueCommand && !downloadsCommand && !sourceCommand && !filtersCommand && !profileCommand) controls.feedback.hidden = true;
   if (control) control.disabled = true;
@@ -352,7 +367,7 @@ async function command(name, payload, control) {
     return result;
   } catch {
     if (libraryQuery || catalogueCommand || downloadsCommand || sourceCommand || filtersCommand || profileCommand || songRequestCommand) return { ok: false };
-    showError('Le Companion ne répond pas à cette action. Réessayez dans un instant.');
+    showError('Le Tableau de bord ne répond pas à cette action. Réessayez dans un instant.');
     if (currentSnapshot) applySnapshot(currentSnapshot);
   } finally {
     if (control) control.disabled = [controls.next, controls.reset, controls.state].includes(control) && (liveSource() || sourceBusy);
@@ -381,7 +396,7 @@ for (const destination of ['game', 'stream']) {
 
 async function connect() {
   if (!api) {
-    showError('Ouvrez le Companion depuis ChartsHub pour utiliser la démonstration et l’overlay.');
+    showError('Ouvrez le Tableau de bord depuis ChartsHub pour utiliser la démonstration et l’overlay.');
     query('#connection-status').textContent = 'Connexion à ChartsHub indisponible';
     for (const control of [controls.next, controls.reset, controls.state, controls.overlay, query('#builder-toggle')]) control.disabled = true;
     return;
@@ -391,14 +406,15 @@ async function connect() {
     const initial = await api.getSnapshot();
     if (!receivedSnapshot) applySnapshot(initial);
   } catch {
-    showError('Le Companion n’a pas pu charger son état. Fermez puis rouvrez ce panneau.');
-    query('#connection-status').textContent = 'Chargement du Companion indisponible';
+    showError('Le Tableau de bord n’a pas pu charger son état. Fermez puis rouvrez ce panneau.');
+    query('#connection-status').textContent = 'Chargement du Tableau de bord indisponible';
   }
 }
 
 window.addEventListener('beforeunload', () => {
   disposed = true;
   workspaceNavigation.dispose();
+  homeControls.dispose();
   statusControls.dispose();
   updates?.dispose(); configurationBackup?.dispose();
   unsubscribe();
@@ -411,7 +427,7 @@ window.addEventListener('beforeunload', () => {
   gameplayControls?.dispose();
   songVisualControls.dispose();
   gameCaptureControls.dispose();
-  inputViewerControls.dispose(); drumVstControls.dispose();
+  inputViewerControls.dispose(); drumVstControls.dispose(); quickImportControls.dispose(); requestDiscoveryControls.dispose(); unifiedChatControls.dispose(); sessionWidgetControls.dispose();
   streamPreview.dispose();
   library.dispose();
   cleanupHistory.dispose();

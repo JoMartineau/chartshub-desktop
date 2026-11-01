@@ -10,7 +10,7 @@ function normalizeBatch(endpoints){
  });
 }
 function batchValid(endpoints){try{normalizeBatch(endpoints);return true;}catch{return false;}}
-async function downloadBatch({endpoints,directory,fetcher,signal,progress=()=>{},download=downloadChart,downloadExternal=downloadEnchor,idleTimeoutMs}){
+async function downloadBatch({endpoints,directory,fetcher,signal,progress=()=>{},onDownloaded=()=>{},download=downloadChart,downloadExternal=downloadEnchor,idleTimeoutMs}){
  const items=normalizeBatch(endpoints);
  const results=[];let stopped;
  for(let i=0;i<items.length;i++){
@@ -21,6 +21,12 @@ async function downloadBatch({endpoints,directory,fetcher,signal,progress=()=>{}
    const options={directory,fetcher,signal,idleTimeoutMs,progress:p=>progress({...p,endpoint:item.endpoint,state:'downloading',itemPercent:p.percent,itemMessage:p.message,percent:Math.floor((i+p.percent/100)/items.length*100),message:`${i+1}/${items.length} · ${p.message}`})};
    const result=await(item.request?downloadExternal({...options,request:item.request}):download({...options,endpoint:item.endpoint}));
    results.push({endpoint:item.endpoint,ok:true,folderName:result.folderName,files:result.files,...(item.request?{fileName:result.fileName,format:result.format||(result.fileName?'sng':'folder')}:{})});
+   // Trusted main-process completion only. The private destination never enters
+   // results/progress sent to the catalogue, and optional import cannot turn a
+   // successfully saved chart into a failed download or hold up the batch.
+   if(!signal.aborted&&typeof result.destination==='string'&&(!item.request||result.format==='folder')){
+    try{Promise.resolve(onDownloaded({endpoint:item.endpoint,result})).catch(()=>{});}catch{}
+   }
    progress({endpoint:item.endpoint,state:'complete',itemPercent:100,percent:Math.floor((i+1)/items.length*100),folderName:result.folderName,message:`${i+1}/${items.length} · ${result.folderName}`});
   }catch(error){if(signal.aborted)break;results.push({endpoint:item.endpoint,ok:false,error:error.message});progress({endpoint:item.endpoint,state:'error',itemPercent:0,percent:Math.floor((i+1)/items.length*100),error:error.message,message:`${i+1}/${items.length} · ${error.message}`});if(item.request&&['ENCHOR_DOWNLOAD_ACCESS_DENIED','ENCHOR_DOWNLOAD_RATE_LIMITED'].includes(error.code)){stopped=error;break;}}
  }

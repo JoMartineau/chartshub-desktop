@@ -33,7 +33,7 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   const heading = node('div', 'ch-bloom-heading');
   const title = node('h2', '', 'Theme and colors', 'Thème et couleurs'); title.id = 'ch-bloom-title';
   const close = button('close', 'Close', 'Fermer'); heading.setAttribute('translate', 'no'); heading.append(title, close);
-  const info = node('p', 'ch-bloom-muted', 'Follow Catalogue uses its holiday or custom interface colors. Personal colors keep your saved Companion bloom. This choice is saved on this computer. Game and stream widget colors stay unchanged.', 'Suivre le Catalogue reprend ses couleurs de fête ou personnalisées. Les couleurs personnelles conservent votre bloom du Companion. Ce choix est enregistré sur cet ordinateur. Les couleurs des widgets du jeu et du stream restent inchangées.');
+  const info = node('p', 'ch-bloom-muted', 'Follow Catalogue uses its holiday or custom interface colors. Personal colors keep your saved Dashboard bloom. This choice is saved on this computer. Game and stream widget colors stay unchanged.', 'Suivre le Catalogue reprend ses couleurs de fête ou personnalisées. Les couleurs personnelles conservent votre bloom du Tableau de bord. Ce choix est enregistré sur cet ordinateur. Les couleurs des widgets du jeu et du stream restent inchangées.');
   info.id = 'ch-bloom-info'; form.append(info);
   function field(name, type, en, french, parent = form) {
     const label = node('label', 'ch-bloom-field');
@@ -48,14 +48,14 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   const modeLabel = node('label', 'ch-bloom-field'); modeLabel.htmlFor = 'ch-bloom-palette-mode';
   modeLabel.append(node('span', 'ch-bloom-label', 'Interface colors', 'Couleurs de l’interface'));
   const mode = node('select'); mode.id = 'ch-bloom-palette-mode'; controls.paletteMode = mode;
-  for (const [value, en, french] of [['catalogue', 'Follow Catalogue (holiday or personal colors)', 'Suivre le Catalogue (couleurs de fête ou personnelles)'], ['custom', 'My personal Companion colors', 'Mes couleurs personnalisées du Companion']]) {
+  for (const [value, en, french] of [['catalogue', 'Follow Catalogue (holiday or personal colors)', 'Suivre le Catalogue (couleurs de fête ou personnelles)'], ['custom', 'My personal Dashboard colors', 'Mes couleurs personnalisées du Tableau de bord']]) {
     const option = node('option', '', en, french); option.value = value; mode.append(option);
   }
   modeLabel.append(mode); form.append(modeLabel);
   mode.addEventListener('change', () => { if (['catalogue', 'custom'].includes(mode.value)) { preview({ ...draft, followCatalogue: mode.value === 'catalogue' }); fill(); } });
   toggle('enabled', 'Enable interface bloom', 'Activer le bloom de l’interface');
   const sample = node('div', 'ch-bloom-sample');
-  sample.append(node('strong', '', 'ChartsHub / Companion'), node('span', '', 'Live preview · Text stays crisp', 'Aperçu immédiat · Le texte reste net')); form.append(sample);
+  sample.append(node('strong', '', 'ChartsHub / Dashboard', 'ChartsHub / Tableau de bord'), node('span', '', 'Live preview · Text stays crisp', 'Aperçu immédiat · Le texte reste net')); form.append(sample);
   const colors = node('div', 'ch-bloom-color-row'); form.append(colors);
   const color = field('color', 'color', 'Bloom color', 'Couleur du bloom', colors);
   const hex = field('hex', 'text', 'HEX code', 'Code HEX', colors); hex.maxLength = 7; hex.required = true; hex.autocomplete = 'off'; hex.spellcheck = false;
@@ -107,7 +107,7 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   const reset = button('reset', 'Reset', 'Réinitialiser'), cancel = button('cancel', 'Cancel', 'Annuler'), apply = button('apply', 'Apply', 'Appliquer');
   apply.type = 'submit'; apply.classList.add('ch-bloom-primary'); actions.append(reset, cancel, apply); form.append(actions);
   const interfaceSection = node('details', 'ch-bloom-interface'); interfaceSection.id = 'theme-interface-appearance'; interfaceSection.open = true;
-  const interfaceSummary = node('summary', '', 'Companion interface', 'Interface Companion'); interfaceSummary.setAttribute('translate', 'no');
+  const interfaceSummary = node('summary', '', 'Dashboard interface', 'Interface du Tableau de bord'); interfaceSummary.setAttribute('translate', 'no');
   interfaceSection.append(interfaceSummary, form); dialog.append(heading, interfaceSection);
   // Keep the real controls inside their existing controller root. Each section
   // keeps its own draft/save flow; no widget editor is nested in the bloom form.

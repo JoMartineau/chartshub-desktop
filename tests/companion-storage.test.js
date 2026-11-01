@@ -71,6 +71,80 @@ test('settings serialize concurrent saves and preserve previous version as backu
   assert.deepEqual(JSON.parse(await fs.readFile(f.file + '.bak', 'utf8')), first);
   assert.deepEqual((await fs.readdir(path.dirname(f.file))).sort(), ['settings.json', 'settings.json.bak']);
 });
+
+test('Windows settings replacement retries transient sharing locks without removing current bytes', { skip: process.platform !== 'win32' }, async t => {
+  const f = await fixture(t), first = await f.repo.load(); await f.repo.save(first);
+  const prior = await fs.readFile(f.file), next = structuredClone(first); next.stream.layout[0].x = 136;
+  const rename = fs.rename.bind(fs), unlink = fs.unlink.bind(fs); let attempts = 0, temporary; const actualSharingFailures = [];
+  t.mock.method(fs, 'unlink', async file => { assert.notEqual(file, f.file, 'The current settings are never unlinked'); return unlink(file); });
+  t.mock.method(fs, 'rename', async (from, to) => {
+    assert.equal(to, f.file); temporary ??= from; assert.equal(from, temporary, 'Retries reuse the same synced document');
+    assert.deepEqual(await fs.readFile(f.file), prior, 'Readers retain the previous complete document until replacement');
+    assert.equal(JSON.parse(await fs.readFile(from, 'utf8')).stream.layout[0].x, 136);
+    attempts++; if (attempts < 3) throw Object.assign(Error('synthetic Windows sharing lock'), { code: attempts === 1 ? 'EPERM' : 'EBUSY' });
+    try { return await rename(from, to); }
+    catch (error) { assert(['EPERM', 'EBUSY'].includes(error.code), 'Unexpected real rename error: ' + error.code); actualSharingFailures.push(error.code); throw error; }
+  });
+  let reading = true; const reads = [], readErrors = [];
+  const reader = (async () => { while (reading) { try { reads.push(JSON.parse(await fs.readFile(f.file, 'utf8')).stream.layout[0].x); } catch (error) { readErrors.push(error); } await new Promise(resolve => setTimeout(resolve, 2)); } })();
+  try { await f.repo.save(next); } finally { reading = false; await reader; }
+  reads.push(JSON.parse(await fs.readFile(f.file, 'utf8')).stream.layout[0].x);
+  assert.deepEqual(readErrors, [], 'Concurrent readers never see a missing or partial document');
+  assert(reads.includes(first.stream.layout[0].x) && reads.includes(136));
+  assert(reads.every(x => x === first.stream.layout[0].x || x === 136), 'Every observation is the complete old or complete new layout');
+  assert.equal(attempts, 2 + actualSharingFailures.length + 1, 'Two injected locks, recorded real sharing locks, then one successful replacement');
+  assert(attempts <= 6, 'All retries stay within the production bound'); assert.deepEqual(await f.repo.load(), next);
+  assert.deepEqual(await fs.readFile(f.file + '.bak'), prior);
+  assert.deepEqual((await fs.readdir(path.dirname(f.file))).sort(), ['settings.json', 'settings.json.bak']);
+});
+
+test('Windows retry keeps queued settings serialized and backs up the immediately previous save', { skip: process.platform !== 'win32' }, async t => {
+  const f = await fixture(t), initial = await f.repo.load(); await f.repo.save(initial);
+  const first = structuredClone(initial), last = structuredClone(initial); first.stream.layout[0].x = 136; last.stream.layout[0].x = 184;
+  const rename = fs.rename.bind(fs), completed = []; let attempts = 0, firstTemporary;
+  t.mock.method(fs, 'rename', async (from, to) => {
+    attempts++; const x = JSON.parse(await fs.readFile(from, 'utf8')).stream.layout[0].x;
+    if (attempts === 1) { firstTemporary = from; assert.equal(x, 136); throw Object.assign(Error('synthetic reader'), { code: 'EPERM' }); }
+    if (completed.length === 0) { assert.equal(from, firstTemporary); assert.equal(x, 136); }
+    await rename(from, to); completed.push(x);
+  });
+  await Promise.all([f.repo.save(first), f.repo.save(last)]);
+  assert.equal(attempts, 3); assert.deepEqual(completed, [136, 184]);
+  assert.deepEqual(await f.repo.load(), last); assert.deepEqual(JSON.parse(await fs.readFile(f.file + '.bak', 'utf8')), first);
+  assert.deepEqual((await fs.readdir(path.dirname(f.file))).sort(), ['settings.json', 'settings.json.bak']);
+});
+
+test('Windows permanent sharing lock is bounded, preserves settings, cleans temporary files and releases the save queue', { skip: process.platform !== 'win32' }, async t => {
+  const f = await fixture(t), initial = await f.repo.load(); await f.repo.save(initial);
+  const prior = await fs.readFile(f.file), next = structuredClone(initial); next.stream.layout[0].x = 136;
+  const rename = fs.rename.bind(fs); let attempts = 0, locked = true;
+  t.mock.method(fs, 'rename', async (from, to) => { attempts++; if (locked) throw Object.assign(Error('persistent synthetic lock'), { code: 'EPERM' }); return rename(from, to); });
+  await assert.rejects(f.repo.save(next), { code: 'EPERM' }); assert.equal(attempts, 6, 'One attempt and five bounded retries');
+  assert.deepEqual(await fs.readFile(f.file), prior); assert.deepEqual(await fs.readFile(f.file + '.bak'), prior);
+  assert.deepEqual((await fs.readdir(path.dirname(f.file))).sort(), ['settings.json', 'settings.json.bak']);
+  locked = false; await f.repo.save(next); assert.equal(attempts, 7); assert.deepEqual(await f.repo.load(), next);
+});
+
+test('settings replacement does not retry permanent permission errors or change the backup-write contract', async t => {
+  const f = await fixture(t), initial = await f.repo.load(); await f.repo.save(initial);
+  const prior = await fs.readFile(f.file), next = structuredClone(initial); next.stream.layout[0].x = 136;
+  const originalCopy = fs.copyFile.bind(fs); let attempts = 0;
+  const mockedRename = t.mock.method(fs, 'rename', async () => { attempts++; throw Object.assign(Error('synthetic access failure'), { code: 'EACCES' }); });
+  await assert.rejects(f.repo.save(next), { code: 'EACCES' }); assert.equal(attempts, 1); assert.deepEqual(await fs.readFile(f.file), prior);
+  mockedRename.mock.restore();
+  t.mock.method(fs, 'copyFile', async (from, to) => { if (from === f.file && to === f.file + '.bak') throw Object.assign(Error('synthetic backup failure'), { code: 'EPERM' }); return originalCopy(from, to); });
+  attempts = 0; t.mock.method(fs, 'rename', async () => { attempts++; });
+  await assert.rejects(f.repo.save(next), { code: 'EPERM' }); assert.equal(attempts, 0, 'A backup failure never reaches replacement');
+  assert.deepEqual(await fs.readFile(f.file), prior);
+  assert.deepEqual((await fs.readdir(path.dirname(f.file))).sort(), ['settings.json', 'settings.json.bak']);
+});
+
+test('non-Windows settings replacement propagates sharing error without platform-specific retries', { skip: process.platform === 'win32' }, async t => {
+  const f = await fixture(t), initial = await f.repo.load(); await f.repo.save(initial); const prior = await fs.readFile(f.file); let attempts = 0;
+  t.mock.method(fs, 'rename', async () => { attempts++; throw Object.assign(Error('synthetic sharing error'), { code: 'EPERM' }); });
+  await assert.rejects(f.repo.save(initial), { code: 'EPERM' }); assert.equal(attempts, 1); assert.deepEqual(await fs.readFile(f.file), prior);
+  assert.deepEqual((await fs.readdir(path.dirname(f.file))).sort(), ['settings.json', 'settings.json.bak']);
+});
 test('future settings schema is preserved and cannot be overwritten', async t => {
   const f = await fixture(t); const original = '{"version":4,"widgets":[],"future":"preserve"}';
   await fs.writeFile(f.file, original); await assert.rejects(f.repo.load());

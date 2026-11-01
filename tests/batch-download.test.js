@@ -55,3 +55,24 @@ test('ChorusEncore retry delays accept safe seconds and HTTP dates without sched
  for(const value of ['bad','-1','999999999999999999999999'])assert.equal(downloadError(429,new Headers({'Retry-After':value})).retryAfterSeconds,undefined);
  assert.equal(downloadError(404).code,undefined);
 });
+
+test('new completed folders notify trusted main code once, without exposing destination in public results or events',async()=>{
+ const callbacks=[],events=[],external={md5:'b'.repeat(32)},saved={folderName:'Saved',destination:'C:\\Songs\\Saved',files:2};
+ const result=await downloadBatch({endpoints:[endpoint(1),external],signal:new AbortController().signal,progress:value=>events.push(value),onDownloaded:value=>callbacks.push(value),download:async()=>saved,downloadExternal:async()=>({...saved,format:'folder'})});
+ assert.equal(result.ok,true);assert.deepEqual(callbacks.map(value=>[value.endpoint,value.result.destination]),[[endpoint(1),saved.destination],['enchor:'+external.md5,saved.destination]]);
+ assert.equal(JSON.stringify({result,events}).includes(saved.destination.replaceAll('\\','\\\\')),false);
+ assert.equal(result.results.some(value=>Object.hasOwn(value,'destination')),false);
+});
+test('batch imports neither cancelled completions nor packed ChorusEncore files',async()=>{
+ const controller=new AbortController();let calls=0;
+ await downloadBatch({endpoints:[endpoint(1)],signal:controller.signal,onDownloaded:()=>calls++,download:async()=>{controller.abort();return{folderName:'Saved',destination:'C:\\Songs\\Saved',files:1};}});
+ for(const format of ['sng','zip'])await downloadBatch({endpoints:[{md5:'b'.repeat(32)}],signal:new AbortController().signal,onDownloaded:()=>calls++,downloadExternal:async()=>({folderName:'Packed',destination:'C:\\Songs\\Packed.'+format,format,files:1})});
+ assert.equal(calls,0);
+});
+test('a slow or failing optional import never delays or downgrades saved batch downloads',async()=>{
+ for(const callback of [()=>{throw Error('offline');},()=>Promise.reject(Error('offline')),()=>new Promise(()=>{})]){
+  const result=await downloadBatch({endpoints:[endpoint(1),endpoint(2)],signal:new AbortController().signal,onDownloaded:callback,download:async()=>({folderName:'Saved',destination:'C:\\Songs\\Saved',files:1})});
+  assert.equal(result.ok,true);assert.equal(result.results.length,2);
+ }
+ await new Promise(resolve=>setImmediate(resolve));
+});

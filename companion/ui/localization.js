@@ -4,6 +4,12 @@
   let language = initial;
   let writing = false;
   const exact = new Map([
+    ['Rubriques du Tableau de bord','Dashboard workspaces'],
+    ['La connexion au Tableau de bord est indisponible.','The Dashboard connection is unavailable.'],
+    ['Le Tableau de bord ne répond pas à cette action. Réessayez dans un instant.','The Dashboard did not respond to this action. Try again shortly.'],
+    ['Ouvrez le Tableau de bord depuis ChartsHub pour utiliser la démonstration et l’overlay.','Open the Dashboard from ChartsHub to use the demonstration and overlay.'],
+    ['Le Tableau de bord n’a pas pu charger son état. Fermez puis rouvrez ce panneau.','The Dashboard could not load its state. Close and reopen this panel.'],
+    ['Chargement du Tableau de bord indisponible','Dashboard loading unavailable'],
     ['État des demandes','Request status'],
     ['Charts signalées par Clone Hero','Charts reported by Clone Hero'],['Importer badsongs.txt','Import badsongs.txt'],
     ['Importez badsongs.txt après Scan Songs dans Clone Hero. Les erreurs et leur motif s’affichent ici ; les avertissements restent conservés.','Import badsongs.txt after Scan Songs in Clone Hero. Errors and their reasons are displayed here; warnings are kept.'],
@@ -22,16 +28,16 @@
     ['Vous pouvez poursuivre le nettoyage, puis cliquer sur « Actualiser à la fin » pour lancer une seule analyse.','You can continue cleanup, then click “Refresh when finished” to run a single scan.'],
     ['Widgets du morceau','Song widgets'],['Couleurs et transparence de l’overlay Jeu et Stream','Colors and transparency of the Game and Stream overlay'],
     ['ReShade / Filtres du jeu','ReShade / Game Filters'],['Lecteur Songs','Songs player'],['Aperçu du lecteur Songs','Songs player preview'],['Titre du morceau · Artiste · Lecture et volume.','Song title · Artist · Playback and volume.'],
-    ['Couleurs et transparence : Thème et couleurs dans le Companion.','Colors and transparency: Theme and colors in Companion.'],['Ouvrir le Lecteur Songs','Open Songs player'],
+    ['Couleurs et transparence : Thème et couleurs dans le Tableau de bord.','Colors and transparency: Theme and colors in the Dashboard.'],['Ouvrir le Lecteur Songs','Open Songs player'],
     ['Fenêtre ouverte. Sélectionnez son titre dans OBS.','Window opened. Select its title in OBS.'],
     ['Panneaux au-dessus du jeu','Panels above the game'],['Ouvrir le catalogue flottant','Open floating catalogue'],['Ctrl + Maj + K : ouvrir ou masquer le catalogue flottant.','Ctrl + Shift + K: show or hide the floating catalogue.'],['Le catalogue flottant reste accessible avec le bouton ci-dessus.','The floating catalogue is available using the button above.'],
     ['Recherchez et téléchargez des charts sans fermer Clone Hero. Utilisez le mode fenêtré ou sans bordure pour afficher les panneaux au-dessus du jeu. Après téléchargement, lancez Scan Songs dans Clone Hero.','Search and download charts without closing Clone Hero. Use windowed or borderless mode to show panels above the game. After downloading, run Scan Songs in Clone Hero.'],
     ['ChartsHub · Filtres','ChartsHub · Filters'],['Fermer le panneau','Close panel'],['ChartsHub · Catalogue flottant','ChartsHub · Floating catalogue'],['ChartsHub · Catalogue','ChartsHub · Catalogue'],['Fermer le catalogue flottant','Close floating catalogue'],['Catalogue flottant','Floating catalogue'],['Récents','Recent'],
     ['Titre ou recherche libre','Title or search'],['Rechercher une chart…','Search for a chart…'],['Filtres supplémentaires','More filters'],['Lancez une recherche pour trouver des charts.','Search to find charts.'],['Pages du catalogue','Catalogue pages'],['Aucun téléchargement en cours.','No downloads in progress.'],['Aucun téléchargement terminé.','No completed downloads.'],['Choisissez un dossier de téléchargement.','Choose a download folder.'],
-    ['Le catalogue a changé. Relancez la recherche.','The catalogue has changed. Search again.'],['Dossier de téléchargement prêt.','Download folder ready.'],['Raccourci : Ctrl + Maj + K','Shortcut: Ctrl + Shift + K'],['Raccourci indisponible. Utilisez le bouton du Companion.','Shortcut unavailable. Use the Companion button.'],['La recherche est indisponible. Réessayez.','Search is unavailable. Try again.'],['Aucun résultat. Modifiez votre recherche.','No results. Change your search.'],['Recherche indisponible','Search unavailable'],['Déjà dans la file','Already queued'],['Le téléchargement n’a pas pu être ajouté.','The download could not be added.'],['Chart ajoutée aux téléchargements.','Chart added to downloads.'],['Catalogue actualisé. Lancez une recherche.','Catalogue refreshed. Start a search.'],['Le catalogue ne peut pas être actualisé.','The catalogue could not be refreshed.'],['Le dossier de téléchargement n’a pas pu être choisi.','The download folder could not be selected.'],['Derniers téléchargements terminés','Recent completed downloads'],['Cette action de téléchargement n’a pas pu être appliquée.','This download action could not be applied.'],['La fenêtre n’a pas pu être masquée.','The window could not be hidden.'],
+    ['Le catalogue a changé. Relancez la recherche.','The catalogue has changed. Search again.'],['Dossier de téléchargement prêt.','Download folder ready.'],['Raccourci : Ctrl + Maj + K','Shortcut: Ctrl + Shift + K'],['Raccourci indisponible. Utilisez le bouton du Tableau de bord.','Shortcut unavailable. Use the Dashboard button.'],['La recherche est indisponible. Réessayez.','Search is unavailable. Try again.'],['Aucun résultat. Modifiez votre recherche.','No results. Change your search.'],['Recherche indisponible','Search unavailable'],['Déjà dans la file','Already queued'],['Le téléchargement n’a pas pu être ajouté.','The download could not be added.'],['Chart ajoutée aux téléchargements.','Chart added to downloads.'],['Catalogue actualisé. Lancez une recherche.','Catalogue refreshed. Start a search.'],['Le catalogue ne peut pas être actualisé.','The catalogue could not be refreshed.'],['Le dossier de téléchargement n’a pas pu être choisi.','The download folder could not be selected.'],['Derniers téléchargements terminés','Recent completed downloads'],['Cette action de téléchargement n’a pas pu être appliquée.','This download action could not be applied.'],['La fenêtre n’a pas pu être masquée.','The window could not be hidden.'],
     ['Apparence des fenêtres flottantes','Floating panel appearance'],['Personnalisez chaque fenêtre. L’aperçu reste local jusqu’à l’enregistrement.','Customize each panel. The preview stays local until you save.'],['Système','System'],['Fenêtre à personnaliser','Panel to customize'],['Couleur du fond','Background color'],['Couleur du texte','Text color'],['Opacité du fond','Background opacity'],['Police','Font'],['Taille du texte','Text size'],['Aperçu local','Local preview'],['Enregistrer l’apparence','Save appearance'],['Valeurs par défaut','Defaults'],
     ['Valeurs par défaut prêtes. Enregistrez pour les appliquer.','Defaults are ready. Save to apply them.'],['Choisissez une taille entière de 10 à 24 et une opacité de 0 à 100 %.','Choose a whole-number size from 10 to 24 and opacity from 0 to 100%.'],['Aperçu local. Enregistrez pour appliquer ces réglages.','Local preview. Save to apply these settings.'],['Aperçu du Catalogue','Catalogue preview'],['Aperçu des filtres','Filters preview'],['Recherche, téléchargements et morceaux récents.','Search, downloads and recent songs.'],['Filtres du jeu et réglages rapides.','Game filters and quick settings.'],['L’apparence n’a pas pu être enregistrée. Vos réglages restent dans l’aperçu.','Appearance could not be saved. Your settings remain in the preview.'],['Apparence enregistrée pour cette fenêtre.','Appearance saved for this panel.'],
-    ['Les réglages de la fenêtre flottante sont invalides.','The floating panel settings are invalid.'],['Les réglages des fenêtres flottantes sont illisibles ou invalides. Le fichier original est conservé.','Floating panel settings are unreadable or invalid. The original file is preserved.'],['Les réglages des fenêtres flottantes proviennent d’une version plus récente. Le fichier original est conservé.','Floating panel settings were created by a newer version. The original file is preserved.'],['Les réglages des fenêtres flottantes ont changé sur disque. Rouvrez le Companion pour les recharger.','Floating panel settings have changed on disk. Reopen the Companion to reload them.'],['Les réglages des fenêtres flottantes n’ont pas pu être enregistrés. Les réglages précédents sont conservés.','Floating panel settings could not be saved. Previous settings are preserved.'],['Les réglages des fenêtres flottantes ont changé. Rechargez-les avant de réessayer.','Floating panel settings have changed. Reload them before trying again.'],
+    ['Les réglages de la fenêtre flottante sont invalides.','The floating panel settings are invalid.'],['Les réglages des fenêtres flottantes sont illisibles ou invalides. Le fichier original est conservé.','Floating panel settings are unreadable or invalid. The original file is preserved.'],['Les réglages des fenêtres flottantes proviennent d’une version plus récente. Le fichier original est conservé.','Floating panel settings were created by a newer version. The original file is preserved.'],['Les réglages des fenêtres flottantes ont changé sur disque. Rouvrez le Tableau de bord pour les recharger.','Floating panel settings have changed on disk. Reopen the Dashboard to reload them.'],['Les réglages des fenêtres flottantes n’ont pas pu être enregistrés. Les réglages précédents sont conservés.','Floating panel settings could not be saved. Previous settings are preserved.'],['Les réglages des fenêtres flottantes ont changé. Rechargez-les avant de réessayer.','Floating panel settings have changed. Reload them before trying again.'],
     ['Le nettoyage est terminé, mais son historique n’a pas pu être enregistré.','Cleanup has finished, but its history could not be saved.'],
     ['Arrêter la vérification','Stop verification'],['Arrêt en cours…','Stopping…'],['L’arrêt de la vérification n’a pas pu être confirmé.','Stopping verification could not be confirmed.'],
     ['Historique des nettoyages','Cleanup history'],['Les 200 derniers nettoyages sont conservés. Seuls ceux du dossier Songs actuel sont affichés.','The last 200 cleanups are retained. Only records for the current Songs folder are shown.'],
@@ -45,7 +51,7 @@
     ['Comparaison du contenu des fichiers avec la version conservée','File contents compared with the kept version'],['Fichier','File'],['Type','Type'],['Comparaison','Comparison'],['Version conservée (octets)','Kept version (bytes)'],['Cette copie (octets)','This copy (bytes)'],
     ['Notes','Notes'],['Audio','Audio'],['Illustration','Artwork'],['Métadonnées','Metadata'],['Autre','Other'],['Identique','Identical'],['Modifié','Changed'],['Uniquement dans la version conservée','Only in the kept version'],['Uniquement dans cette copie','Only in this copy'],
     ['Métadonnées du conteneur .sng','.sng container metadata'],['Encodage du conteneur .sng','.sng container encoding'],
-    ['MODE DÉMO','DEMO MODE'],['MESURES CLONE HERO','CLONE HERO DATA'],['CLONE HERO COMPANION','CLONE HERO COMPANION'],['Now Playing','Now Playing'],
+    ['MODE DÉMO','DEMO MODE'],['MESURES CLONE HERO','CLONE HERO DATA'],['CLONE HERO · TABLEAU DE BORD','CLONE HERO DASHBOARD'],['Now Playing','Now Playing'],
     ['Les informations du morceau, visibles au bon moment.','Song information, visible at the right time.'],
     ['Activer l’overlay du jeu','Enable game overlay'],['Source des informations','Information source'],
     ['Connectez l’export de Clone Hero ou essayez le scénario de démonstration.','Connect the Clone Hero export or try the demo scenario.'],
@@ -146,7 +152,7 @@
     ['Début','Start'],['Fin','End'],['Angle','Angle'],['Appliquer les effets','Apply effects'],['Aperçu du thème','Theme preview'],['Données de démonstration','Demo data'],
     ['Style d’un widget','Widget style'],['Couleurs','Colors'],['Suivre le thème','Follow theme'],['Personnalisées','Custom'],['Texte','Text'],['Fond','Background'],['Bordure','Border'],['Lueur','Glow'],['Thème','Theme'],['Activer','Enable'],['Couleur','Color'],
     ['Appliquer au widget','Apply to widget'],['Revenir au thème','Return to theme'],['Le widget suit le thème.','Widget follows theme.'],
-    ['Source Clone Hero simulée','Simulated Clone Hero source'],['Connexion au Companion…','Connecting to Companion…'],['Préparation de ReShade','Preparing ReShade'],
+    ['Source Clone Hero simulée','Simulated Clone Hero source'],['Connexion au Tableau de bord…','Connecting to the Dashboard…'],['Préparation de ReShade','Preparing ReShade'],
     ['Effets disponibles','Available effects'],['Profils d’overlay enregistrés','Saved overlay profiles'],['Destination de l’aperçu','Preview destination'],
     ['Annuler (Ctrl+Z)','Undo (Ctrl+Z)'],['Rétablir (Ctrl+Maj+Z)','Redo (Ctrl+Shift+Z)'],['Alignement de la sélection','Selection alignment'],
     ['Parcours de démonstration','Demo flow'],['Sélection des widgets','Widget selection'],['Analyse de la bibliothèque en cours','Library scan in progress'],
@@ -162,7 +168,7 @@
     ['Les réglages sont enregistrés automatiquement et transmis au module pendant le jeu. L’état ci-dessus confirme si le module répond.','Settings are saved automatically and sent to the module while playing. The status above confirms whether the module is responding.'],
     ['Enregistrez les widgets, leurs tailles, couleurs et verrouillages, le thème et les dispositions Jeu et Stream. Cliquez sur un profil pour l’appliquer.','Save widgets, sizes, colors, locks, theme, and Game and Stream layouts. Click a profile to apply it.'],
     ['20 profils enregistrés. Mettez à jour un profil existant ou supprimez-en un pour en créer un autre.','20 profiles saved. Update or delete an existing profile before creating another.'],
-    ['L’application et l’enregistrement des profils sont indisponibles. Fermez puis rouvrez le Companion pour les recharger.','Applying and saving profiles is unavailable. Close and reopen Companion to reload them.'],
+    ['L’application et l’enregistrement des profils sont indisponibles. Fermez puis rouvrez le Tableau de bord pour les recharger.','Applying and saving profiles is unavailable. Close and reopen the Dashboard to reload them.'],
     ['Les morceaux, la connexion à Clone Hero, le port et l’activation du serveur Stream restent indépendants des profils.','Songs, the Clone Hero connection, port and Stream server activation remain independent from profiles.'],
     ['Le morceau apparaîtra en jeu et restera visible en pause.','The song will appear while playing and remain visible while paused.'],
     ['Maj + clic : sélection multiple · Alt : déplacement libre · Échap : annuler le geste','Shift + click: multi-select · Alt: free movement · Esc: cancel the gesture'],
@@ -196,7 +202,7 @@
     ['Lancez une recherche ou comparez un morceau de votre bibliothèque. Aucune recherche ne démarre automatiquement.','Start a search or compare a song from your library. No search starts automatically.'],
     ['La pause conserve les fichiers terminés. À la reprise, le fichier interrompu recommence depuis le début.','Pausing keeps completed files. When resumed, the interrupted file starts again from the beginning.'],
     ['Retirer un élément incomplet supprime ses fichiers temporaires. Les dossiers terminés sont conservés.','Removing an incomplete item deletes its temporary files. Completed folders are kept.'],
-    ['Utilisez un dossier de préparation distinct de Songs.','Use a staging folder separate from Songs.'],['Les charts téléchargées ne sont pas encore installées dans Clone Hero ; l’installation sera disponible à l’étape suivante.','Downloaded charts are not installed in Clone Hero yet; installation will be available in the next step.'],
+    ['Les fichiers sont préparés dans le dossier choisi. Pour Quick Import, les nouvelles charts doivent être téléchargées dans le dossier Songs sélectionné dans Bibliothèque et le module compatible doit être connecté. Sinon, utilisez le scan habituel de Clone Hero après installation dans Songs.','Files are prepared in your chosen folder. For Quick Import, new charts must be downloaded into the Songs folder selected in Library and the compatible module must be connected. Otherwise, use the regular Clone Hero scan after installing the files in Songs.'],
     ['Personnalisée','Custom'],['Le port se modifie quand le serveur est arrêté.','The port can be changed while the server is stopped.'],
     ['Activez les éléments à diffuser. Leur réglage global « Widgets affichés » reste également pris en compte.','Enable the items to broadcast. Their global “Displayed widgets” setting also applies.'],
     ['Aucun widget n’est activé pour le Stream. Cochez au moins un élément ci-dessus.','No widget is enabled for Stream. Select at least one item above.'],
@@ -382,17 +388,23 @@
     } finally { writing = false; }
   }
   function refresh() { scan(document.body); }
+  function updateTitle() {
+    if (document.title === 'ChartsHub · Tableau de bord' || document.title === 'ChartsHub · Dashboard') {
+      const title = language === 'fr' ? 'ChartsHub · Tableau de bord' : 'ChartsHub · Dashboard';
+      if (document.title !== title) document.title = title;
+    }
+  }
   function apply(value) {
     const next = value === 'fr' ? 'fr' : 'en';
     const changed = next !== language;
-    language = next; document.documentElement.lang = next; refresh();
+    language = next; document.documentElement.lang = next; updateTitle(); refresh();
     // State snapshots repeat the current language. Rebuilding localized controls
     // for those snapshots would replace focused or hovered buttons on each tick.
     if (changed) window.dispatchEvent(new CustomEvent('chartshub:languagechange', { detail: { language: next } }));
     return language;
   }
   function mount() {
-    document.documentElement.lang = language; refresh();
+    document.documentElement.lang = language; updateTitle(); refresh();
     const observer = new MutationObserver(recordsList => {
       if (writing) return;
       for (const mutation of recordsList) {

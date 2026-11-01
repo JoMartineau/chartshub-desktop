@@ -24,6 +24,18 @@ const PRIVATE_MEMBERS = Object.freeze([
   'companion/clonehero-telemetry-model.cjs'
 ]);
 const PUBLIC_MEMBERS = Object.freeze([
+  'companion/unified-chat.cjs', 'companion/song-request-discovery.cjs',
+  'companion/song-request-connections.cjs', 'companion/song-request-tiktok.cjs', 'companion/stream-server.cjs',
+  'companion/session-activity.cjs', 'companion/session-widget-model.cjs',
+  'companion/ui/unified-chat-controls.js', 'companion/ui/unified-chat-controls.css',
+  'companion/ui/request-discovery-controls.js', 'companion/ui/request-discovery-controls.css',
+  'companion/ui/session-widget-controls.js', 'companion/ui/session-widget-controls.css',
+  'companion/ui/session-feed.html', 'companion/ui/session-feed.js', 'companion/ui/session-feed.css',
+  'companion/ui/home-controls.js', 'companion/ui/home-controls.css',
+  'desktop/quick-import-download-completion.cjs', 'companion/quick-import-service.cjs',
+  'companion/quick-import-preferences.cjs', 'companion/quick-import-client.cjs',
+  'companion/quick-import-download-observer.cjs', 'companion/quick-import-build.cjs',
+  'companion/ui/quick-import-controls.js', 'companion/ui/quick-import-controls.css',
   'companion/drum-vst-model.cjs', 'companion/drum-vst-service.cjs',
   'companion/drum-vst-preferences.cjs', 'companion/drum-mt-installer.cjs', 'companion/ui/drum-vst-controls.js',
   'package.json', 'companion/host.cjs', 'companion/preload.cjs',
@@ -49,7 +61,9 @@ const FIXTURES = Object.freeze([
   { name: 'input-viewer-detection-electron.cjs', count: 15, kind: 'input-detection' },
   { name: 'input-viewer-afterglow-electron.cjs', count: 6, kind: 'input-afterglow' },
   { name: 'input-viewer-output-electron.cjs', count: 10, kind: 'input-output' },
-  { name: 'drum-vst-electron.cjs', count: 8, kind: 'drums' }
+  { name: 'drum-vst-electron.cjs', count: 8, kind: 'drums' },
+  { name: 'quick-import-electron.cjs', count: 8, kind: 'quick-import' },
+  { name: 'companion-session-features-electron.cjs', count: 12, kind: 'session-features' }
 ]);
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const repo = path.resolve(__dirname, '..');
@@ -94,6 +108,8 @@ async function main() {
   assert.deepEqual(members.filter(name => /(?:^|\/)ChartsHub\.CloneHero\.Telemetry\.dll$/i.test(name)), [], 'Connector binary present under another path');
   for (const name of PUBLIC_MEMBERS) assert(memberSet.has(name), 'Public production module missing: ' + name);
   assert(!members.some(name => name.startsWith('native-drum-host/')), 'Native SDK, sources and test plug-in must remain outside the application archive');
+  assert(!members.some(name => name.startsWith('quick-import-mod/')), 'Optional game module, installer and development sources must remain outside ASAR');
+  assert(!members.some(name => /(?:^|\/)ChartsHub\.QuickImport\.dll$/i.test(name)), 'Optional game module may not be hidden under another archive path');
   const publicHashes = Object.fromEntries(PUBLIC_MEMBERS.map(name => [name, hash(asar.extractFile(archive, path.join(...name.split('/'))))]));
   const version = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8')).version;
   assert.equal(version, require('../package.json').version, 'Archive and reviewed source versions differ');
@@ -126,7 +142,27 @@ async function main() {
       assert.equal(path.resolve(report.productRoot), archive);
       assert.equal(report.realGameRead, false);
       assert.deepEqual(report.externalRequests, []);
-      if (fixture.kind === 'drums') {
+      if (fixture.kind === 'session-features') {
+        for (const flag of ['actualHostAndIpc', 'actualPreloadAndRenderer', 'actualLibraryAndRequestQueue', 'syntheticProviders', 'syntheticCatalogue', 'syntheticLocalBridge', 'syntheticDownloadWorker', 'syntheticDOMActions', 'syntheticStreamServer', 'syntheticClipboard', 'nativeFloatingDisplaysSuppressed']) assert.equal(report[flag], true);
+        assert.equal(report.rendererSandboxDisabled, false);
+        assert.equal(report.visibilityUnexpected, false);
+        for (const flag of ['realGameLaunched', 'realProviderConnected', 'realHardwareRead', 'realInputRead', 'realAudioOpened', 'realProfileRead', 'realUserProfileRead', 'realDesktopCaptured', 'realDownload', 'realNetworkUsed']) assert.equal(report[flag], false);
+        assert.deepEqual(report.errors, []);
+        assert.equal(Object.keys(report.forbiddenCalls).length, 5);
+        for (const count of Object.values(report.forbiddenCalls)) assert.equal(count, 0);
+      } else if (fixture.kind === 'quick-import') {
+        assert.equal(report.actualHostAndIpc, true);
+        assert.equal(report.actualPreloadAndRenderer, true);
+        assert.equal(report.syntheticQuickImportService, true);
+        assert.equal(report.syntheticDownloadWorker, true);
+        assert.equal(report.rendererSandboxDisabled, false);
+        assert.equal(report.visibilityUnexpected, false);
+        assert.equal(report.nativeFloatingDisplaysSuppressed, true);
+        for (const flag of ['realGameLaunched', 'realProviderConnected', 'realHardwareRead', 'realInputRead', 'realAudioOpened', 'realProfileRead', 'realUserProfileRead', 'realDesktopCaptured', 'realDownload', 'realNetworkUsed']) assert.equal(report[flag], false);
+        assert.deepEqual(report.errors, []);
+        assert.equal(Object.keys(report.forbiddenCalls).length, 5);
+        for (const count of Object.values(report.forbiddenCalls)) assert.equal(count, 0);
+      } else if (fixture.kind === 'drums') {
         assert.equal(report.actualHostAndIpc, true);
         assert.equal(report.actualPreloadAndRenderer, true);
         assert.equal(report.syntheticDrumService, true);
@@ -206,7 +242,7 @@ async function main() {
   };
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   if (failure) throw failure;
-  assert.equal(report.totalNativeChecks, 65);
+  assert.equal(report.totalNativeChecks, 85);
   console.log(JSON.stringify({ result: report.result, privateMembersAbsent: 13, nativeChecks: report.totalNativeChecks, version, archiveSha256: archiveBefore, output }));
 }
 

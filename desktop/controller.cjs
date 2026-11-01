@@ -12,13 +12,16 @@ const STATE_CHANNEL = 'chartshub-shell:state';
 const SELECT_CHANNEL = 'chartshub-shell:select-tab';
 const CHANGED_CHANNEL = 'chartshub-shell:changed';
 const validTab = name => name === 'catalogue' || name === 'companion';
-const messages = { catalogue: 'Le catalogue est indisponible. Vérifiez votre connexion, puis réessayez.', companion: 'Le Companion ne peut pas démarrer. Réessayez dans un instant.' };
+const messages = {
+  fr: { catalogue: 'Le catalogue est indisponible. Vérifiez votre connexion, puis réessayez.', companion: 'Le Tableau de bord ne peut pas démarrer. Réessayez dans un instant.' },
+  en: { catalogue: 'The catalogue is unavailable. Check your connection and try again.', companion: 'The Dashboard cannot start. Try again shortly.' }
+};
 
 /** The shell owns the catalogue; Companion retains ownership of its own view. */
 function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () => {}, onButtonMotion = () => {}, isMaintenanceLocked = () => false } = {}) {
   if (typeof onSelectTab !== 'function') throw TypeError('Invalid desktop tab callback');
   const filename = path.join(__dirname, 'index.html'), shellUrl = pathToFileURL(filename).href;
-  let disposed = false, companionView = null, activeTab = 'catalogue', companionAvailable = false;
+  let disposed = false, companionView = null, activeTab = 'catalogue', companionAvailable = false, language = 'en';
   let theme = windowTheme({ mode: 'dark', accent: '#49bbff' });
   let uiPalette = null;
   let buttonMotion = { economy: false };
@@ -76,7 +79,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     try { window.contentView.removeChildView(view); } catch { /* Already detached. */ }
   }
   function snapshot() {
-    return { activeTab, companionAvailable, tabs: { catalogue: { ...state.catalogue }, companion: { ...state.companion } }, theme: { ...theme }, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, platform: process.platform };
+    return { activeTab, companionAvailable, language, tabs: { catalogue: { ...state.catalogue }, companion: { ...state.companion } }, theme: { ...theme }, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, platform: process.platform };
   }
   function trusted(event) {
     return !disposed && !window.isDestroyed() && contentsAlive(shellWeb)
@@ -94,7 +97,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
         view.setVisible(activeTab === name && state[name].ready && !state[name].error);
       } catch {
         deadViews.add(view);
-        state[name].ready = false; state[name].loading = false; state[name].error = messages[name];
+        state[name].ready = false; state[name].loading = false; state[name].error = messages[language][name];
       }
     }
   }
@@ -130,7 +133,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
       if (!disposed) { if (!selected.ready && !selected.error) selected.loading = true; publish(); }
       return disposed ? null : snapshot();
     }, () => {
-      if (!disposed) { selected.loading = false; selected.error = messages[name]; publish(); }
+      if (!disposed) { selected.loading = false; selected.error = messages[language][name]; publish(); }
       return disposed ? null : snapshot();
     }).finally(() => pending.delete(name));
     pending.set(name, task);
@@ -165,10 +168,10 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     });
     on(contents, 'did-fail-load', (_event, code, _description, _url, mainFrame) => {
       if (!current() || mainFrame === false || code === -3) return;
-      selected.ready = false; selected.loading = false; selected.error = messages[name]; publish();
+      selected.ready = false; selected.loading = false; selected.error = messages[language][name]; publish();
     });
     const failed = () => {
-      if (!current()) return; selected.ready = false; selected.loading = false; selected.error = messages[name]; publish();
+      if (!current()) return; selected.ready = false; selected.loading = false; selected.error = messages[language][name]; publish();
     };
     on(contents, 'render-process-gone', failed);
     on(contents, 'destroyed', () => { deadViews.add(view); failed(); });
@@ -208,6 +211,13 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     if (!value && activeTab === 'companion') void selectTab('catalogue');
     else publish();
     return snapshot();
+  }
+  function setLanguage(value) {
+    if (!['fr', 'en'].includes(value) || disposed) return false;
+    if (language === value) return true;
+    language = value;
+    for (const name of ['catalogue', 'companion']) if (state[name].error) state[name].error = messages[language][name];
+    publish(); return true;
   }
   function setUIPalette(value) {
     const next = validateUIPalette(value);
@@ -253,7 +263,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
   const restoreMotion = createUIBloomStore(path.join(app.getPath('userData'), 'companion'))
     .then(store => store.read()).then(result => { if (!disposed && buttonMotionRevision === 0) applyButtonSettings(result.settings); }).catch(() => {});
   const ready = Promise.all([window.loadFile(filename), restoreMotion]).then(() => undefined);
-  return { window, catalogueView, ready, attachCompanion, showTab, setTheme, setUIPalette, setCompanionAvailable, flushPortableConfiguration: () => bloom?.flush() ?? Promise.resolve(), dispose };
+  return { window, catalogueView, ready, attachCompanion, showTab, setTheme, setUIPalette, setCompanionAvailable, setLanguage, flushPortableConfiguration: () => bloom?.flush() ?? Promise.resolve(), dispose };
 }
 
 module.exports = { createDesktopShell };

@@ -1,12 +1,12 @@
 {
   "name": "chartshub-desktop",
   "productName": "ChartsHub",
-  "version": "0.14.35",
+  "version": "0.14.36",
   "private": true,
   "description": "ChartsHub pour Windows, macOS et Linux — téléchargement natif des charts",
   "main": "main.js",
   "scripts": {
-    "test": "node --require ./tests/setup.cjs --test --test-timeout=60000 tests/*.test.js",
+    "test": "node --require ./tests/setup.cjs --test --test-timeout=60000 tests/*.test.js tests/*.test.cjs",
     "start": "electron .",
     "package": "node build.mjs",
     "build:companion": "tsc -p tsconfig.companion.json",

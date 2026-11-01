@@ -1,4 +1,4 @@
-# Batterie / VST — Companion
+# Batterie / VST — Tableau de bord
 
 ## Français
 

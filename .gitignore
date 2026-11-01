@@ -15,3 +15,9 @@ reshade-bridge/test-run/
 outputs/
 # Optional game connector binaries stay in local development fixtures only.
 companion/connector-assets/*.dll
+# Optional Quick Import is reproduced from its reviewed text sources in CI.
+/quick-import-mod/ChartsHub.QuickImport.dll
+/quick-import-mod/source/vendor/
+/quick-import-mod/source/bin/
+/quick-import-mod/source/obj/
+/quick-import-mod/.build/

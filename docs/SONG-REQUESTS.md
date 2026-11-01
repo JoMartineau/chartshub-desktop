@@ -1,8 +1,8 @@
 # Song Request — site public, Twitch, YouTube et TikTok
 
-Le Companion reçoit les demandes du chat pour les morceaux **déjà présents dans le dossier Songs scanné**. Il ne télécharge aucune chart, ne lance pas Clone Hero et ne joue pas automatiquement un morceau. Le streamer accepte, refuse, déplace ou marque les demandes comme jouées. La file vit dans la session : elle est vidée au redémarrage et la réception doit être réactivée.
+Le Tableau de bord reçoit les demandes du chat pour les morceaux **présents dans le dossier Songs scanné**. Une demande introuvable peut être recherchée dans le catalogue, téléchargée par votre choix, puis confirmée dans la file après son installation. Rien n’est téléchargé ou joué automatiquement. Le streamer accepte, refuse, déplace ou marque les demandes comme jouées. La file vit dans la session : elle est vidée au redémarrage et la réception doit être réactivée.
 
-Le port, les règles et les deux clés locales sont conservés dans le profil du Companion. Il n’est donc pas nécessaire de refaire la configuration Streamer.bot ou OBS à chaque démarrage. Le jeton du pont autorise les commandes de chat ; celui de l’overlay permet seulement la lecture. Un fichier de réglages invalide ou remplacé est conservé et bloque la modification : le Companion ne régénère pas silencieusement ses clés.
+Le port, les règles et les deux clés locales sont conservés dans le profil du Tableau de bord. Il n’est donc pas nécessaire de refaire la configuration Streamer.bot ou OBS à chaque démarrage. Le jeton du pont autorise les commandes de chat ; celui de l’overlay permet seulement la lecture. Un fichier de réglages invalide ou remplacé est conservé et bloque la modification : le Tableau de bord ne régénère pas silencieusement ses clés.
 
 L’organisation pratique du tableau de bord et de la file s’inspire de [ClonePod](https://github.com/itsCuttle/ClonePod). Cette intégration utilise le thème ChartsHub et sa bibliothèque locale ; elle ne reprend pas de binaire ClonePod, de téléchargement automatique ou de connexion Kick.
 
@@ -18,13 +18,29 @@ L’organisation pratique du tableau de bord et de la file s’inspire de [Clone
 
 Twitch utilise le [flux pour chatbot installé](https://dev.twitch.tv/docs/chat/authenticating), EventSub WebSocket pour la réception et l’API Twitch pour les réponses. L’autorisation est mémorisée avec le stockage chiffré du système. Si ce stockage est indisponible, l’écran indique que la connexion reste limitée à la session. Ouvrir l’application, consulter l’écran ou changer de langue ne connecte aucun chat automatiquement. Le bouton de connexion permet de réutiliser un compte mémorisé.
 
-TikTok utilise le connecteur tiers non officiel [TikTok-Live-Connector](https://github.com/zerodytrash/TikTok-Live-Connector), intégré à l’application. Son service de signature **Euler Stream** reçoit le pseudo public du LIVE et les informations nécessaires à la connexion. Aucun mot de passe, cookie de session ou jeton TikTok n’est demandé ou transmis. Ce mode **reçoit uniquement les commandes** : ChartsHub affiche leur résultat localement et dans la file, sans réponse automatique dans le chat TikTok. Le service tiers peut être indisponible ou limiter les connexions ; ChartsHub ne réessaie pas en boucle. Il n’est pas nécessaire d’installer TikFinity ou Streamer.bot pour cette réception directe.
+TikTok utilise le connecteur tiers non officiel [TikTok-Live-Connector](https://github.com/zerodytrash/TikTok-Live-Connector), intégré à l’application. Son service de signature **Euler Stream** reçoit le pseudo public du LIVE et les informations nécessaires à la connexion. Aucun mot de passe, cookie de session ou jeton TikTok n’est demandé ou transmis. Ce mode reçoit les commandes et, si vous activez **Chat**, les messages ordinaires. ChartsHub affiche les résultats localement et dans la file, sans réponse automatique dans le chat TikTok. Le service tiers peut être indisponible ou limiter les connexions ; ChartsHub ne réessaie pas en boucle. Il n’est pas nécessaire d’installer TikFinity ou Streamer.bot pour cette réception directe.
 
-Pour interrompre le chat, désactiver la réception. **Déconnecter** oublie le compte ou le pseudo choisi. La première publication de la bibliothèque reste une action distincte et manuelle ; ses mises à jour deviennent ensuite automatiques. Si une ancienne action Streamer.bot Twitch reste configurée, ses commandes sont ignorées sans réponse pendant que la connexion Twitch directe fonctionne, pour éviter les doublons.
+Pour interrompre toute lecture du chat, désactiver les demandes et la réception des messages dans **Chat**, ou utiliser **Déconnecter**. **Déconnecter** oublie le compte ou le pseudo choisi. La première publication de la bibliothèque reste une action distincte et manuelle ; ses mises à jour deviennent ensuite automatiques. Si une ancienne action Streamer.bot Twitch reste configurée, ses commandes sont ignorées sans réponse pendant que la connexion Twitch directe fonctionne, pour éviter les doublons.
 
-## Demander directement depuis la liste publique
+## Une demande ne se trouve pas dans Songs
 
-Publier la liste avec un compte ChartsHub vérifié, puis activer **Recevoir les demandes du chat** dans le Companion. Le résumé **Site web** indique si la réception depuis la liste publique est connectée. Garder ChartsHub ouvert et la bibliothèque prête. Le site affiche « en attente » avant confirmation par l’application ; il ne marque pas une demande reçue uniquement parce que le serveur a accepté son envoi.
+1. Dans **Demandes → Demandes à rechercher**, choisissez **Rechercher une chart**. Le catalogue reçoit le titre demandé ; les résultats ChartsHub sont prioritaires, puis ChorusEncore complète la recherche.
+2. Choisissez vous-même une version et téléchargez-la dans Songs. Actualisez la bibliothèque si la détection du dossier est arrêtée.
+3. Revenez dans **Demandes**, cliquez **Trouver dans Songs**, choisissez le morceau installé puis **Ajouter à la file**. Les règles et les fichiers sont vérifiés de nouveau. Une correspondance ambiguë n’est jamais choisie à votre place.
+
+La formulation `!sr Titre by Artiste` (ou `par`) est aussi reconnue quand la recherche littérale ne trouve rien. Les demandes introuvables restent limitées à la session locale ; elles ne déclenchent aucun téléchargement automatique.
+
+## Chat et widgets OBS
+
+Dans **Chat**, activez la réception des messages et ouvrez les réglages des comptes pour connecter Twitch ou TikTok. Cela peut fonctionner indépendamment de la réception des demandes. Le filtre de plateforme et la pause changent seulement l’affichage local. Déconnecter une plateforme retire ses messages, même si l’affichage est en pause. **Kick n’est pas encore configuré dans cette version.**
+
+Dans **Stream / OBS → Chat et activité**, choisissez les flux à partager, leur couleur, leur taille et le nombre de lignes, puis appliquez. Copiez le lien voulu dans une source **Navigateur** d’OBS. Le flux Activité affiche les nouvelles demandes et les téléchargements terminés pendant cette session ; les pseudos y sont masqués par défaut. Les deux partages sont désactivés à chaque démarrage et lors d’une perte d’autorisation.
+
+Les messages du chat restent dans la mémoire de cette session (100 derniers, au maximum 15 minutes). Ils ne sont pas envoyés à ChartsHub. Le lien OBS est local à l’ordinateur et permet uniquement de lire le flux partagé, sans gérer les comptes ni la file.
+
+## Demander depuis la liste publique
+
+Publier la liste avec un compte ChartsHub vérifié, puis activer **Recevoir les demandes du chat** dans le Tableau de bord. Le résumé **Site web** indique si la réception depuis la liste publique est connectée. Garder ChartsHub ouvert et la bibliothèque prête. Le site affiche « en attente » avant confirmation par l’application ; il ne marque pas une demande reçue uniquement parce que le serveur a accepté son envoi.
 
 Le site conserve temporairement une identité anonyme de spectateur dans la session du navigateur, afin de limiter les répétitions et de regrouper les votes. Les demandes en transit expirent, sont bornées et sont invalidées à la fermeture de la réception ou au retrait du partage. Les délais et limites du site s’ajoutent aux règles locales. Aucun compte spectateur n’est requis. Après une erreur réseau, utiliser **Réessayer l’envoi** pour vérifier le même envoi.
 
@@ -46,16 +62,16 @@ La section **Liste publique pour les spectateurs** propose une page ChartsHub co
 
 1. Scanner Songs, puis cliquer **Publier la liste**. Cette action explicite envoie les titres, artistes, charters, durées, instruments/difficultés et identifiants de commande des morceaux vérifiés, ainsi que les règles appliquées. Elle active aussi **Détecter les changements du dossier** pour la racine Songs choisie. Aucun audio, contenu de notes, chemin local, pseudo du chat ni historique de demandes n’est envoyé.
 2. Cliquer **Copier le lien public** et partager ce lien avec les spectateurs. Ils peuvent consulter les morceaux, cliquer **Demander** quand la réception est active, ou copier une commande `!sr` dans le chat du direct. Une demande du site apparaît comme celle d’un spectateur web anonyme, sans prétendre identifier un compte Twitch ou TikTok. La page confirme uniquement après réception par ChartsHub ; le streamer gère ensuite l’approbation et la file.
-3. Garder ChartsHub ouvert : après un ajout, un retrait, un déplacement ou une modification détectés dans Songs, l’analyse terminée actualise automatiquement **le même lien public**. Les changements rapprochés sont regroupés ; une analyse sans changement n’envoie pas la liste à nouveau. Les règles appliquées actualisent aussi le partage. Les morceaux devenus indisponibles sont exclus lors de la publication ; leur nombre est indiqué dans le Companion.
+3. Garder ChartsHub ouvert : après un ajout, un retrait, un déplacement ou une modification détectés dans Songs, l’analyse terminée actualise automatiquement **le même lien public**. Les changements rapprochés sont regroupés ; une analyse sans changement n’envoie pas la liste à nouveau. Les règles appliquées actualisent aussi le partage. Les morceaux devenus indisponibles sont exclus lors de la publication ; leur nombre est indiqué dans le Tableau de bord.
 4. Cliquer **Retirer le partage** pour rendre cette liste inaccessible via son lien. Ce retrait reste disponible si la bibliothèque locale est indisponible et ne supprime aucun morceau ni demande de la session.
 
 Sans liste déjà publiée, le lancement, le scan, un vote ou un changement de langue ne publient rien. Une liste existante est remise à jour après la prochaine analyse réussie, y compris après un redémarrage. La synchronisation n’active pas le chat. Pendant une analyse de la même racine, la réception choisie reste activée et les validations reprennent lorsque l’index est prêt ; choisir une autre racine ou perdre la bibliothèque arrête la réception.
 
-Les ajouts téléchargés depuis le Companion dans la racine Songs choisie déclenchent une actualisation même si la détection du dossier est désactivée. Pour les ajouts faits hors de l’application, conserver **Détecter les changements du dossier** activé. Un choix ultérieur de désactiver cette option est respecté au redémarrage ; dans ce cas, utiliser **Actualiser** dans la bibliothèque pour repérer les changements. Le bouton **Actualiser la liste** reste disponible pour un nouvel essai manuel.
+Les ajouts téléchargés depuis le Tableau de bord dans la racine Songs choisie déclenchent une actualisation même si la détection du dossier est désactivée. Pour les ajouts faits hors de l’application, conserver **Détecter les changements du dossier** activé. Un choix ultérieur de désactiver cette option est respecté au redémarrage ; dans ce cas, utiliser **Actualiser** dans la bibliothèque pour repérer les changements. Le bouton **Actualiser la liste** reste disponible pour un nouvel essai manuel.
 
-Une erreur réseau conserve la liste précédente et provoque au maximum deux nouvelles tentatives automatiques espacées. L’écran distingue l’attente, la préparation, l’envoi et l’erreur ; une erreur permanente attend un nouvel essai ou un changement. Fermer le Companion, changer de compte ou de racine, ou retirer le partage annule l’opération ancienne. Le retrait empêche une mise à jour en retard de republier la liste. Une bibliothèque devenue vide ou invalide ne remplace pas la dernière liste publiée : corriger la bibliothèque ou utiliser **Retirer le partage**.
+Une erreur réseau conserve la liste précédente et provoque au maximum deux nouvelles tentatives automatiques espacées. L’écran distingue l’attente, la préparation, l’envoi et l’erreur ; une erreur permanente attend un nouvel essai ou un changement. Fermer le Tableau de bord, changer de compte ou de racine, ou retirer le partage annule l’opération ancienne. Le retrait empêche une mise à jour en retard de republier la liste. Une bibliothèque devenue vide ou invalide ne remplace pas la dernière liste publiée : corriger la bibliothèque ou utiliser **Retirer le partage**.
 
-La liste publique reste sur ChartsHub jusqu’à son actualisation ou son retrait, tandis que la file du Companion reste limitée à la session. Toute nouvelle demande issue d’un ancien instantané est à nouveau vérifiée dans Songs.
+La liste publique reste sur ChartsHub jusqu’à son actualisation ou son retrait, tandis que la file du Tableau de bord reste limitée à la session. Toute nouvelle demande issue d’un ancien instantané est à nouveau vérifiée dans Songs.
 
 Le lien public peut être communiqué aux spectateurs. La configuration JSON du pont et l’URL locale OBS doivent rester dans leurs outils respectifs : ce sont trois accès distincts.
 
@@ -105,7 +121,7 @@ Au moment de cette vérification documentaire, le [catalogue public TikTok for D
 | `!queue` | Afficher les prochaines demandes et sa position éventuelle |
 | `!song` | Afficher le morceau en cours, ou le dernier morceau exporté si la source est un export du jeu |
 
-Une recherche ambiguë demande un choix ; elle ne sélectionne pas automatiquement la première version. Un spectateur peut voter une fois par demande. Les flèches du Companion choisissent l’ordre manuel ; accepter une demande l’inscrit comme acceptée, sans lancer la chanson. Marquer « Jouée » ou « Refuser » conserve l’entrée dans l’historique de la session.
+Une recherche ambiguë demande un choix ; elle ne sélectionne pas automatiquement la première version. Un spectateur peut voter une fois par demande. Les flèches du Tableau de bord choisissent l’ordre manuel ; accepter une demande l’inscrit comme acceptée, sans lancer la chanson. Marquer « Jouée » ou « Refuser » conserve l’entrée dans l’historique de la session.
 
 Les messages et pseudonymes sont traités comme texte. L’endpoint accepte uniquement des commandes de chat bornées avec une clé locale ; le navigateur OBS ne peut ni accepter une demande, ni changer les règles, ni accéder aux chemins privés. Le script n’envoie aucun contenu de fichier ni identifiant OAuth à ChartsHub.
 
@@ -113,6 +129,6 @@ Les messages et pseudonymes sont traités comme texte. L’endpoint accepte uniq
 
 Tester avec un titre réellement présent dans Songs. Vérifier l’apparition d’une carte, un vote provenant d’un second spectateur, puis `!queue`. Tester un titre absent : aucun téléchargement ne doit démarrer. Arrêter la réception et vérifier que les nouvelles demandes sont refusées.
 
-Le POST local expire après cinq secondes, sans redirection ni proxy. En cas d’échec, le journal Streamer.bot affiche uniquement une erreur générique ; il ne copie ni le jeton ni la réponse brute. La file peut avoir reçu une demande même si sa réponse réseau a été perdue : vérifier le Companion avant de recommencer.
+Le POST local expire après cinq secondes, sans redirection ni proxy. En cas d’échec, le journal Streamer.bot affiche uniquement une erreur générique ; il ne copie ni le jeton ni la réponse brute. La file peut avoir reçu une demande même si sa réponse réseau a été perdue : vérifier le Tableau de bord avant de recommencer.
 
 Ce guide documente les interfaces des outils ; il ne remplace pas une vérification avec vos comptes et un direct réel. Les tests ChartsHub utilisent des messages synthétiques et une bibliothèque isolée.

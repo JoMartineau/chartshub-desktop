@@ -106,3 +106,56 @@ test('pending event work is bounded during a slow library lookup', async () => {
   assert.equal(f.received.length, 20); assert.equal(f.replies.length, 10);
   await f.service.stop();
 });
+
+function chatFixture() {
+  const providers = {}, feed = [], statuses = [], received = [], calls = [];
+  let authorized = true;
+  const make = platform => options => {
+    let state = 'disconnected', physical = false;
+    const provider = { status: () => ({ state, displayName: 'Public', error: null, token: 'NEVER_PUBLISH' }),
+      connect: async () => { calls.push(platform + ':connect'); state = 'connected'; options.onStatus?.(); },
+      disconnect: async () => { state = 'disconnected'; physical = false; options.onStatus?.(); },
+      setReceiving: async value => { physical = value; }, stop: async () => { state = 'disconnected'; physical = false; options.onStatus?.(); },
+      sendReply: async () => ({ ok: true }), physical: () => physical,
+      emit: event => { if (platform === 'twitch') options.onMessage(event); else { options.onChatMessage?.(event); if (event.query.startsWith('!')) options.onMessage(event); } },
+      fail: () => { state = 'error'; options.onStatus?.(); } };
+    providers[platform] = provider; return provider;
+  };
+  const service = createSongRequestConnections({ accountStore: { status: () => ({ persistent: true }), flush: async () => {} },
+    createTwitch: make('twitch'), createTikTok: make('tiktok'), canReceive: () => authorized, canChat: () => authorized,
+    onChatMessage: value => feed.push(value), onChatConnection: (platform, value) => statuses.push({ platform, ...value }),
+    receive: async value => { received.push(value); return { ok: true, command: 'queue', items: [] }; } });
+  let id = 0;
+  const emit = (platform, query = 'Hello') => providers[platform].emit({ platform, eventId: String(++id), viewerName: 'Viewer', viewerId: 'private-id', query, token: 'NEVER_PUBLISH' });
+  return { service, providers, feed, statuses, received, calls, emit, revoke: () => { authorized = false; } };
+}
+
+test('local chat is a separate explicit opt-in and never starts provider authorization itself', async () => {
+  const f = chatFixture(); assert.deepEqual(f.calls, []); assert.equal(f.service.status().chatEnabled, false);
+  await f.service.setChatEnabled(true); assert.deepEqual(f.calls, []);
+  for (const platform of ['twitch', 'tiktok']) {
+    const prior = f.feed.length; f.emit(platform); assert.equal(f.feed.length, prior);
+    await f.service.connect(platform, { username: 'fixture' }); f.emit(platform);
+  }
+  assert.equal(f.feed.length, 2); assert.equal(f.received.length, 0);
+  assert.deepEqual(Object.keys(f.feed[0]), ['platform', 'eventId', 'viewerName', 'query']);
+  assert.doesNotMatch(JSON.stringify(f.feed) + JSON.stringify(f.statuses), /private-id|NEVER_PUBLISH|token/);
+  await f.service.stop();
+});
+
+test('turning off song requests keeps an opted-in chat transport, and turning off chat keeps active requests', async () => {
+  const f = chatFixture(); await f.service.connect('twitch'); await f.service.setChatEnabled(true); await f.service.setReceiving(true);
+  await f.service.setReceiving(false); assert.equal(f.providers.twitch.physical(), true);
+  f.emit('twitch', '!queue'); await tick(); assert.equal(f.feed.length, 1); assert.equal(f.received.length, 0);
+  await f.service.setReceiving(true); await f.service.setChatEnabled(false); assert.equal(f.providers.twitch.physical(), true);
+  f.emit('twitch', '!queue'); await tick(); assert.equal(f.feed.length, 1); assert.equal(f.received.length, 1);
+  await f.service.setReceiving(false); assert.equal(f.providers.twitch.physical(), false); await f.service.stop();
+});
+
+test('disconnect, revoked host access and full stop fence the local feed', async () => {
+  const f = chatFixture(); await f.service.setChatEnabled(true); await f.service.connect('twitch'); await f.service.connect('tiktok', { username: 'fixture' });
+  f.emit('twitch'); await f.service.disconnect('twitch'); f.emit('twitch'); f.emit('tiktok'); assert.equal(f.feed.length, 2);
+  assert.equal(f.statuses.filter(value => value.platform === 'twitch').at(-1).state, 'disconnected');
+  f.revoke(); f.emit('tiktok'); assert.equal(f.feed.length, 2);
+  await f.service.stop(); f.emit('tiktok'); assert.equal(f.feed.length, 2); assert.equal(f.service.status().chatEnabled, false);
+});

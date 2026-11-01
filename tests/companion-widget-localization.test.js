@@ -3,6 +3,14 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {publicTelemetrySnapshot}=require('../companion/clonehero-telemetry-view.cjs');
 
 function localizer(language){const window={ChartsHubCompanion:{initialLanguage:language}},document={documentElement:{lang:language},readyState:'loading',body:null,addEventListener(){}};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../companion/ui/localization.js'),'utf8'),{window,document});return window.ChartshubCompanionLanguage;}
+
+test('Dashboard visible guidance and accessibility names localize without changing the existing bridge',()=>{
+ const en=localizer('en'),fr=localizer('fr');
+ for(const [source,expected]of [['Rubriques du Tableau de bord','Dashboard workspaces'],['CLONE HERO · TABLEAU DE BORD','CLONE HERO DASHBOARD'],['Connexion au Tableau de bord…','Connecting to the Dashboard…'],['La connexion au Tableau de bord est indisponible.','The Dashboard connection is unavailable.'],['Raccourci indisponible. Utilisez le bouton du Tableau de bord.','Shortcut unavailable. Use the Dashboard button.']]){
+  assert.equal(en.translate(source),expected);assert.equal(fr.translate(source),source);
+ }
+ assert.equal(en.translate('ChartsHubCompanion'),'ChartsHubCompanion');
+});
 test('All thirteen registered widget names and their dynamic accessibility labels translate to English',async()=>{
   const {createDefaultRegistry}=await import('../companion/dist/widgets/core/index.js'),{widgetLabel}=await import('../companion/dist/widgets/engine/WidgetLabels.js');
   const ui=localizer('en');

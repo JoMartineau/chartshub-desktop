@@ -94,6 +94,19 @@ test('shell separates local privileges from catalogue session and only trusts it
   assert.equal(f.shell.window.webContents.session.permissionCheck(), false);
 });
 
+test('Dashboard language changes preserve tab identifiers and translate an existing safe error', async t => {
+  const f = fixture(t, () => Promise.reject(Error('Private failure'))); await f.shell.ready; f.shell.setCompanionAvailable(true);
+  assert.equal(f.state().language, 'en'); await f.select('companion');
+  assert.equal(f.state().tabs.companion.error, 'The Dashboard cannot start. Try again shortly.');
+  const catalogue = f.shell.catalogueView;
+  assert.equal(f.shell.setLanguage('fr'), true); assert.equal(f.state().language, 'fr');
+  assert.equal(f.state().tabs.companion.error, 'Le Tableau de bord ne peut pas démarrer. Réessayez dans un instant.');
+  assert.equal(f.shell.setLanguage('en'), true); assert.match(f.state().tabs.companion.error, /Dashboard/);
+  assert.equal(f.shell.setLanguage('Companion'), false); assert.equal(f.state().language, 'en');
+  assert.equal(f.state().activeTab, 'companion'); assert.equal(f.shell.catalogueView, catalogue);
+  assert.deepEqual(Object.keys(f.state().tabs).sort(), ['catalogue', 'companion']);
+});
+
 test('guest login and logout gate the Companion tab without disposing its persistent view', async t => {
   const selected = [], f = fixture(t, async name => { selected.push(name); }); await f.shell.ready;
   f.shell.catalogueView.webContents.finish('https://chartshub.ca/');
