@@ -66,7 +66,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
   const received = [], sent = [], events = [], providers = {};
   const state = { enabled: false, rules: { ...rules }, requests: [] };
   const libraryState = { status: 'ready', count: 1, revision: 1 };
-  const stopped = { bridge: 0, twitch: 0, tiktok: 0, flush: 0, telemetry: 0, visuals: 0, capture: 0, inputViewer: 0, visualUpdates: 0 };
+  const stopped = { bridge: 0, twitch: 0, tiktok: 0, flush: 0, telemetry: 0, visuals: 0, capture: 0, inputViewer: 0, visualUpdates: 0, drums: 0 };
   let bridgeEnabled = false, bridgeError = null;
   const bridge = {
     status: () => ({ enabled: bridgeEnabled, port: 38474, error: bridgeError }),
@@ -94,6 +94,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
     providers[platform] = transport; return transport;
   };
   const adapters = {
+    drums: { async stop() { stopped.drums++; events.push('drums-stop'); } },
     telemetry: { stop() { stopped.telemetry++; events.push('telemetry-stop'); } },
     songVisuals: { stop() { stopped.visuals++; events.push('visuals-stop'); } },
     gameCapture: { stop() { stopped.capture++; events.push('capture-stop'); } },
@@ -111,7 +112,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
     createSongRequestServer: options => { bridge.receive = options.receive; return bridge; }
   };
   const create = new vm.Script(`(function(adapters) {
-    const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer,telemetry,songVisuals,gameCapture,inputViewer,updateVisuals}=adapters;
+    const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer,telemetry,songVisuals,gameCapture,inputViewer,updateVisuals,drums}=adapters;
     let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0,songRequestBusy=false,maintenanceLocked=false;
     let songRequestServer=null,songRequestConnections=null,songRequestShareBroker=null;
     const publishedTwitchClientId='syntheticclient',shell={openExternal:async()=>{}},language='fr',publishPanel=()=>{},measurementsEnabled=false;

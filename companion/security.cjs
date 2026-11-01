@@ -43,6 +43,7 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (typeof command === 'string' && command.startsWith('drums.')) return require('./drum-vst-service.cjs').validDrumCommand(command, payload);
   if (command === 'telemetry.connectorChoose' || command === 'telemetry.connectorCancel') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'telemetry.connectorPrepare') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && typeof payload.hideConsole === 'boolean';
   if (command === 'telemetry.connectorInstall' || command === 'telemetry.connectorRollback') {

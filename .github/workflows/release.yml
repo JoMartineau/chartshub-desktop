@@ -262,7 +262,38 @@ jobs:
           foreach ($required in @('native-filters/bin/dxgi.dll', 'native-filters/bin/MinHook-LICENSE.txt', 'reshade-bridge/bin/ChartsHubReShade.addon64', 'reshade-bridge/bin/ReShade-SDK-LICENSE.md', 'reshade-bridge/bin/nlohmann-LICENSE.MIT')) {
             if (!(Test-Path -LiteralPath $required -PathType Leaf) -or (Get-Item -LiteralPath $required).Length -eq 0) { throw "Missing release dependency: $required" }
           }
+      - name: Build and verify the separate Windows VST3 engine without audio or input devices
+        if: runner.os == 'Windows'
+        timeout-minutes: 15
+        shell: pwsh
+        run: |
+          & ./native-drum-host/fetch-dependencies.ps1
+          & ./native-drum-host/build.ps1
+          & ./native-drum-host/test.ps1
+          node tests/drum-vst-native-bridge.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Real service/native VST3 bridge verification failed' }
+          $proof = Get-Content -LiteralPath 'native-drum-host/out/native-verification.json' -Raw | ConvertFrom-Json
+          if ($proof.ok -ne $true -or $proof.totalChecks -ne 26 -or $proof.offlineChecks -ne 15 -or $proof.protocolChecks -ne 11 -or $proof.audioDeviceOpened -ne $false -or $proof.midiDeviceOpened -ne $false -or $proof.xinputStateRead -ne $false -or $proof.gameRead -ne $false -or $proof.profileRead -ne $false -or $proof.realAudioAndObsValidated -ne $false) { throw 'Native drum offline evidence incomplete' }
+          if ((Get-FileHash -LiteralPath 'native-drum-host/bin/ChartsHubDrumHost.exe' -Algorithm SHA256).Hash.ToLowerInvariant() -cne $proof.helperSha256) { throw 'Tested drum helper changed' }
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: companion-drums-native-offline
+          path: native-drum-host/out/**
+          if-no-files-found: warn
       - run: node build.mjs ${{ matrix.platform }} ${{ matrix.arch }}
+      - name: Verify packaged native VST3 helper and notices match the tested binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $proof = Get-Content -LiteralPath 'native-drum-host/out/native-verification.json' -Raw | ConvertFrom-Json
+          $manifest = Get-Content -LiteralPath 'dist/ChartsHub-win32-x64/resources/native-drum-host/manifest.json' -Raw | ConvertFrom-Json
+          if ($manifest.schema -ne 1 -or @($manifest.files).Count -ne 4) { throw 'Packaged drum manifest incomplete' }
+          foreach ($file in $manifest.files) {
+            $target = Join-Path 'dist/ChartsHub-win32-x64/resources/native-drum-host' $file.name
+            if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -cne $file.sha256 -or (Get-Item -LiteralPath $target).Length -ne $file.bytes) { throw 'Packaged drum dependency changed' }
+          }
+          if (($manifest.files | Where-Object name -eq 'ChartsHubDrumHost.exe').sha256 -cne $proof.helperSha256) { throw 'Packaged drum helper differs from offline-tested helper' }
       - name: Verify the actual public Windows ASAR before archiving
         if: runner.os == 'Windows'
         timeout-minutes: 8
@@ -271,7 +302,7 @@ jobs:
           node tests/public-asar-smoke.cjs "--asar=$PWD/dist/ChartsHub-win32-x64/resources/app.asar" "--output=$env:RUNNER_TEMP/public-asar-smoke"
           if ($LASTEXITCODE -ne 0) { throw 'Actual public ASAR smoke failed' }
           $report = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'public-asar-smoke/report.json') -Raw | ConvertFrom-Json
-          if ($report.result -ne 'PUBLIC_ASAR_SMOKE_OK' -or $report.error -or $report.privateMemberCount -ne 13 -or @($report.privateMembersAbsent).Count -ne 13 -or $report.entirePrivateSubtreeAbsent -ne $true -or $report.totalNativeChecks -ne 57 -or @($report.publicNativeChecks).Count -ne 6 -or $report.archiveSha256 -cne $report.archiveSha256After -or $report.publicHostDefault -ne $true -or $report.privateOptInOnBundle -ne $false -or $report.fixtureOnly -ne $true -or $report.realGameRead -ne $false -or $report.realUserProfileRead -ne $false -or $report.realHardwareRead -ne $false -or $report.realDesktopCaptured -ne $false -or $report.installationPerformed -ne $false) { throw 'Actual public ASAR evidence incomplete' }
+          if ($report.result -ne 'PUBLIC_ASAR_SMOKE_OK' -or $report.error -or $report.privateMemberCount -ne 13 -or @($report.privateMembersAbsent).Count -ne 13 -or $report.entirePrivateSubtreeAbsent -ne $true -or $report.totalNativeChecks -ne 65 -or @($report.publicNativeChecks).Count -ne 7 -or $report.archiveSha256 -cne $report.archiveSha256After -or $report.publicHostDefault -ne $true -or $report.privateOptInOnBundle -ne $false -or $report.fixtureOnly -ne $true -or $report.realGameRead -ne $false -or $report.realUserProfileRead -ne $false -or $report.realHardwareRead -ne $false -or $report.realDesktopCaptured -ne $false -or $report.installationPerformed -ne $false) { throw 'Actual public ASAR evidence incomplete' }
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'Windows'
         with:

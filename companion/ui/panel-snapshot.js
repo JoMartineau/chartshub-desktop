@@ -1,7 +1,8 @@
 // Live measurements update the preview and calibration counters. Other controls
 // need reconciliation only when their own state changes, not for each hit.
 export function controlSnapshotSignature(snapshot) {
-  const { telemetry, state, ...panels } = snapshot;
+  const { telemetry, state, drums, ...panels } = snapshot;
+  if (drums) { const { meters, mt, ...drumControls } = drums; if (mt) { const { progress, ...installation } = mt; drumControls.mt = installation; } panels.drums = drumControls; }
   const { performance, ...presentation } = state;
   const controls = telemetry ? {
     enabled: telemetry.enabled, canWrite: telemetry.canWrite,

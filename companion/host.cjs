@@ -41,13 +41,14 @@ const { createMusicPlayerPreferences } = require('./music-player-preferences.cjs
 const { changeMusicPlaylist } = require('./music-playlists.cjs');
 const { createGameCapture } = require('./game-capture.cjs');
 const { createInputViewer } = require('./input-viewer.cjs');
+const { createDrumVstService } = require('./drum-vst-service.cjs');
 const { validateUIPalette } = require('../desktop/ui-palette.cjs');
 const SCHEME = 'chartshub-companion';
 const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu', player: 'ChartsHub — Lecteur Songs' });
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
   const measurementFactories = loadMeasurementFactories(gameplayMeasurements);
@@ -82,6 +83,16 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let playerPreferencesTask = Promise.resolve();
   const playerPreferences = createMusicPlayerPreferences({ dataDirectory });
   await playerPreferences.load();
+  const drums = drumVstService ?? await createDrumVstService({ dataDirectory,
+    helperPath: app.isPackaged ? path.join(process.resourcesPath, 'native-drum-host/ChartsHubDrumHost.exe') : path.join(__dirname, '../native-drum-host/bin/ChartsHubDrumHost.exe'),
+    active: () => hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive(),
+    onChange: () => { if (!disposing) publishPanel(); },
+    choosePlugin: async () => {
+      const owner = panel && !panel.isDestroyed() ? panel : embedded?.ownerWindow;
+      if (!owner || owner.isDestroyed() || maintenanceLocked || disposing) return null;
+      const choice = await dialog.showOpenDialog(owner, { title: language === 'fr' ? 'Choisir un instrument VST3 64 bits' : 'Choose a 64-bit VST3 instrument', properties: ['openFile'], filters: [{ name: 'VST3', extensions: ['vst3'] }] });
+      return !disposing && !maintenanceLocked && !choice.canceled && choice.filePaths.length === 1 ? choice.filePaths[0] : null;
+    }, openMtPage: url => shell.openExternal(url) });
   let songRequests = null, songRequestServer = null, songRequestConnections = null, songRequestBusy = false;
   let songRequestShare = { supported: !!sharingClient, url: null, count: 0, updatedAt: null, busy: false, error: null, unavailableCount: 0, progress: null };
   let songRequestShareRevision = 0;
@@ -220,9 +231,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
   const stateView = () => ({ ...(measurementsEnabled ? telemetryStateView(services.store.getState(), telemetry?.snapshot(), { language, liveMetadata: integration.status().mode === 'live' }) : { ...services.store.getState(), performance: null }), lyrics: songVisuals?.lyricsSnapshot() ?? null });
   const telemetryPanel = () => { const value = telemetry?.snapshot(); return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, hardware: calibrationHardware.snapshot(), connectorSetup: connectorSetup.snapshot(), reason: value.reason } : null; };
-  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true }, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView(), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true }, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView(), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), drums: drums.status(), profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   // Installation destinations belong only to the private Companion panel.
-  const overlaySnapshot = value => ({ ...value, uiPalette: undefined, telemetry: value.telemetry ? { ...value.telemetry, connectorSetup: undefined } : null, songRequests: undefined, player: undefined });
+  const overlaySnapshot = value => ({ ...value, uiPalette: undefined, drums: undefined, telemetry: value.telemetry ? { ...value.telemetry, connectorSetup: undefined } : null, songRequests: undefined, player: undefined });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
     return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
@@ -883,6 +894,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
     if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.accuracy', 'widget.lyrics', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
+      if (command.startsWith('drums.')) { const result = await drums.command(command, payload); publishPanel(); return { ok: true, result }; }
       if (command === 'player.report' || command === 'player.spectrum' || command === 'player.ended') {
         if (!trustedPlayer(event)) return { ok: false };
         if (command === 'player.ended') return await musicPlayer.ended(payload);
@@ -1261,6 +1273,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       return { ok: true, revision: editorRevision };
     } catch (error) {
       logger.error('Companion command failed');
+      if (command.startsWith('drums.')) return { ok: false, code: error?.code || 'DRUM_NATIVE_ERROR', error: tr('Le module de batterie n’a pas pu effectuer cette action. Vérifiez l’instrument et les périphériques choisis.', 'The drum module could not complete this action. Check the selected instrument and devices.') };
       if (command.startsWith('player.')) return { ok: false, error: ['MUSIC_PLAYER_PREFERENCES_SAFE', 'MUSIC_PLAYLIST_SAFE'].includes(error?.code) ? error.message : 'Le lecteur n’a pas pu effectuer cette action. Vérifiez la bibliothèque et les réglages.' };
       if (command === 'panels.appearance') return { ok: false, ...(error?.code === 'STALE_FLOATING_PANELS' ? { code: error.code } : {}), error: ['FLOATING_PANELS_SAFE', 'STALE_FLOATING_PANELS'].includes(error?.code) ? error.message : 'Les réglages des panneaux n’ont pas pu être enregistrés.' };
       if (error?.code === 'CATALOGUE_WIDGET_SAFE' || command === 'catalogue.widget') return { ok: false, error: 'Le mini Catalogue nécessite une connexion ChartsHub active.' };
@@ -1283,6 +1296,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     lifecycleRevision++;
     telemetry?.stop();
     inputViewer?.stop();
+    const drumsStop = drums.stop();
     songVisuals?.stop();
     libraryDownloadRefresh?.stop();
     const songRequestSharingStop = songRequestShareSync?.pause();
@@ -1321,7 +1335,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         ? Promise.resolve().then(() => reshadeSetup.whenIdle()).catch(() => { logger.warn('ReShade installation ended with an error'); })
       : Promise.resolve();
     if (saveTimer) void saveSettings();
-    const task = (async () => { await songRequestPublicStop; await songRequestSharingStop; await songRequestStop; await songRequestConnectionsStop; await songRequestPreferences.flush(); await playerPreferencesTask; await playerPreferences.flush(); await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
+    const task = (async () => { await drumsStop; await songRequestPublicStop; await songRequestSharingStop; await songRequestStop; await songRequestConnectionsStop; await songRequestPreferences.flush(); await playerPreferencesTask; await playerPreferences.flush(); await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
     const done = task.finally(() => { if (stopTask === done) stopTask = null; });
     stopTask = done;
     return done;
@@ -1403,7 +1417,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     else app.removeListener('before-quit', beforeQuit);
     unsubscribe(); ipcMain.removeHandler('companion:snapshot'); ipcMain.removeHandler('companion:command');
     disposeTask = (async () => {
-      await stop(); if (gameCaptureTask) await gameCaptureTask; await gameCapture?.dispose(); if (inputViewerTask) await inputViewerTask.catch(() => {}); await inputViewer?.dispose(); await telemetry?.dispose(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
+      await stop(); if (gameCaptureTask) await gameCaptureTask; await gameCapture?.dispose(); if (inputViewerTask) await inputViewerTask.catch(() => {}); await inputViewer?.dispose(); await drums.dispose(); await telemetry?.dispose(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
       if (embedded && panelContents && !panelContents.isDestroyed()) {
         const contents = panelContents;
         await new Promise(resolve => { contents.once('destroyed', resolve); contents.close(); });
@@ -1421,7 +1435,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (cleanupTask || cleanupDialogOpen || state?.duplicateVerification?.running || state?.bulkCleanup || state?.badSongsBusy) reasons.push('library_cleanup');
     if (downloads?.status()?.items?.some(item => ['Queued','Downloading'].includes(item.state))) reasons.push('chart_downloads');
     if (filters?.status()?.busy || reshade?.status()?.busy || ['preparing','installing'].includes(reshadeSetup?.status()?.state)) reasons.push('game_setup');
-    if (player?.playing || player?.loading) reasons.push('player_active');
+    if (player?.playing || player?.loading || drums.status().phase === 'running' || drums.status().busy) reasons.push('player_active');
     if (streamStatus().enabled || gameCaptureStatus().phase !== 'stopped' || inputViewerStatus().phase === 'running') reasons.push('stream_active');
     if (songRequests?.snapshot().enabled || songRequestBusy) reasons.push('requests_active');
     if (songRequestShare.busy) reasons.push('sharing_active');
@@ -1433,7 +1447,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if(persistenceError||profiles.status().error||floatingPanels.status().error||songRequestPreferences.status().error)throw Object.assign(Error('Visual settings could not be saved'),{code:'BACKUP_WRITE_FAILED'});
   }
   return { open, stop, snapshot, services, integration, registry, setLanguage, setButtonMotion, setUIPalette, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
-    maintenanceStatus, flushPortableConfiguration, setMaintenanceLocked: value => { maintenanceLocked = value === true; },
+    maintenanceStatus, flushPortableConfiguration, setMaintenanceLocked: value => { maintenanceLocked = value === true; if (maintenanceLocked) void drums.stop(); },
     getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, getPlayerWidget: () => playerWindow, dispose
   };
 }

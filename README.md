@@ -39,7 +39,11 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
-### Version 0.14.34
+### Version 0.14.35
+
+Le nouvel espace **Batterie / VST** permet de jouer un instrument VST3 x64 sous Windows avec une batterie MIDI, un contrôleur XInput ou des pads à cliquer. MT Power Drum Kit peut être préparé depuis son éditeur après accord explicite de sa licence. Choisissez votre sortie et vos mappings, puis démarrez le son. Pour OBS, capturez le son de ChartsHubDrumHost.exe. [Guide Batterie / VST](docs/DRUMS-VST.md). [Notes 0.14.35](docs/RELEASE-0.14.35.md).
+
+### Widgets et sorties conservés
 
 Les widgets du morceau se règlent séparément pour Jeu et Stream. La version publique ne propose ni MelonLoader, ni connecteur de mesures, ni assistant de calibration. Stream / OBS fournit des captures recadrées de la highway, du score et des paroles réellement affichées par le jeu : choisissez sa fenêtre puis démarrez explicitement la capture. Le fond reste présent dans chaque zone ; la séparation transparente des éléments natifs est indisponible. Le texte des paroles locales et la vidéo ne peuvent pas se synchroniser sans une horloge de jeu compatible. Un Input Viewer personnalisable pour guitare et batterie propose une détection Windows XInput, douze styles, six effets de trails, cymbales, étoile Star Power, couleurs indépendantes et alignement sur une grille dont l’aimantation peut être désactivée. Son éditeur opaque explique l’association des touches ; un widget compact se place au-dessus du jeu et une source Navigateur OBS utilise un lien dédié. Il fonctionne sans accès aux données du jeu. [Mode d’emploi](docs/INPUT-VIEWER.md). [Notes et limites de la version](docs/RELEASE-0.14.34.md).
 
