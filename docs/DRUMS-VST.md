@@ -26,10 +26,10 @@ La préparation de l’instrument ne valide pas son écran d’accueil. ChartsHu
 1. Cliquez sur **Détecter / actualiser les périphériques**. La détection et la lecture d’entrée ne démarrent pas à l’ouverture du panneau.
 2. Sélectionnez la sortie audio sur laquelle vous écoutez. Commencez à faible volume. Un tampon de 128 ou 256 échantillons constitue un point de départ ; si le son craque, augmentez-le. Le format effectivement utilisé dépend du périphérique.
 3. Choisissez votre entrée :
-   - **Batterie MIDI** : choisissez le périphérique MIDI. La vélocité des frappes reçues est conservée ; ChartsHub ne déduit pas la force d’un simple bouton. Les canaux affichés vont de 1 à 16.
+   - **Batterie MIDI** : choisissez le périphérique MIDI. Les notes, canaux et vélocités reçus sont transmis tels quels. Les réglages des pads ChartsHub ne remappent pas ces frappes : pour les changer, utilisez les réglages de votre batterie ou de l’instrument VST3. ChartsHub ne déduit pas la force d’un simple bouton.
    - **Manette / batterie XInput** : choisissez la manette, puis assignez manuellement les boutons ou axes des pads. Les indices commencent à 0. Chaque nouvelle pression produit une frappe avec la force fixe réglée pour ce pad ; XInput ne mesure pas la force du coup.
    - **Pads à cliquer** : utilisez **Tester** après le démarrage de l’audio.
-4. Adaptez les notes à votre instrument. Les valeurs initiales suivent General MIDI : grosse caisse 36, caisse claire 38, charleston fermé 42, ouvert 46, toms 48/45/43, crash 49 et ride 51. Le canal initial est 10. Les instruments peuvent employer d’autres mappings.
+4. Les champs de notes et canaux des pads règlent les boutons **Tester** et les frappes **XInput**. Ils ne changent pas les frappes MIDI reçues. Leurs valeurs initiales suivent General MIDI : grosse caisse 36, caisse claire 38, charleston fermé 42, ouvert 46, toms 48/45/43, crash 49 et ride 51, sur le canal 10. Les canaux affichés vont de 1 à 16. Adaptez ces valeurs aux sons de votre instrument pour Tester/XInput.
 5. Cliquez sur **Appliquer les réglages**, puis **Démarrer l’audio**. Aucun son ne démarre automatiquement. Les réglages sont verrouillés pendant la lecture : arrêtez l’audio pour les changer.
 
 **Couper les notes** permet d’interrompre les notes actives ; **Arrêter l’audio** arrête le moteur et la lecture des entrées. Un périphérique débranché ou une erreur de plug-in doit être corrigé avant de redémarrer explicitement. Fermer uniquement la fenêtre de l’instrument n’équivaut pas à arrêter l’audio.
@@ -66,10 +66,10 @@ Preparing the instrument does not dismiss its welcome screen. ChartsHub never cl
 1. Choose **Detect / refresh devices**. Opening this panel does not start device detection or input reading.
 2. Select the audio output you listen to and start with a low volume. Begin with a buffer of 128 or 256 samples and increase it if audio crackles. The actual format depends on the output device.
 3. Select the input:
-   - **MIDI drum kit**: select the MIDI device. Incoming hit velocity is preserved; ChartsHub does not infer hit strength from an ordinary button. Displayed channels range from 1 to 16.
+   - **MIDI drum kit**: select the MIDI device. Incoming notes, channels and velocities pass through unchanged. ChartsHub pad settings do not remap these hits: use your drum kit’s or VST3 instrument’s settings to change them. ChartsHub does not infer hit strength from an ordinary button.
    - **XInput controller / drums**: select the controller and manually map each pad’s button or axis. Indices start at 0. Each new press triggers a hit at the pad’s fixed velocity; XInput does not measure hit strength.
    - **On-screen pads**: use **Test** after starting audio.
-4. Adjust notes for your instrument. Initial General MIDI values are kick 36, snare 38, closed hi-hat 42, open hi-hat 46, toms 48/45/43, crash 49 and ride 51, on channel 10. Instruments may use a different mapping.
+4. Pad note and channel fields configure **Test** buttons and **XInput** hits. They do not change incoming MIDI hits. Initial General MIDI values are kick 36, snare 38, closed hi-hat 42, open hi-hat 46, toms 48/45/43, crash 49 and ride 51, on channel 10. Displayed channels range from 1 to 16. Adjust these values to your instrument’s sounds for Test/XInput.
 5. Choose **Apply settings**, then **Start audio**. Audio never starts automatically. Settings are locked while running; stop audio before changing them.
 
 **Silence notes** interrupts active notes; **Stop audio** stops the engine and input reading. Fix a disconnected device or a plug-in error before explicitly restarting. Closing only the instrument editor does not stop audio.

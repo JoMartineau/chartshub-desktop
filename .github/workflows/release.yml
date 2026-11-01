@@ -273,7 +273,7 @@ jobs:
           node tests/drum-vst-native-bridge.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Real service/native VST3 bridge verification failed' }
           $proof = Get-Content -LiteralPath 'native-drum-host/out/native-verification.json' -Raw | ConvertFrom-Json
-          if ($proof.ok -ne $true -or $proof.totalChecks -ne 25 -or $proof.offlineChecks -ne 14 -or $proof.protocolChecks -ne 11 -or $proof.audioDeviceOpened -ne $false -or $proof.midiDeviceOpened -ne $false -or $proof.xinputStateRead -ne $false -or $proof.gameRead -ne $false -or $proof.profileRead -ne $false -or $proof.realAudioAndObsValidated -ne $false) { throw 'Native drum offline evidence incomplete' }
+          if ($proof.ok -ne $true -or $proof.totalChecks -ne 26 -or $proof.offlineChecks -ne 15 -or $proof.protocolChecks -ne 11 -or $proof.audioDeviceOpened -ne $false -or $proof.midiDeviceOpened -ne $false -or $proof.xinputStateRead -ne $false -or $proof.gameRead -ne $false -or $proof.profileRead -ne $false -or $proof.realAudioAndObsValidated -ne $false) { throw 'Native drum offline evidence incomplete' }
           if ((Get-FileHash -LiteralPath 'native-drum-host/bin/ChartsHubDrumHost.exe' -Algorithm SHA256).Hash.ToLowerInvariant() -cne $proof.helperSha256) { throw 'Tested drum helper changed' }
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'Windows'

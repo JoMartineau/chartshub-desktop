@@ -86,9 +86,9 @@ export class DrumVstControls {
     const audioHelp = this.make('p'); audioHelp.className = 'helper-text';
     this.text(audioHelp, 'Un petit tampon réduit le délai mais sollicite davantage l’ordinateur. Si le son craque, essayez 256 ou 512 échantillons. Les valeurs disponibles dépendent de la sortie audio.', 'A smaller buffer reduces delay but puts more load on the computer. If audio crackles, try 256 or 512 samples. Available values depend on the audio output.');
 
-    const padsHeading = this.make('h4'); this.text(padsHeading, '3. Pads et notes', '3. Pads and notes');
+    const padsHeading = this.make('h4'); this.text(padsHeading, '3. Pads Tester / XInput', '3. Test / XInput pads');
     const padsHelp = this.make('p'); padsHelp.className = 'helper-text';
-    this.text(padsHelp, 'Les notes General MIDI sont proposées au départ. Modifiez-les selon votre instrument. Pour XInput, choisissez manuellement le bouton ou l’axe de chaque pad ; leurs numéros commencent à 0.', 'General MIDI notes are provided initially. Change them to match your instrument. For XInput, manually select each pad’s button or axis; numbering starts at 0.');
+    this.text(padsHelp, 'Ces notes et canaux règlent les boutons Tester et les frappes XInput. Les frappes MIDI réelles conservent les valeurs envoyées par la batterie. Les notes initiales suivent General MIDI. Pour XInput, assignez le bouton ou l’axe de chaque pad ; leurs numéros commencent à 0.', 'These notes and channels configure Test buttons and XInput hits. Real MIDI hits retain the values sent by the drum kit. Initial notes follow General MIDI. For XInput, assign each pad’s button or axis; numbering starts at 0.');
     const padList = this.make('div'); padList.id = 'drums-pad-list';
     for (const [id, fr, en] of PADS) this.createPad(padList, id, fr, en);
     this.saveButton = this.button(root, 'drums-save-settings', 'Appliquer les réglages', 'Apply settings', () => this.save());
@@ -136,8 +136,8 @@ export class DrumVstControls {
     const row = this.make('div', parent); row.setAttribute('style', 'display:grid;grid-template-columns:repeat(auto-fit,minmax(95px,1fr));gap:8px;align-items:end;padding:10px 0;border-bottom:1px solid var(--border,#30445c)');
     const title = this.make('strong', row); this.text(title, fr, en);
     const pad = { id, row };
-    pad.note = this.number(row, 'drums-' + id + '-note', 'Note MIDI', 'MIDI note', 0, 127, value => this.editPad(id, 'note', value));
-    pad.channel = this.number(row, 'drums-' + id + '-channel', 'Canal (1–16)', 'Channel (1–16)', 1, 16, value => this.editPad(id, 'channel', value - 1));
+    pad.note = this.number(row, 'drums-' + id + '-note', 'Note à jouer', 'Output note', 0, 127, value => this.editPad(id, 'note', value));
+    pad.channel = this.number(row, 'drums-' + id + '-channel', 'Canal joué (1–16)', 'Output channel (1–16)', 1, 16, value => this.editPad(id, 'channel', value - 1));
     pad.velocity = this.number(row, 'drums-' + id + '-velocity', 'Force fixe (1–127)', 'Fixed velocity (1–127)', 1, 127, value => this.editPad(id, 'velocity', value));
     pad.binding = this.select(row, 'drums-' + id + '-binding', 'Commande XInput', 'XInput control', [
       ['none', 'Non assigné', 'Unassigned'], ...Array.from({ length: 17 }, (_, n) => ['button:' + n, 'Bouton ' + n, 'Button ' + n]),
@@ -221,7 +221,7 @@ export class DrumVstControls {
     this.status.textContent = !supported ? this.tr('Batterie VST disponible sous Windows 64 bits.', 'Drum VST is available on 64-bit Windows.') : !available ? this.tr('Le moteur audio est indisponible.', 'The audio engine is unavailable.') : phases[state.phase] ?? phases.stopped;
     if (state?.error) this.status.textContent += ' ' + this.errorText(state.error.message ?? state.error);
     this.unsaved.textContent = this.dirty ? this.settingsValid() ? this.tr('Réglages modifiés : appliquez-les avant de jouer.', 'Settings changed: apply them before playing.') : this.tr('Vérifiez les valeurs : notes 0–127, canaux 1–16, force 1–127 et volume 0–100 %.', 'Check values: notes 0–127, channels 1–16, velocity 1–127 and volume 0–100%.') : '';
-    this.sourceHelp.textContent = source === 'midi' ? this.tr('MIDI : la vélocité reçue de la batterie est conservée. La force fixe sert uniquement aux boutons Tester.', 'MIDI: the drum kit’s incoming velocity is preserved. Fixed velocity is used only by Test buttons.') : source === 'xinput' ? this.tr('XInput : chaque nouvelle pression déclenche une frappe. Cette source ne mesure pas la force du coup ; la vélocité fixe du pad est utilisée.', 'XInput: each new press triggers a hit. This source does not measure hit strength; the pad’s fixed velocity is used.') : this.tr('Mode manuel : démarrez l’audio, puis cliquez sur Tester pour jouer chaque pad.', 'Manual mode: start audio, then click Test to play each pad.');
+    this.sourceHelp.textContent = source === 'midi' ? this.tr('MIDI direct : les notes, canaux et vélocités reçus de la batterie sont transmis tels quels. Les réglages des pads ChartsHub ne remappent pas ces frappes ; dans ce mode, ils servent uniquement aux boutons Tester.', 'MIDI pass-through: incoming drum notes, channels and velocities are preserved. ChartsHub pad settings do not remap these hits; in this mode, they apply only to Test buttons.') : source === 'xinput' ? this.tr('XInput : chaque nouvelle pression déclenche une frappe. Cette source ne mesure pas la force du coup ; la vélocité fixe du pad est utilisée.', 'XInput: each new press triggers a hit. This source does not measure hit strength; the pad’s fixed velocity is used.') : this.tr('Mode manuel : démarrez l’audio, puis cliquez sur Tester pour jouer chaque pad.', 'Manual mode: start audio, then click Test to play each pad.');
     this.updateLive();
     const audio = state?.audio;
     this.audioFormat.textContent = audio && Number.isFinite(audio.sampleRate) && Number.isFinite(audio.blockSize)

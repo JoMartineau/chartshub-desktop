@@ -146,12 +146,16 @@ test('pending commands prevent duplicates and a failed save keeps custom edits w
   assert.deepEqual(controls.draft.pads[1].binding, settings.pads[1].binding); controls.dispose();
 });
 
-test('MIDI velocity guidance and every static option switch between French and English', async () => {
+test('MIDI pass-through and Test/XInput output guidance switch clearly between French and English', async () => {
   const controls = await fixture(async () => ({ ok: true })); const settings = defaultSettings(); settings.midiDeviceId = 4;
-  controls.update(snapshot({ settings })); assert.match(controls.sourceHelp.textContent, /vélocité reçue.*conservée/);
+  controls.update(snapshot({ settings })); assert.match(controls.sourceHelp.textContent, /notes, canaux et vélocités reçus.*transmis tels quels/);
+  assert.match(controls.sourceHelp.textContent, /ne remappent pas.*uniquement aux boutons Tester/);
   assert.equal(controls.startButton.disabled, false); assert.equal(controls.source.children[0].textContent, 'Batterie MIDI');
   controls.update(snapshot({ settings }, 'en')); assert.equal(controls.source.children[0].textContent, 'MIDI drum kit');
-  assert.equal(controls.blockSize.children[0].textContent, '64 samples'); assert.match(controls.sourceHelp.textContent, /incoming velocity is preserved/);
+  assert.equal(controls.blockSize.children[0].textContent, '64 samples'); assert.match(controls.sourceHelp.textContent, /notes, channels and velocities are preserved/);
+  assert.match(controls.sourceHelp.textContent, /do not remap.*only to Test buttons/);
+  assert(controls.labels.some(item => item.node.textContent === 'Output note'));
+  assert(controls.labels.some(item => item.node.textContent === 'Output channel (1–16)'));
   assert.match(controls.obs.textContent, /Application Audio Capture/); assert.match(controls.obs.textContent, /does not carry audio/);
   controls.source.change('xinput'); assert.match(controls.sourceHelp.textContent, /does not measure hit strength/); controls.dispose();
 });

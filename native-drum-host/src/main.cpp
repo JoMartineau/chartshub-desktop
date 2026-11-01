@@ -9,6 +9,11 @@ static void output(const Json &value) {
   require(line.size() <= 32768, "response_too_large");
   std::cout << line << '\n' << std::flush;
 }
+static bool preservesAudioAfterError(const std::string &command, const std::string &error) {
+  // An optional editor is independent of the audio processor. All malformed
+  // commands and all other plug-in/engine failures keep the fail-closed path.
+  return command == "editor" && error == "plugin_editor_unavailable";
+}
 static Json defaultTestSettings() {
   return {
       {"version", 1},
@@ -70,6 +75,19 @@ static int selfTest(const std::string &plugin) {
   for (int i = 0; i < 100; i++)
     host.process(128, {}, audio.data(), 1);
   check(true, "continuous_offline_blocks");
+  bool optionalEditorRejected = false;
+  try {
+    host.editor(true);
+  } catch (const std::exception &error) {
+    optionalEditorRejected = preservesAudioAfterError("editor", error.what());
+    if (!optionalEditorRejected)
+      host.finish();
+  }
+  check(optionalEditorRejected &&
+            !preservesAudioAfterError("start", "plugin_editor_unavailable") &&
+            !preservesAudioAfterError("editor", "invalid_request") &&
+            host.process(512, {{36, 9, 100, true}}, audio.data(), 1).left > .07f,
+        "optional_editor_failure_preserves_processing");
   host.finish();
   host.prepare(44100, 512);
   check(host.process(128, {}, audio.data(), 1).left == 0, "stop_restart_clears_notes");
@@ -165,6 +183,7 @@ int run() {
         queue.pop_front();
       }
       int id = 0;
+      std::string command;
       try {
         auto request = Json::parse(line, [](int depth, Json::parse_event_t, Json &) {
           require(depth <= 16, "json_too_deep");
@@ -173,7 +192,7 @@ int run() {
         keys(request, {"schema", "id", "command", "payload"});
         require(integer(request, "schema", 1, 1) == 1, "unsupported_schema");
         id = integer(request, "id", 1, 2147483647);
-        auto command = string(request, "command", 16);
+        command = string(request, "command", 16);
         require(request.contains("payload"), "missing_payload");
         const auto &p = request["payload"];
         Json result = Json::object();
@@ -219,13 +238,22 @@ int run() {
           throw std::runtime_error("unknown_command");
         output({{"schema", 1}, {"id", id}, {"ok", true}, {"result", result}});
       } catch (const std::exception &e) {
-        engine.stop();
-        if (id)
+        const bool preserveAudio = preservesAudioAfterError(command, e.what());
+        if (!preserveAudio)
+          engine.stop();
+        if (id) {
+          // A failed command may have stopped a running engine. Notify main
+          // before its rejected promise can publish a stale running snapshot.
+          if (!preserveAudio)
+            output({{"schema", 1},
+                    {"event", "status"},
+                    {"phase", "error"},
+                    {"error", std::string(e.what()).substr(0, 160)}});
           output({{"schema", 1},
                   {"id", id},
                   {"ok", false},
                   {"error", std::string(e.what()).substr(0, 160)}});
-        else {
+        } else {
           output({{"schema", 1},
                   {"event", "status"},
                   {"phase", "error"},

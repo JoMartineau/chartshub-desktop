@@ -16,6 +16,8 @@ The optional synthetic instrument under `build/VST3/ChartsHubDrumTest.vst3` is *
 
 Run `bin/ChartsHubDrumHost.exe --self-test "<absolute build/VST3/ChartsHubDrumTest.vst3>"`, followed by `node tests/protocol-test.cjs`. These tests load the actual VST3 test module and render into memory. They do not call device discovery, open audio/MIDI, poll XInput, launch the game or read user profiles. Tests verify velocity, note-off, panic, repeated processing/lifecycle, bounded protocol, stopped note rejection and EOF shutdown.
 
+`test.ps1` requires 15 offline DSP checks and 11 protocol checks (26 total). The optional missing-editor error preserves DSP rendering; every other command failure stops the engine and sends an error status before its failed reply, so the Companion cannot retain a stale running state.
+
 ## JSON-lines protocol
 
 Launch the fixed helper with `--json`, hidden and without a shell. Requests are `{schema:1,id,command,payload}`; successful replies are `{schema:1,id,ok:true,result}`, failures are `{schema:1,id,ok:false,error}`. Input lines are capped at 32768 bytes, nesting at16 levels, and the pending command queue at64. Stop/disconnect/EOF release held notes. Status and 10 Hz peak events carry no PCM or device paths.

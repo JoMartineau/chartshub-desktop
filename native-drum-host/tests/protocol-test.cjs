@@ -24,13 +24,14 @@ async function session(run){
  try{await run({child,send,lines});const exit=await exited;assert.equal(exit.code,0);assert.equal(stderr,'');return lines;}finally{clearTimeout(timeout);child.stdin.end();child.kill();}
 }
 (async()=>{
- await session(async({send})=>{
+ await session(async({send,lines})=>{
    const load=await send('load',{path:plugin});check('load_real_synthetic_plugin_without_start',()=>{assert.equal(load.ok,true);assert.equal(load.result.name,'ChartsHub Offline Test');assert.equal(load.result.hasEditor,false);});
    const note=await send('note',{padId:'kick',velocity:127});check('notes_before_start_rejected',()=>{assert.equal(note.ok,false);assert.equal(note.error,'audio_not_running');});
    const malformed=await send('start',{source:'manual',volume:2});check('invalid_start_rejected_before_hardware',()=>{assert.equal(malformed.ok,false);assert.equal(malformed.error,'integer_required');});
-   const editor=await send('editor',{open:true});check('missing_editor_fails_cleanly',()=>{assert.equal(editor.ok,false);assert.equal(editor.error,'plugin_editor_unavailable');});
+   const errorsBeforeEditor=lines.filter(line=>line.event==='status'&&line.phase==='error').length;
+   const editor=await send('editor',{open:true});check('missing_editor_fails_cleanly',()=>{assert.equal(editor.ok,false);assert.equal(editor.error,'plugin_editor_unavailable');assert.equal(lines.filter(line=>line.event==='status'&&line.phase==='error').length,errorsBeforeEditor,'optional missing editor must not emit an engine-stopping status');});
    const panic=await send('panic');check('panic_without_audio_is_safe',()=>assert.equal(panic.ok,true));
-   const extra=await send('stop',{unexpected:true});check('unknown_fields_rejected',()=>{assert.equal(extra.ok,false);assert.equal(extra.error,'unknown_field');});
+   const extra=await send('stop',{unexpected:true});check('unknown_fields_rejected',()=>{assert.equal(extra.ok,false);assert.equal(extra.error,'unknown_field');const replyAt=lines.indexOf(extra);assert(replyAt>0);assert.deepEqual(lines[replyAt-1],{schema:1,event:'status',phase:'error',error:'unknown_field'},'fatal command reports stopped engine before replying');});
    const stop=await send('stop');check('stop_is_idempotent',()=>assert.equal(stop.ok,true));
    const quit=await send('quit');check('quit_reply_then_clean_exit',()=>assert.equal(quit.ok,true));
  });
