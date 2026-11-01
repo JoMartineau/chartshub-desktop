@@ -16,7 +16,9 @@ The optional synthetic instrument under `build/VST3/ChartsHubDrumTest.vst3` is *
 
 Run `bin/ChartsHubDrumHost.exe --self-test "<absolute build/VST3/ChartsHubDrumTest.vst3>"`, followed by `node tests/protocol-test.cjs`. These tests load the actual VST3 test module and render into memory. They do not call device discovery, open audio/MIDI, poll XInput, launch the game or read user profiles. Tests verify velocity, note-off, panic, repeated processing/lifecycle, bounded protocol, stopped note rejection and EOF shutdown.
 
-`test.ps1` requires 15 offline DSP checks and 11 protocol checks (26 total). The optional missing-editor error preserves DSP rendering; every other command failure stops the engine and sends an error status before its failed reply, so the Companion cannot retain a stale running state.
+`test.ps1` requires 15 offline DSP checks, 11 protocol checks and 4 silent editor checks (30 total). The editor checks run the real native message loop with a synthetic plug-in window and a TimerProc callback; they do not open an audio or input device. The optional missing-editor error preserves DSP rendering; every other command failure stops the engine and sends an error status before its failed reply, so the Companion cannot retain a stale running state.
+
+The host consumes only its own thread timer. Plug-in window timers and unrelated thread callbacks reach `DispatchMessage`, allowing pad-release animations and settings controls to refresh. This fixes an editor freeze without automatically starting audio. In ChartsHub, an explicit Stop during editor loading cancels the operation and releases the private helper rather than waiting for another request on its blocked UI thread.
 
 ## JSON-lines protocol
 

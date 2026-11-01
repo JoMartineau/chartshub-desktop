@@ -1,0 +1,11 @@
+.game-integrations-panel { margin-top: 16px; }
+.game-integrations-panel > h3 { margin: 0 0 10px; }
+.game-widget-choices { display: flex; flex-wrap: wrap; gap: 12px 22px; margin: 14px 0; }
+.game-widget-choices label { display: inline-flex; align-items: center; gap: 8px; min-height: 34px; }
+.game-widget-help { margin-top: 12px; border-top: 1px solid var(--border, #31465f); padding-top: 12px; }
+.game-widget-help summary { cursor: pointer; font-weight: 600; }
+.game-widget-help ol { padding-left: 22px; line-height: 1.6; }
+.game-widget-help li { padding: 4px 0; }
+.game-mod-checks { padding-left: 20px; line-height: 1.5; }
+.game-mod-checks [data-level="error"] { color: var(--warning, #ffbd84); }
+@media(max-width: 640px) { .game-widget-choices { display: grid; gap: 5px; } }

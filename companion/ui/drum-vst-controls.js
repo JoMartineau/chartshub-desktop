@@ -48,6 +48,7 @@ export class DrumVstControls {
     this.intro = this.make('p'); this.intro.className = 'helper-text';
     this.text(this.intro, 'Choisissez votre instrument, votre sortie audio et votre batterie, puis démarrez. Aucun son ni périphérique ne démarre automatiquement.', 'Choose your instrument, audio output and drum input, then start. Sound and device reading never start automatically.');
     this.status = this.make('p'); this.status.id = 'drums-status'; this.status.setAttribute('role', 'status');
+    this.lockHint = this.make('p'); this.lockHint.id = 'drums-lock-help'; this.lockHint.className = 'helper-text'; this.lockHint.setAttribute('role', 'status');
     this.plugin = this.make('p'); this.plugin.id = 'drums-plugin';
     const pluginActions = this.make('div'); pluginActions.className = 'button-row';
     this.chooseButton = this.button(pluginActions, 'drums-choose-plugin', '1. Choisir un instrument VST3', '1. Choose a VST3 instrument', () => this.perform('drums.choosePlugin'));
@@ -215,6 +216,15 @@ export class DrumVstControls {
     this.startButton.disabled = busy || running || !selected || this.dirty || !this.settingsValid() || source === 'midi' && this.draft.midiDeviceId === -1;
     this.stopButton.disabled = !state || !(running || state.busy === true || this.busy || mtBusy);
     this.panicButton.disabled = this.stopButton.disabled;
+    const editorBusy = busy && state?.operation === 'editor';
+    this.lockHint.hidden = !available || !(running || busy);
+    this.lockHint.textContent = editorBusy
+      ? this.tr('Ouverture de l’instrument en cours. Si sa fenêtre ne répond pas, Annuler l’ouverture ferme ce moteur et libère les réglages. Aucun audio ne redémarre automatiquement.', 'Opening the instrument. If its window is not responding, Cancel opening closes this engine and unlocks settings. Audio never restarts automatically.')
+      : busy ? state?.operation === 'configure'
+        ? this.tr('Enregistrement des réglages en cours. Les commandes redeviennent disponibles à la fin de l’enregistrement.', 'Saving settings. Controls become available when saving finishes.')
+        : this.tr('Une action est en cours. Arrêter l’audio annule son chargement et libère les commandes.', 'An action is in progress. Stop audio cancels loading and releases the controls.')
+      : running ? this.tr('Pour modifier les périphériques, le volume ou les pads, arrêtez d’abord l’audio, puis appliquez vos réglages.', 'To change devices, volume or pads, stop audio first, then apply your settings.') : '';
+    this.stopButton.textContent = editorBusy ? this.tr('Annuler l’ouverture', 'Cancel opening') : this.tr('Arrêter l’audio', 'Stop audio');
     for (const row of this.padRows) { row.binding.disabled = busy || running || source !== 'xinput'; row.testButton.disabled = busy || !running || this.dirty; }
     this.plugin.textContent = selected ? this.tr('Instrument : ', 'Instrument: ') + String(state.plugin.name ?? '').slice(0, 200) + (!loaded ? this.tr(' · ouvrez sa fenêtre pour le charger', ' · open its window to load it') : '') : this.tr('Aucun instrument choisi.', 'No instrument selected.');
     const phases = { stopped: this.tr('Audio arrêté.', 'Audio stopped.'), loaded: this.tr('Instrument chargé. Vérifiez sa fenêtre avant de démarrer l’audio.', 'Instrument loaded. Check its window before starting audio.'), running: this.tr('Audio actif.', 'Audio running.'), error: this.tr('Audio arrêté après une erreur. Vérifiez l’instrument et la sortie, puis réessayez.', 'Audio stopped after an error. Check the instrument and output, then try again.') };

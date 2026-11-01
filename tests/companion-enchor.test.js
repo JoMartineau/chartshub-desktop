@@ -161,6 +161,35 @@ test('proxy Retry-After survives HTML errors and status deadlines/cancellation b
   const controller = new AbortController(), client = createChartsHubClient({ fetcher: () => new Promise(() => {}) }), request = client.enchorStatus({ signal: controller.signal }); controller.abort(); await assert.rejects(request, { name: 'AbortError' });
 });
 
+test('maintenance 503 is distinct from an upstream quota and recovers immediately in both requesting surfaces', async t => {
+  for (const scope of ['panel', 'widget']) {
+    let maintenance = false, statusReads = 0, searches = 0;
+    const transport = createChartsHubClient({ fetcher: async url => {
+      if (url.endsWith('/status')) { statusReads++; if (maintenance) return json({ code: 'MAINTENANCE', maintenance: true, error: 'private server message' }, { status: 503, headers: { 'content-type': 'application/json', 'retry-after': '300' } }); return json({ enabled: true, suspended: false, retryAfterSeconds: 0 }); }
+      searches++; return json(result([external(1)], searches, 50, true));
+    } });
+    const f = await fixture(t, { native: [{}], client: { enchorStatus: transport.enchorStatus, enchorSearch: transport.enchorSearch } }); await f.service.start();
+    const first = await f.service.search(selected(), { scope }); assert.equal(first.external.status, 'ready');
+    maintenance = true;
+    const blocked = await f.service.search(selected({ page: 2 }), { scope }); assert.equal(blocked.external.status, 'maintenance'); assert.equal(blocked.external.retryAfterSeconds, 0); assert.equal(blocked.external.retryUntil, 0); assert.doesNotMatch(blocked.external.error, /private|300/);
+    const cached = await f.service.search(selected({ externalSearch: false }), { scope }); assert.deepEqual(cached.items.map(item => item.id), first.items.map(item => item.id)); assert.equal(statusReads, 2); assert.equal(searches, 1);
+    maintenance = false;
+    const reopened = await f.service.search(selected({ page: 2 }), { scope }); assert.equal(reopened.external.status, 'ready'); assert.equal(statusReads, 3); assert.equal(searches, 2, 'Explicit search must not inherit the former maintenance delay');
+  }
+});
+
+test('maintenance headers identify non-JSON 503 without weakening real 429 or provider 503 Retry-After', async () => {
+  for (const response of [
+    () => new Response('maintenance', { status: 503, headers: { 'content-type': 'text/html', 'x-chartshub-maintenance': '1', 'retry-after': '300' } }),
+    () => json({ code: 'MAINTENANCE', maintenance: true }, { status: 503, headers: { 'content-type': 'application/json', 'retry-after': '300' } })
+  ]) { const client = createChartsHubClient({ fetcher: response }); await assert.rejects(client.enchorStatus(), error => error.code === 'ENCHOR_MAINTENANCE' && error.retryAfterSeconds === 0); }
+  for (const [status, code] of [[429, 'ENCHOR_RATE_LIMITED'], [503, 'ENCHOR_UNAVAILABLE']]) {
+    const client = createChartsHubClient({ fetcher: async () => json({ code, retryAfterSeconds: 90 }, { status, headers: { 'content-type': 'application/json', 'retry-after': '90' } }) });
+    const catalogue = createExternalCatalogue({ now: () => 1000, client });
+    const value = await catalogue.search(selected(), 0); assert.equal(value.external.status, 'cooldown'); assert.equal(value.external.retryAfterSeconds, 90); catalogue.stop();
+  }
+});
+
 test('IPC validates source and explicit-search values while continuing to reject provider URLs and external ownership mutations', () => {
   assert.equal(validCommand('catalogue.search', selected()), true);
   for (const patch of [{ source: 'api.enchor.us' }, { externalSearch: 1 }, { endpoint: '/api/external/enchor/search' }, { query: 'secret\n' }]) assert.equal(validCommand('catalogue.search', selected(patch)), false);

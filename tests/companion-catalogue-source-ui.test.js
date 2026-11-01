@@ -120,3 +120,10 @@ test('main catalogue refresh follows up without another external provider search
   assert.equal(ui.calls[2].name, 'catalogue.search'); assert.equal(ui.calls[2].payload.source, 'chorusencore'); assert.equal(ui.calls[2].payload.query, 'Encore'); assert.equal(ui.calls[2].payload.externalSearch, false);
   await ui.respond(2, { items: [externalChart()], external: { status: 'idle' } }); assert.equal(ui.calls.length, 3);
 });
+
+test('main maintenance status keeps native actions and typing available and allows immediate explicit recovery', async t => {
+  const ui = await setup(t); ui.search('available native'); await ui.respond(0, { items: [chart('native')], external: { status: 'maintenance', retryAfterSeconds: 0 } });
+  const status = ui.get('#catalogue-external-status'); assert.equal(status.hidden, false); assert.match(status.textContent, /ChartsHub est en maintenance/); assert.doesNotMatch(status.textContent, /\d+ s|attend|réessayez dans/);
+  assert.equal(ui.action('native', 'download').disabled, false); assert.equal(ui.action('native', 'open').disabled, false); assert.equal(ui.get('#catalogue-query').disabled, false); assert.equal(ui.get('#catalogue-search').disabled, false);
+  ui.search('site reopened'); assert.equal(ui.calls.length, 2); assert.equal(ui.calls[1].payload.query, 'site reopened'); await ui.respond(1, { items: [chart('native'), externalChart()], external: { status: 'ready' } }); assert.equal(ui.get('#catalogue-items').children.length, 2); assert.doesNotMatch(status.textContent, /maintenance/);
+});

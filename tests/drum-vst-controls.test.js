@@ -220,3 +220,17 @@ test('Stop and Panic remain available while audio start or MT preparation is pen
   controls.update(snapshot({ settings, busy: true, mt: { state: 'downloading', progress: { receivedBytes: 1, totalBytes: 10 } } }));
   assert.equal(controls.stopButton.disabled, false); controls.stopButton.click(); await settle(); assert.equal(calls.at(-1)[0], 'drums.stop'); controls.dispose();
 });
+
+test('editor loading and deliberate running locks explain the recovery action in French and English', async () => {
+  const calls = [], controls = await fixture(async (name, payload) => { calls.push([name, payload]); return { ok: true }; });
+  controls.update(snapshot({ busy: true, operation: 'editor' }));
+  assert.equal(controls.lockHint.hidden, false); assert.match(controls.lockHint.textContent, /Annuler l’ouverture.*libère les réglages/);
+  assert.equal(controls.stopButton.textContent, 'Annuler l’ouverture'); assert.equal(controls.stopButton.disabled, false);
+  controls.stopButton.click(); await settle(); assert.equal(calls.at(-1)[0], 'drums.stop');
+  controls.update(snapshot({ busy: true, operation: 'editor' }, 'en'));
+  assert.match(controls.lockHint.textContent, /Cancel opening.*unlocks settings/); assert.equal(controls.stopButton.textContent, 'Cancel opening');
+  controls.update(snapshot({ phase: 'running', busy: false, operation: null }, 'en'));
+  assert.match(controls.lockHint.textContent, /stop audio first/); assert.equal(controls.stopButton.textContent, 'Stop audio');
+  controls.update(snapshot({ phase: 'stopped', busy: false, operation: null }));
+  assert.equal(controls.lockHint.hidden, true); assert.equal(controls.audio.disabled, false); controls.dispose();
+});

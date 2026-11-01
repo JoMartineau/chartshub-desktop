@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "kind": "optional-game-widgets",
+  "build": "CH-1.1.0.6142-win-x64-12bc21e5a88a2fc9",
+  "moduleSha256": "33ce0743897df7dfba88aa6642e16dd7d8509214c0e4975d9a81f590b81ab1a3",
+  "version": "0.2.2",
+  "moduleFile": "ChartsHub.CloneHero.Telemetry.dll",
+  "defaultEnabled": false,
+  "features": [
+    "accuracy",
+    "song-clock-for-lyrics"
+  ],
+  "gameBinaryIncluded": false,
+  "loaderArchiveIncluded": false,
+  "loaderVersion": "0.7.3",
+  "gameAssemblySha256": "12bc21e5a88a2fc9abc259d5d67f24835145eabca6c3f863b075ba37ad75f197",
+  "metadataSha256": "5f14231810f2641639167eb72956e85cced2f36cb4a84682bdefb1e9da3e3d42"
+}

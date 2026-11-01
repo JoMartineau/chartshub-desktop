@@ -19,7 +19,9 @@ const { createCatalogueService } = require('./catalogue-service.cjs');
 const { createDownloadService } = require('./download-service.cjs');
 const { createLibraryDownloadRefresh } = require('./library-download-refresh.cjs');
 const { createCloneHeroSource } = require('./clonehero-source.cjs');
-const { loadMeasurementFactories } = require('./gameplay-measurements.cjs');
+const { loadMeasurementFactories, loadGameWidgetFactories } = require('./gameplay-measurements.cjs');
+const { createGameWidgetIntegrations } = require('./game-widget-integrations.cjs');
+const { createGameModPreflight } = require('./game-mod-preflight.cjs');
 const { publicTelemetrySnapshot, telemetryStateView } = require('./clonehero-telemetry-view.cjs');
 const { createCharterColorResolver } = require('./charter-color-resolver.cjs');
 const { createCloneHeroProcessProbe } = require('./clonehero-process.cjs');
@@ -55,11 +57,12 @@ const QUICK_IMPORT_CODES = new Set(PUBLIC_QUICK_IMPORT_CODES);
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, quickImportService, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, quickImportService, gameWidgetTelemetrySource, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
   const measurementFactories = loadMeasurementFactories(gameplayMeasurements);
   const measurementsEnabled = measurementFactories !== null;
+  const gameWidgetFactories = measurementsEnabled ? null : loadGameWidgetFactories();
   const [{ ServiceContainer }, { MockCloneHeroIntegration }, { createDefaultRegistry, createDefaultWidgets, ensureGameplayDocument }, { WidgetRenderer }, { SettingsRepository, validateSettings }, { SnapshotHistory }, { ThemeService, createDefaultTheme }, { validateWidgetStyle }, { createDefaultStream, validateStream }] = await Promise.all([
     import('./dist/core/services/ServiceContainer.js'), import('./dist/integrations/clonehero/MockCloneHeroIntegration.js'),
     import('./dist/widgets/core/index.js'), import('./dist/widgets/engine/WidgetRenderer.js'), import('./dist/storage/SettingsRepository.js'), import('./dist/layout/WidgetHistory.js'),
@@ -146,7 +149,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let reshadeSetup = null, reshadeSetupStarting = false;
   let lifecycleRevision = 0;
   let language = 'fr';
-  let telemetry = null;
+  let telemetry = null, gameWidgetIntegrations = null, gameModPreflight = null;
   const calibrationHardware = measurementsEnabled ? calibrationHardwareService ?? measurementFactories.createCalibrationHardware({ screen, bounds: () => panel && !panel.isDestroyed() ? panel.getBounds() : null, onChange: () => { if (!disposing) publishPanel(); } }) : null;
   const connectorSetup = measurementsEnabled ? connectorSetupService ?? measurementFactories.createConnectorSetup({ dataDirectory,
     chooseDirectory: async () => {
@@ -195,7 +198,18 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   });
   const services = new ServiceContainer({ integration, initialWidgets: widgets, logger });
   services.store.setState(state => ({ ...state, theme, stream }));
-  if (measurementsEnabled) telemetry = await measurementFactories.createTelemetrySource({ dataDirectory, onChange: () => { if (!disposing) publish(); } });
+  if (measurementsEnabled) telemetry = await measurementFactories.createTelemetrySource({ dataDirectory, startDisabled: false, onChange: () => { if (!disposing) publish(); } });
+  else {
+    telemetry = gameWidgetTelemetrySource ?? await gameWidgetFactories.createTelemetrySource({ dataDirectory, startDisabled: true, onChange: () => { if (!disposing && hostActive) publish(); } });
+    gameWidgetIntegrations = createGameWidgetIntegrations({ telemetry,
+      getContext: () => ({ active: hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive() && catalogueAllowed(), lifecycle: lifecycleRevision }),
+      onChange: () => { if (!disposing && hostActive) publish(); } });
+    gameModPreflight = createGameModPreflight({
+      getGameRoot: () => quickImport?.selectedGameRoot?.() ?? null,
+      getContext: () => ({ active: hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive() && catalogueAllowed(), lifecycle: lifecycleRevision }),
+      moduleDirectory: app.isPackaged ? path.join(process.resourcesPath, '..', 'Clone Hero Integrations', 'game-widgets-mod') : path.join(__dirname, '..', 'game-widgets-mod'),
+      onChange: () => { if (!disposing && hostActive) publishPanel(); } });
+  }
   const history = new SnapshotHistory({ widgets, theme, stream });
   const themeService = new ThemeService();
   let editorRevision = 0;
@@ -254,11 +268,22 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), widget: songRequestPreferences.status().widget,
     publicRequests: songRequestShareBroker?.status(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare, autoSync: songRequestShareSync?.status(),
     progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
-  const stateView = () => ({ ...(measurementsEnabled ? telemetryStateView(services.store.getState(), telemetry?.snapshot(), { language, liveMetadata: integration.status().mode === 'live' }) : { ...services.store.getState(), performance: null }), lyrics: songVisuals?.lyricsSnapshot() ?? null });
-  const telemetryPanel = () => { const value = telemetry?.snapshot(); return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, hardware: calibrationHardware.snapshot(), connectorSetup: connectorSetup.snapshot(), reason: value.reason } : null; };
-  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true }, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView(), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), drums: drums.status(), quickImport: quickImport?.status() ?? null, requestDiscovery: songRequestDiscovery?.status() ?? null, chat: unifiedChat?.status() ?? null, sessionActivity: sessionActivity?.snapshot() ?? null, sessionWidgets: { revision: sessionWidgetRevision, settings: { ...sessionWidgetSettings } }, profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const privateWidgetTypes = new Set(['gameplay.accuracy','gameplay.combo','gameplay.fc','gameplay.progress','gameplay.comparison','session.goal','session.history','song.lyrics']);
+  function publicWidgetState(state, flags) {
+    const instances = state.widgets.instances.filter(widget => !privateWidgetTypes.has(widget.type) || widget.type === 'gameplay.accuracy' && flags?.accuracy === true || widget.type === 'song.lyrics' && flags?.lyrics === true);
+    const ids = new Set(instances.map(widget => widget.id));
+    return { ...state, widgets: { ...state.widgets, instances }, stream: { ...state.stream, layout: state.stream.layout.filter(item => ids.has(item.id)) } };
+  }
+  const stateView = ({ editor = false } = {}) => {
+    const raw = measurementsEnabled ? telemetry?.snapshot() : gameWidgetIntegrations?.readings();
+    const view = raw ? telemetryStateView(services.store.getState(), raw, { language, liveMetadata: integration.status().mode === 'live' }) : { ...services.store.getState(), performance: null };
+    const flags = gameWidgetIntegrations?.status();
+    return { ...(measurementsEnabled || editor ? view : publicWidgetState(view, flags)), lyrics: measurementsEnabled || flags?.lyrics === true ? songVisuals?.lyricsSnapshot() ?? null : null };
+  };
+  const telemetryPanel = () => { const value = measurementsEnabled ? telemetry?.snapshot() : null; return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, hardware: calibrationHardware.snapshot(), connectorSetup: connectorSetup.snapshot(), reason: value.reason } : null; };
+  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true, gameWidgets: !measurementsEnabled }, gameWidgets: gameWidgetIntegrations?.status() ?? null, gameModPreflight: gameModPreflight?.status() ?? null, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView({ editor: true }), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), drums: drums.status(), quickImport: quickImport?.status() ?? null, requestDiscovery: songRequestDiscovery?.status() ?? null, chat: unifiedChat?.status() ?? null, sessionActivity: sessionActivity?.snapshot() ?? null, sessionWidgets: { revision: sessionWidgetRevision, settings: { ...sessionWidgetSettings } }, profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   // Installation destinations belong only to the private Companion panel.
-  const overlaySnapshot = value => ({ ...value, uiPalette: undefined, drums: undefined, quickImport: undefined, requestDiscovery: undefined, chat: undefined, sessionActivity: undefined, sessionWidgets: undefined, telemetry: value.telemetry ? { ...value.telemetry, connectorSetup: undefined } : null, songRequests: undefined, player: undefined });
+  const overlaySnapshot = value => ({ ...value, state: stateView(), uiPalette: undefined, drums: undefined, quickImport: undefined, gameWidgets: undefined, gameModPreflight: undefined, requestDiscovery: undefined, chat: undefined, sessionActivity: undefined, sessionWidgets: undefined, telemetry: value.telemetry ? { ...value.telemetry, connectorSetup: undefined } : null, songRequests: undefined, player: undefined });
   const floatingPanelSnapshot = name => {
     const value = floatingPanels.status();
     return { revision: value.revision, appearance: { [name]: value.appearance[name] }, error: value.error, canWrite: value.canWrite };
@@ -293,13 +318,14 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       song: view.nowPlaying, clock: performance?.connected ? performance.active?.clock : null });
   }
   function publish() {
+    gameWidgetIntegrations?.update();
     updateVisuals();
     const value = snapshot();
     publishPanel(value);
     if (overlay && !overlay.isDestroyed() && !overlay.webContents.isLoading()) overlay.webContents.send('companion:changed', overlaySnapshot(value));
     if (filtersWidget && !filtersWidget.isDestroyed() && !filtersWidget.webContents.isLoading()) filtersWidget.webContents.send('companion:changed', filtersWidgetSnapshot());
     syncOverlay();
-    streamServer?.publish(value.state);
+    streamServer?.publish(stateView());
   }
   function panelAlive() { return !!panel && !panel.isDestroyed() && !!panelContents && !panelContents.isDestroyed?.(); }
   function catalogueAllowed() { try { return hostActive && catalogueAccess && !disposing && !stopTask && panelAlive() && isCatalogueAvailable() === true; } catch { return false; } }
@@ -840,6 +866,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function setCatalogueAvailable(enabled) {
     if (typeof enabled !== 'boolean') throw TypeError('Invalid catalogue availability');
     catalogueAccess = enabled;
+    gameWidgetIntegrations?.update(); if (!enabled) gameModPreflight?.stop();
     if (!enabled) {
       unifiedChat?.stop(); void songRequestConnections?.setChatEnabled(false); songRequestDiscovery?.clear();
       sessionActivity?.clear(); activityDownloadScopes.clear();
@@ -971,6 +998,24 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
     if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.accuracy', 'widget.lyrics', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
+      if (command.startsWith('gameWidgets.')) {
+        if (!trustedPanel(event) || !gameWidgetIntegrations) return { ok: false, code: 'GAME_WIDGETS_UNAVAILABLE' };
+        const owner = panelContents, revision = lifecycleRevision;
+        await requireCatalogueAuthorization(null, revision);
+        if (owner !== panelContents || !trustedPanel(event) || revision !== lifecycleRevision || maintenanceLocked) return { ok: false, code: 'GAME_WIDGETS_CANCELLED' };
+        if (command === 'gameWidgets.configure') {
+          const result = await gameWidgetIntegrations.configure(payload); publish(); return { ok: true, result };
+        }
+        if (command === 'gameWidgets.check') { const result = await gameModPreflight.refresh(payload); publishPanel(); return { ok: true, result }; }
+        if (command === 'gameWidgets.prerequisites') { await shell.openExternal('https://github.com/LavaGang/MelonLoader/blob/v0.7.3/README.md#requirements'); return { ok: true }; }
+        if (command === 'gameWidgets.openPackage') {
+          const folder = app.isPackaged ? path.join(process.resourcesPath, '..', 'Clone Hero Integrations', 'game-widgets-mod') : path.join(__dirname, '..', 'game-widgets-mod');
+          const info = await fs.lstat(folder); if (!info.isDirectory() || info.isSymbolicLink() || path.resolve(await fs.realpath(folder)) !== path.resolve(folder)) return { ok: false, code: 'GAME_WIDGETS_UNAVAILABLE' };
+          if (!catalogueAllowed() || revision !== lifecycleRevision || owner !== panelContents) return { ok: false, code: 'GAME_WIDGETS_CANCELLED' };
+          const error = await shell.openPath(folder); return error ? { ok: false, code: 'GAME_WIDGETS_UNAVAILABLE' } : { ok: true };
+        }
+        return { ok: false, code: 'GAME_WIDGETS_INVALID' };
+      }
       if (command.startsWith('quickImport.')) {
         if (!trustedPanel(event)) return { ok: false, error: 'Commande non autorisée.' };
         await quickImport.command(command, payload); publishPanel(); return { ok: true, result: quickImport.status() };
@@ -1382,6 +1427,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       return { ok: true, revision: editorRevision };
     } catch (error) {
       logger.error('Companion command failed');
+      if (command.startsWith('gameWidgets.')) return { ok: false, code: new Set(['GAME_WIDGETS_INVALID','GAME_WIDGETS_STALE','GAME_WIDGETS_INACTIVE','GAME_WIDGETS_UNAVAILABLE','GAME_WIDGETS_CANCELLED','GAME_WIDGETS_FAILED']).has(error?.code) ? error.code : 'GAME_WIDGETS_FAILED' };
       if (command.startsWith('quickImport.')) {
         let code = 'QUICK_IMPORT_FAILED';
         try { if (QUICK_IMPORT_CODES.has(error?.code)) code = error.code; } catch {}
@@ -1408,6 +1454,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function stop() {
     if (stopTask) return stopTask;
     lifecycleRevision++;
+    gameWidgetIntegrations?.stop(); gameModPreflight?.stop();
     telemetry?.stop();
     inputViewer?.stop();
     const drumsStop = drums.stop();
@@ -1466,7 +1513,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (disposing || embedded?.ownerWindow.isDestroyed()) return null;
       const openingRevision = lifecycleRevision;
       await services.start();
-      telemetry?.start();
+      if (measurementsEnabled) telemetry?.start();
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
       hostActive = true;
       void refreshSongRequestShare();
@@ -1484,7 +1531,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
       await downloads.start();
       if (disposing || openingRevision !== lifecycleRevision || embedded?.ownerWindow.isDestroyed()) return null;
-      const panelPreferences = { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`, ...(measurementsEnabled ? ['--chartshub-gameplay-measurements'] : []), ...(measurementsEnabled && calibrationBeta === true ? ['--chartshub-calibration-beta'] : [])] };
+      const panelPreferences = { ...preferences, additionalArguments: [`--chartshub-companion-language=${language}`, ...(measurementsEnabled ? ['--chartshub-gameplay-measurements'] : ['--chartshub-game-widgets']), ...(measurementsEnabled && calibrationBeta === true ? ['--chartshub-calibration-beta'] : [])] };
       const window = embedded?.ownerWindow ?? new BrowserWindow({ width: 1250, height: 850, minWidth: 900, minHeight: 660, show: false, title: tr('ChartsHub — Tableau de bord', 'ChartsHub — Dashboard'), backgroundColor: '#10121a', icon: path.join(__dirname, '..', 'icon.ico'), webPreferences: panelPreferences });
       const view = embedded ? new WebContentsView({ webPreferences: panelPreferences }) : null;
       const contents = view?.webContents ?? window.webContents;
@@ -1536,7 +1583,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     else app.removeListener('before-quit', beforeQuit);
     unsubscribe(); ipcMain.removeHandler('companion:snapshot'); ipcMain.removeHandler('companion:command');
     disposeTask = (async () => {
-      await stop(); if (gameCaptureTask) await gameCaptureTask; await gameCapture?.dispose(); if (inputViewerTask) await inputViewerTask.catch(() => {}); await inputViewer?.dispose(); await drums.dispose(); await quickImport?.dispose(); sessionActivity?.dispose(); await telemetry?.dispose(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
+      await stop(); if (gameCaptureTask) await gameCaptureTask; await gameCapture?.dispose(); if (inputViewerTask) await inputViewerTask.catch(() => {}); await inputViewer?.dispose(); await drums.dispose(); await quickImport?.dispose(); sessionActivity?.dispose(); gameWidgetIntegrations?.dispose(); gameModPreflight?.dispose(); await telemetry?.dispose(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
       if (embedded && panelContents && !panelContents.isDestroyed()) {
         const contents = panelContents;
         await new Promise(resolve => { contents.once('destroyed', resolve); contents.close(); });
@@ -1566,7 +1613,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if(persistenceError||profiles.status().error||floatingPanels.status().error||songRequestPreferences.status().error)throw Object.assign(Error('Visual settings could not be saved'),{code:'BACKUP_WRITE_FAILED'});
   }
   return { open, stop, snapshot, services, integration, registry, setLanguage, setButtonMotion, setUIPalette, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
-    maintenanceStatus, flushPortableConfiguration, acceptDownloadedChart, setMaintenanceLocked: value => { maintenanceLocked = value === true; if (maintenanceLocked) { void drums.stop(); void quickImport?.stop(); unifiedChat?.stop(); void songRequestConnections?.setChatEnabled(false); songRequestDiscovery?.clear(); sessionActivity?.clear(); activityDownloadScopes.clear(); sessionWidgetSettings = { ...sessionWidgetSettings, shareChat: false, shareActivity: false }; sessionWidgetRevision++; } else { quickImport?.update(); sessionActivity?.update(); if (songRequests) sessionActivity?.observeRequests(songRequests.snapshot()); } if (!disposing) publishPanel(); },
+    maintenanceStatus, flushPortableConfiguration, acceptDownloadedChart, setMaintenanceLocked: value => { maintenanceLocked = value === true; gameWidgetIntegrations?.update(); if (maintenanceLocked) gameModPreflight?.stop(); if (maintenanceLocked) { void drums.stop(); void quickImport?.stop(); unifiedChat?.stop(); void songRequestConnections?.setChatEnabled(false); songRequestDiscovery?.clear(); sessionActivity?.clear(); activityDownloadScopes.clear(); sessionWidgetSettings = { ...sessionWidgetSettings, shareChat: false, shareActivity: false }; sessionWidgetRevision++; } else { quickImport?.update(); sessionActivity?.update(); if (songRequests) sessionActivity?.observeRequests(songRequests.snapshot()); } if (!disposing) publishPanel(); },
     getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, getPlayerWidget: () => playerWindow, dispose
   };
 }

@@ -137,6 +137,13 @@ test('the mini catalogue reflects centrally saved appearance without a duplicate
   assert.equal(ui.calls.length, 0);
 });
 
+test('mini maintenance is translated and never locks typing native actions or an immediate new search', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('native fallback'); await ui.respond(0, { items: [chart('native')], external: { status: 'maintenance', retryAfterSeconds: 0 } });
+  const status = ui.get('#catalogue-widget-external-status'); assert.match(status.textContent, /ChartsHub est en maintenance/); assert.doesNotMatch(status.textContent, /\d+ s|réessayez dans/); assert.equal(ui.get('#catalogue-widget-query').disabled, false); assert.equal(ui.get('#catalogue-widget-search').disabled, false); assert.equal(cardFor(ui, 'native').querySelector('.catalogue-download-single').disabled, false);
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange')); assert.match(status.textContent, /ChartsHub is under maintenance/); assert.doesNotMatch(status.textContent, /wait \d+|choose Search again/);
+  ui.search('site reopened'); assert.equal(ui.calls.length, 2); await ui.respond(1, { items: [externalChart()], external: { status: 'ready' } }); assert.equal(ui.get('#catalogue-widget-results').children.length, 1); assert.doesNotMatch(status.textContent, /maintenance/);
+});
+
 test('search results render hostile metadata as text and enqueue sends only the selected chart identifier', async t => {
   const ui = await setup(t); ui.controls.update(snapshot()); ui.search('unsafe');
   const unsafe = '<img src=x onerror=neverRun()>', result = chart('chart-1', { title: unsafe, artist: unsafe, charter: unsafe, downloadEndpoint: 'https://private.invalid', destination: 'C:/outside' });

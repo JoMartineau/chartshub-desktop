@@ -16,6 +16,7 @@ function charterColor(value) {
   return /^(?:#[a-f0-9]{3}|#[a-f0-9]{4}|#[a-f0-9]{6}|#[a-f0-9]{8}|red|green|blue|yellow|white|black|orange|purple|violet|cyan|magenta|grey|gray|lime|pink|silver|gold|teal|navy|maroon|olive|aqua|fuchsia)$/.test(color) ? color : undefined;
 }
 function failure(code = 'ENCHOR_UNAVAILABLE', retryAfterSeconds = 0) {
+  if (code === 'ENCHOR_MAINTENANCE') return Object.assign(Error('ChartsHub est en maintenance. Relancez la recherche dès sa réouverture.'), { code, retryAfterSeconds: 0 });
   const messages = { ENCHOR_INVALID_QUERY: 'Saisissez un titre, un artiste, un charter ou un filtre pour ChorusEncore.', ENCHOR_INVALID_RESPONSE: 'La réponse de ChorusEncore est invalide.', ENCHOR_TIMEOUT: 'ChorusEncore met trop de temps à répondre.', ENCHOR_DISABLED: 'La recherche ChorusEncore est désactivée.', ENCHOR_ACCESS_DENIED: 'La recherche ChorusEncore est suspendue. Un administrateur doit rétablir l’accès.', ENCHOR_RECOVERY_REQUIRED: 'La recherche ChorusEncore est suspendue. Un administrateur doit rétablir l’accès.', ENCHOR_RATE_LIMITED: 'ChorusEncore limite temporairement les recherches. Réessayez après le délai indiqué.', ENCHOR_PACED: 'Une recherche ChorusEncore est déjà en cours. Attendez avant de réessayer.', ENCHOR_CLIENT_LIMIT: 'Le service limite temporairement les recherches. Attendez avant de réessayer.' };
   return Object.assign(Error(messages[code] || 'La recherche ChorusEncore est indisponible. Réessayez.'), { code, retryAfterSeconds });
 }
@@ -78,6 +79,9 @@ function createEnchorClient({ fetcher = globalThis.fetch, timeoutMs = 15000, now
       void pending.then(value => { if (closed) { try { value?.body?.cancel?.()?.catch?.(() => {}); } catch {} } }, () => {});
       response = await wait(pending);
       if (!response || !Number.isInteger(response.status) || response.redirected || response.url && response.url !== url) throw failure('ENCHOR_INVALID_RESPONSE');
+      // Maintenance Retry-After is a site availability hint, not a provider
+      // quota. Do not retain its five-minute delay after the site reopens.
+      if (response.status === 503 && response.headers?.get('x-chartshub-maintenance') === '1') throw failure('ENCHOR_MAINTENANCE');
       let delay = 0;
       const raw = response.headers?.get('retry-after')?.trim(), server = Date.parse(response.headers?.get('date') || '');
       if (raw && /^\d+$/.test(raw) && Number.isSafeInteger(Number(raw))) delay = Number(raw);
@@ -92,6 +96,7 @@ function createEnchorClient({ fetcher = globalThis.fetch, timeoutMs = 15000, now
       for (;;) { const part = await wait(reader.read()); if (part.done) break; if (!(part.value instanceof Uint8Array) || (total += part.value.byteLength) > MAX_BYTES) throw failure(response.ok ? 'ENCHOR_INVALID_RESPONSE' : errorCode, delay); chunks.push(Buffer.from(part.value)); }
       let value; try { value = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(Buffer.concat(chunks, total))); } catch { throw failure(response.ok ? 'ENCHOR_INVALID_RESPONSE' : errorCode, delay); }
       if (!response.ok) {
+        if (response.status === 503 && (value?.code === 'MAINTENANCE' || value?.maintenance === true)) throw failure('ENCHOR_MAINTENANCE');
         if (Number.isSafeInteger(value?.retryAfterSeconds) && value.retryAfterSeconds > 0) delay = Math.max(delay, value.retryAfterSeconds);
         const code = typeof value?.code === 'string' && /^ENCHOR_[A-Z_]{1,64}$/.test(value.code) ? value.code : errorCode;
         throw failure([401, 403].includes(response.status) ? 'ENCHOR_ACCESS_DENIED' : code, delay || (response.status === 429 ? 30 : 0));

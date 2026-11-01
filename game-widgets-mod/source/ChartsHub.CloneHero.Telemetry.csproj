@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <PathMap>$(MSBuildProjectDirectory)=/src</PathMap>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AssemblyName>ChartsHub.CloneHero.Telemetry</AssemblyName>
+    <Version>0.2.2</Version>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <NuGetAudit>false</NuGetAudit>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Provider.cs" />
+    <Compile Include="AdapterRegistry.cs" />
+    <Compile Include="HookResolver.cs" />
+    <Compile Include="PipePublisher.cs" />
+    <Compile Include="GameplayResults.cs" />
+    <Compile Include="ResultProjection.cs" />
+    <Compile Include="SongSnapshotProjection.cs" />
+    <Compile Include="NativeSongContext.cs" />
+    <Compile Include="NativePlaybackClock.cs" />
+    <Compile Include="CalibrationResultTracker.cs" />
+    <Compile Include="NativeCalibrationSettings.cs" />
+    <Reference Include="MelonLoader"><HintPath>vendor/MelonLoader.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>vendor/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Il2CppInterop.Runtime"><HintPath>vendor/Il2CppInterop.Runtime.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

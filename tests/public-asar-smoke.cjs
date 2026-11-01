@@ -19,9 +19,7 @@ const PRIVATE_MEMBERS = Object.freeze([
   'companion/connector-setup-download.cjs',
   'companion/connector-setup-payload.cjs',
   'companion/calibration-hardware.cjs',
-  'companion/calibration-hardware-windows.ps1',
-  'companion/clonehero-telemetry-source.cjs',
-  'companion/clonehero-telemetry-model.cjs'
+  'companion/calibration-hardware-windows.ps1'
 ]);
 const PUBLIC_MEMBERS = Object.freeze([
   'companion/unified-chat.cjs', 'companion/song-request-discovery.cjs',
@@ -40,6 +38,11 @@ const PUBLIC_MEMBERS = Object.freeze([
   'companion/drum-vst-preferences.cjs', 'companion/drum-mt-installer.cjs', 'companion/ui/drum-vst-controls.js',
   'package.json', 'companion/host.cjs', 'companion/preload.cjs',
   'companion/gameplay-measurements.cjs', 'companion/game-capture.cjs',
+  'companion/game-widget-integrations.cjs', 'companion/game-mod-preflight.cjs',
+  'companion/ui/game-widget-controls.js', 'companion/ui/game-widget-controls.css',
+  'companion/clonehero-telemetry-source.cjs', 'companion/clonehero-telemetry-model.cjs',
+  'companion/clonehero-telemetry-contract.cjs', 'companion/clonehero-telemetry-view.cjs',
+  'companion/song-visuals.cjs', 'companion/song-lyrics-parser.cjs',
   'companion/ui/panel.js', 'companion/ui/gameplay-features.js',
   'companion/ui/workspace-navigation.js', 'companion/ui/game-capture.js',
   'companion/ui/game-capture.html', 'companion/game-capture-preload.cjs',
@@ -63,7 +66,8 @@ const FIXTURES = Object.freeze([
   { name: 'input-viewer-output-electron.cjs', count: 10, kind: 'input-output' },
   { name: 'drum-vst-electron.cjs', count: 8, kind: 'drums' },
   { name: 'quick-import-electron.cjs', count: 8, kind: 'quick-import' },
-  { name: 'companion-session-features-electron.cjs', count: 12, kind: 'session-features' }
+  { name: 'companion-session-features-electron.cjs', count: 12, kind: 'session-features' },
+  { name: 'game-widget-integrations-electron.cjs', count: 12, kind: 'game-widgets' }
 ]);
 const hash = bytes => crypto.createHash('sha256').update(bytes).digest('hex');
 const repo = path.resolve(__dirname, '..');
@@ -99,7 +103,7 @@ async function main() {
   const members = asar.listPackage(archive).map(name => name.replaceAll('\\', '/').replace(/^\//, ''));
   const memberSet = new Set(members);
   const { publicMeasurementBundleIgnore } = require('../companion/gameplay-measurements.cjs');
-  assert.equal(PRIVATE_MEMBERS.length, 13);
+  assert.equal(PRIVATE_MEMBERS.length, 11);
   for (const name of PRIVATE_MEMBERS) {
     assert(publicMeasurementBundleIgnore.some(pattern => pattern.test('/' + name)), 'Release ignore missing ' + name);
     assert(!memberSet.has(name), 'Private member present in public ASAR: ' + name);
@@ -109,6 +113,7 @@ async function main() {
   for (const name of PUBLIC_MEMBERS) assert(memberSet.has(name), 'Public production module missing: ' + name);
   assert(!members.some(name => name.startsWith('native-drum-host/')), 'Native SDK, sources and test plug-in must remain outside the application archive');
   assert(!members.some(name => name.startsWith('quick-import-mod/')), 'Optional game module, installer and development sources must remain outside ASAR');
+  assert(!members.some(name => name.startsWith('game-widgets-mod/')), 'Optional Accuracy and lyrics provider, installer and sources must remain outside ASAR');
   assert(!members.some(name => /(?:^|\/)ChartsHub\.QuickImport\.dll$/i.test(name)), 'Optional game module may not be hidden under another archive path');
   const publicHashes = Object.fromEntries(PUBLIC_MEMBERS.map(name => [name, hash(asar.extractFile(archive, path.join(...name.split('/'))))]));
   const version = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8')).version;
@@ -142,7 +147,15 @@ async function main() {
       assert.equal(path.resolve(report.productRoot), archive);
       assert.equal(report.realGameRead, false);
       assert.deepEqual(report.externalRequests, []);
-      if (fixture.kind === 'session-features') {
+      if (fixture.kind === 'game-widgets') {
+        for (const flag of ['actualHostAndIpc', 'actualPreloadAndRenderer', 'actualTelemetrySourceAndModel', 'actualWindowsNamedPipe', 'actualLocalObsServerAndBrowser', 'actualSyntheticLibrary', 'syntheticGameFrames', 'nativeFloatingDisplaysSuppressed']) assert.equal(report[flag], true);
+        for (const flag of ['rendererSandboxDisabled', 'visibilityUnexpected', 'calibrationExposed', 'realGameLaunched', 'realProviderConnected', 'realHardwareRead', 'realInputRead', 'realAudioOpened', 'realProfileRead', 'realUserProfileRead', 'realDesktopCaptured', 'realDownload', 'realNetworkUsed', 'installationPerformed']) assert.equal(report[flag], false);
+        assert.deepEqual(report.errors, []);
+        assert.equal(Object.keys(report.forbiddenCalls).length, 6);
+        for (const count of Object.values(report.forbiddenCalls)) assert.equal(count, 0);
+        for (const name of Object.keys(report.sourceHashesBefore)) assert.equal(report.sourceHashesBefore[name], publicHashes[name], 'Actual optional widget module hash differs: ' + name);
+        assert.deepEqual(report.sourceHashesAfter, report.sourceHashesBefore);
+      } else if (fixture.kind === 'session-features') {
         for (const flag of ['actualHostAndIpc', 'actualPreloadAndRenderer', 'actualLibraryAndRequestQueue', 'syntheticProviders', 'syntheticCatalogue', 'syntheticLocalBridge', 'syntheticDownloadWorker', 'syntheticDOMActions', 'syntheticStreamServer', 'syntheticClipboard', 'nativeFloatingDisplaysSuppressed']) assert.equal(report[flag], true);
         assert.equal(report.rendererSandboxDisabled, false);
         assert.equal(report.visibilityUnexpected, false);
@@ -233,17 +246,17 @@ async function main() {
   const report = {
     result: failure ? 'failed' : 'PUBLIC_ASAR_SMOKE_OK', startedAt, completedAt: new Date().toISOString(),
     version, archive, archiveSha256: archiveBefore, archiveSha256After: archiveAfter,
-    privateMembersAbsent: PRIVATE_MEMBERS, privateMemberCount: 13, entirePrivateSubtreeAbsent: true,
+    privateMembersAbsent: PRIVATE_MEMBERS, privateMemberCount: PRIVATE_MEMBERS.length, entirePrivateSubtreeAbsent: true,
     publicModuleHashes: publicHashes, publicNativeChecks: evidence, totalNativeChecks: evidence.reduce((sum, item) => sum + item.count, 0),
     fixtureSourceHashesBefore: sourcesBefore, fixtureSourceHashesAfter: sourcesAfter,
-    publicHostDefault: true, privateOptInOnBundle: false, fixtureOnly: true,
+    publicHostDefault: true, privateOptInOnBundle: false, optionalGameWidgetsBundled: true, optionalGameWidgetsDefaultEnabled: false, calibrationBundled: false, fixtureOnly: true,
     realGameRead: false, realUserProfileRead: false, realHardwareRead: false, realDesktopCaptured: false,
     installationPerformed: false, error: failure ? String(failure.stack || failure) : null
   };
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   if (failure) throw failure;
-  assert.equal(report.totalNativeChecks, 85);
-  console.log(JSON.stringify({ result: report.result, privateMembersAbsent: 13, nativeChecks: report.totalNativeChecks, version, archiveSha256: archiveBefore, output }));
+  assert.equal(report.totalNativeChecks, 97);
+  console.log(JSON.stringify({ result: report.result, privateMembersAbsent: PRIVATE_MEMBERS.length, nativeChecks: report.totalNativeChecks, version, archiveSha256: archiveBefore, output }));
 }
 
 main().catch(error => { console.error(error.stack || error); process.exitCode = 1; });

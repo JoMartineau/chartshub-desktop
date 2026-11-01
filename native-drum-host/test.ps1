@@ -20,7 +20,12 @@ $nodeExe=@(Get-Command node.exe -ErrorAction Stop)[0].Source
 if($LASTEXITCODE -ne 0){throw 'Native JSON protocol verification failed'}
 $protocol=Get-Content -LiteralPath (Join-Path $outputRoot 'protocol-test.json') -Raw | ConvertFrom-Json
 if($protocol.ok -ne $true -or $protocol.checks.Count -ne 11){throw 'Invalid native protocol report'}
-$proof=[ordered]@{schema=1;ok=$true;offlineChecks=$offline.checks.Count;protocolChecks=$protocol.checks.Count;totalChecks=26;helperSha256=$protocol.helperSha256;audioDeviceOpened=$false;midiDeviceOpened=$false;xinputStateRead=$false;gameRead=$false;profileRead=$false;realAudioAndObsValidated=$false}
+& $nodeExe (Join-Path $nativeRoot 'tests/editor-timer-test.cjs')
+if($LASTEXITCODE -ne 0){throw 'Native synthetic editor timer verification failed'}
+$editor=Get-Content -LiteralPath (Join-Path $outputRoot 'editor-timer-test.json') -Raw | ConvertFrom-Json
+if($editor.ok -ne $true -or $editor.checks.Count -ne 4 -or $editor.helperSha256 -ne $protocol.helperSha256){throw 'Invalid native editor timer report'}
+foreach($field in @('audioDeviceOpened','midiDeviceOpened','xinputStateRead','gameRead','profileRead')){if($editor.$field -ne $false){throw 'Editor timer test accessed a forbidden source'}}
+$proof=[ordered]@{schema=1;ok=$true;offlineChecks=$offline.checks.Count;protocolChecks=$protocol.checks.Count;editorChecks=$editor.checks.Count;editorVerification='editor-timer-test.json';totalChecks=30;helperSha256=$protocol.helperSha256;audioDeviceOpened=$false;midiDeviceOpened=$false;xinputStateRead=$false;gameRead=$false;profileRead=$false;realAudioAndObsValidated=$false}
 $json=$proof | ConvertTo-Json -Depth 5
 [IO.File]::WriteAllText((Join-Path $outputRoot 'native-verification.json'),$json,[Text.UTF8Encoding]::new($false))
 Write-Output $json

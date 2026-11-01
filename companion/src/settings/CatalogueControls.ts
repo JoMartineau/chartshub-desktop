@@ -287,6 +287,7 @@ export class CatalogueControls {
       else if (external.status === 'loading') providerMessage = tr('Recherche Chorus Encore en cours…', 'Searching Chorus Encore…');
       else if (external.status === 'disabled') providerMessage = tr('Chorus Encore est désactivé. Les résultats ChartsHub restent disponibles.', 'Chorus Encore is disabled. ChartsHub results remain available.');
       else if (external.status === 'suspended') providerMessage = tr('Chorus Encore est temporairement suspendu. Relancez la recherche plus tard.', 'Chorus Encore is temporarily suspended. Search again later.');
+      else if (external.status === 'maintenance') providerMessage = tr('ChartsHub est en maintenance. Les résultats déjà chargés restent disponibles. Vous pouvez continuer à écrire et relancer la recherche dès la réouverture.', 'ChartsHub is under maintenance. Loaded results remain available. You can keep typing and search again as soon as the site reopens.');
       else if (external.status === 'cooldown') {
         const seconds = typeof external.retryAfterSeconds === 'number' && Number.isFinite(external.retryAfterSeconds) ? Math.max(1, Math.ceil(external.retryAfterSeconds)) : null;
         providerMessage = seconds ? tr(`Chorus Encore : réessayez dans ${seconds} s en cliquant sur Rechercher.`, `Chorus Encore: wait ${seconds} s, then choose Search again.`) : tr('Chorus Encore demande de patienter. Relancez la recherche plus tard.', 'Chorus Encore needs more time. Search again later.');
