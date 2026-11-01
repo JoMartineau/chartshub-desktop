@@ -589,7 +589,9 @@ app.whenReady().then(async () => {
     assert.equal(host.snapshot().state.widgets.instances.length, 13, 'public startup preserves all stored widget records');
     assert.equal(publicWidgets(host.snapshot()).length, 5, 'only five independent metadata widgets are public');
     assert.equal(host.snapshot().telemetry, null, 'public host never initializes the optional measurements');
-    assert.deepEqual(host.snapshot().features, { gameplayMeasurements: false, calibrationBeta: false });
+    assert.deepEqual(host.snapshot().features, { gameplayMeasurements: false, calibrationBeta: false, gameWidgets: true });
+    for (const flag of ['accuracy', 'lyrics', 'enabled', 'connected']) assert.equal(host.snapshot().gameWidgets[flag], false, 'Optional integration remains off at public startup: ' + flag);
+    assert.equal(host.snapshot().state.performance, null);
     await waitFor(() => evaluate("document.querySelectorAll('#widget-settings input[data-widget-id]').length===5"), 'five public widget controls');
     assert.equal(await count(), 0);
     assert.equal(await evaluate('typeof window.require'), 'undefined');
