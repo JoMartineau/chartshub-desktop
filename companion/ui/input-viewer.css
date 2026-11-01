@@ -29,3 +29,10 @@ body[data-render-style=crystal] .preview{background:linear-gradient(145deg,#6bbd
 body[data-render-style=synthwave] .preview{background:linear-gradient(0deg,#63225770,#1c1242e8 45%,#070d23f0);border-color:#ec76d4;box-shadow:0 0 18px #ff43bb28}
 body[data-render-style=industrial] .preview{background:linear-gradient(135deg,#182127f5,#0c111af0);border-color:#647684;box-shadow:inset 0 0 15px #0009}
 body.presentation .preview{border:0;background:transparent;box-shadow:none}
+/* The editor is an ordinary opaque window. Only the separate output is transparent. */
+body{background:#0b1220}
+header{-webkit-app-region:drag;user-select:none}header button,header input,header select{-webkit-app-region:no-drag}
+header .brand{-webkit-app-region:drag}#close-editor{border-color:#765369;color:#ffdbe9}
+body.presentation header{display:flex}body.presentation main{padding:12px}body.presentation .workspace{margin-top:12px}
+body.presentation .preview{background:#0c1728;border:1px solid #327ca1;border-radius:12px}
+.setup-guide{display:grid;gap:10px;padding:12px;margin:12px 0;background:#123046;border:1px solid #4eb8dc;border-radius:8px;font-size:12px;line-height:1.5}.setup-guide strong{color:#b1f4ff}.setup-guide p{margin:0;color:#bed5e9}#mapping-count{font-weight:700;color:#eaf7ff}#configure-mapping,#learn{border-color:#68dfff;background:#16465d}

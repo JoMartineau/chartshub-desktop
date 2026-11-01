@@ -67,7 +67,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let library = null, rootPickerOpen = false;
   let songVisuals = null;
   let inputViewer = null, inputViewerTask = null;
-  const inputViewerStatus = () => inputViewer?.status() ?? { available: hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive(), open: false, phase: 'stopped', title: 'ChartsHub — Input Viewer', language };
+  const inputViewerStatus = () => inputViewer?.status() ?? { available: hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive(), open: false, phase: 'stopped', title: 'ChartsHub — Input Viewer', language, outputOpen: false, outputEditing: false, outputAlwaysOnTop: true };
   async function ensureInputViewer() {
     if (inputViewer) return inputViewer;
     if (!inputViewerTask) {
@@ -684,7 +684,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         }
       }
       if (!/^[a-f0-9]{64}$/.test(token)) throw Error('Invalid stream access key');
-      streamServer = createLocalOverlayServer({ root: __dirname, token, onStatus: publish, visuals: songVisuals });
+      streamServer = createLocalOverlayServer({ root: __dirname, token, onStatus: publish, visuals: songVisuals,
+        inputViewer: { snapshot: () => inputViewer?.snapshotOutput() ?? { version: 1, revision: 0, phase: 'stopped', config: null, pressed: {} } } });
       return streamServer;
     })().finally(() => { streamInit = null; });
     return streamInit;
@@ -901,6 +902,19 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'capture.player') { await setPlayerWidget(true); return { ok: true }; }
       if (command === 'gameCapture.open') { await (await ensureGameCapture()).open(); return { ok: true }; }
       if (command === 'inputViewer.open') { await (await ensureInputViewer()).open(); return { ok: true }; }
+      if (command === 'inputViewer.showOutput') {
+        const shown = await (await ensureInputViewer()).showOutput(payload);
+        return shown ? { ok: true } : { ok: false, error: language === 'en' ? 'Open Input Viewer settings before showing the game widget.' : 'Ouvrez les réglages de l’Input Viewer avant d’afficher le widget du jeu.' };
+      }
+      if (command === 'inputViewer.hideOutput') { inputViewer?.hideOutput(); return { ok: true }; }
+      if (command === 'inputViewer.copyUrl') {
+        await ensureInputViewer();
+        await setStream(true);
+        const value = streamStatus();
+        if (!value.enabled || !value.inputViewerUrl) return { ok: false, error: language === 'en' ? 'The Input Viewer OBS source is unavailable.' : 'La source OBS de l’Input Viewer est indisponible.' };
+        clipboard.writeText(value.inputViewerUrl);
+        return { ok: true };
+      }
       if (command === 'player.video') return await savePlayerPreferences({ videoEnabled: payload.enabled });
       if (command === 'player.appearance') return await savePlayerPreferences({ appearance: payload.appearance });
       if (command === 'player.shuffle') return await savePlayerPreferences({ shuffle: payload.enabled });

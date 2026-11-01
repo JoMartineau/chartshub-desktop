@@ -3,7 +3,9 @@ const {contextBridge,ipcRenderer}=require('electron');
 if(location.href==='chartshub-companion://app/ui/input-viewer.html'&&process.isMainFrame!==false){
  const arg=process.argv.find(value=>value.startsWith('--chartshub-input-viewer-language=')),language=arg?.split('=')[1]==='en'?'en':'fr';
  contextBridge.exposeInMainWorld('ChartsHubInputViewer',Object.freeze({language,
-  command:name=>['snapshot','start','stop'].includes(name)?ipcRenderer.invoke('companion:input-viewer',name,{}):Promise.reject(TypeError('Invalid viewer command')),
+  command:(name,payload={})=>['snapshot','start','stop','close','showOutput','hideOutput'].includes(name)?ipcRenderer.invoke('companion:input-viewer',name,payload):Promise.reject(TypeError('Invalid viewer command')),
+  configure:config=>ipcRenderer.invoke('companion:input-viewer','configure',{config}),
+  publishPressed:value=>ipcRenderer.invoke('companion:input-viewer','pressed',value),
   selectController:index=>(index===null||(Number.isInteger(index)&&index>=0&&index<4))?ipcRenderer.invoke('companion:input-viewer','selectXInput',{index}):Promise.reject(TypeError('Invalid controller')),
   subscribeInput:callback=>{if(typeof callback!=='function')throw TypeError('Listener required');const fn=(_event,value)=>callback(value);ipcRenderer.on('companion:input-viewer:input',fn);return()=>ipcRenderer.removeListener('companion:input-viewer:input',fn);},
   subscribeDisconnect:callback=>{if(typeof callback!=='function')throw TypeError('Listener required');const fn=(_event,value)=>callback(value);ipcRenderer.on('companion:input-viewer:disconnected',fn);return()=>ipcRenderer.removeListener('companion:input-viewer:disconnected',fn);},
