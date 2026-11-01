@@ -18,6 +18,20 @@ export type SettingsInput = SettingsDocument | LegacySettingsDocument | ThemeSet
 const states: GameplayState[] = ['idle', 'menu', 'loading', 'playing', 'paused', 'results'];
 const record = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const number = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
+// Windows readers/scanners can briefly deny replacement of an existing file.
+// Keep the same synced temporary file and atomic rename; never remove the
+// current settings to work around a lock. Persistent errors still reach callers.
+const renameRetryDelays = [25, 50, 100, 200, 250] as const;
+async function replaceSettings(temporary: string, destination: string): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try { await fs.rename(temporary, destination); return; }
+    catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (process.platform !== 'win32' || (code !== 'EPERM' && code !== 'EBUSY') || attempt >= renameRetryDelays.length) throw error;
+      await new Promise<void>(resolve => setTimeout(resolve, renameRetryDelays[attempt]));
+    }
+  }
+}
 // These are the shipped v1 defaults, deliberately independent of future presets.
 const legacyColors: Record<string, string> = {
   'song.title': '#ffffff', 'song.artist': '#e0e7ff', 'song.charter': '#aebbd0',
@@ -73,7 +87,7 @@ export class SettingsRepository {
         const handle = await fs.open(temporary, 'wx');
         try { await handle.writeFile(text, 'utf8'); await handle.sync(); } finally { await handle.close(); }
         try { await fs.copyFile(this.filePath, this.filePath + '.bak'); } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-        await fs.rename(temporary, this.filePath);
+        await replaceSettings(temporary, this.filePath);
       } finally { await fs.unlink(temporary).catch(() => {}); }
     });
     this.tail = operation.catch(() => {});

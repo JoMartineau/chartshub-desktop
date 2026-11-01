@@ -8,6 +8,7 @@
 - Demandes introuvables : recherche explicite dans le catalogue, téléchargement choisi, puis sélection du morceau installé avant confirmation dans la file.
 - Formulations titre « by / par » artiste reconnues après une recherche littérale infructueuse.
 - Widgets Navigateur OBS pour le chat et l’activité, avec couleur, taille et nombre de lignes. Partages désactivés au démarrage ; pseudos de l’activité masqués par défaut.
+- Enregistrement des dispositions des widgets plus fiable sous Windows lorsqu’un lecteur ou un antivirus verrouille brièvement le fichier de réglages. La sauvegarde précédente reste conservée en cas d’échec.
 
 Les fonctions existantes de bibliothèque, file, Input Viewer, captures du jeu, Batterie / VST et thèmes sont conservées. Aucun module Accuracy ni assistant de calibration n’est réintroduit.
 
