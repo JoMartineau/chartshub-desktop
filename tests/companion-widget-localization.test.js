@@ -11,6 +11,15 @@ test('Dashboard visible guidance and accessibility names localize without changi
  }
  assert.equal(en.translate('ChartsHubCompanion'),'ChartsHubCompanion');
 });
+
+test('the actual OBS instruction text after its strong label translates fully and restores French',()=>{
+ const html=fs.readFileSync(path.join(__dirname,'../companion/ui/index.html'),'utf8');
+ const match=html.match(/<p class="stream-instructions">Dans OBS, ajoutez une <strong>Source navigateur<\/strong>([^<]+)<\/p>/);
+ assert.ok(match,'The actual fragmented OBS instruction must be checked');
+ const expected=', paste this URL and use the width and height shown above. The background is transparent. Keep ChartsHub open while streaming.';
+ assert.equal(localizer('en').translate(match[1]),expected);
+ assert.equal(localizer('fr').translate(match[1]),match[1]);
+});
 test('All thirteen registered widget names and their dynamic accessibility labels translate to English',async()=>{
   const {createDefaultRegistry}=await import('../companion/dist/widgets/core/index.js'),{widgetLabel}=await import('../companion/dist/widgets/engine/WidgetLabels.js');
   const ui=localizer('en');

@@ -42,7 +42,7 @@ const PUBLIC_MEMBERS = Object.freeze([
   'companion/ui/game-widget-controls.js', 'companion/ui/game-widget-controls.css',
   'companion/clonehero-telemetry-source.cjs', 'companion/clonehero-telemetry-model.cjs',
   'companion/clonehero-telemetry-contract.cjs', 'companion/clonehero-telemetry-view.cjs',
-  'companion/song-visuals.cjs', 'companion/song-lyrics-parser.cjs',
+  'companion/song-visuals.cjs', 'companion/song-lyrics-parser.cjs', 'companion/ui/song-visuals-controls.js',
   'companion/ui/panel.js', 'companion/ui/gameplay-features.js',
   'companion/ui/workspace-navigation.js', 'companion/ui/game-capture.js',
   'companion/ui/game-capture.html', 'companion/game-capture-preload.cjs',
