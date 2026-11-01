@@ -85,7 +85,7 @@ jobs:
           })
           $inputs | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $diagnostic 'input-identities.json')
           Push-Location $source
-          try { dotnet msbuild 'ChartsHub.QuickImport.csproj' -nologo -p:ProductionCandidate=true -t:ResolveReferences -getProperty:TargetFramework,RuntimeFrameworkVersion,LangVersion,DebugType,DebugSymbols,Optimize,Deterministic,DeterministicSourcePaths,PathMap,AssemblyVersion,FileVersion,InformationalVersion,SourceRevisionId,ContinuousIntegrationBuild,IncludeSourceRevisionInInformationalVersion,EnableSourceControlManagerQueries,NETCoreSdkVersion,NETCoreSdkRuntimeIdentifier -getItem:ReferencePath | Set-Content -LiteralPath (Join-Path $diagnostic 'build-properties.json') } finally { Pop-Location }
+          try { dotnet msbuild 'ChartsHub.QuickImport.csproj' -nologo -p:ProductionCandidate=true -p:Configuration=Release -t:ResolveReferences -getProperty:TargetFramework,RuntimeFrameworkVersion,LangVersion,DebugType,DebugSymbols,Optimize,Deterministic,DeterministicSourcePaths,PathMap,AssemblyVersion,FileVersion,InformationalVersion,SourceRevisionId,ContinuousIntegrationBuild,IncludeSourceRevisionInInformationalVersion,EnableSourceControlManagerQueries,NETCoreSdkVersion,NETCoreSdkRuntimeIdentifier -getItem:ReferencePath | Set-Content -LiteralPath (Join-Path $diagnostic 'build-properties.json') } finally { Pop-Location }
           foreach ($name in @('ChartsHub.QuickImport.dll','ChartsHub.QuickImport.pdb')) {
             $compiled = Join-Path $source ('bin/ProductionCandidate/net6.0/'+$name)
             if (Test-Path -LiteralPath $compiled) { Copy-Item -LiteralPath $compiled -Destination (Join-Path $diagnostic $name) }

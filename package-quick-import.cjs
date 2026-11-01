@@ -11,7 +11,7 @@ const FILES = Object.freeze([
 ]);
 const BUILD = 'CH-1.1.0.6142-win-x64-12bc21e5a88a2fc9';
 const GAME_ASSEMBLY_SHA256 = '12bc21e5a88a2fc9abc259d5d67f24835145eabca6c3f863b075ba37ad75f197';
-const MODULE_SHA256 = '50471ba7d0867f14a13fcf613480c02377e8a87ffab13b7d9b1a56392212c42f';
+const MODULE_SHA256 = 'a628b64502b5b7e88dbf59d8e310422d4d644da9506191c19c53c3b94a9736e0';
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 function regularAncestors(directory) {
   for (let current = path.resolve(directory); ; current = path.dirname(current)) {
