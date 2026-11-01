@@ -12,7 +12,25 @@ const OWNER = 'ChartsHub Companion download v1';
 const INSTALLING = '.chartshub-companion-installing';
 const active = new Set();
 const samePath = (a, b) => process.platform === 'win32' ? path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase() : path.resolve(a) === path.resolve(b);
-const identity = stat => `${stat.dev}:${stat.ino}`;
+// NTFS file references are uint64 values; Number stats can round distinct
+// live directories to the same value. Persist only exact, tagged strings.
+function identity(stat) {
+  const exact = value => {
+    if (typeof value === 'bigint' && value >= 0n) return String(value);
+    if (Number.isSafeInteger(value) && value >= 0) return String(value);
+    throw failure('DOWNLOAD_PATH');
+  };
+  return `u64:${exact(stat.dev)}:${exact(stat.ino)}`;
+}
+function matchesIdentity(stored, current) {
+  if (typeof stored !== 'string' || typeof current !== 'string') return false;
+  if (stored.startsWith('u64:')) return stored === current;
+  // Old receipts are reusable only when both old decimal values were exactly
+  // representable. An ambiguous Number identity is never upgraded in trust.
+  if (!/^(0|[1-9][0-9]*):(0|[1-9][0-9]*)$/.test(stored)) return false;
+  if (stored.split(':').some(value => BigInt(value) > BigInt(Number.MAX_SAFE_INTEGER))) return false;
+  return `u64:${stored}` === current;
+}
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const fileKey = file => digest(JSON.stringify(file.parts));
 const signature = file => digest(JSON.stringify([file.parts, file.size, file.url, file.sha256 ?? null]));
@@ -32,15 +50,23 @@ function failure(code) {
 function cancelled() { const error = Error('Téléchargement interrompu.'); error.name = 'AbortError'; error.code = 'ABORT_ERR'; return error; }
 function checkAbort(signal) { if (signal?.aborted) throw cancelled(); }
 function validEndpoint(value) { return endpointValid(value) && PUBLIC_ENDPOINT.test(value); }
-async function statOrNull(target) { try { return await fs.lstat(target); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } }
+async function exactStat(target) {
+  const stat = await fs.lstat(target, { bigint: true });
+  // Existing transfer limits and buffers use safe Number byte lengths. Keep
+  // only that field numeric; device and inode identity stay exact BigInts.
+  if (stat.size < 0n || stat.size > BigInt(Number.MAX_SAFE_INTEGER)) throw failure('DOWNLOAD_PATH');
+  stat.size = Number(stat.size);
+  return stat;
+}
+async function statOrNull(target) { try { return await exactStat(target); } catch (error) { if (error.code === 'ENOENT') return null; throw error; } }
 
 async function rootContext(rootPath) {
   if (typeof rootPath !== 'string' || !path.isAbsolute(rootPath)) throw failure('DOWNLOAD_PATH');
-  const root = path.resolve(rootPath), stat = await fs.lstat(root);
+  const root = path.resolve(rootPath), stat = await exactStat(root);
   if (!stat.isDirectory() || stat.isSymbolicLink() || !samePath(await fs.realpath(root), root)) throw failure('DOWNLOAD_PATH');
   const rootIdentity = identity(stat);
   async function guard() {
-    const current = await fs.lstat(root);
+    const current = await exactStat(root);
     if (!current.isDirectory() || current.isSymbolicLink() || identity(current) !== rootIdentity || !samePath(await fs.realpath(root), root)) throw failure('DOWNLOAD_PATH');
   }
   async function checked(target, { missing = false, directory = false } = {}) {
@@ -76,7 +102,7 @@ async function readJsonFile(context, target, limit = 2_000_000) {
   if (stat.size > limit) throw failure('DOWNLOAD_PATH');
   const handle = await fs.open(target, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
   try {
-    if (identity(await handle.stat()) !== identity(stat)) throw failure('DOWNLOAD_PATH');
+    if (identity(await handle.stat({ bigint: true })) !== identity(stat)) throw failure('DOWNLOAD_PATH');
     const bytes = Buffer.alloc(stat.size + 1), { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
     if (bytesRead !== stat.size) throw failure('DOWNLOAD_PATH');
     try { return JSON.parse(bytes.subarray(0, bytesRead).toString('utf8')); } catch { throw failure('DOWNLOAD_PATH'); }
@@ -92,7 +118,7 @@ async function writeNew(context, target, contents) {
 async function safeRemoveTree(context, target) {
   await context.checked(target, { directory: true });
   for (const entry of await fs.readdir(target, { withFileTypes: true })) {
-    const child = path.join(target, entry.name), stat = await fs.lstat(child);
+    const child = path.join(target, entry.name), stat = await exactStat(child);
     if (stat.isSymbolicLink()) throw failure('DOWNLOAD_PATH');
     if (stat.isDirectory()) await safeRemoveTree(context, child);
     else { await context.checked(child); await fs.unlink(child); }
@@ -105,14 +131,14 @@ async function hashFile(context, target, size, signal) {
   if (stat.size !== size) return null;
   const handle = await fs.open(target, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
   try {
-    if (identity(await handle.stat()) !== identity(stat)) throw failure('DOWNLOAD_PATH');
+    if (identity(await handle.stat({ bigint: true })) !== identity(stat)) throw failure('DOWNLOAD_PATH');
     const hash = crypto.createHash('sha256'), buffer = Buffer.alloc(128 * 1024); let total = 0;
     for (;;) {
       checkAbort(signal); const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
       if (!bytesRead) break; total += bytesRead; if (total > size) return null; hash.update(buffer.subarray(0, bytesRead));
     }
     const finalStat = await context.checked(target);
-    if (identity(finalStat) !== identity(stat) || identity(await handle.stat()) !== identity(stat)) throw failure('DOWNLOAD_PATH');
+    if (identity(finalStat) !== identity(stat) || identity(await handle.stat({ bigint: true })) !== identity(stat)) throw failure('DOWNLOAD_PATH');
     return total === size ? hash.digest('hex') : null;
   } finally { await handle.close(); }
 }
@@ -175,7 +201,7 @@ function createDownloadWorker({ fetcher = globalThis.fetch, idleTimeoutMs = 6000
     }
     await context.checked(staging, { directory: true });
     const stageIdentity = identity(stat), owner = await readJsonFile(context, path.join(staging, 'owner.json'), 4096);
-    if (owner?.owner !== OWNER || owner.version !== 1 || owner.id !== id || !validEndpoint(owner.endpoint) || (endpoint && owner.endpoint !== endpoint) || typeof owner.root !== 'string' || !samePath(owner.root, context.root) || owner.rootIdentity !== context.rootIdentity) throw failure('DOWNLOAD_PATH');
+    if (owner?.owner !== OWNER || owner.version !== 1 || owner.id !== id || !validEndpoint(owner.endpoint) || (endpoint && owner.endpoint !== endpoint) || typeof owner.root !== 'string' || !samePath(owner.root, context.root) || !matchesIdentity(owner.rootIdentity, context.rootIdentity)) throw failure('DOWNLOAD_PATH');
     async function guard() {
       if (identity(await context.checked(staging, { directory: true })) !== stageIdentity) throw failure('DOWNLOAD_PATH');
     }
@@ -354,4 +380,4 @@ function createDownloadWorker({ fetcher = globalThis.fetch, idleTimeoutMs = 6000
   return { run, discard, resolveCompleted };
 }
 
-module.exports = { createDownloadWorker, rootContext, readJsonFile, writeNew, safeRemoveTree, statOrNull, identity };
+module.exports = { createDownloadWorker, rootContext, readJsonFile, writeNew, safeRemoveTree, statOrNull, identity, matchesIdentity };

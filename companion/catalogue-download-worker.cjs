@@ -2,7 +2,7 @@
 const fs = require('node:fs/promises');
 const { constants } = require('node:fs');
 const path = require('node:path');
-const { createDownloadWorker, rootContext, readJsonFile, writeNew, safeRemoveTree, statOrNull, identity } = require('./download-worker.cjs');
+const { createDownloadWorker, rootContext, readJsonFile, writeNew, safeRemoveTree, statOrNull, identity, matchesIdentity } = require('./download-worker.cjs');
 const { downloadEnchor, normalizeEnchorRequest } = require('../enchor-download');
 const { safePart, songFolderName } = require('../download');
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -28,7 +28,7 @@ function createCatalogueDownloadWorker({ fetcher = globalThis.fetch, nativeWorke
     }
     await context.checked(directory, { directory: true });
     const stageIdentity = identity(info), owner = await readJsonFile(context, ownerPath, 4096);
-    if (owner.owner !== OWNER || owner.version !== 1 || owner.id !== id || owner.endpoint !== endpoint || owner.root !== context.root || owner.rootIdentity !== context.rootIdentity) throw invalid();
+    if (owner.owner !== OWNER || owner.version !== 1 || owner.id !== id || owner.endpoint !== endpoint || owner.root !== context.root || !matchesIdentity(owner.rootIdentity, context.rootIdentity)) throw invalid();
     const guard = async () => { if (identity(await context.checked(directory, { directory: true })) !== stageIdentity) throw invalid(); };
     const receiptPath = path.join(directory, 'receipt.json');
     let receipt = null;
@@ -42,7 +42,7 @@ function createCatalogueDownloadWorker({ fetcher = globalThis.fetch, nativeWorke
     if (!stored.receipt) return;
     const destination = path.join(context.root, stored.receipt.folderName), info = await statOrNull(destination);
     if (!info) return;
-    if (identity(await context.checked(destination, { directory: true })) !== stored.receipt.folderIdentity) throw invalid();
+    if (!matchesIdentity(stored.receipt.folderIdentity, identity(await context.checked(destination, { directory: true })))) throw invalid();
     const marker = path.join(destination, INSTALLING);
     if (!await statOrNull(marker)) return; // A completed publication is never deleted.
     const owner = await readJsonFile(context, marker, 4096);
@@ -62,7 +62,7 @@ function createCatalogueDownloadWorker({ fetcher = globalThis.fetch, nativeWorke
       if (stored.receipt) {
         const destination = path.join(context.root, stored.receipt.folderName), info = await statOrNull(destination);
         if (info) {
-          if (identity(await context.checked(destination, { directory: true })) !== stored.receipt.folderIdentity) throw invalid();
+          if (!matchesIdentity(stored.receipt.folderIdentity, identity(await context.checked(destination, { directory: true })))) throw invalid();
           if (!await statOrNull(path.join(destination, INSTALLING))) return { ...stored.receipt, destination };
           await removePending(context, stored);
         }
@@ -100,7 +100,7 @@ function createCatalogueDownloadWorker({ fetcher = globalThis.fetch, nativeWorke
       await writeNew(context, stored.receiptPath, JSON.stringify(stored.receipt));
       for (const member of members) {
         signal?.throwIfAborted(); await stored.guard();
-        if (identity(await context.checked(destination, { directory: true })) !== stored.receipt.folderIdentity) throw invalid();
+        if (!matchesIdentity(stored.receipt.folderIdentity, identity(await context.checked(destination, { directory: true })))) throw invalid();
         const target = path.join(destination, ...member.parts); await context.mkdir(path.dirname(target)); await context.checked(member.source); await context.checked(target, { missing: true }); await fs.copyFile(member.source, target, constants.COPYFILE_EXCL); await context.checked(target);
       }
       signal?.throwIfAborted(); await context.checked(path.join(destination, INSTALLING)); await fs.unlink(path.join(destination, INSTALLING));
