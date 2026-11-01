@@ -1,7 +1,96 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),{EventEmitter}=require('node:events');
-const scope={};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../companion/ui/input-viewer-model.js'),'utf8').replaceAll('export const ','const ').replaceAll('export function ','function ')+'\nthis.model={preset,validateConfig,readConfig,writeConfig,sampleControls,updateTrails,trailGeometry,learnGamepadMapping,STORAGE_KEY};',scope);
+const scope={};vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../companion/ui/input-viewer-model.js'),'utf8').replaceAll('export const ','const ').replaceAll('export function ','function ')+'\nthis.model={preset,validateConfig,readConfig,writeConfig,sampleControls,updateTrails,trailGeometry,learnGamepadMapping,gridPosition,STORAGE_KEY,LEGACY_STORAGE_KEY};',scope);
 const model=scope.model,plain=value=>JSON.parse(JSON.stringify(value));
+test('legacy viewer settings gain appearance defaults without losing positions, mappings or labels',()=>{
+ const previous=plain(model.preset('drums5'));previous.version=1;delete previous.renderStyle;delete previous.grid;delete previous.trails.style;
+ for(const c of previous.controls){delete c.palette;delete c.trailDirection;}
+ previous.controls[0].x=91;previous.controls[0].label='Mon pad';previous.controls[0].mapping.kind='button';previous.controls[0].mapping.index=6;
+ let writes=0;const restored=model.readConfig({getItem:key=>key===model.LEGACY_STORAGE_KEY?JSON.stringify(previous):null,setItem(){writes++;}});
+ assert.equal(writes,0);assert.equal(restored.renderStyle,'cyberpunk');assert.equal(restored.controls[0].x,91);assert.equal(restored.controls[0].label,'Mon pad');assert.equal(restored.controls[0].mapping.index,6);
+ assert.equal(restored.controls[0].palette.trail,null);assert.equal(restored.controls[0].trailDirection,null);
+ assert.equal(restored.version,2);
+});
+
+test('v2 migration preserves expanded v1 colors, styles, bindings and positions without overwriting the rollback key',()=>{
+ const previous=plain(model.preset('drums5'));previous.version=1;previous.renderStyle='hologram';previous.grid={enabled:false,size:24};previous.trails.style='comet';
+ Object.assign(previous.controls[0],{label:'Mon pad conservé',x:91,y:170,width:90,height:90,color:'#123456',visible:false,fontSize:24,trailDirection:'right',palette:{idle:'#345678',trail:'#abcdef',label:'#fedcba'},mapping:{kind:'axis',index:9,direction:-1,threshold:.7,key:'KeyQ'}});
+ const legacyBytes=JSON.stringify(previous),values=new Map([[model.LEGACY_STORAGE_KEY,legacyBytes]]),writes=[];
+ const storage={getItem:key=>values.get(key)??null,setItem(key,raw){writes.push(key);values.set(key,raw);}};
+ const restored=model.readConfig(storage);assert.deepEqual(plain(restored),{...previous,version:2,grid:{...previous.grid,visible:true}});assert.equal(writes.length,0);
+ restored.controls[0].x=125;model.writeConfig(storage,restored);
+ assert.deepEqual(writes,['chartshub:input-viewer-config-v2']);assert.equal(values.get(model.LEGACY_STORAGE_KEY),legacyBytes);
+ assert.equal(JSON.parse(values.get(model.LEGACY_STORAGE_KEY)).version,1);assert.equal(JSON.parse(values.get(model.STORAGE_KEY)).version,2);
+ assert.equal(model.readConfig(storage).controls[0].x,125);assert.equal(previous.controls[0].x,91);
+});
+
+test('a valid v2 configuration takes precedence and never reads or changes the legacy key',()=>{
+ const current=plain(model.preset());current.controls[0].label='Réglage v2';current.renderStyle='glass';
+ const previous=plain(model.preset('drums4'));previous.version=1;const reads=[];
+ const storage={getItem(key){reads.push(key);return JSON.stringify(key===model.STORAGE_KEY?current:previous);},setItem(){assert.fail('Reading must not save settings');}};
+ assert.deepEqual(plain(model.readConfig(storage)),current);assert.deepEqual(reads,[model.STORAGE_KEY]);
+});
+
+test('malformed or wrongly versioned v2 falls back to validated v1 without accepting unsafe legacy fields',()=>{
+ const previous=plain(model.preset('drums4'));previous.version=1;previous.controls[0].label='Sauvegarde v1';
+ for(const raw of ['broken','x'.repeat(16385),JSON.stringify({...model.preset(),version:999}),JSON.stringify(previous),JSON.stringify({...model.preset(),unexpected:'field'})]){
+  const values=new Map([[model.STORAGE_KEY,raw],[model.LEGACY_STORAGE_KEY,JSON.stringify(previous)]]);
+  const restored=model.readConfig({getItem:key=>values.get(key)});assert.equal(restored.version,2);assert.equal(restored.controls[0].label,'Sauvegarde v1');
+ }
+ for(const unsafe of [{...previous,keyHistory:[]},{...previous,version:0},{...previous,version:3},{...previous,version:2}]){
+  const fallback=model.readConfig({getItem:key=>key===model.LEGACY_STORAGE_KEY?JSON.stringify(unsafe):null},'en');
+  assert.equal(fallback.mode,'guitar');assert.equal(fallback.controls[0].label,'Green');assert.equal(fallback.version,2);
+ }
+});
+
+test('0.14.32-shaped v1 migrates without changing its original shapes or rollback bytes',()=>{
+ const previous=plain(model.preset('drums5'));previous.version=1;previous.bloom=16;
+ delete previous.grid;delete previous.renderStyle;delete previous.trails.style;
+ for(const c of previous.controls){delete c.palette;delete c.trailDirection;if(c.shape==='cymbal'){c.shape='rect';c.width=110;c.height=32;}if(c.shape==='star')c.shape='diamond';}
+ const legacy=JSON.stringify(previous),values=new Map([[model.LEGACY_STORAGE_KEY,legacy]]);
+ const restored=model.readConfig({getItem:key=>values.get(key),setItem(key,raw){values.set(key,raw);}});
+ assert.equal(restored.controls.find(c=>c.id==='cymbal0').shape,'rect');assert.equal(restored.controls.find(c=>c.id==='power').shape,'diamond');assert.equal(restored.bloom,16);
+ model.writeConfig({setItem(key,raw){values.set(key,raw);}},restored);assert.equal(values.get(model.LEGACY_STORAGE_KEY),legacy);
+ assert.deepEqual(JSON.parse(legacy),previous);assert.equal(restored.version,2);
+});
+test('render styles and independent control colors persist with strict safe color and bloom bounds',()=>{
+ for(const style of ['cyberpunk','metal','minimal','hologram','arcade','glass','wireframe','energy','plasma','crystal','synthwave','industrial']){const c=model.preset();c.renderStyle=style;c.bloom=80;c.controls[0].palette={idle:'#123456',trail:'#abcdef',label:'#654321'};let saved;model.writeConfig({setItem(_key,raw){saved=raw;}},c);assert.deepEqual(plain(model.readConfig({getItem:()=>saved})),plain(c));}
+ for(const mutate of [c=>c.renderStyle='script',c=>c.bloom=81,c=>c.controls[0].palette.idle='url(x)',c=>c.controls[0].palette.label='#fff',c=>c.controls[0].palette.trail={},c=>c.controls[0].trailDirection='diagonal']){const c=model.preset();mutate(c);assert.throws(()=>model.validateConfig(c));}
+});
+test('each control can override afterglow direction while other controls follow the global direction',()=>{
+ const c=model.preset();c.trails.direction='up';c.trails.thickness=100;const item=c.controls[0],trace={id:item.id,at:0};
+ item.trailDirection='right';let g=model.trailGeometry(item,trace,100,c.trails);assert(g.x>item.x);assert.equal(g.y,item.y);
+ item.trailDirection='left';g=model.trailGeometry(item,trace,100,c.trails);assert(g.x<item.x);assert.equal(g.y,item.y);
+ item.trailDirection='down';g=model.trailGeometry(item,trace,100,c.trails);assert.equal(g.x,item.x);assert(g.y>item.y);
+ item.trailDirection=null;g=model.trailGeometry(item,trace,100,c.trails);assert.equal(g.x,item.x);assert(g.y<item.y);
+ const another=c.controls[1];g=model.trailGeometry(another,{id:another.id,at:0},100,c.trails);assert.equal(g.x,another.x);assert(g.y<another.y);
+});
+test('all afterglow styles survive saving while legacy settings select soft glow and invalid styles are rejected',()=>{
+ for(const style of ['soft','comet','particles','pulse','beam','pixel']){const c=model.preset();c.trails.style=style;let raw;model.writeConfig({setItem(_key,value){raw=value;}},c);assert.equal(model.readConfig({getItem:()=>raw}).trails.style,style);}
+ const old=plain(model.preset());delete old.trails.style;assert.equal(model.validateConfig(old).trails.style,'soft');
+ old.trails.style='untrusted()';assert.throws(()=>model.validateConfig(old));
+});
+test('grid alignment stays inside the canvas, can be disabled, and rejects malformed stored grid settings',()=>{
+ assert.equal(model.gridPosition(201,680,{enabled:true,size:16}),208);
+ assert.equal(model.gridPosition(999,680,{enabled:true,size:16}),672);
+ assert.equal(model.gridPosition(-20,680,{enabled:true,size:16}),0);
+ assert.equal(model.gridPosition(201,680,{enabled:false,size:16}),201);
+ assert.equal(model.gridPosition(10,5,{enabled:true,size:16}),0);
+ for(const grid of [{enabled:'yes',size:16},{enabled:true,size:0},{enabled:true,size:999},{enabled:true,size:16,extra:true},{enabled:true,size:16,visible:'yes'},{enabled:true,size:16,visible:null}]){const c=model.preset();c.grid=grid;assert.throws(()=>model.validateConfig(c));}
+});
+
+test('grid visibility and magnet alignment remain independent and migrate without enabling disabled alignment',()=>{
+ const old=plain(model.preset());old.version=1;old.grid={enabled:false,size:24};
+ const migrated=model.validateConfig(old);assert.deepEqual(plain(migrated.grid),{enabled:false,size:24,visible:true});
+ assert.equal(model.gridPosition(201,680,migrated.grid),201);
+ for(const enabled of [true,false])for(const visible of [true,false]){
+  const config=plain(model.preset());config.grid={enabled,visible,size:16};let saved;
+  model.writeConfig({setItem(key,raw){assert.equal(key,model.STORAGE_KEY);saved=raw;}},config);
+  const restored=model.readConfig({getItem:key=>key===model.STORAGE_KEY?saved:null});
+  assert.deepEqual(plain(restored.grid),config.grid);
+  assert.equal(model.gridPosition(201,680,restored.grid),enabled?208:201);
+ }
+});
 test('guitar and four/five-pad drum presets validate, remain independently editable and contain no assumed gamepad mappings',()=>{
  for(const mode of ['guitar','drums4','drums5']){const a=model.preset(mode),b=model.preset(mode);assert.equal(model.validateConfig(a).mode,mode);assert(a.controls.every(c=>c.mapping.kind==='none'));assert.equal(a.controls.length,mode==='guitar'?8:mode==='drums4'?9:10);a.controls[0].x=1;assert.notEqual(a.controls[0].x,b.controls[0].x);}
  assert.equal(model.preset('guitar','en').controls[0].label,'Green');assert.equal(model.preset('drums5','en').controls.find(c=>c.id==='kick').label,'Kick');assert.equal(model.preset('drums4','en').controls.find(c=>c.id==='cymbal0').label,'Yellow cymbal');assert.equal(model.readConfig(null,'en').controls[0].label,'Green');
@@ -35,7 +124,8 @@ function fixture(){const windows=[],handlers=new Map(),ses={setPermissionCheckHa
  class Window extends EventEmitter{constructor(options){super();this.options=options;this.dead=false;this.webContents=new EventEmitter();Object.assign(this.webContents,{mainFrame:{url:''},sent:[],send(...value){this.sent.push(value);},setWindowOpenHandler(fn){this.open=fn;}});windows.push(this);}isDestroyed(){return this.dead;}async loadURL(url){this.webContents.mainFrame.url=url;}setMenuBarVisibility(){}setAlwaysOnTop(...value){this.topmost=value;}show(){this.shown=true;}focus(){}destroy(){if(!this.dead){this.dead=true;this.emit('closed');}}}
  const electron={BrowserWindow:Window,session:{fromPartition(name){assert.equal(name,'persist:chartshub-input-viewer');return ses;}},ipcMain:{handle(name,fn){handlers.set(name,fn);},removeHandler(name){handlers.delete(name);}},net:{fetch(){throw Error('No remote fetch');}}};return{electron,windows,handlers,ses,event:window=>({sender:window.webContents,senderFrame:window.webContents.mainFrame})};
 }
-const {createInputViewer,PAGE,CHANNEL}=require('../companion/input-viewer.cjs');
+const {createInputViewer:actualCreateInputViewer,PAGE,CHANNEL}=require('../companion/input-viewer.cjs');
+const createInputViewer=options=>actualCreateInputViewer({...options,xinputFactory:()=>({start(){return false;},select(){return false;},getSelection(){return null;},stop(){},dispose(){}})});
 test('viewer opens stopped, uses default renderer security and permits only its own frame and three empty actions',async t=>{
  const f=fixture(),service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron});t.after(()=>service.dispose());assert.equal(f.windows.length,0);assert.equal(service.status().phase,'stopped');const window=await service.open(),invoke=(name,payload)=>f.handlers.get(CHANNEL)(f.event(window),name,payload);
  assert.equal(window.options.transparent,true);assert.equal(window.options.alwaysOnTop,true);assert.deepEqual(window.topmost,[true,'screen-saver']);assert.equal(window.options.webPreferences.sandbox,true);assert.equal(window.options.webPreferences.nodeIntegration,false);assert.equal(service.status().phase,'stopped');assert.equal(f.ses.check(null,'hid'),false);

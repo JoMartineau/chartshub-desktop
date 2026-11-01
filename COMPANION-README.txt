@@ -1,6 +1,15 @@
-ChartsHub Desktop 0.14.32 - Catalogue et Companion
+ChartsHub Desktop 0.14.33 - Catalogue et Companion
 
-NOUVEAUTES 0.14.32 - INPUT VIEWER ET WIDGETS SANS CONNECTEUR
+NOUVEAUTES 0.14.33 - INPUT VIEWER PERSONNALISABLE
+
+- Detection Windows XInput des guitares/manettes compatibles, sans pilote supplementaire.
+- Douze rendus et six effets de trails, cymbales et etoile Star Power.
+- Couleurs, visibilite et direction de lueur par element.
+- Grille visible independamment de son aimantation ; placements libres possibles.
+- Anciens reglages conserves pour un retour a 0.14.32.
+- Companion > Stream / OBS > Ouvrir et personnaliser l Input Viewer.
+
+FONCTIONS CONSERVEES - WIDGETS SANS CONNECTEUR
 
 Companion > Stream / OBS > Input Viewer : ouvrez le viewer, choisissez Guitare
 ou Batterie, puis Demarrer et votre manette compatible. Associez chaque entree
