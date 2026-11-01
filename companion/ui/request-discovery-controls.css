@@ -1,0 +1,1 @@
+.request-discovery-list{display:grid;gap:10px}.request-discovery-item{padding:12px;border:1px solid var(--border,#30445c);border-radius:10px}.request-discovery-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.request-discovery-item select{max-width:100%;width:100%;margin:6px 0}.request-discovery-item p{margin:5px 0}.request-discovery-item strong{overflow-wrap:anywhere}

@@ -9,6 +9,7 @@ const { Readable } = require('node:stream');
 const { createRequire } = require('node:module');
 const security = require('../companion/security.cjs');
 const { createSongRequestConnections } = require('../companion/song-request-connections.cjs');
+const { createSongRequestDiscovery } = require('../companion/song-request-discovery.cjs');
 const { replyFor } = require('../companion/song-request-server.cjs');
 
 // Execute the host's real lifecycle and IPC wiring with synthetic providers.
@@ -66,7 +67,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
   const received = [], sent = [], events = [], providers = {};
   const state = { enabled: false, rules: { ...rules }, requests: [] };
   const libraryState = { status: 'ready', count: 1, revision: 1 };
-  const stopped = { bridge: 0, twitch: 0, tiktok: 0, flush: 0, telemetry: 0, visuals: 0, capture: 0, inputViewer: 0, visualUpdates: 0, drums: 0 };
+  const stopped = { bridge: 0, twitch: 0, tiktok: 0, flush: 0, telemetry: 0, visuals: 0, capture: 0, inputViewer: 0, visualUpdates: 0, drums: 0, quickImport: 0 };
   let bridgeEnabled = false, bridgeError = null;
   const bridge = {
     status: () => ({ enabled: bridgeEnabled, port: 38474, error: bridgeError }),
@@ -94,6 +95,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
     providers[platform] = transport; return transport;
   };
   const adapters = {
+    quickImport: { update() {}, async stop() { stopped.quickImport++; events.push('quick-import-stop'); } },
     drums: { async stop() { stopped.drums++; events.push('drums-stop'); } },
     telemetry: { stop() { stopped.telemetry++; events.push('telemetry-stop'); } },
     songVisuals: { stop() { stopped.visuals++; events.push('visuals-stop'); } },
@@ -112,9 +114,11 @@ function fixture({ save, start, consent = false, receive } = {}) {
     createSongRequestServer: options => { bridge.receive = options.receive; return bridge; }
   };
   const create = new vm.Script(`(function(adapters) {
-    const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer,telemetry,songVisuals,gameCapture,inputViewer,updateVisuals,drums}=adapters;
+    const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer,telemetry,songVisuals,gameCapture,inputViewer,updateVisuals,drums,quickImport}=adapters;
     let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0,songRequestBusy=false,maintenanceLocked=false;
-    let songRequestServer=null,songRequestConnections=null,songRequestShareBroker=null;
+    let songRequestServer=null,songRequestConnections=null,songRequestShareBroker=null,songRequestDiscovery=null,unifiedChat=null;
+    let sessionActivity=null,sessionWidgetSettings={},sessionWidgetRevision=0;
+    const activityDownloadScopes=new Map();
     const publishedTwitchClientId='syntheticclient',shell={openExternal:async()=>{}},language='fr',publishPanel=()=>{},measurementsEnabled=false;
     const requestPreferences={ingestToken:'a'.repeat(64),readToken:'b'.repeat(64),error:null,port:38474};
     const services={stop:async()=>{},store:{getState:()=>({widgets:{instances:[]},nowPlaying:null,gameplay:{state:'idle'}})}};
@@ -141,7 +145,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
       invoke:(command,payload,event={sender:panelContents,senderFrame:panelFrame})=>commandHandler(event,command,payload),
       event:()=>({sender:panelContents,senderFrame:panelFrame}),panelContents};
   })`, { filename: 'companion/host.cjs native Song Request lifecycle' }).runInNewContext({
-    ...security, createSongRequestConnections, structuredClone, clearInterval, __dirname: path.join(__dirname, '../companion')
+    ...security, createSongRequestConnections, createSongRequestDiscovery, structuredClone, clearInterval, __dirname: path.join(__dirname, '../companion')
   });
   return { host: create(adapters), state, libraryState, received, sent, stopped, bridge, providers, events };
 }

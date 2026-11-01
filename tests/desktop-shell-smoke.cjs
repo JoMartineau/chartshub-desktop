@@ -31,6 +31,13 @@ app.whenReady().then(async () => {
   assert.equal(await read('document.getElementById("companion-tab").hidden'), true);
   assert.deepEqual(await read('Object.keys(window.chartsHubShell).sort()'), ['getState', 'onState', 'selectTab']);
   shell.setCompanionAvailable(true);
+  await delay(30); assert.equal(await read('document.querySelector("#companion-tab > span").textContent'), 'Dashboard');
+  shell.setLanguage('fr'); await delay(30);
+  assert.equal(await read('document.querySelector("#companion-tab > span").textContent'), 'Tableau de bord');
+  assert.equal(await read('document.documentElement.lang'), 'fr');
+  shell.setLanguage('en'); await delay(30);
+  assert.equal(await read('document.querySelector("#companion-tab > span").textContent'), 'Dashboard');
+  assert.equal(await read('document.documentElement.lang'), 'en');
   await read('document.getElementById("companion-tab").click()'); await delay(120);
   assert.deepEqual(selections, ['companion']);
   assert.equal(await read('document.getElementById("companion-tab").getAttribute("aria-selected")'), 'true');

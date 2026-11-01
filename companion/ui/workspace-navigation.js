@@ -1,20 +1,22 @@
 /** Companion workspaces retain their existing DOM and live operations. */
 export const WORKSPACES=Object.freeze([
+ {id:'home',fr:'Accueil',en:'Overview',descriptionFr:'Votre morceau, vos demandes, vos téléchargements et vos connexions.',descriptionEn:'Your song, requests, downloads and connections at a glance.'},
  {id:'library',fr:'Bibliothèque',en:'Library',descriptionFr:'Vos morceaux, leurs fichiers et leur état.',descriptionEn:'Your songs, files and library status.'},
  {id:'catalogue',fr:'Catalogue',en:'Catalogue',descriptionFr:'Rechercher, télécharger et retrouver les derniers ajouts.',descriptionEn:'Search, download and find recent additions.'},
  {id:'player',fr:'Lecteur',en:'Player',descriptionFr:'Écouter les morceaux de votre bibliothèque.',descriptionEn:'Listen to songs in your library.'},
  {id:'stream',fr:'Stream / OBS',en:'Stream / OBS',descriptionFr:'Préparer les widgets, profils et sources du stream.',descriptionEn:'Prepare stream widgets, profiles and sources.'},
  {id:'drums',fr:'Batterie / VST',en:'Drums / VST',descriptionFr:'Jouer avec un instrument virtuel et préparer le son pour OBS.',descriptionEn:'Play a virtual instrument and prepare its audio for OBS.'},
  {id:'calibration',fr:'Calibration · BETA',en:'Calibration · BETA',descriptionFr:'Préparer le connecteur et comparer vos essais audio et vidéo séparément.',descriptionEn:'Set up the connector and compare audio and video trials separately.'},
+ {id:'chat',fr:'Chat',en:'Chat',descriptionFr:'Lire les messages de vos plateformes au même endroit.',descriptionEn:'Read messages from your platforms in one place.'},
  {id:'requests',fr:'Demandes',en:'Requests',descriptionFr:'Recevoir et gérer les demandes des spectateurs.',descriptionEn:'Receive and manage viewer requests.'},
  {id:'status',fr:'État',en:'Status',descriptionFr:'Connexions, bibliothèque, OBS et reprise après un redémarrage.',descriptionEn:'Connections, library, OBS and recovery after a restart.'},
  {id:'settings',fr:'Réglages',en:'Settings',descriptionFr:'Connexions du jeu, apparence, sauvegardes et mises à jour.',descriptionEn:'Game connections, appearance, backups and updates.'}
 ]);
-const sections={drums:['#drum-vst-panel'],library:['#library-panel'],catalogue:['#catalogue-panel','#downloads-panel','.floating-panels-card'],player:['#local-music-player-panel'],stream:['#performance-panel','#profiles-panel','.preview-card','#builder-inspector','.settings-card','.destinations-card','.behavior-note','#stream-panel','.overlay-switch'],calibration:['#calibration-panel'],requests:['#song-requests-panel'],status:['#status-panel'],settings:['#clonehero-source','#game-filters','#simulation-panel','#theme-panel','.theme-widget-section','#updates-panel','#config-backup-panel']};
+const sections={home:['#home-panel'],drums:['#drum-vst-panel'],library:['#library-panel'],catalogue:['#catalogue-panel','#downloads-panel','.floating-panels-card'],player:['#local-music-player-panel'],stream:['#performance-panel','#profiles-panel','.preview-card','#builder-inspector','.settings-card','.destinations-card','.behavior-note','#stream-panel','#session-widgets-panel','.overlay-switch'],calibration:['#calibration-panel'],chat:['#unified-chat-panel'],requests:['#song-requests-panel'],status:['#status-panel'],settings:['#clonehero-source','#game-filters','#simulation-panel','#theme-panel','.theme-widget-section','#updates-panel','#config-backup-panel']};
 const key='chartshub:companion-workspace-v1';
 export class WorkspaceNavigation{
  constructor(root,{storage,language='fr',gameplayMeasurements=false,calibrationBeta=false}={}){
-  this.root=root;this.document=root.ownerDocument;this.window=this.document.defaultView;this.storage=storage;this.language=language;this.active='library';this.nodes=new Map();this.listeners=[];
+  this.root=root;this.document=root.ownerDocument;this.window=this.document.defaultView;this.storage=storage;this.language=language;this.active='home';this.nodes=new Map();this.listeners=[];
   gameplayMeasurements=gameplayMeasurements===true;calibrationBeta=gameplayMeasurements&&calibrationBeta===true;
   this.workspaces=WORKSPACES.filter(item=>item.id!=='calibration'||calibrationBeta===true);
   const calibrationPanel=root.querySelector('#calibration-panel');if(calibrationPanel)calibrationPanel.hidden=calibrationBeta!==true;
@@ -46,7 +48,7 @@ export class WorkspaceNavigation{
  update(language){
   this.language=language==='fr'?'fr':'en';const fr=this.language==='fr',item=WORKSPACES.find(value=>value.id===this.active);
   for(const button of this.nav?.querySelectorAll('[data-companion-workspace]')||[]){const workspace=WORKSPACES.find(value=>value.id===button.dataset.companionWorkspace);if(workspace)button.textContent=fr?workspace.fr:workspace.en;}
-  if(this.nav)this.nav.setAttribute('aria-label',fr?'Rubriques du Companion':'Companion workspaces');
+  if(this.nav)this.nav.setAttribute('aria-label',fr?'Rubriques du Tableau de bord':'Dashboard workspaces');
   const title=this.root.querySelector('#page-title'),description=this.root.querySelector('.page-heading .subtitle');if(title)title.textContent=fr?item.fr:item.en;if(description)description.textContent=fr?item.descriptionFr:item.descriptionEn;
  }
  dispose(){this.nav?.removeEventListener('click',this.click);this.nav?.removeEventListener('keydown',this.keys);}

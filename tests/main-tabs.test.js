@@ -127,7 +127,7 @@ test('guest startup refuses --companion and opens the catalogue without initiali
   assert.equal(f.hostCreates, 0); assert.equal(f.shell.available, false); assert.equal(f.shell.activeTab, 'catalogue');
   assert.ok(f.requests.every(([url, options]) => url === ORIGIN + '/api/auth/me' && options.credentials === 'include'));
   await f.invoke('menu', 'fr');
-  assert.ok(!f.menus.at(-1).some(item => item.label === 'Clone Hero Companion'));
+  assert.ok(!f.menus.at(-1).some(item => item.label === 'Tableau de bord'));
   f.app.emit('second-instance', {}, ['ChartsHub.exe', '--companion']); await settle();
   assert.equal(f.hostCreates, 0); assert.equal(f.shell.activeTab, 'catalogue');
 });
@@ -136,7 +136,7 @@ test('ordinary members see Companion without administrator or verified-email pri
   const f = await fixture(); await until(() => f.shell.available, 'member availability');
   assert.equal(f.hostCreates, 0, 'login does not eagerly initialize Companion');
   await f.invoke('menu', 'fr');
-  assert.ok(f.menus.at(-1).some(item => item.label === 'Clone Hero Companion'));
+  assert.ok(f.menus.at(-1).some(item => item.label === 'Tableau de bord'));
   assert.ok(!f.menus.at(-1).some(item => item.label === 'Voir comme visiteur'));
   await f.shell.select('companion');
   assert.equal(f.shell.activeTab, 'companion'); assert.equal(f.hostCreates, 1); assert.equal(f.hostOpens, 1);
@@ -149,7 +149,7 @@ test('ordinary members see Companion without administrator or verified-email pri
   await f.shell.select('companion');
   assert.equal(f.hostOpens, 1); assert.equal(f.shell.activeTab, 'catalogue');
   await f.invoke('menu', 'fr');
-  assert.ok(!f.menus.at(-1).some(item => item.label === 'Clone Hero Companion'));
+  assert.ok(!f.menus.at(-1).some(item => item.label === 'Tableau de bord'));
 });
 
 test('main IPC accepts only the exact catalogue main frame even when another renderer has its URL', async () => {

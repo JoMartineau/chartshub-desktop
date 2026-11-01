@@ -7,10 +7,12 @@ const { Readable } = require('node:stream');
 const { WebSocket, WebSocketServer } = require('ws');
 const { publicTelemetrySnapshot } = require('./clonehero-telemetry-view.cjs');
 const { projectOutputSnapshot } = require('./input-viewer-output-state.cjs');
+const { projectSessionFeed } = require('./session-widget-model.cjs');
 
 const MAX_SNAPSHOT = 256 * 1024, MAX_CLIENTS = 8, MAX_BUFFERED = 1024 * 1024;
 const MAX_INPUT_VIEWER_SNAPSHOT = 32 * 1024;
 const INPUT_VIEWER_ASSETS = new Set(['/ui/input-viewer-output.js', '/ui/input-viewer-output.css', '/ui/input-viewer-model.js', '/ui/input-viewer-paint.js', '/ui/input-viewer-extra-styles.js', '/ui/input-viewer-trail-paint.js']);
+const SESSION_FEED_ASSETS = new Set(['/ui/session-feed.js', '/ui/session-feed.css']);
 const GAMEPLAY = ['idle', 'menu', 'loading', 'playing', 'paused', 'results'];
 const TOKENS = ['primary', 'secondary', 'accent', 'text', 'mutedText', 'background', 'border', 'progress', 'glow', 'shadow'];
 const PRESETS = ['chartshub', 'dark', 'light', 'neon', 'cyberpunk', 'retro', 'transparent', 'high-contrast'];
@@ -131,15 +133,17 @@ function publicState(input) {
   };
 }
 
-function createLocalOverlayServer({ root, token, onStatus, visuals, inputViewer } = {}) {
+function createLocalOverlayServer({ root, token, onStatus, visuals, inputViewer, sessionFeeds } = {}) {
   if (typeof root !== 'string' || typeof token !== 'string' || !/^[0-9a-f]{64}$/i.test(token)) throw Error('Invalid local overlay configuration.');
   if (inputViewer !== undefined && (!object(inputViewer) || typeof inputViewer.snapshot !== 'function')) throw Error('Invalid input viewer provider.');
+  if (sessionFeeds !== undefined && (!object(sessionFeeds) || typeof sessionFeeds.snapshot !== 'function')) throw Error('Invalid session feed provider.');
   const directory = path.resolve(root), secret = Buffer.from(token, 'hex'), accessToken = token.toLowerCase();
   let current = null, desired = false, generation = 0, chain = Promise.resolve(), startTask = null, stopTask = null;
   let lastError = '', lastNotified = '', latest = JSON.stringify({ type: 'snapshot', state: publicState(null) }), fps = 60;
   const status = () => ({ enabled: !!current && !current.closing, url: current && !current.closing ? `${origin(current)}/overlay?token=${accessToken}` : null, clients: current && !current.closing ? current.ws.clients.size : 0, error: lastError || null,
     ...(visuals ? { backgroundUrl: current && !current.closing ? `${origin(current)}/background?token=${accessToken}` : null, videoUrl: current && !current.closing ? `${origin(current)}/video?token=${accessToken}` : null } : {}),
-    ...(inputViewer ? { inputViewerUrl: current && !current.closing ? `${origin(current)}/input-viewer?token=${accessToken}` : null } : {}) });
+    ...(inputViewer ? { inputViewerUrl: current && !current.closing ? `${origin(current)}/input-viewer?token=${accessToken}` : null } : {}),
+    ...(sessionFeeds ? { chatUrl: current && !current.closing ? `${origin(current)}/chat?token=${accessToken}` : null, activityUrl: current && !current.closing ? `${origin(current)}/activity?token=${accessToken}` : null } : {}) });
   function notify() {
     const snapshot = status(), signature = JSON.stringify(snapshot);
     if (signature === lastNotified) return;
@@ -170,6 +174,8 @@ function createLocalOverlayServer({ root, token, onStatus, visuals, inputViewer 
   async function asset(urlPath) {
     let relative;
     if (urlPath === '/overlay') relative = 'ui/stream.html';
+    else if (sessionFeeds && ['/chat', '/activity'].includes(urlPath)) relative = 'ui/session-feed.html';
+    else if (sessionFeeds && SESSION_FEED_ASSETS.has(urlPath)) relative = urlPath.slice(1);
     else if (inputViewer && urlPath === '/input-viewer') relative = 'ui/input-viewer-output.html';
     else if (inputViewer && INPUT_VIEWER_ASSETS.has(urlPath)) relative = urlPath.slice(1);
     else if (visuals && ['/background', '/video'].includes(urlPath)) relative = 'ui/song-visuals.html';
@@ -189,9 +195,29 @@ function createLocalOverlayServer({ root, token, onStatus, visuals, inputViewer 
   async function handleRequest(context, request, response) {
     const url = requestUrl(context, request), visualRoute = !!url && (['/background', '/video', '/visual-state', '/visual-error'].includes(url.pathname) || url.pathname.startsWith('/visual-media/'));
     const viewerRoute = !!url && ['/input-viewer', '/input-viewer-state'].includes(url.pathname), viewerAsset = !!url && INPUT_VIEWER_ASSETS.has(url.pathname);
-    const securityHeaders = headers(context, visualRoute, viewerRoute || viewerAsset);
+    const sessionRoute = !!url && ['/chat', '/activity', '/session-state'].includes(url.pathname), sessionAsset = !!url && SESSION_FEED_ASSETS.has(url.pathname);
+    const securityHeaders = headers(context, visualRoute, viewerRoute || viewerAsset || sessionRoute || sessionAsset);
     const finish = (code, message) => { if (!response.destroyed) { response.writeHead(code, { ...securityHeaders, 'Content-Type': 'text/plain; charset=utf-8' }); response.end(message); } };
     if (!url || context.closing) return finish(403, 'Forbidden');
+    if (sessionRoute || sessionAsset) {
+      const isState = url.pathname === '/session-state';
+      const keys = [...url.searchParams.keys()];
+      if (!sessionFeeds || url.hash || (sessionAsset ? url.search !== '' : !validToken(url) || keys.some(key => !['token', ...(isState ? ['kind'] : [])].includes(key))
+          || isState && (url.searchParams.getAll('kind').length !== 1 || !['chat', 'activity'].includes(url.searchParams.get('kind'))))) return finish(403, 'Forbidden');
+      if (request.headers.referer) { try { if (new URL(request.headers.referer).origin !== origin(context)) return finish(403, 'Forbidden'); } catch { return finish(403, 'Forbidden'); } }
+      if (!['GET', 'HEAD'].includes(request.method)) return finish(405, 'Method not allowed');
+      if (isState) {
+        const kind = url.searchParams.get('kind'); let value;
+        try { value = projectSessionFeed(kind, sessionFeeds.snapshot(kind)); } catch { value = projectSessionFeed(kind, null); }
+        const bytes = JSON.stringify(value);
+        response.writeHead(200, { ...securityHeaders, 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(bytes) });
+        response.end(request.method === 'HEAD' ? undefined : bytes); return;
+      }
+      const content = await asset(url.pathname);
+      if (!content || context.closing) return finish(404, 'Not found');
+      if (!response.destroyed) { response.writeHead(200, { ...securityHeaders, 'Content-Type': content.type, 'Content-Length': content.bytes.length }); response.end(request.method === 'HEAD' ? undefined : content.bytes); }
+      return;
+    }
     if (viewerRoute || viewerAsset) {
       if (!inputViewer || url.hash || (viewerRoute ? !validToken(url) || [...url.searchParams.keys()].some(key => key !== 'token') : url.search !== '')) return finish(403, 'Forbidden');
       if (request.headers.referer) { try { if (new URL(request.headers.referer).origin !== origin(context)) return finish(403, 'Forbidden'); } catch { return finish(403, 'Forbidden'); } }

@@ -104,6 +104,15 @@ export class CatalogueControls {
     void this.request(1, false);
   }
 
+  searchForRequest(query: string): void {
+    if (this.disposed || this.changing || typeof query !== 'string' || !query.trim() || query.length > 200) return;
+    this.clear();
+    this.filters.query = query.trim();
+    this.element<HTMLInputElement>('#catalogue-query').value = this.filters.query;
+    this.element('#catalogue-panel').scrollIntoView({ block: 'start', behavior: 'smooth' });
+    void this.request(1, true);
+  }
+
   dispose(): void { this.disposed = true; this.serial++; this.abort.abort(); }
   private get stale(): boolean {
     return this.requested && this.resultRevision >= 0 && (this.contextInvalidated || this.resultRevision !== this.libraryRevision || this.resultCatalogueRevision !== this.status?.revision);

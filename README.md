@@ -2,6 +2,8 @@
 
 Application de bureau pour https://chartshub.ca : téléchargement des charts dans le dossier choisi, sans la restriction du navigateur sur `song.ini`.
 
+Le **Tableau de bord** (**Dashboard** en anglais) regroupe les outils de l’ancien Companion. Son accueil résume la session ; les onglets existants, profils et réglages sont conservés. Le chat Twitch/TikTok, la recherche des demandes introuvables et les nouveaux flux OBS sont décrits dans le [guide des demandes](docs/SONG-REQUESTS.md). Quick Import reste une [option BÊTA](docs/QUICK-IMPORT.md), distincte des téléchargements habituels.
+
 ## Utilisation
 
 Ouvrez le catalogue comme visiteur ou connectez-vous avec votre compte ChartsHub. Choisissez Télécharger dans le catalogue, ou Télécharger pour vérification dans l'administration si vous avez les droits nécessaires. L'application demande le dossier de destination, vérifie la taille de chaque fichier et son empreinte SHA-256 lorsqu'elle est fournie, puis y déplace la chart complète. Les droits sont contrôlés par le serveur. La limite totale est de 2 Go.
@@ -10,11 +12,11 @@ Le site doit disposer de l'intégration `ChartsHubDesktop`. L'application néces
 
 ## Développement
 
-Dans **Companion → État**, consultez les connexions, la bibliothèque, le partage public, OBS, les mises à jour et les téléchargements au même endroit. Les boutons ouvrent les réglages correspondants sans lancer d’opération.
+Dans **Tableau de bord → État**, consultez les connexions, la bibliothèque, le partage public, OBS, les mises à jour et les téléchargements au même endroit. Les boutons ouvrent les réglages correspondants sans lancer d’opération.
 
 Si ChartsHub retrouve une mise à jour complètement téléchargée après un redémarrage, ouvrez **Réglages → Mises à jour → Vérifier et reprendre**. La version officielle et l’archive sont contrôlées de nouveau avant que vous choisissiez d’installer. Les archives incomplètes ne sont pas reprises automatiquement.
 
-Le Companion 0.12 ajoute un assistant qui télécharge ReShade depuis son site
+Le Tableau de bord 0.12 ajoute un assistant qui télécharge ReShade depuis son site
 officiel et propose un pack Curves, MagicHDR et Technicolor2. Le panneau
 et le widget contrôlent aussi vos effets existants. Voir [les instructions ReShade](docs/RESHADE.txt).
 
@@ -39,13 +41,17 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.36
+
+**Quick Import · BÊTA** propose l’ajout des nouvelles charts téléchargées sans scan complet, avec une connexion facultative et des étapes numérotées. Compatible et testé avec **Clone Hero 1.1.0.6142-final Stable sous Windows x64**, avec module Quick Import et MelonLoader. Les autres versions ne sont pas validées. L’option reste désactivée au démarrage ; les téléchargements et les autres widgets fonctionnent sans elle. [Guide](docs/QUICK-IMPORT.md) · [Notes 0.14.36](docs/RELEASE-0.14.36.md).
+
 ### Version 0.14.35
 
 Le nouvel espace **Batterie / VST** permet de jouer un instrument VST3 x64 sous Windows avec une batterie MIDI, un contrôleur XInput ou des pads à cliquer. MT Power Drum Kit peut être préparé depuis son éditeur après accord explicite de sa licence. Choisissez votre sortie et vos mappings, puis démarrez le son. Pour OBS, capturez le son de ChartsHubDrumHost.exe. [Guide Batterie / VST](docs/DRUMS-VST.md). [Notes 0.14.35](docs/RELEASE-0.14.35.md).
 
 ### Widgets et sorties conservés
 
-Les widgets du morceau se règlent séparément pour Jeu et Stream. La version publique ne propose ni MelonLoader, ni connecteur de mesures, ni assistant de calibration. Stream / OBS fournit des captures recadrées de la highway, du score et des paroles réellement affichées par le jeu : choisissez sa fenêtre puis démarrez explicitement la capture. Le fond reste présent dans chaque zone ; la séparation transparente des éléments natifs est indisponible. Le texte des paroles locales et la vidéo ne peuvent pas se synchroniser sans une horloge de jeu compatible. Un Input Viewer personnalisable pour guitare et batterie propose une détection Windows XInput, douze styles, six effets de trails, cymbales, étoile Star Power, couleurs indépendantes et alignement sur une grille dont l’aimantation peut être désactivée. Son éditeur opaque explique l’association des touches ; un widget compact se place au-dessus du jeu et une source Navigateur OBS utilise un lien dédié. Il fonctionne sans accès aux données du jeu. [Mode d’emploi](docs/INPUT-VIEWER.md). [Notes et limites de la version](docs/RELEASE-0.14.34.md).
+Les widgets du morceau se règlent séparément pour Jeu et Stream et ne nécessitent pas MelonLoader. Le connecteur de mesures et l’assistant de calibration sont retirés de la version publique ; Quick Import est une intégration facultative distincte. Stream / OBS fournit des captures recadrées de la highway, du score et des paroles réellement affichées par le jeu : choisissez sa fenêtre puis démarrez explicitement la capture. Le fond reste présent dans chaque zone ; la séparation transparente des éléments natifs est indisponible. Le texte des paroles locales et la vidéo ne peuvent pas se synchroniser sans une horloge de jeu compatible. Un Input Viewer personnalisable pour guitare et batterie propose une détection Windows XInput, douze styles, six effets de trails, cymbales, étoile Star Power, couleurs indépendantes et alignement sur une grille dont l’aimantation peut être désactivée. Son éditeur opaque explique l’association des touches ; un widget compact se place au-dessus du jeu et une source Navigateur OBS utilise un lien dédié. Il fonctionne sans accès aux données du jeu. [Mode d’emploi](docs/INPUT-VIEWER.md). [Notes et limites de la version](docs/RELEASE-0.14.34.md).
 
 ### Version 0.14.8
 
@@ -63,25 +69,25 @@ Dépliez « Comparer les fichiers » pour consulter les notes, l’audio, les il
 
 Le bouton « Arrêter la vérification » interrompt la vérification globale et conserve les résultats des groupes terminés. La vérification peut ensuite être relancée ; le choix des versions conservées reste enregistré.
 
-L’historique indique la date, la version gardée et le résultat de chaque copie sélectionnée : envoyée à la Corbeille, échec ou non tentée. Il est conservé dans le profil Companion après redémarrage et affiche uniquement le dossier Songs actif. La rétention est limitée aux 200 derniers nettoyages et à 2 Mio ; les annulations avant confirmation ne créent aucune entrée. Une erreur d’enregistrement est signalée sans modifier le résultat réel du nettoyage. La restauration des copies reste accessible dans la Corbeille Windows.
+L’historique indique la date, la version gardée et le résultat de chaque copie sélectionnée : envoyée à la Corbeille, échec ou non tentée. Il est conservé dans le profil Tableau de bord après redémarrage et affiche uniquement le dossier Songs actif. La rétention est limitée aux 200 derniers nettoyages et à 2 Mio ; les annulations avant confirmation ne créent aucune entrée. Une erreur d’enregistrement est signalée sans modifier le résultat réel du nettoyage. La restauration des copies reste accessible dans la Corbeille Windows.
 
-Validation : `npm test` et `npm run test:companion:duplicates -- <dossier-de-resultats>`. Le test Electron utilise uniquement des Songs synthétiques isolés ; les fenêtres de confirmation et l'appel Corbeille sont interceptés. Le reste du flux (interface, IPC, worker, vérification et persistance) est réel. Le workflow PR « Companion duplicate safety » exécute les deux suites sur Windows.
+Validation : `npm test` et `npm run test:companion:duplicates -- <dossier-de-resultats>`. Le test Electron utilise uniquement des Songs synthétiques isolés ; les fenêtres de confirmation et l'appel Corbeille sont interceptés. Le reste du flux (interface, IPC, worker, vérification et persistance) est réel. Le workflow PR « Tableau de bord duplicate safety » exécute les deux suites sur Windows.
 
 ### Catalogue flottant
 
-Le panneau Catalogue du Companion peut s’ouvrir dans une petite fenêtre au-dessus du jeu. Le raccourci `Ctrl+Maj+K` sous Windows (`Commande+Maj+K` sous macOS) affiche ou masque cette fenêtre lorsque la session ChartsHub est active. Déplacez-la par sa barre de titre ; le bouton Fermer ou `Échap` la masque sans arrêter les téléchargements.
+Le panneau Catalogue du Tableau de bord peut s’ouvrir dans une petite fenêtre au-dessus du jeu. Le raccourci `Ctrl+Maj+K` sous Windows (`Commande+Maj+K` sous macOS) affiche ou masque cette fenêtre lorsque la session ChartsHub est active. Déplacez-la par sa barre de titre ; le bouton Fermer ou `Échap` la masque sans arrêter les téléchargements.
 
 Les onglets Recherche, Téléchargements et Récents permettent de chercher par titre, artiste ou charter, d’affiner par instrument ou difficulté, puis de suivre la progression. Chaque ajout à la file exige un clic ; choisissez explicitement le dossier de destination avant de télécharger. Pause, reprise, annulation et nouvelle tentative restent disponibles dans la file. Après l’installation de nouvelles chansons, lancez **Scan Songs** dans Clone Hero pour les indexer.
 
 Le volet Apparence propose couleur de fond, transparence, couleur du texte, police et taille. L’aperçu reste local jusqu’à « Enregistrer ». Les réglages du Catalogue et du panneau Filtres sont indépendants et conservés après redémarrage dans `companion/floating-panels.json`. Le bouton des valeurs par défaut prépare un aperçu à enregistrer ; il ne modifie pas les widgets de jeu.
 
-Utilisez Clone Hero en mode fenêtré ou sans bordures : l’affichage au-dessus d’un jeu en plein écran exclusif n’est pas garanti. Si une autre application réserve le raccourci, le panneau reste accessible depuis le Companion.
+Utilisez Clone Hero en mode fenêtré ou sans bordures : l’affichage au-dessus d’un jeu en plein écran exclusif n’est pas garanti. Si une autre application réserve le raccourci, le panneau reste accessible depuis le Tableau de bord.
 
-Validation : `npm test` et `npm run test:companion:catalogue-widget -- <dossier-de-resultats>`. Le test Electron utilise un catalogue local et des téléchargements simulés dans un dossier Songs isolé ; il couvre recherche, file, fermeture, langue et persistance de l’apparence. Le workflow Windows « Companion duplicate safety » publie son rapport JSON et ses captures comme artefacts. Une réussite de ces tests ne remplace pas un essai visuel au-dessus de Clone Hero.
+Validation : `npm test` et `npm run test:companion:catalogue-widget -- <dossier-de-resultats>`. Le test Electron utilise un catalogue local et des téléchargements simulés dans un dossier Songs isolé ; il couvre recherche, file, fermeture, langue et persistance de l’apparence. Le workflow Windows « Tableau de bord duplicate safety » publie son rapport JSON et ses captures comme artefacts. Une réussite de ces tests ne remplace pas un essai visuel au-dessus de Clone Hero.
 
 ### Notifications du compte et alertes natives
 
-Les résultats des nouveaux téléchargements du Catalogue et du Companion sont enregistrés pour le compte qui les a lancés. Le centre partagé avec le site permet de filtrer les notifications lues/non lues, de supprimer une notification déjà lue ou toutes les lues, sans supprimer les non lues, et d’ajuster les catégories proposées : téléchargements, compte, annonces, nouveautés du catalogue et événements sociaux.
+Les résultats des nouveaux téléchargements du Catalogue et du Tableau de bord sont enregistrés pour le compte qui les a lancés. Le centre partagé avec le site permet de filtrer les notifications lues/non lues, de supprimer une notification déjà lue ou toutes les lues, sans supprimer les non lues, et d’ajuster les catégories proposées : téléchargements, compte, annonces, nouveautés du catalogue et événements sociaux.
 
 Les alertes natives de téléchargement suivent ces préférences. « Suspendre les alertes Windows quand Clone Hero est détecté » garde le centre actif tout en évitant les alertes du bureau lorsque le processus du jeu est présent ou que sa présence ne peut pas être vérifiée. Cela ne détecte pas précisément le début d’un morceau. Un clic sur une alerte ouvre le centre ; une déconnexion ou un changement de compte invalide les événements encore en attente. Aucun chemin ou nom de fichier local n’est envoyé dans ces résumés.
 
@@ -106,35 +112,35 @@ Les alertes natives de téléchargement suivent ces préférences. « Suspendre 
 
 ### Version 0.14.4
 
-- Correction de la localisation English du Companion : les états dynamiques Clone Hero, ReShade et Filtres suivent maintenant complètement la langue choisie.
+- Correction de la localisation English du Tableau de bord : les états dynamiques Clone Hero, ReShade et Filtres suivent maintenant complètement la langue choisie.
 - Les messages natifs comme « En attente d’un morceau », « Pont installé » et les états de préparation ReShade sont traduits sans redémarrage.
 - Les contenus utilisateur (titres, artistes, charters, chemins et noms de profils) restent inchangés.
 
 ### Version 0.14.3
 
-- Le Companion suit automatiquement la langue Français / English choisie sur ChartsHub et bascule sans redémarrage.
-- Les fenêtres natives du Companion, les nombres et les dates suivent aussi la langue sélectionnée ; les titres de chansons, artistes, charters, chemins et noms de profils restent inchangés.
+- Le Tableau de bord suit automatiquement la langue Français / English choisie sur ChartsHub et bascule sans redémarrage.
+- Les fenêtres natives du Tableau de bord, les nombres et les dates suivent aussi la langue sélectionnée ; les titres de chansons, artistes, charters, chemins et noms de profils restent inchangés.
 - La Bibliothèque locale peut vérifier l’audio et le contenu de tous les groupes de doublons détectés en une seule opération, avec progression et statut par groupe.
 - La vérification globale ne supprime rien automatiquement : le choix de la version à garder, la sélection des copies, la revalidation finale et la Corbeille Windows restent obligatoires.
 
 ### Version 0.14.2
 
-- Navigation Compte/Catalogue/Companion stabilisée : Companion reste visible pendant la revalidation du même compte.
-- Les changements réels de session, déconnexions et échecs de vérification continuent de retirer immédiatement l’accès Companion.
+- Navigation Compte/Catalogue/Tableau de bord stabilisée : Tableau de bord reste visible pendant la revalidation du même compte.
+- Les changements réels de session, déconnexions et échecs de vérification continuent de retirer immédiatement l’accès Tableau de bord.
 - Les indicateurs de chargement des onglets gardent une largeur fixe pour éviter les déplacements visuels.
 
 ### Version 0.14.1
 
-- Panneau **Thème** dans le Companion : bloom optionnel, couleur HEX/RVB, intensité, rayon, flou, opacité et mode économique.
+- Panneau **Thème** dans le Tableau de bord : bloom optionnel, couleur HEX/RVB, intensité, rayon, flou, opacité et mode économique.
 - Réglages du bloom enregistrés dans un fichier local dédié ; restauration après redémarrage. Aucun effet sur les notes, mini-widgets ou ReShade.
 - Le catalogue annonce explicitement sa disposition à onglets pour éviter un espace ou un chevauchement de la barre de menu. Le correctif du site est compatible avec la version 0.14.0.
-- Les couleurs du bloom du site et du Companion restent indépendantes. La couleur d’accentuation du site est conservée dans son panneau Thème.
+- Les couleurs du bloom du site et du Tableau de bord restent indépendantes. La couleur d’accentuation du site est conservée dans son panneau Thème.
 - Mise à jour du programme uniquement : les profils, widgets et fichiers de chansons existants doivent être conservés.
 
 ### Version 0.14.0
 
-- Le catalogue et le Companion partagent la même fenêtre, avec deux onglets pour passer de l’un à l’autre.
-- Un compte ChartsHub ordinaire permet d’ouvrir le Companion. Les outils d’administration et de modération restent réservés aux comptes autorisés ; une déconnexion retire l’accès au Companion.
+- Le catalogue et le Tableau de bord partagent la même fenêtre, avec deux onglets pour passer de l’un à l’autre.
+- Un compte ChartsHub ordinaire permet d’ouvrir le Tableau de bord. Les outils d’administration et de modération restent réservés aux comptes autorisés ; une déconnexion retire l’accès au Tableau de bord.
 - Les réglages des widgets, les dispositions, les associations de la bibliothèque et les préférences restent enregistrés localement sur cet ordinateur. Ils ne sont pas enregistrés dans le compte ChartsHub et ne suivent pas une connexion sur un autre appareil.
 - Les profils d’overlay et le verrouillage des widgets sont inclus. La bibliothèque travaille en arrière-plan et ne fixe plus de plafond de chansons ; la comparaison des doublons permet de choisir les copies identiques à envoyer à la Corbeille après confirmation.
 - Sous Windows x64, l’assistant installe ReShade depuis sa source officielle et propose trois effets optionnels : Curves, MagicHDR et Technicolor2. Il conserve les presets existants. Le moteur classique de filtres reste également disponible.

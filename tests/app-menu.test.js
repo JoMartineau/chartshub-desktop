@@ -1,5 +1,12 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const {applicationMenu,canPreviewVisitor}=require('../app-menu');
+test('Dashboard has localized visible names while preserving its existing callback and shortcut',()=>{
+ for(const [language,label]of [['fr','Tableau de bord'],['en','Dashboard']]){
+  let calls=0;const menu=applicationMenu({language,companion:()=>calls++});
+  const item=menu.find(entry=>entry.label===label);assert.ok(item);assert.equal(item.accelerator,'CommandOrControl+Shift+C');item.click();assert.equal(calls,1);
+  assert.equal(menu.some(entry=>/Companion/.test(entry.label||'')),false);
+ }
+});
 test('guest preview is offered only when supplied after verified administrator authorization',()=>{
  for(const user of [null,{}, {emailVerified:true,staffRole:'moderator'},{emailVerified:false,staffRole:'administrator'}])assert.equal(canPreviewVisitor(user),false);
  assert.equal(canPreviewVisitor({emailVerified:true,staffRole:'administrator'}),true);

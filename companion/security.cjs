@@ -43,6 +43,7 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (typeof command === 'string' && command.startsWith('quickImport.')) return require('./quick-import-service.cjs').validQuickImportCommand(command, payload);
   if (typeof command === 'string' && command.startsWith('drums.')) return require('./drum-vst-service.cjs').validDrumCommand(command, payload);
   if (command === 'telemetry.connectorChoose' || command === 'telemetry.connectorCancel') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'telemetry.connectorPrepare') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && typeof payload.hideConsole === 'boolean';
@@ -136,6 +137,14 @@ function validCommand(command, payload, widgetIds) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).length !== 1 || !Object.hasOwn(payload, 'settings')) return false;
     try { require('./song-request-widget.cjs').validateWidget(payload.settings); return true; } catch { return false; }
   }
+  if (command === 'chat.configure') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && typeof payload.enabled === 'boolean';
+  if (command === 'chat.clear') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
+  if (typeof command === 'string' && command.startsWith('sessionWidgets.')) return require('./session-widget-model.cjs').validSessionWidgetCommand(command,payload);
+  if (['songRequests.discoverySearch','songRequests.discoveryMatches','songRequests.discoveryDismiss','songRequests.discoveryConfirm'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(payload.id)
+    && Object.keys(payload).length === (command === 'songRequests.discoveryConfirm' ? 2 : 1)
+    && Object.keys(payload).every(key => ['id', ...(command === 'songRequests.discoveryConfirm' ? ['songId'] : [])].includes(key))
+    && (command !== 'songRequests.discoveryConfirm' || /^[a-f0-9]{64}$/.test(payload.songId));
   if (['songRequests.accept', 'songRequests.reject', 'songRequests.played', 'songRequests.move'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(payload.id)
     && Object.keys(payload).length === (command === 'songRequests.move' ? 2 : 1)

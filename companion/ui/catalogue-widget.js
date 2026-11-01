@@ -75,7 +75,7 @@ export class CatalogueWidgetControls {
     if (snapshot.downloads) this.downloads = snapshot.downloads;
     this.element('#catalogue-widget-root-status').textContent = this.downloads?.hasRoot ? 'Dossier de téléchargement prêt.' : 'Choisissez un dossier de téléchargement.';
     const shortcut = this.element('#catalogue-widget-shortcut');
-    shortcut.textContent = snapshot.catalogueShortcut?.registered ? 'Raccourci : Ctrl + Maj + K' : snapshot.catalogueShortcut?.error ? 'Raccourci indisponible. Utilisez le bouton du Companion.' : '';
+    shortcut.textContent = snapshot.catalogueShortcut?.registered ? 'Raccourci : Ctrl + Maj + K' : snapshot.catalogueShortcut?.error ? 'Raccourci indisponible. Utilisez le bouton du Tableau de bord.' : '';
     // Progress bytes do not affect catalogue cards. Keep their images, bounded
     // retry timers, disclosure state and keyboard focus while the queue updates.
     if (previousConditions !== this.resultConditions()) this.renderResults();
@@ -298,9 +298,9 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined' && document
     controls.update(snapshot);
   }
   async function connect() {
-    if (!api) { controls.feedback('La connexion au Companion est indisponible.', true); return; }
+    if (!api) { controls.feedback('La connexion au Tableau de bord est indisponible.', true); return; }
     try { unsubscribe = api.subscribe(snapshot => { received = true; update(snapshot); }); const snapshot = await api.getSnapshot(); if (!received) update(snapshot); }
-    catch (_) { if (!disposed) controls.feedback('La connexion au Companion est indisponible.', true); }
+    catch (_) { if (!disposed) controls.feedback('La connexion au Tableau de bord est indisponible.', true); }
   }
   window.addEventListener('beforeunload', () => { disposed = true; unsubscribe(); controls.dispose(); }, { once: true });
   void connect();

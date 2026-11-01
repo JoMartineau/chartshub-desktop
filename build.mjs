@@ -27,6 +27,8 @@ for(const output of outputs){
  if(platform==='win32'&&arch==='x64')copyDrumHost(import.meta.dirname,output);
  mkdirSync(path.join(output,'Batterie VST'),{recursive:true});
  copyFileSync(new URL('./docs/DRUMS-VST.md',import.meta.url),path.join(output,'Batterie VST','Guide.md'));
+ mkdirSync(path.join(output,'Quick Import'),{recursive:true});
+ copyFileSync(new URL('./docs/QUICK-IMPORT.md',import.meta.url),path.join(output,'Quick Import','Guide.md'));
  copyFileSync(new URL('./COMPANION-README.txt',import.meta.url),path.join(output,'Lisez-moi.txt'));
  mkdirSync(path.join(output,'Song Request'),{recursive:true});
  copyFileSync(new URL('./docs/SONG-REQUESTS.md',import.meta.url),path.join(output,'Song Request','Configuration.md'));
@@ -34,7 +36,7 @@ for(const output of outputs){
  mkdirSync(path.join(output,'Song Request','docs','licenses'),{recursive:true});
  for(const notice of ['TikTok-Live-Connector-LICENSE.txt','TikTok-Live-Proto-LICENSE.txt'])copyFileSync(new URL('./docs/licenses/'+notice,import.meta.url),path.join(output,'Song Request','docs','licenses',notice));
  copyFileSync(new URL('./docs/song-requests/ChartsHub-SongRequest.cs',import.meta.url),path.join(output,'Song Request','ChartsHub-SongRequest.cs'));
- if(platform==='win32')writeFileSync(path.join(output,'Lancer Companion.cmd'),[
+ if(platform==='win32')writeFileSync(path.join(output,'Lancer Tableau de bord.cmd'),[
   '@echo off','setlocal','set "ELECTRON_RUN_AS_NODE="',
   'start "ChartsHub" "%~dp0ChartsHub.exe" --companion',
   'exit /b 0',''

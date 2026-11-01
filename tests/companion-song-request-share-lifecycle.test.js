@@ -35,6 +35,8 @@ function fixture({status,publish,remove,prepare}={}){
  const songRequests={snapshot:()=>({rules:structuredClone(rules)})};
  const create=new vm.Script(`(function(sharingClient,library,songRequests,catalogue,songVisuals){
   let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0;
+  let unifiedChat=null,songRequestConnections=null,songRequestDiscovery=null,sessionActivity=null,sessionWidgetSettings={},sessionWidgetRevision=0;
+  const activityDownloadScopes=new Map();
   const publishPanel=()=>{};
   const logger={warn:()=>{}};
   let catalogueAccess=true,catalogueWidgetTicket=0,catalogueWidgetEnabled=false,catalogueWidget=null,catalogueWidgetLoad=null;

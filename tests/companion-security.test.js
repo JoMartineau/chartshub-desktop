@@ -173,7 +173,7 @@ test('theme command routing validates preset, token, widget and revision identit
 test('existing application menu can open Companion without removing catalogue commands', () => {
   const { applicationMenu } = require('../app-menu'); let calls = 0;
   const menu = applicationMenu({ language: 'fr', companion: () => calls++ });
-  menu.find(item => item.label === 'Clone Hero Companion').click();
+  menu.find(item => item.label === 'Tableau de bord').click();
   assert.equal(calls, 1); assert.ok(menu.some(item => item.label === 'Catalogue'));
 });
 

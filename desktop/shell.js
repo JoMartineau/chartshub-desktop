@@ -4,13 +4,18 @@
   const tabs = [...document.querySelectorAll('[data-tab]')];
   const panel = document.getElementById('content-state'), title = document.getElementById('state-title');
   const detail = document.getElementById('state-detail'), retry = document.getElementById('retry');
-  let activeTab = 'catalogue', received = 0;
+  let activeTab = 'catalogue', received = 0, language = 'en';
+  const tr = (fr, en) => language === 'fr' ? fr : en;
   function render(state) {
     if (!state || !['catalogue', 'companion'].includes(state.activeTab) || !state.tabs) return;
     activeTab = state.activeTab;
-    const current = state.tabs[activeTab], name = activeTab === 'catalogue' ? 'catalogue' : 'Companion';
+    language = state.language === 'fr' ? 'fr' : 'en'; document.documentElement.lang = language;
+    const current = state.tabs[activeTab], name = activeTab === 'catalogue' ? 'Catalogue' : tr('Tableau de bord', 'Dashboard');
+    document.querySelector('.tabs').setAttribute('aria-label', tr('Sections de ChartsHub', 'ChartsHub sections'));
+    retry.textContent = tr('Réessayer', 'Retry');
     for (const tab of tabs) {
       const selected = tab.dataset.tab === activeTab;
+      tab.querySelector('span:not(.tab-spinner)').textContent = tab.dataset.tab === 'catalogue' ? 'Catalogue' : tr('Tableau de bord', 'Dashboard');
       tab.hidden = tab.dataset.tab === 'companion' && !state.companionAvailable;
       tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1;
       tab.setAttribute('aria-busy', String(Boolean(state.tabs[tab.dataset.tab]?.loading)));
@@ -20,8 +25,8 @@
     panel.setAttribute('aria-busy', String(Boolean(current.loading)));
     panel.hidden = Boolean(current.ready && !current.error);
     panel.classList.toggle('failed', Boolean(current.error));
-    title.textContent = current.error ? `${activeTab === 'catalogue' ? 'Catalogue' : 'Companion'} indisponible` : `Chargement du ${name}…`;
-    detail.textContent = current.error || (activeTab === 'catalogue' ? 'Votre espace ChartsHub s’ouvre ici.' : 'Vos widgets, filtres et réglages seront prêts dans un instant.');
+    title.textContent = current.error ? tr(`${name} indisponible`, `${name} unavailable`) : tr(`Chargement du ${activeTab === 'catalogue' ? 'catalogue' : name}…`, `Loading ${name}…`);
+    detail.textContent = current.error || (activeTab === 'catalogue' ? tr('Votre espace ChartsHub s’ouvre ici.', 'Your ChartsHub space opens here.') : tr('Vos widgets, filtres et réglages seront prêts dans un instant.', 'Your widgets, filters and settings will be ready shortly.'));
     retry.hidden = !current.error;
     if (state.theme && ['dark', 'light'].includes(state.theme.mode) && /^#[a-f0-9]{6}$/i.test(state.theme.accent)) {
       document.documentElement.dataset.theme = state.theme.mode;
@@ -44,7 +49,7 @@
   }
   function failed() {
     panel.hidden = false; panel.classList.add('failed'); panel.setAttribute('aria-busy', 'false');
-    title.textContent = 'Navigation indisponible'; detail.textContent = 'Fermez puis rouvrez ChartsHub pour retrouver vos onglets.'; retry.hidden = true;
+    title.textContent = tr('Navigation indisponible', 'Navigation unavailable'); detail.textContent = tr('Fermez puis rouvrez ChartsHub pour retrouver vos onglets.', 'Close and reopen ChartsHub to restore your tabs.'); retry.hidden = true;
   }
   function select(name) { api.selectTab(name).catch(failed); }
   for (let index = 0; index < tabs.length; index++) {

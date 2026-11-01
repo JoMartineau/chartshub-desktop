@@ -1,8 +1,15 @@
-ChartsHub Desktop 0.14.35 - Catalogue et Companion
+ChartsHub Desktop 0.14.36 - Catalogue et Tableau de bord
+
+QUICK IMPORT - BETA FACULTATIVE
+Compatible et teste avec Clone Hero 1.1.0.6142-final Stable, Windows x64.
+Desactive au demarrage : les autres fonctions restent utilisables sans lui.
+Tableau de bord > Catalogue > Telechargements > Quick Import : suivez les cinq etapes.
+Le module Quick Import et MelonLoader restent facultatifs et necessaires uniquement pour cette integration.
+Guide complet : Quick Import/Guide.md.
 
 NOUVEAUTES 0.14.35 - BATTERIE / VST
 
-Companion > Batterie / VST : instrument VST3 x64, sortie audio et pads MIDI,
+Tableau de bord > Batterie / VST : instrument VST3 x64, sortie audio et pads MIDI,
 manette XInput ou boutons a cliquer. Aucun son ne demarre sans votre action.
 MT Power Drum Kit : lire puis accepter sa licence avant sa preparation privee.
 OBS : Capture audio d application > ChartsHubDrumHost.exe.
@@ -15,11 +22,11 @@ FONCTIONS CONSERVEES 0.14.34 - WIDGET DU JEU ET LIEN OBS
 - Lien Navigateur OBS dedie, sans capturer les reglages.
 - Guide Demarrer > Choisir la guitare > Associer les touches et compteur d associations.
 - Douze rendus, six trails et reglages existants conserves.
-- Companion > Stream / OBS > Ouvrir et personnaliser l Input Viewer.
+- Tableau de bord > Stream / OBS > Ouvrir et personnaliser l Input Viewer.
 
 FONCTIONS CONSERVEES - WIDGETS SANS CONNECTEUR
 
-Companion > Stream / OBS > Input Viewer : ouvrez le viewer, choisissez Guitare
+Tableau de bord > Stream / OBS > Input Viewer : ouvrez le viewer, choisissez Guitare
 ou Batterie, puis Demarrer et votre manette compatible. Associez chaque entree
 en relachant puis en appuyant sur le bouton souhaite. Les couleurs, formes,
 positions, tailles et noms sont modifiables. Les trainees ont quatre directions,
@@ -56,7 +63,7 @@ Apres Publier la liste, la liste publique Song Request suit automatiquement les
 ajouts et modifications detectes dans Songs, sans changer le lien des spectateurs.
 La publication active la detection du dossier. Gardez ChartsHub ouvert ; un choix
 ulterieur de desactiver cette detection reste respecte au redemarrage. Les ajouts
-depuis le Companion dans Songs declenchent aussi une actualisation. Le premier
+depuis le Tableau de bord dans Songs declenchent aussi une actualisation. Le premier
 partage reste volontaire, et une erreur conserve la derniere liste publiee.
 
 Le scan et Actualiser evitent les lectures et verifications disque repetitives,
@@ -79,7 +86,7 @@ Songs scanne. Le partage necessite le site ChartsHub 1.8.17 ou plus recent.
 
 NOUVEAUTES 0.14.22 - SONG REQUEST DANS CHARTSHUB
 
-1. Dans Companion, choisissez et scannez votre dossier Songs.
+1. Dans Tableau de bord, choisissez et scannez votre dossier Songs.
 2. Dans Song Request, cliquez sur Connecter Twitch et autorisez ChartsHub dans
    le navigateur avec le compte de votre chaine.
 3. Pour TikTok LIVE, saisissez votre pseudo puis cliquez sur Connecter TikTok LIVE.
@@ -109,7 +116,7 @@ Guide complet : docs/SONG-REQUESTS.md dans les sources.
 
 HISTORIQUE - Les procedures ci-dessous decrivent les versions precedentes.
 
-ChartsHub Desktop 0.14.12 — Catalogue et Companion
+ChartsHub Desktop 0.14.12 — Catalogue et Tableau de bord
 
 NOUVEAUTES 0.14.12
 
@@ -128,10 +135,10 @@ toutes les versions ne deplace rien ; seules les copies cochees vont a la Corbei
 
 FONCTIONNALITES 0.14.11 CONSERVEES
 Catalogue flottant redimensionnable jusqu’à 280 x 220 pixels. Les onglets et la fermeture restent visibles ; faites défiler le contenu pour retrouver les cartes et réglages.
-Le logo et le nom ChartsHub.ca apparaissent en haut de l’application. Le Companion reprend les fonds bleu nuit et les accents cyan et violet ChartsHub. Les préférences de bloom et des panneaux flottants sont conservées.
+Le logo et le nom ChartsHub.ca apparaissent en haut de l’application. Le Tableau de bord reprend les fonds bleu nuit et les accents cyan et violet ChartsHub. Les préférences de bloom et des panneaux flottants sont conservées.
 Le pack optionnel ReShade comprend Curves, MagicHDR et Technicolor2. Les effets restent désactivés par défaut.
 Bibliothèque : les résultats suivants se chargent automatiquement quand vous faites défiler la liste jusqu’en bas. Les filtres et les choix de doublons restent conservés.
-Lecteur Songs : recherchez vos chansons locales et filtrez par artiste, créateur, album, année, genre, instrument, difficulté, présence audio et format. Instrument et difficulté doivent appartenir à la même piste connue. Choisissez un morceau et contrôlez lecture/pause, précédent/suivant, position et volume. La pochette et les informations s’affichent dans le Companion et le lecteur flottant, qui partagent le même moteur audio. Masquer la fenêtre laisse la musique continuer ; aucun morceau ne démarre au lancement ou après un scan.
+Lecteur Songs : recherchez vos chansons locales et filtrez par artiste, créateur, album, année, genre, instrument, difficulté, présence audio et format. Instrument et difficulté doivent appartenir à la même piste connue. Choisissez un morceau et contrôlez lecture/pause, précédent/suivant, position et volume. La pochette et les informations s’affichent dans le Tableau de bord et le lecteur flottant, qui partagent le même moteur audio. Masquer la fenêtre laisse la musique continuer ; aucun morceau ne démarre au lancement ou après un scan.
 Choisissez les couleurs du lecteur et un spectre audio réel : barres, courbe, cercle ou miroir. La vidéo locale du morceau est muette et synchronisée ; désactivez-la pour garder la pochette. Un codec vidéo non pris en charge conserve la lecture audio. Couleurs, modèle, volume et préférence vidéo sont conservés localement ; aucune session de lecture ne reprend automatiquement.
 Playlists locales : créez, renommez ou supprimez une liste et ajoutez/retirez chaque morceau. Choisir une liste ne lance rien ; utilisez Lire la playlist. La fin d’un morceau passe au suivant, avec ordre aléatoire optionnel, puis s’arrête au dernier. Les playlists et le réglage aléatoire sont conservés dans le profil sans modifier Songs ni reprendre la lecture au démarrage.
 Stream / OBS : les widgets du morceau utilisent la source Navigateur transparente. Les boutons Catalogue et Filtres ouvrent leurs fenêtres flottantes ; ajoutez chacune comme source Capture de fenêtre dans OBS en choisissant le titre indiqué.
@@ -139,7 +146,7 @@ Song Request : Twitch et YouTube via Streamer.bot, TikTok via TikFinity relié �
 Avec le site ChartsHub 1.8.4, publier, actualiser ou retirer manuellement une liste publique de métadonnées. Les spectateurs consultent les chansons sans compte et copient une commande dans le chat. Aucun fichier de chanson ni chemin local n’est partagé.
 La réception est arrêtée au démarrage et la file reste dans la session. Les règles, le port et les clés locales sont conservés. Préservez votre profil ChartsHub, vos réglages et Songs lors de la mise à jour ; l’archive Desktop ne déploie pas le site.
 
-ChartsHub Desktop 0.14.8 — Catalogue et Companion
+ChartsHub Desktop 0.14.8 — Catalogue et Tableau de bord
 
 NOUVEAUTÉS 0.14.8
 Catalogue flottant : recherche, filtres, téléchargements et récents dans une fenêtre au-dessus du jeu en mode fenêtré ou sans bordures. Ctrl+Maj+K affiche ou masque le panneau (Commande+Maj+K sur macOS).
@@ -157,58 +164,58 @@ Choisissez la version à conserver, puis cochez chaque copie à envoyer à la Co
 L’historique présente la version gardée et le résultat de chaque copie sélectionnée. Il persiste après redémarrage, reste limité au dossier Songs actif et conserve jusqu’à 200 opérations / 2 Mio.
 Un problème d’historique est signalé sans modifier le résultat du nettoyage. Les copies non cochées et la version gardée restent protégées ; changements depuis le scan, chemins hors Songs, liens/jonctions et cibles ambiguës sont refusés. Confirmation native et Corbeille Windows uniquement.
 
-ChartsHub Desktop 0.14.7 — Catalogue et Companion
+ChartsHub Desktop 0.14.7 — Catalogue et Tableau de bord
 
 CORRECTIFS 0.14.7
 « Supprimer quand même » peut maintenant être utilisé pour une copie entièrement vérifiée ayant les mêmes notes même si l’audio ou certains fichiers non audio diffèrent.
 Les cas non vérifiés, dangereux ou modifiés restent bloqués. La confirmation Windows et la Corbeille restent obligatoires.
 
-ChartsHub Desktop 0.14.6 — Catalogue et Companion
+ChartsHub Desktop 0.14.6 — Catalogue et Tableau de bord
 
 NOUVEAUTÉS 0.14.6
 Dans Doublons, une copie dont seul l’audio diffère propose maintenant « Supprimer quand même ».
 Cette action reste manuelle et non présélectionnée : notes et fichiers non audio identiques, audio vérifié, cible sûre dans Songs.
 Une confirmation Windows renforcée précède toujours l’envoi à la Corbeille ; la version conservée reste protégée.
 
-ChartsHub Desktop 0.14.5 — Catalogue et Companion
+ChartsHub Desktop 0.14.5 — Catalogue et Tableau de bord
 
 NOUVEAUTÉS 0.14.5
 Dans Doublons, choisir la version à conserver lance automatiquement la vérification des autres copies.
 Les copies sûres sont présélectionnées et proposées directement à la Corbeille ; les copies différentes ou non vérifiées restent bloquées.
 La confirmation Windows et la protection de la version conservée restent obligatoires.
 
-ChartsHub Desktop 0.14.4 — Catalogue et Companion
+ChartsHub Desktop 0.14.4 — Catalogue et Tableau de bord
 
 CORRECTIFS 0.14.4
-La localisation English du Companion couvre maintenant les états dynamiques Clone Hero, ReShade et Filtres.
+La localisation English du Tableau de bord couvre maintenant les états dynamiques Clone Hero, ReShade et Filtres.
 Les messages de service suivent la langue sélectionnée sans redémarrage.
 Les titres, artistes, charters, chemins et noms de profils ne sont jamais traduits.
 
-ChartsHub Desktop 0.14.3 — Catalogue et Companion
+ChartsHub Desktop 0.14.3 — Catalogue et Tableau de bord
 
 NOUVEAUTÉS 0.14.3
-Le Companion suit automatiquement la langue Français / English choisie sur ChartsHub, sans redémarrage.
+Le Tableau de bord suit automatiquement la langue Français / English choisie sur ChartsHub, sans redémarrage.
 La Bibliothèque locale peut vérifier tous les groupes de doublons en une seule opération, au-delà de la pagination.
 Aucune copie n’est supprimée automatiquement : la version à conserver, les copies à envoyer à la Corbeille et la confirmation restent explicites.
 
-ChartsHub Desktop 0.14.2 — Catalogue et Companion
+ChartsHub Desktop 0.14.2 — Catalogue et Tableau de bord
 
 NOUVEAUTÉS 0.14.2
-Navigation Compte/Catalogue/Companion stabilisée sans clignotement de l’onglet Companion pendant la revalidation du même compte.
+Navigation Compte/Catalogue/Tableau de bord stabilisée sans clignotement de l’onglet Tableau de bord pendant la revalidation du même compte.
 Les déconnexions et changements réels de session continuent de retirer immédiatement l’accès.
 
-ChartsHub Desktop 0.14.1 — Catalogue et Companion
+ChartsHub Desktop 0.14.1 — Catalogue et Tableau de bord
 
 NOUVEAUTÉS 0.14.1
-Panneau Thème du Companion avec bloom optionnel et sauvegarde locale.
+Panneau Thème du Tableau de bord avec bloom optionnel et sauvegarde locale.
 Disposition du catalogue corrigée pour la fenêtre à onglets.
 Conservez les profils, réglages et dossiers de chansons lors de la mise à jour.
 
 ONGLETS INTÉGRÉS 0.14.0
-Catalogue et Companion sont réunis dans la même fenêtre ChartsHub.
-L’onglet Companion apparaît après connexion à un compte ChartsHub,
+Catalogue et Tableau de bord sont réunis dans la même fenêtre ChartsHub.
+L’onglet Tableau de bord apparaît après connexion à un compte ChartsHub,
 y compris un compte ordinaire. Il disparaît à la déconnexion.
-Ctrl+Tab change d’onglet ; Ctrl+Maj+C ouvre le Companion si connecté.
+Ctrl+Tab change d’onglet ; Ctrl+Maj+C ouvre le Tableau de bord si connecté.
 Le catalogue conserve sa page, et les widgets restent actifs entre onglets.
 Les comptes et réglages utilisent le profil habituel de ChartsHub.
 
@@ -229,7 +236,7 @@ Les joueurs n’ont plus besoin de chercher les téléchargements eux-mêmes.
 CORRECTIF D’AFFICHAGE 0.11.1
 Les vérifications des filtres conservent leur dernier état confirmé pendant
 leur exécution. Les textes et boutons ReShade ne clignotent plus entre les
-états connecté et déconnecté lors des actualisations du Companion.
+états connecté et déconnecté lors des actualisations du Tableau de bord.
 
 EFFETS RESHADE
 Filtres du jeu affiche maintenant les vrais effets de ReShade, avec recherche,
@@ -254,13 +261,13 @@ Détails et limites : docs/FILTERS.txt dans les sources.
 Cette version étend ChartsHub Desktop 0.1.14 sous Electron. ChartsHub Studio
 est un projet distinct et n'a pas été modifié.
 
-OUVRIR LE COMPANION
-Dans ChartsHub : se connecter, puis cliquer sur l’onglet Companion.
-Le menu → Clone Hero Companion et Ctrl+Maj+C ouvrent le même onglet.
-La distribution Windows contient également Lancer Companion.cmd.
+OUVRIR LE TABLEAU DE BORD
+Dans ChartsHub : se connecter, puis cliquer sur l’onglet Tableau de bord.
+Le menu → Clone Hero Tableau de bord et Ctrl+Maj+C ouvrent le même onglet.
+La distribution Windows contient également Lancer Tableau de bord.cmd.
 Ce raccourci ouvre la même application et le même profil. Une connexion
-au compte doit être vérifiée pour accéder au Companion. Les fichiers
-et réglages du Companion restent locaux sur votre ordinateur. Le partage
+au compte doit être vérifiée pour accéder au Tableau de bord. Les fichiers
+et réglages du Tableau de bord restent locaux sur votre ordinateur. Le partage
 Song Request envoie des métadonnées uniquement après votre clic sur Publier
 ou Actualiser la liste, comme décrit dans la section dédiée ci-dessous.
 
@@ -268,7 +275,7 @@ CONNECTER CLONE HERO
 Dans Clone Hero : Settings > General > Export Current Song, activer l'export.
 Le format custom_song_export, section [streamer] du settings.ini du jeu,
 doit être %s%n%a%n%c : titre, artiste et charter sur trois lignes.
-Le Companion lit ces fichiers ; il ne modifie jamais les réglages du jeu.
+Le Tableau de bord lit ces fichiers ; il ne modifie jamais les réglages du jeu.
 Dans Source des informations, choisir Direct Clone Hero, puis utiliser la
 détection ou choisir currentsong.txt. Le dossier Documents peut être redirigé
 vers OneDrive : sélectionner le fichier réellement écrit par le jeu.
@@ -293,14 +300,14 @@ est vérifiée avec un cache de deux secondes. Si cette vérification est
 indisponible, le fichier seul ne permet pas de détecter un crash : repasser
 à la démonstration retire les informations. L'absence de nouvelle écriture
 ne suffit pas à déduire un arrêt ou une pause.
-Le chemin local reste dans le Companion et n'est pas transmis à OBS.
+Le chemin local reste dans le Tableau de bord et n'est pas transmis à OBS.
 Détails et procédure de vérification : docs/CLONEHERO-INTEGRATION.txt.
 
 COULEURS DES CHARTERS
 Les couleurs originales du nom du charter sont activées par défaut pour
 toutes les charts détectées. Les noms multicolores, y compris une couleur
 par lettre, sont conservés dans l'aperçu, l'overlay Jeu et Stream / OBS.
-Si l'export courant ne contient que le nom brut, le Companion lit les
+Si l'export courant ne contient que le nom brut, le Tableau de bord lit les
 couleurs du champ charter (ou frets) dans le song.ini correspondant au
 titre, à l'artiste et au charter joués. Les dossiers Songs sont retrouvés
 dans settings.ini de Clone Hero. La première recherche indexe seulement
@@ -308,7 +315,7 @@ les métadonnées en arrière-plan ; sur une grosse bibliothèque, le texte
 peut apparaître avant ses couleurs. Les morceaux suivants réutilisent
 l'index et relisent le fichier correspondant pour respecter ses couleurs.
 Un même charter peut avoir des couleurs différentes selon la chanson :
-le Companion ne reprend jamais la palette d'un autre morceau. Aucun nom
+le Tableau de bord ne reprend jamais la palette d'un autre morceau. Aucun nom
 ni couleur de créateur n'est codé spécialement dans l'application.
 Si plusieurs charts identiques déclarent des couleurs contradictoires,
 le style habituel reste utilisé : l'export texte ne permet pas de choisir.
@@ -536,7 +543,7 @@ Les archives ZIP/RAR/7z doivent d'abord être extraites.
 Actualiser au démarrage est activé par défaut après le choix d'un dossier.
 Détecter les changements est une option : les notifications du système
 regroupent les changements avant de lancer une actualisation rapide.
-La surveillance s'arrête avec le panneau Companion. Si elle est indisponible,
+La surveillance s'arrête avec le panneau Tableau de bord. Si elle est indisponible,
 le bouton Actualiser reste utilisable. Aucun scan complet automatique au
 démarrage et aucune interrogation périodique de tous les fichiers.
 Un dossier indisponible ne doit pas effacer silencieusement l'index existant.
@@ -547,7 +554,7 @@ est écrit par lots et conserve son format compatible avec les profils existants
 La durée et la mémoire nécessaires dépendent de la taille de la bibliothèque.
 
 Le dossier choisi, les options et l'index résident dans library.json dans
-le profil Companion. Le scan garde les métadonnées locales ; leur publication
+le profil Tableau de bord. Le scan garde les métadonnées locales ; leur publication
 Song Request est une action séparée, explicite et facultative. Seule la page de
 résultats demandée passe à l'interface ; l'index n'est pas envoyé à OBS.
 Si l'index est endommagé, sélectionner à nouveau le dossier permet de le
@@ -639,7 +646,7 @@ le scanner de la bibliothèque, même si le téléchargement se trouve dans Song
 La file est conservée dans download-state.json, indépendamment de l'overlay
 et de la bibliothèque. À la fermeture, les tâches actives et en attente
 passent en pause. Reprendre est nécessaire après réouverture : aucune
-chanson n'est téléchargée automatiquement au lancement du Companion.
+chanson n'est téléchargée automatiquement au lancement du Tableau de bord.
 Une file illisible ou issue d'une version future est protégée ; les actions
 restent bloquées et le fichier original n'est pas remplacé.
 Limites : 100 tâches conservées, 1 000 fichiers et 2 Go par chart.
@@ -674,7 +681,7 @@ HIGHWAY, SCORE ET PAROLES — CAPTURES RECADRÉES POUR OBS
    ouverts. Le fond présent dans chaque zone du jeu reste dans l'image.
 
 Cette capture utilise l'image réelle du jeu et reste locale, vidéo seule.
-Elle ne démarre pas à l'ouverture. Arrêter, fermer l'aperçu ou le Companion,
+Elle ne démarre pas à l'ouverture. Arrêter, fermer l'aperçu ou le Tableau de bord,
 ou perdre la fenêtre arrête la capture et ferme ses sorties. Choisir de
 nouveau la fenêtre et retracer les zones après un arrêt ou changement de
 taille. La séparation transparente des éléments natifs n'est pas disponible.
@@ -695,7 +702,7 @@ STREAM / OBS
    Pour essayer sans jouer, choisir Démonstration puis En jeu.
 
 Le fond de la page OBS est transparent. Le damier appartient uniquement à
-l’aperçu du Companion et ne fait pas partie du stream.
+l’aperçu du Tableau de bord et ne fait pas partie du stream.
 Les onglets Jeu et Stream choisissent la disposition à modifier dans
 l’éditeur. Déplacer un widget dans Stream ne change pas son placement Jeu.
 Les couleurs, la police, l’activation générale et les états de gameplay
@@ -703,12 +710,12 @@ restent partagés ; les deux cases de destination sont indépendantes.
 L’éditeur utilise une scène logique 1280×720, adaptée à la résolution OBS.
 Un format personnalisé d’un autre rapport largeur/hauteur centre cette
 scène avec des bandes transparentes. Choisir la même résolution dans OBS
-et le Companion pour que l’aperçu corresponde à la source navigateur.
+et le Tableau de bord pour que l’aperçu corresponde à la source navigateur.
 Le réglage i/s limite la fréquence des mises à jour du serveur ; la source
 Navigateur OBS possède son propre réglage de fréquence, à reporter aussi.
 
 L’adresse locale reste identique tant que le port et le profil sont conservés.
-Le serveur est arrêté au démarrage et à la fermeture du panneau Companion.
+Le serveur est arrêté au démarrage et à la fermeture du panneau Tableau de bord.
 Il écoute uniquement sur 127.0.0.1 : OBS doit fonctionner sur le même PC.
 En démonstration, les informations disparaissent au menu, au chargement
 et aux résultats. En Direct, elles disparaissent lorsque le jeu vide l'export.
@@ -753,7 +760,7 @@ Les tests utilisent des morceaux et messages synthétiques. Une connexion
 dans votre installation. Ces instructions ne confirment pas un déploiement.
 
 CATALOGUE FLOTTANT
-Depuis le Companion, ouvrir le mini Catalogue, ou utiliser Ctrl+Maj+K
+Depuis le Tableau de bord, ouvrir le mini Catalogue, ou utiliser Ctrl+Maj+K
 (Commande+Maj+K sur macOS) avec une session ChartsHub active.
 La barre de titre permet de déplacer la fenêtre au-dessus du jeu.
 Fermer ou Échap masque le panneau sans interrompre la file de téléchargements.
@@ -763,7 +770,7 @@ pour ajouter une chart. Téléchargements donne accès à la progression, pause,
 reprise, annulation et nouvelle tentative ; Récents affiche les charts terminées.
 Après installation, utiliser Scan Songs dans Clone Hero pour les indexer.
 Utiliser le jeu fenêtré ou sans bordures ; le plein écran exclusif n'est pas garanti.
-Si le raccourci est occupé, ouvrir le panneau depuis le Companion.
+Si le raccourci est occupé, ouvrir le panneau depuis le Tableau de bord.
 
 Apparence règle le fond, sa transparence, le texte, la police et la taille.
 L'aperçu et les valeurs par défaut demandent un clic sur Enregistrer pour être
@@ -784,7 +791,7 @@ Les réglages normaux résident dans le dossier de données Electron de
 ChartsHub, sous companion/settings.json. L'ancienne copie devient .bak.
 Un fichier d'une version future est protégé contre l'écrasement.
 Le lanceur de démonstration portable peut utiliser un profil séparé, indiqué
-dans le fichier Lancer Companion.cmd, pour préserver la session habituelle.
+dans le fichier Lancer Tableau de bord.cmd, pour préserver la session habituelle.
 L'activation de l'overlay et du serveur Stream n'est pas restaurée au démarrage.
 La clé locale d'accès Stream réside dans stream-access.key dans le profil.
 
@@ -844,7 +851,7 @@ Thèmes séparés par destination, styles conditionnels et métriques restent
 différés. Song Request utilise des ponts externes ; l'historique des demandes
 ne survit pas au redémarrage.
 Le catalogue et les téléchargements déjà présents dans ChartsHub restent
-en place. Le Companion réutilise leurs validations de fichiers et de chemins,
+en place. Le Tableau de bord réutilise leurs validations de fichiers et de chemins,
 avec une file persistante indépendante pour la pause et la reprise.
 
 Références techniques officielles :

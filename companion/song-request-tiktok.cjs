@@ -18,7 +18,7 @@ function positiveId(value) {
   return typeof value === 'string' && /^[1-9][0-9]{0,63}$/.test(value) ? value : null;
 }
 
-function normalizeMessage(data) {
+function normalizeChatMessage(data) {
   if (!data || typeof data !== 'object' || !data.user || typeof data.user !== 'object') return null;
   const eventId = positiveId(data.common?.msgId);
   // The pinned 2.5 connector emits the v3 protobuf schema, not the legacy
@@ -26,12 +26,17 @@ function normalizeMessage(data) {
   const viewerId = positiveId(data.user.id ?? data.user.userId);
   const content = data.content ?? data.comment;
   const query = typeof content === 'string' ? content.trim() : '';
-  if (!eventId || !viewerId || !query || query.length > 256 || /[\u0000-\u001f\u007f]/u.test(query) || !COMMAND.test(query)) return null;
+  if (!eventId || !viewerId || !query || query.length > 500 || /[\u0000-\u001f\u007f]/u.test(query)) return null;
   const nickname = typeof data.user.nickname === 'string' ? data.user.nickname : '';
   const displayId = data.user.displayId ?? data.user.uniqueId;
   const uniqueId = typeof displayId === 'string' ? displayId : '';
   const viewerName = (nickname || uniqueId).replace(/[\u0000-\u001f\u007f]/gu, '').trim().slice(0, 80) || viewerId;
   return { platform: 'tiktok', eventId, viewerId, viewerName, query };
+}
+
+function normalizeMessage(data) {
+  const message = normalizeChatMessage(data);
+  return message && message.query.length <= 256 && COMMAND.test(message.query) ? message : null;
 }
 
 function errorCode(error) {
@@ -60,8 +65,8 @@ async function createDefaultConnection(username, options) {
   return new TikTokLiveConnection(username, { ...options, eulerApiInstance });
 }
 
-function createTikTokSongRequestConnection({ createConnection = createDefaultConnection, onMessage = () => {}, onStatus = () => {}, connectTimeoutMs = CONNECTION_TIMEOUT_MS } = {}) {
-  if (typeof createConnection !== 'function' || typeof onMessage !== 'function' || typeof onStatus !== 'function') throw new TypeError('Invalid TikTok connection callbacks');
+function createTikTokSongRequestConnection({ createConnection = createDefaultConnection, onMessage = () => {}, onChatMessage = () => {}, onStatus = () => {}, connectTimeoutMs = CONNECTION_TIMEOUT_MS } = {}) {
+  if (typeof createConnection !== 'function' || typeof onMessage !== 'function' || typeof onChatMessage !== 'function' || typeof onStatus !== 'function') throw new TypeError('Invalid TikTok connection callbacks');
   const timeoutMs = Number.isInteger(connectTimeoutMs) && connectTimeoutMs >= 1 && connectTimeoutMs <= CONNECTION_TIMEOUT_MS ? connectTimeoutMs : CONNECTION_TIMEOUT_MS;
   let username = null;
   let receiving = false;
@@ -135,10 +140,14 @@ function createTikTokSongRequestConnection({ createConnection = createDefaultCon
         client.on('streamEnd', () => { if (isCurrent(record)) fail(record, 'not_live'); });
         client.on('chat', data => {
           if (!isCurrent(record) || state !== 'connected') return;
-          const message = normalizeMessage(data);
+          const message = normalizeChatMessage(data);
           if (!message || seen.has(message.eventId)) return;
           seen.add(message.eventId);
           if (seen.size > SEEN_MESSAGE_LIMIT) seen.delete(seen.values().next().value);
+          try { Promise.resolve(onChatMessage(message)).catch(() => {}); } catch {}
+          // Optional feed callbacks may synchronously stop or disconnect this
+          // source. A command must not outlive that explicit revocation.
+          if (!isCurrent(record) || state !== 'connected' || message.query.length > 256 || !COMMAND.test(message.query)) return;
           try { Promise.resolve(onMessage(message)).catch(() => {}); } catch {}
         });
         if (!isCurrent(record)) { closeClient(record); return; }
@@ -173,4 +182,4 @@ function createTikTokSongRequestConnection({ createConnection = createDefaultCon
   return { status, connect, setReceiving, stop, disconnect };
 }
 
-module.exports = { createTikTokSongRequestConnection, normalizeUsername, normalizeMessage, createDefaultConnection };
+module.exports = { createTikTokSongRequestConnection, normalizeUsername, normalizeMessage, normalizeChatMessage, createDefaultConnection };

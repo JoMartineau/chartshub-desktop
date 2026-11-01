@@ -52,6 +52,10 @@ function parseCommand(query) {
   }
   return { type, query: match[2] };
 }
+function naturalQueryVariant(query) {
+  const match = /^(.+?)\s+(?:by|par)\s+(.+)$/i.exec(query);
+  return match ? `${match[2].trim()} ${match[1].trim()}` : query;
+}
 function validateRules(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)
       || !Object.keys(input).every(key => Object.hasOwn(DEFAULT_RULES, key))) throw new TypeError('Invalid song-request rules.');
@@ -115,7 +119,7 @@ function publicRequest(item) {
  * state:'exported' to distinguish retained native export metadata from playing.
  * The queue/history and explicit manual ordering last only for this session.
  */
-function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getNowPlaying, onChange, now = Date.now } = {}) {
+function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getNowPlaying, onChange, onMissingRequest, now = Date.now } = {}) {
   if (typeof getLibrarySnapshot !== 'function' || typeof searchSongs !== 'function'
       || typeof resolveSong !== 'function' || typeof now !== 'function') {
     throw new TypeError('Song requests require installed-library callbacks.');
@@ -189,7 +193,11 @@ function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getN
     try { return enabled && generation === capturedGeneration && isCurrent() === true; } catch { return false; }
   }
   async function find(query, limit, context) {
-    const result = await searchSongs({ query, offset: 0, limit });
+    let result = await searchSongs({ query, offset: 0, limit });
+    if (sameLibrary(context) && result?.revision === context.revision && result.total === 0 && Array.isArray(result.items)) {
+      const variant = naturalQueryVariant(query);
+      if (variant !== query) result = await searchSongs({ query: variant, offset: 0, limit });
+    }
     if (!sameLibrary(context) || !result || result.revision !== context.revision
         || !Array.isArray(result.items) || !Number.isSafeInteger(result.total) || result.total < 0) {
       throw Error('library_changed');
@@ -286,7 +294,12 @@ function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getN
         if (!songId) {
           const matches = await find(command.query, LIMITS.search, context);
           if (!guard(capturedGeneration, isCurrent)) return failure('disabled');
-          if (!matches.songs.length) return failure('not_found');
+          if (!matches.songs.length) {
+            if(command.type==='request'&&typeof onMissingRequest==='function'){
+              try{Promise.resolve(onMissingRequest({platform:event.platform,eventId:event.eventId,viewerId:event.viewerId,viewerName:event.viewerName,query:command.query})).catch(()=>{});}catch{}
+            }
+            return failure('not_found');
+          }
           if (matches.total !== 1 || matches.songs.length !== 1) return { ...failure('ambiguous'), matches: matches.songs };
           songId = matches.songs[0].id;
         }

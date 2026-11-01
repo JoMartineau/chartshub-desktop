@@ -17,18 +17,18 @@ test('native menu offers Companion to ordinary signed-in accounts independently 
   load(){},job:null,openGuest(){},showCompanion(){opened++;}};
  vm.createContext(c);vm.runInContext('handler='+match[1]+'\n}',c);
  await c.handler({},'en');
- const companion=menu.find(item=>item.label==='Clone Hero Companion');
+ const companion=menu.find(item=>item.label==='Dashboard');
  assert.ok(companion,'a signed-in ordinary account does not need administrator privileges');
  assert.equal(menu.some(item=>item.label==='View as guest'),false);
  companion.click();assert.equal(opened,1);
  menu.find(item=>item.label==='Reload').click();assert.equal(reloaded,1,'reload acts on the separate catalogue webContents');
  c.companionAvailable=false;await c.handler({},'en');
- assert.equal(menu.some(item=>item.label==='Clone Hero Companion'),false,'a guest has no Companion menu action');
+ assert.equal(menu.some(item=>item.label==='Dashboard'),false,'a guest has no Companion menu action');
  c.adminAllowed=true;await c.handler({},'en');
- assert.equal(menu.some(item=>item.label==='Clone Hero Companion'),false,'cached administrator authorization cannot replace current Companion availability');
+ assert.equal(menu.some(item=>item.label==='Dashboard'),false,'cached administrator authorization cannot replace current Companion availability');
  assert.equal(menu.some(item=>item.label==='View as guest'),true);
  c.companionAvailable=true;await c.handler({},'fr');
- assert.ok(menu.find(item=>item.label==='Clone Hero Companion'));
+ assert.ok(menu.find(item=>item.label==='Tableau de bord'));
  assert.ok(menu.find(item=>item.label==='Voir comme visiteur'));
 });
 test('native guest exposes only a return action and reserves the measured banner height',()=>{

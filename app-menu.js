@@ -5,7 +5,7 @@ function applicationMenu({language,load,web,close,cancel,downloading,toggleFulls
  return [
   {label:t('Catalogue','Catalogue'),click:()=>load('/')},
   {label:t('Mon compte','My account'),click:()=>load('/account.html')},
-  ...(companion?[{label:t('Clone Hero Companion','Clone Hero Companion'),accelerator:'CommandOrControl+Shift+C',click:companion}]:[]),
+  ...(companion?[{label:t('Tableau de bord','Dashboard'),accelerator:'CommandOrControl+Shift+C',click:companion}]:[]),
   ...(visitorPreview?[{label:t('Voir comme visiteur','View as guest'),click:visitorPreview}]:[]),
   {type:'separator'},
   {label:t('Édition','Edit'),submenu:[

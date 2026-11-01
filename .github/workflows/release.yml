@@ -233,6 +233,28 @@ jobs:
             ${{ runner.temp }}/input-viewer-output/**/report.json
             ${{ runner.temp }}/input-viewer-output/**/*.png
           if-no-files-found: warn
+      - name: Verify optional Quick Import controls and main-only download completion without a game
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          node node_modules/electron/cli.js tests/quick-import-electron.cjs "--fixture-output=$env:RUNNER_TEMP/quick-import-source"
+          if ($LASTEXITCODE -ne 0) { throw 'Quick Import source verification failed' }
+          $reports = @(Get-ChildItem -LiteralPath "$env:RUNNER_TEMP/quick-import-source" -Filter report.json -Recurse -File)
+          if ($reports.Count -ne 1) { throw 'Exactly one Quick Import source report required' }
+          $report = Get-Content -LiteralPath $reports[0].FullName -Raw | ConvertFrom-Json
+          if ($report.result -ne 'passed' -or @($report.checks).Count -ne 8 -or @($report.checks | Sort-Object -Unique).Count -ne 8 -or $report.error -or @($report.errors).Count -ne 0 -or @($report.externalRequests).Count -ne 0 -or $report.loadedFromAsar -ne $false -or $report.actualHostAndIpc -ne $true -or $report.actualPreloadAndRenderer -ne $true -or $report.syntheticQuickImportService -ne $true -or $report.syntheticDownloadWorker -ne $true -or $report.rendererSandboxDisabled -ne $false -or $report.visibilityUnexpected -ne $false -or $report.nativeFloatingDisplaysSuppressed -ne $true) { throw 'Quick Import source evidence incomplete' }
+          foreach ($flag in @('realGameRead','realGameLaunched','realProviderConnected','realHardwareRead','realInputRead','realAudioOpened','realProfileRead','realUserProfileRead','realDesktopCaptured','realDownload','realNetworkUsed')) { if ($report.$flag -ne $false) { throw 'Quick Import fixture exceeded synthetic scope' } }
+          if (@($report.forbiddenCalls.PSObject.Properties).Count -ne 5) { throw 'Quick Import forbidden-call evidence incomplete' }
+          foreach ($entry in $report.forbiddenCalls.PSObject.Properties) { if ($entry.Value -ne 0) { throw 'Quick Import fixture performed a forbidden action' } }
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: companion-quick-import-source
+          path: |
+            ${{ runner.temp }}/quick-import-source/**/report.json
+            ${{ runner.temp }}/quick-import-source/**/*.png
+          if-no-files-found: warn
       - name: Verify Windows updater helper survives Electron exit
         if: runner.os == 'Windows'
         shell: pwsh
@@ -243,6 +265,29 @@ jobs:
           if (!(Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Updater launcher report missing' }
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
           if ($report.result -ne 'UPDATER_LAUNCHER_ELECTRON_OK' -or $report.count -ne 11 -or @($report.passed).Count -ne 11 -or @($report.passed | Sort-Object -Unique).Count -ne 11 -or $report.defaultProductionLauncher -ne $true -or $report.loadedFromAsar -ne $true -or $report.readyHandshakeVerified -ne $true -or $report.helperExecuted -ne $true -or $report.helperSurvivedControllerExit -ne $true -or $report.inheritedProcessPolicyRestricted -ne $true -or $report.helperProcessPolicy -cne 'Bypass' -or $report.controllerExitCode -ne 0 -or $report.timedOut -ne $false -or $report.windows -ne 0 -or $report.webContents -ne 0 -or $report.externalRequests -ne 0 -or $report.fixtureOnly -ne $true -or $report.realApplicationTouched -ne $false -or $report.realProfileTouched -ne $false -or $report.installerExecuted -ne $false) { throw 'Updater launcher evidence incomplete' }
+      - name: Verify local chat missing requests and explicit OBS sharing without providers
+        if: runner.os == 'Windows'
+        timeout-minutes: 3
+        shell: pwsh
+        run: |
+          node node_modules/electron/cli.js tests/companion-session-features-electron.cjs "--fixture-output=$env:RUNNER_TEMP/session-features-source"
+          if ($LASTEXITCODE -ne 0) { throw 'Session features source verification failed' }
+          $reports = @(Get-ChildItem -LiteralPath "$env:RUNNER_TEMP/session-features-source" -Filter report.json -Recurse -File)
+          if ($reports.Count -ne 1) { throw 'Exactly one session features source report required' }
+          $report = Get-Content -LiteralPath $reports[0].FullName -Raw | ConvertFrom-Json
+          if ($report.result -ne 'passed' -or @($report.checks).Count -ne 12 -or @($report.checks | Sort-Object -Unique).Count -ne 12 -or $report.error -or @($report.errors).Count -ne 0 -or @($report.externalRequests).Count -ne 0 -or $report.loadedFromAsar -ne $false -or $report.rendererSandboxDisabled -ne $false -or $report.visibilityUnexpected -ne $false) { throw 'Session features source evidence incomplete' }
+          foreach ($flag in @('actualHostAndIpc','actualPreloadAndRenderer','actualLibraryAndRequestQueue','syntheticProviders','syntheticCatalogue','syntheticLocalBridge','syntheticDownloadWorker','syntheticDOMActions','syntheticStreamServer','syntheticClipboard','nativeFloatingDisplaysSuppressed')) { if ($report.$flag -ne $true) { throw 'Session fixture production boundary missing' } }
+          foreach ($flag in @('realGameRead','realGameLaunched','realProviderConnected','realHardwareRead','realInputRead','realAudioOpened','realProfileRead','realUserProfileRead','realDesktopCaptured','realDownload','realNetworkUsed')) { if ($report.$flag -ne $false) { throw 'Session fixture exceeded synthetic scope' } }
+          if (@($report.forbiddenCalls.PSObject.Properties).Count -ne 5) { throw 'Session forbidden-call evidence incomplete' }
+          foreach ($entry in $report.forbiddenCalls.PSObject.Properties) { if ($entry.Value -ne 0) { throw 'Session fixture performed a forbidden action' } }
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: companion-session-features-source
+          path: |
+            ${{ runner.temp }}/session-features-source/**/report.json
+            ${{ runner.temp }}/session-features-source/**/*.png
+          if-no-files-found: warn
       - name: Compile Windows filters and ReShade bridge
         if: runner.os == 'Windows'
         shell: pwsh
@@ -302,7 +347,7 @@ jobs:
           node tests/public-asar-smoke.cjs "--asar=$PWD/dist/ChartsHub-win32-x64/resources/app.asar" "--output=$env:RUNNER_TEMP/public-asar-smoke"
           if ($LASTEXITCODE -ne 0) { throw 'Actual public ASAR smoke failed' }
           $report = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'public-asar-smoke/report.json') -Raw | ConvertFrom-Json
-          if ($report.result -ne 'PUBLIC_ASAR_SMOKE_OK' -or $report.error -or $report.privateMemberCount -ne 13 -or @($report.privateMembersAbsent).Count -ne 13 -or $report.entirePrivateSubtreeAbsent -ne $true -or $report.totalNativeChecks -ne 65 -or @($report.publicNativeChecks).Count -ne 7 -or $report.archiveSha256 -cne $report.archiveSha256After -or $report.publicHostDefault -ne $true -or $report.privateOptInOnBundle -ne $false -or $report.fixtureOnly -ne $true -or $report.realGameRead -ne $false -or $report.realUserProfileRead -ne $false -or $report.realHardwareRead -ne $false -or $report.realDesktopCaptured -ne $false -or $report.installationPerformed -ne $false) { throw 'Actual public ASAR evidence incomplete' }
+          if ($report.result -ne 'PUBLIC_ASAR_SMOKE_OK' -or $report.error -or $report.privateMemberCount -ne 13 -or @($report.privateMembersAbsent).Count -ne 13 -or $report.entirePrivateSubtreeAbsent -ne $true -or $report.totalNativeChecks -ne 85 -or @($report.publicNativeChecks).Count -ne 9 -or $report.archiveSha256 -cne $report.archiveSha256After -or $report.publicHostDefault -ne $true -or $report.privateOptInOnBundle -ne $false -or $report.fixtureOnly -ne $true -or $report.realGameRead -ne $false -or $report.realUserProfileRead -ne $false -or $report.realHardwareRead -ne $false -or $report.realDesktopCaptured -ne $false -or $report.installationPerformed -ne $false) { throw 'Actual public ASAR evidence incomplete' }
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'Windows'
         with:
