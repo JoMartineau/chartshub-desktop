@@ -16,6 +16,17 @@ Le clavier est lu uniquement lorsque la fenêtre du viewer est active. Pour joue
 
 Le viewer fonctionne indépendamment de Clone Hero et de MelonLoader. Il montre les entrées détectées ; il ne calcule pas l’avance ou le retard par rapport aux notes, la latence physique du matériel ou une valeur de calibration.
 
+## Compteurs et affichage automatique
+
+Dans les réglages de l’Input Viewer, cochez **Afficher les compteurs** pour voir le nombre d’appuis sur chaque frette, pad, cymbale et autre bouton affiché. Une pression compte une fois, même si elle est maintenue. Les totaux restent identiques dans l’éditeur, le widget du jeu et la source OBS. La démo visuelle reste séparée des appuis réels. **Remettre les compteurs à zéro** efface les totaux de la session ; seuls les réglages d’affichage sont conservés sur disque.
+
+Deux options supplémentaires sont disponibles, désactivées par défaut :
+
+- **Remettre à zéro à la fin du morceau** utilise une fin de partie confirmée par le jeu.
+- **Afficher le widget au début du morceau** montre le widget compact à sa position actuelle, avec les clics traversants. Cliquez d’abord sur **Démarrer** pour activer la lecture des entrées de cette session.
+
+Ces deux automatismes nécessitent le module des widgets Clone Hero et au moins une fonction **Paroles** ou **Accuracy** activée dans **Catalogue → Téléchargements → Intégrations Clone Hero**. Les débuts et fins confirmés proviennent de cette connexion au jeu. Le compteur et sa remise à zéro manuelle fonctionnent aussi sans module.
+
 Le widget du jeu peut rester au-dessus des autres fenêtres ; l’option correspondante se règle dans le Tableau de bord. Un jeu en plein écran exclusif peut empêcher cet affichage : le mode fenêtré ou sans bordure peut être nécessaire.
 
 Références techniques : [Gamepad API du W3C](https://www.w3.org/TR/gamepad/) et [XInput de Microsoft](https://learn.microsoft.com/en-us/windows/win32/xinput/getting-started-with-xinput).

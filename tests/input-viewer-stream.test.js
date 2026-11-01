@@ -25,7 +25,7 @@ async function fixture(t, snapshot = () => empty) {
 }
 function broker() {
   const value = createInputViewerOutputState({ validateConfig: model.validateConfig, sampleControls: model.sampleControls, now: () => 1000 });
-  value.configure(model.preset()); value.setRunning(true); value.updatePressed({ fret0: true }); return value;
+  value.configure(model.preset()); value.setRunning(true); value.updatePressed({ fret0: false }); value.updatePressed({ fret0: true }); return value;
 }
 
 test('Input Viewer URL uses the enabled loopback server and disappears on stop without altering legacy status', async t => {
@@ -62,7 +62,7 @@ test('HTTP state tracks held and released inputs while stripping private fields 
   raw.config.controls[0].mapping = { key: 'KeyQ', index: 14 }; raw.pressed.unknown = true;
   const before = JSON.stringify(raw), { port } = await fixture(t, () => raw);
   const first = JSON.parse((await request(port, `/input-viewer-state?token=${token}`)).text);
-  assert.equal(first.pressed.fret0, true); assert.equal(first.pressed.unknown, undefined);
+  assert.equal(first.pressed.fret0, true); assert.equal(first.pressed.unknown, undefined);assert.equal(first.counts.fret0,1);for(let i=0;i<4;i++)assert.equal(JSON.parse((await request(port, `/input-viewer-state?token=${token}`)).text).counts.fret0,1);
   assert(!/PRIVATE DEVICE|deviceId|mapping|KeyQ|source|deadzone|grid/.test(JSON.stringify(first)));
   assert.equal(JSON.stringify(raw), before);
   raw.pressed.fret0 = false; raw.revision++;

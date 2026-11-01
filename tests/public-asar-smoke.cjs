@@ -47,7 +47,7 @@ const PUBLIC_MEMBERS = Object.freeze([
   'companion/ui/workspace-navigation.js', 'companion/ui/game-capture.js',
   'companion/ui/game-capture.html', 'companion/game-capture-preload.cjs',
   'companion/ui/game-capture-output.js', 'companion/ui/game-capture-output.html',
-  'companion/input-viewer.cjs', 'companion/input-viewer-preload.cjs',
+  'companion/input-viewer.cjs', 'companion/input-viewer-preload.cjs', 'companion/input-viewer-game-events.cjs',
   'companion/ui/input-viewer.html', 'companion/ui/input-viewer.js',
   'companion/ui/input-viewer.css', 'companion/ui/input-viewer-model.js',
   'companion/ui/input-viewer-controls.js', 'companion/ui/input-viewer-paint.js',
@@ -63,7 +63,7 @@ const FIXTURES = Object.freeze([
   { name: 'input-viewer-electron.cjs', count: 9, kind: 'input-viewer' },
   { name: 'input-viewer-detection-electron.cjs', count: 15, kind: 'input-detection' },
   { name: 'input-viewer-afterglow-electron.cjs', count: 6, kind: 'input-afterglow' },
-  { name: 'input-viewer-output-electron.cjs', count: 10, kind: 'input-output' },
+  { name: 'input-viewer-output-electron.cjs', count: 11, kind: 'input-output' },
   { name: 'drum-vst-electron.cjs', count: 8, kind: 'drums' },
   { name: 'quick-import-electron.cjs', count: 8, kind: 'quick-import' },
   { name: 'companion-session-features-electron.cjs', count: 12, kind: 'session-features' },
@@ -255,7 +255,7 @@ async function main() {
   };
   fs.writeFileSync(path.join(output, 'report.json'), JSON.stringify(report, null, 2) + '\n', { flag: 'wx' });
   if (failure) throw failure;
-  assert.equal(report.totalNativeChecks, 97);
+  assert.equal(report.totalNativeChecks, 98);
   console.log(JSON.stringify({ result: report.result, privateMembersAbsent: PRIVATE_MEMBERS.length, nativeChecks: report.totalNativeChecks, version, archiveSha256: archiveBefore, output }));
 }
 

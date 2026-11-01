@@ -48,6 +48,10 @@ app.whenReady().then(async()=>{
   await change('kind','button');await change('index','0');await change('color','#d43ba5');
   assert.equal(await evaluate("document.getElementById('mapping-count').textContent"),'1/8 touches associées');
  });
+ await check('Press-counter options start disabled and the visual demo cannot count or start reading a device',async()=>{
+  assert.equal(await evaluate("document.getElementById('counts').checked"),false);assert.equal(await evaluate("document.getElementById('counts-auto-reset').checked"),false);assert.equal(await evaluate("document.getElementById('auto-show-chart').checked"),false);
+  await evaluate("document.getElementById('counts').click();document.getElementById('demo').click()");await delay(120);assert(Object.values(service.snapshotOutput().counts).every(value=>value===0));assert.equal(service.status().phase,'stopped');assert.equal(native().starts,0);await evaluate("document.getElementById('demo').click()");
+ });
  const saved=await stored();await delay(50);await service.dispose();
  service=await createInputViewer({root,electron,xinputFactory:factory});
  await check('Opening output first restores saved mappings and colors through a hidden editor without starting reads',async()=>{
@@ -65,8 +69,10 @@ app.whenReady().then(async()=>{
  await service.open();await evaluate("Object.defineProperty(navigator,'getGamepads',{configurable:true,value:()=>[]});document.getElementById('start').click()");
  await until(()=>service.status().phase==='running','start');await until(()=>evaluate("Array.from(document.getElementById('device').options).some(option=>option.value==='windows:0')"),'Windows option');await change('device','windows:0');await until(()=>native().selected===0,'selection');await delay(20);
  await check('Native samples animate the actual separate output while the editor is hidden, without exposing mappings',async()=>{
-  editor.hide();native().callbacks.onSample(sample(true));assert.equal(service.snapshotOutput().pressed.fret0,true);
+  for(const [window,id]of[[editor,'viewer'],[game,'output']])await window.webContents.executeJavaScript(`(()=>{window.fixturePaintedCounts=[];const c=document.getElementById('${id}').getContext('2d'),original=c.fillText.bind(c);c.fillText=(value,...args)=>{if(/^\\d+$/.test(String(value)))window.fixturePaintedCounts.push(String(value));if(window.fixturePaintedCounts.length>64)window.fixturePaintedCounts.shift();return original(value,...args);};})()`);
+  editor.hide();native().callbacks.onSample(sample(false));native().callbacks.onSample(sample(true));assert.equal(service.snapshotOutput().pressed.fret0,true);assert.equal(service.snapshotOutput().counts.fret0,1);
   await until(()=>game.webContents.executeJavaScript("document.getElementById('output').dataset.active==='fret0'"),'game output native press');
+  await until(()=>game.webContents.executeJavaScript("window.fixturePaintedCounts.includes('1')"),'actual game counter paint');await until(()=>evaluate("window.fixturePaintedCounts.includes('1')&&document.getElementById('counts-status').textContent.includes('Vert: 1')"),'actual editor counter paint');native().callbacks.onSample(sample(true));native().callbacks.onSample(sample(true));assert.equal(service.snapshotOutput().counts.fret0,1);
   assert.equal(JSON.stringify(service.snapshotOutput()).includes('xinput'),false);assert.equal(service.snapshotOutput().config.controls[0].mapping,undefined);
   native().callbacks.onSample(sample(false));await until(()=>game.webContents.executeJavaScript("document.getElementById('output').dataset.active===''"),'native release');
  });
@@ -76,7 +82,9 @@ app.whenReady().then(async()=>{
   obs.webContents.on('console-message',(_event,value)=>{if(value.level==='error')errors.push(value.message);});await obs.loadURL(url);obs.showInactive();
   await until(()=>obs.webContents.executeJavaScript("document.getElementById('output').dataset.active!==undefined"),'OBS module graph and state polling');
   assert.equal(await obs.webContents.executeJavaScript('typeof window.ChartsHubInputViewerOutput'),'undefined');assert.equal(await obs.webContents.executeJavaScript('typeof window.ChartsHubInputViewer'),'undefined');
-  native().callbacks.onSample(sample(true));await until(()=>obs.webContents.executeJavaScript("document.getElementById('output').dataset.active==='fret0'"),'OBS actual native press');
+  await obs.webContents.executeJavaScript("(()=>{window.fixturePaintedCounts=[];const c=document.getElementById('output').getContext('2d'),original=c.fillText.bind(c);c.fillText=(value,...args)=>{if(/^\\d+$/.test(String(value)))window.fixturePaintedCounts.push(String(value));if(window.fixturePaintedCounts.length>64)window.fixturePaintedCounts.shift();return original(value,...args);};})()");
+  native().callbacks.onSample(sample(false));native().callbacks.onSample(sample(true));await until(()=>obs.webContents.executeJavaScript("document.getElementById('output').dataset.active==='fret0'"),'OBS actual native press');
+  const count=service.snapshotOutput().counts.fret0;assert.equal(count,2);await until(()=>obs.webContents.executeJavaScript("window.fixturePaintedCounts.includes('2')"),'actual OBS counter paint');for(let i=0;i<3;i++)await obs.webContents.executeJavaScript("fetch(new URL('/input-viewer-state'+location.search,location.href),{cache:'no-store'}).then(r=>r.json())");assert.equal(service.snapshotOutput().counts.fret0,count);
   native().callbacks.onSample(sample(false));await until(()=>obs.webContents.executeJavaScript("document.getElementById('output').dataset.active===''"),'OBS actual native release');
   for(let i=0;i<3;i++){assert.equal(await obs.webContents.executeJavaScript("getComputedStyle(document.getElementById('position-handle')).display"),'none');await delay(40);}
   assert.equal(await obs.webContents.executeJavaScript("getComputedStyle(document.body).paddingTop"),'0px');
@@ -105,6 +113,7 @@ app.whenReady().then(async()=>{
   await change('device','0');await evaluate('window.fixtureDown=true');await until(()=>service.snapshotOutput().pressed.fret0===true,'browser output');
   assert.equal((await evaluate(`window.ChartsHubInputViewer.publishPressed({run:${lease.run},selection:${lease.selection},pressed:{fret0:false}})`)).ok,false);
   await evaluate('window.fixtureDown=false');await until(()=>service.snapshotOutput().pressed.fret0===false,'browser release');
+  await evaluate("document.getElementById('counts-reset').click()");await until(()=>service.snapshotOutput().counts.fret0===0,'explicit session reset');assert.equal(service.status().phase,'running');assert.equal((await stored()).showCounts,true);assert(!Object.hasOwn(await stored(),'counts'));
  });
  await check('Closing the editor stops reading, clears held output and hides the game surface without losing saved setup',async()=>{
   await evaluate('window.fixtureDown=true');await until(()=>service.snapshotOutput().pressed.fret0===true,'held before close');await evaluate("document.getElementById('close-editor').click()");
@@ -113,6 +122,7 @@ app.whenReady().then(async()=>{
  await service.dispose();service=await createInputViewer({root,electron,xinputFactory:factory,language:()=> 'en'});editor=await service.open();await until(()=>evaluate("document.getElementById('element').options.length===8"),'English editor');
  await check('English setup steps, mapping count and separate-output action remain understandable after restoring settings',async()=>{
   assert.match(await evaluate("document.getElementById('mapping-guide').textContent"),/Start.*Choose.*Map/);assert.equal(await evaluate("document.getElementById('mapping-count').textContent"),'1/8 controls mapped');assert.equal(await evaluate("document.getElementById('show-output').textContent"),'Show over game');assert.equal(await evaluate("document.getElementById('close-editor').textContent"),'Close');
+  assert.equal(await evaluate("document.getElementById('counts').parentNode.textContent"),'Show press counters');assert.equal(await evaluate("document.getElementById('counts-reset').textContent"),'Reset press counters');assert.match(await evaluate("document.getElementById('counts-help').textContent"),/Game Widgets.*first start input/);assert(Object.values(service.snapshotOutput().counts).every(value=>value===0));
   await evaluate("document.getElementById('configure-mapping').click()");assert.equal(await evaluate('document.activeElement.id'),'learn');await fs.writeFile(path.join(directory,'editor-en.png'),(await editor.webContents.capturePage()).toPNG());assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
  });
  await finish();

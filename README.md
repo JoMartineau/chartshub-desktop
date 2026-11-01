@@ -47,6 +47,8 @@ Les pull requests vers `main` exécutent les mêmes tests et compilations et pro
 
 Le catalogue distingue maintenant la maintenance du site d’une limite de recherche ChorusEncore : la recherche peut être relancée après la réouverture du site, sans conserver une attente artificielle. Les limites réellement imposées par le service sont respectées.
 
+L’Input Viewer propose des compteurs par bouton, une remise à zéro manuelle et, avec le module des widgets actif, des options d’affichage au début du morceau et de remise à zéro à sa fin. Le correctif VST rétablit les mises à jour de l’éditeur et permet d’annuler une ouverture restée en attente. [Guide Input Viewer](docs/INPUT-VIEWER.md).
+
 ### Version 0.14.36
 
 **Quick Import · BÊTA** propose l’ajout des nouvelles charts téléchargées sans scan complet, avec une connexion facultative et des étapes numérotées. Compatible et testé avec **Clone Hero 1.1.0.6142-final Stable sous Windows x64**, avec module Quick Import et MelonLoader. Les autres versions ne sont pas validées. L’option reste désactivée au démarrage ; les téléchargements et les autres widgets fonctionnent sans elle. [Guide](docs/QUICK-IMPORT.md) · [Notes 0.14.36](docs/RELEASE-0.14.36.md).

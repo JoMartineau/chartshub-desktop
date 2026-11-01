@@ -27,7 +27,7 @@ function draw(now){
  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,config.width,config.height);ctx.fillStyle=config.background;ctx.fillRect(0,0,config.width,config.height);
  trails=updateTrails(trails,previous,pressed,config.controls,now,config.trails);previous=pressed;
  for(const trace of trails){const c=config.controls.find(item=>item.id===trace.id);if(!c?.visible)continue;const ghost=trailGeometry(c,trace,now,config.trails);if(ghost)paintTrail(ctx,c,ghost,config,trace,now);}
- for(const c of config.controls)if(c.visible)paintControl(ctx,c,pressed?.[c.id]===true,config);
+ for(const c of config.controls)if(c.visible)paintControl(ctx,c,pressed?.[c.id]===true,config,state?.counts?.[c.id]);
  canvas.dataset.active=config.controls.filter(c=>c.visible&&pressed?.[c.id]===true).map(c=>c.id).join(' ');canvas.dataset.trailCount=String(trails.length);
  frame=requestAnimationFrame(draw);
 }

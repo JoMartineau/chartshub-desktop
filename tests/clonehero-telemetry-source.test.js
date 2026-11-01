@@ -6,7 +6,7 @@ const {createGameWidgetIntegrations}=require('../companion/game-widget-integrati
 const c=require('../companion/clonehero-telemetry-contract.cjs');
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function until(test){for(let i=0;i<100;i++){if(test())return;await wait(10);}assert.fail('Telemetry condition timed out');}
-async function fixture(t,{game=SUPPORTED_BUILDS[0],onHandshake,config,records,beforeSource=()=>{},staleMs=250,startDisabled=false,omitStartDisabled=false,onChange=()=>{}}={}){
+async function fixture(t,{game=SUPPORTED_BUILDS[0],onHandshake,config,records,beforeSource=()=>{},staleMs=250,startDisabled=false,omitStartDisabled=false,onChange=()=>{},onChartEvent=()=>{}}={}){
  const directory=await fs.mkdtemp(path.join(os.tmpdir(),'chartshub-telemetry-')),connectionDirectory=path.join(directory,'connection');await fs.mkdir(connectionDirectory);
  const provider={id:'chartshub.clonehero.il2cpp',version:'0.1.0'},descriptor={schema:c.DESCRIPTOR_SCHEMA,provider,game,pipeName:'ChartsHub.CloneHero.Telemetry.11111111-1111-4111-8111-111111111111',nonce:'a'.repeat(64),sessionId:'session-1',pid:123};
  await fs.writeFile(path.join(connectionDirectory,'connection.json'),JSON.stringify(descriptor));
@@ -15,19 +15,19 @@ async function fixture(t,{game=SUPPORTED_BUILDS[0],onHandshake,config,records,be
  let sequence=0;const frame=(type,data={},extra={})=>({schema:c.SCHEMA,provider,game,sessionId:'session-1',attemptId:'attempt-1',playerId:0,sequence:sequence++,type,data,...extra});
  const capabilities=Object.fromEntries(c.CAPABILITIES.map(k=>[k,true]));
  const hello=()=>frame('hello',{capabilities,coverage:'from-attempt-start',state:{phase:'playing'}});
- const peers=[],handshakes=[],changes=[];
+ const peers=[],transports=[],handshakes=[],changes=[],chartEvents=[];
  const server=net.createServer(peer=>{peers.push(peer);let input='';peer.on('error',()=>{});peer.on('data',bytes=>{input+=bytes;const at=input.indexOf('\n');if(at<0)return;const handshake=JSON.parse(input.slice(0,at));input='';handshakes.push(handshake);onHandshake?.(peer,{frame,hello});});});
  const endpoint=process.platform==='win32'?'\\\\.\\pipe\\ChartsHub.Telemetry.Tests.'+require('node:crypto').randomUUID():path.join(directory,'test.sock');
  server.listen(endpoint);await once(server,'listening');
  let connects=0;
  await beforeSource({directory,recordsFile:path.join(directory,'clonehero-records.json')});
- const source=await createTelemetrySource({dataDirectory:directory,connectionDirectory,platform:'win32',pollMs:30,staleMs,...(omitStartDisabled?{}:{startDisabled}),onChange:s=>{changes.push(s);onChange(s);},connectTransport:()=>{connects++;return net.createConnection(endpoint);}});
+ const source=await createTelemetrySource({dataDirectory:directory,connectionDirectory,platform:'win32',pollMs:30,staleMs,...(omitStartDisabled?{}:{startDisabled}),onChange:s=>{changes.push(s);onChange(s);},onChartEvent:event=>{chartEvents.push(event);return onChartEvent(event);},connectTransport:()=>{connects++;const peer=net.createConnection(endpoint);transports.push(peer);return peer;}});
  t.after(async()=>{await source.dispose();for(const peer of peers)peer.destroy();await new Promise(resolve=>server.close(resolve));if(path.dirname(path.resolve(directory))!==path.resolve(os.tmpdir())||!path.basename(directory).startsWith('chartshub-telemetry-'))throw Error('Unexpected fixture directory');await fs.rm(directory,{recursive:true,force:true});});
- return{source,frame,hello,descriptor,directory,connectionDirectory,changes,peers,handshakes,get connects(){return connects;}};
+ return{source,frame,hello,descriptor,directory,connectionDirectory,changes,chartEvents,peers,transports,handshakes,get connects(){return connects;}};
 }
 test('public default ignores a saved activation and opens no descriptor transport until explicit session opt-in',async t=>{
  const config=JSON.stringify({version:1,enabled:true,windowMs:37,goal:{kind:'minutes',target:45}}),f=await fixture(t,{omitStartDisabled:true,config,onHandshake(peer,{frame,hello}){peer.write(JSON.stringify(hello())+'\n'+JSON.stringify(frame('hit',{offsetMs:4}))+'\n');}});
- f.source.start();await wait(65);assert.equal(f.connects,0);assert.equal(f.source.snapshot().enabled,false);assert.equal(f.source.snapshot().status,'disabled');assert.equal(f.source.snapshot().settings.windowMs,37);
+ f.source.start();await wait(65);assert.equal(f.connects,0);assert.deepEqual(f.chartEvents,[]);assert.equal(f.source.snapshot().enabled,false);assert.equal(f.source.snapshot().status,'disabled');assert.equal(f.source.snapshot().settings.windowMs,37);
  await f.source.setEnabled(true);await until(()=>f.source.snapshot().timing.sampleCount===1);assert.equal(f.connects,1);assert.equal(await fs.readFile(path.join(f.directory,'clonehero-telemetry.json'),'utf8'),config,'Opt-in never writes the activation preference');
  f.source.stop();assert.equal(f.source.snapshot().enabled,false);assert.equal(f.source.snapshot().active,null);assert.equal(f.source.snapshot().timing.sampleCount,0);await wait(70);assert.equal(f.connects,1);
  const restarted=await createTelemetrySource({dataDirectory:f.directory,connectionDirectory:f.connectionDirectory,platform:'win32',connectTransport(){assert.fail('A restarted Host cannot auto-connect');}});restarted.start();assert.equal(restarted.snapshot().enabled,false);await restarted.dispose();
@@ -121,4 +121,78 @@ test('missing or removed descriptor is waiting and never discloses its path',asy
 });
 test('contradictory cross-frame counters close the real local transport without recording an impossible result',async t=>{
  const f=await fixture(t,{onHandshake(peer,{frame,hello}){peer.write([hello(),frame('state',{phase:'playing',metadata:{chartId:'c'.repeat(64),instrument:'Guitar',difficulty:'Expert'},stats:{notesHit:1,notesTotal:1}}),frame('state',{phase:'playing',stats:{notesHit:2}}),frame('attemptEnd',{completed:true,state:{phase:'results',stats:{score:200}}})].map(value=>JSON.stringify(value)+'\n').join(''));}});f.source.start();await until(()=>f.changes.some(value=>value.reason==='INVALID_TELEMETRY'));const failed=f.changes.find(value=>value.reason==='INVALID_TELEMETRY');assert.equal(failed.connected,false);assert.equal(failed.active,null);assert.equal(failed.history.length,0);assert.equal(failed.session.completedSongs,0);assert.equal(failed.session.fullCombos,0);await assert.rejects(fs.readFile(path.join(f.directory,'clonehero-records.json')),error=>error.code==='ENOENT');
+});
+
+test('main-only chart events require accepted playing state and completed result, with one opaque ID per attempt',async t=>{
+ const f=await fixture(t,{startDisabled:true,onHandshake(peer,{frame,hello}){
+  const handshake=hello(),playing=frame('state',{phase:'playing'});
+  peer.write([handshake,playing,playing,frame('state',{phase:'paused'}),frame('state',{phase:'playing'}),frame('attemptEnd',{completed:true,state:{phase:'results'}}),frame('attemptEnd',{completed:true,state:{phase:'results'}}),frame('state',{phase:'playing'})].map(value=>JSON.stringify(value)+'\n').join(''));
+ }});
+ await f.source.setEnabled(true);await until(()=>f.chartEvents.length===2);
+ assert.deepEqual(f.chartEvents.map(event=>event.type),['start','end']);assert.equal(f.chartEvents[0].id,f.chartEvents[1].id);
+ const expected='chart-'+require('node:crypto').createHash('sha256').update(JSON.stringify(['session-1','attempt-1',0])).digest('hex');assert.equal(f.chartEvents[0].id,expected);
+ for(const event of f.chartEvents){assert.deepEqual(Object.keys(event).sort(),['id','type']);assert(Object.isFrozen(event));assert.match(event.id,/^[A-Za-z0-9:_-]{1,128}$/);}
+ assert(!JSON.stringify(f.source.snapshot()).includes(expected));assert(!JSON.stringify(f.chartEvents).includes('attempt-1'));assert(!JSON.stringify(f.chartEvents).includes(f.descriptor.nonce));
+});
+
+test('hello, reset, hits, pauses, menus, heartbeats and other local players do not infer chart events',async t=>{
+ const f=await fixture(t,{startDisabled:true,onHandshake(peer,{frame,hello}){peer.write([hello(),frame('state',{phase:'loading'}),frame('hit',{offsetMs:1}),frame('state',{phase:'paused'}),frame('state',{phase:'menu'}),frame('reset',{reason:'seek',state:{phase:'playing'}}),frame('heartbeat'),frame('state',{phase:'playing'},{playerId:1}),frame('attemptEnd',{completed:true,state:{phase:'results'}},{playerId:1}),frame('state',{phase:'idle'})].map(value=>JSON.stringify(value)+'\n').join(''));}});
+ await f.source.setEnabled(true);await until(()=>f.source.snapshot().connected&&f.source.snapshot().phase==='idle');assert.deepEqual(f.chartEvents,[]);
+});
+
+test('abandoned attempts and a later contradictory completed replay cannot emit a confirmed chart end',async t=>{
+ const f=await fixture(t,{startDisabled:true,onHandshake(peer,{frame,hello}){peer.write([hello(),frame('state',{phase:'playing'}),frame('attemptEnd',{completed:false,state:{phase:'results'}}),frame('attemptEnd',{completed:true,state:{phase:'results'}})].map(value=>JSON.stringify(value)+'\n').join(''));}});
+ await f.source.setEnabled(true);await until(()=>f.source.snapshot().active?.ended===true);assert.equal(f.source.snapshot().active.completed,false);assert.deepEqual(f.chartEvents.map(event=>event.type),['start']);
+});
+
+test('rejected frames cannot emit start/end callbacks, including inconsistent final counters',async t=>{
+ for(const mode of ['identity','invalid-state','inconsistent-counters']){
+  const f=await fixture(t,{startDisabled:true,onHandshake(peer,{frame,hello}){
+   const frames=[hello()];
+   if(mode==='identity')frames.push(frame('state',{phase:'playing'},{sessionId:'forged-session'}));
+   if(mode==='invalid-state')frames.push(frame('state',{phase:'playing',stats:{notesHit:2,notesTotal:1}}));
+   if(mode==='inconsistent-counters')frames.push(frame('state',{phase:'paused',stats:{notesHit:1,notesTotal:1}}),frame('state',{phase:'playing',stats:{notesHit:2}}),frame('attemptEnd',{completed:true,state:{phase:'results'}}));
+   peer.write(frames.map(value=>JSON.stringify(value)+'\n').join(''));
+  }});
+  await f.source.setEnabled(true);await until(()=>f.changes.some(value=>value.reason==='INVALID_TELEMETRY'));assert.deepEqual(f.chartEvents,[]);await f.source.dispose();
+ }
+});
+
+test('a reconnect cannot repeat events for the same session and attempt, while a new attempt gets a new opaque ID',async t=>{
+ let handshakes=0;
+ const f=await fixture(t,{startDisabled:true,onHandshake(peer,{frame,hello}){handshakes++;peer.write([hello(),frame('state',{phase:'playing'}),frame('attemptEnd',{completed:true,state:{phase:'results'}})].map(value=>JSON.stringify(value)+'\n').join(''));if(handshakes===1)peer.end();}});
+ await f.source.setEnabled(true);await until(()=>handshakes===2);await until(()=>f.source.snapshot().connected);assert.deepEqual(f.chartEvents.map(event=>event.type),['start','end']);
+ f.peers.at(-1).write([f.frame('state',{phase:'playing'},{attemptId:'attempt-2'}),f.frame('attemptEnd',{completed:true,state:{phase:'results'}},{attemptId:'attempt-2'})].map(value=>JSON.stringify(value)+'\n').join(''));
+ await until(()=>f.chartEvents.length===4);assert.equal(f.chartEvents[2].type,'start');assert.equal(f.chartEvents[3].type,'end');assert.equal(f.chartEvents[2].id,f.chartEvents[3].id);assert.notEqual(f.chartEvents[0].id,f.chartEvents[2].id);
+});
+
+test('synchronous stop inside a chart observer prevents the rest of the same accepted input batch from reviving it',async t=>{
+ let f;f=await fixture(t,{startDisabled:true,onChartEvent:event=>{if(event.type==='start')f.source.stop();},onHandshake(peer,{frame,hello}){peer.write([hello(),frame('state',{phase:'playing'}),frame('attemptEnd',{completed:true,state:{phase:'results'}}),frame('state',{phase:'playing'},{attemptId:'attempt-2'})].map(value=>JSON.stringify(value)+'\n').join(''));}});
+ await f.source.setEnabled(true);await until(()=>f.chartEvents.length===1);await wait(65);assert.deepEqual(f.chartEvents.map(event=>event.type),['start']);assert.equal(f.source.snapshot().enabled,false);assert.equal(f.source.snapshot().active,null);assert.equal(f.connects,1);
+});
+
+test('late data from a stopped or replaced connection generation cannot produce chart events',async t=>{
+ let connections=0;
+ const f=await fixture(t,{startDisabled:true,onHandshake(peer,{frame,hello}){const attemptId=++connections===1?'attempt-1':'attempt-2';peer.write([hello(),frame('state',{phase:'playing'},{attemptId})].map(value=>JSON.stringify(value)+'\n').join(''));}});
+ await f.source.setEnabled(true);await until(()=>f.chartEvents.length===1);const old=f.transports[0];f.source.stop();
+ const late=()=>Buffer.from(JSON.stringify(f.frame('attemptEnd',{completed:true,state:{phase:'results'}}))+'\n');old.emit('data',late());assert.equal(f.chartEvents.length,1);
+ await f.source.setEnabled(true);await until(()=>f.chartEvents.length===2);old.emit('data',late());assert.deepEqual(f.chartEvents.map(event=>event.type),['start','start']);assert.notEqual(f.chartEvents[0].id,f.chartEvents[1].id);assert.equal(f.source.snapshot().phase,'playing');
+ await f.source.dispose();f.transports.at(-1).emit('data',late());assert.equal(f.chartEvents.length,2);
+});
+
+test('a stale or disconnected producer cannot infer a completed chart from menu or missing data',async t=>{
+ const f=await fixture(t,{startDisabled:true,staleMs:100,onHandshake(peer,{frame,hello}){peer.write(JSON.stringify(hello())+'\n'+JSON.stringify(frame('state',{phase:'paused'}))+'\n');}});
+ await f.source.setEnabled(true);await until(()=>f.changes.some(value=>value.status==='stale'));assert.deepEqual(f.chartEvents,[]);
+ const old=f.transports[0];f.source.stop();old.emit('data',Buffer.from(JSON.stringify(f.frame('attemptEnd',{completed:true,state:{phase:'results'}}))+'\n'));assert.deepEqual(f.chartEvents,[]);
+});
+
+test('a throwing main-only chart observer cannot disconnect a valid transport or alter later attempts',async t=>{
+ const f=await fixture(t,{startDisabled:true,onChartEvent(){throw Error('Synthetic observer failure, not a provider error');},onHandshake(peer,{frame,hello}){peer.write([hello(),frame('state',{phase:'playing'}),frame('attemptEnd',{completed:true,state:{phase:'results'}}),frame('state',{phase:'playing'},{attemptId:'attempt-2'}),frame('hit',{offsetMs:3},{attemptId:'attempt-2'})].map(value=>JSON.stringify(value)+'\n').join(''));}});
+ await f.source.setEnabled(true);await until(()=>f.source.snapshot().timing.sampleCount===1);assert.equal(f.source.snapshot().connected,true);assert.deepEqual(f.chartEvents.map(event=>event.type),['start','end','start']);assert(!f.changes.some(value=>value.reason==='INVALID_TELEMETRY'));
+});
+
+test('an asynchronously rejected main-only chart observer is contained without an unhandled rejection',async t=>{
+ const f=await fixture(t,{startDisabled:true,onChartEvent:async()=>{await Promise.resolve();throw Error('Synthetic asynchronous observer failure');},onHandshake(peer,{frame,hello}){peer.write([hello(),frame('state',{phase:'playing'}),frame('attemptEnd',{completed:true,state:{phase:'results'}}),frame('state',{phase:'playing'},{attemptId:'attempt-2'}),frame('hit',{offsetMs:4},{attemptId:'attempt-2'})].map(value=>JSON.stringify(value)+'\n').join(''));}});
+ await f.source.setEnabled(true);await until(()=>f.source.snapshot().timing.sampleCount===1);await wait(0);
+ assert.equal(f.source.snapshot().connected,true);assert.deepEqual(f.chartEvents.map(event=>event.type),['start','end','start']);assert(!f.changes.some(value=>value.reason==='INVALID_TELEMETRY'));
 });

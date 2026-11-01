@@ -17,6 +17,14 @@ Les mesures Accuracy ont été vérifiées sur ce build du jeu ; la synchronisat
 
 Les fonctions de la version 0.14.36 sont conservées : accueil, bibliothèque, demandes, chat Twitch/TikTok, sources OBS, Input Viewer, Batterie / VST, thèmes et récupération des mises à jour.
 
+## Compteurs Input Viewer
+
+- Compteur d’appuis indépendant pour chaque bouton de guitare ou de batterie, avec les mêmes totaux dans l’éditeur, le widget du jeu et OBS. Une pression maintenue compte une fois ; la démo garde ses propres valeurs.
+- Affichage des compteurs et remise à zéro manuelle ; les totaux restent en mémoire pendant la session.
+- Options facultatives de remise à zéro à la fin du morceau et d’affichage du widget au début du morceau. Elles utilisent les événements confirmés du module des widgets déjà activé. L’affichage automatique conserve la position et nécessite une lecture des entrées démarrée par le joueur.
+
+[Mode d’emploi de l’Input Viewer](INPUT-VIEWER.md).
+
 ## Corrections
 
 - **Batterie / VST** : corrige le blocage des pads et des réglages de l’éditeur VST. L’hôte transmet de nouveau les événements de mise à jour du plug-in. Annuler l’ouverture d’un instrument libère les commandes et empêche un chargement tardif après l’arrêt. Les réglages audio verrouillés pendant la lecture indiquent comment les modifier.

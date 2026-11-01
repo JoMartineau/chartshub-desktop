@@ -36,7 +36,7 @@ const sessionId = 'owned-optional-widget-fixture', metadata = { title: 'Syntheti
 const caps = Object.fromEntries(contract.CAPABILITIES.map(key => [key, ['hitTiming', 'clock', 'songMetadata', 'attemptResults'].includes(key)]));
 const checks = [], errors = [], externalRequests = [], peers = [], sourceHashes = {};
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
-const sourceNames = ['companion/host.cjs', 'companion/preload.cjs', 'companion/gameplay-measurements.cjs', 'companion/clonehero-telemetry-source.cjs', 'companion/clonehero-telemetry-model.cjs', 'companion/clonehero-telemetry-view.cjs', 'companion/song-visuals.cjs', 'companion/song-lyrics-parser.cjs', 'companion/ui/panel.js', 'companion/ui/gameplay-features.js'];
+const sourceNames = ['companion/host.cjs', 'companion/preload.cjs', 'companion/gameplay-measurements.cjs', 'companion/clonehero-telemetry-source.cjs', 'companion/clonehero-telemetry-model.cjs', 'companion/clonehero-telemetry-view.cjs', 'companion/song-visuals.cjs', 'companion/song-lyrics-parser.cjs', 'companion/ui/panel.js', 'companion/ui/gameplay-features.js', 'companion/ui/song-visuals-controls.js'];
 let host, owner, contents, view, obs, foreign, server, peer, heartbeat, descriptor, originalSettings, settingsDocument, finished = false, visibilityUnexpected = false, connections = 0, sequence = 0, attemptId = 'owned-first-attempt';
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 async function evaluate(code, target = contents) { let timer; try { return await Promise.race([target.executeJavaScript(code), new Promise((_, reject) => { timer = setTimeout(() => reject(Error('Renderer evaluation timed out')), 10000); })]); } finally { clearTimeout(timer); } }
@@ -47,6 +47,17 @@ const widgetIds = () => evaluate("[...document.querySelectorAll('#widget-setting
 const lyricNode = "#game-preview [data-widget-id='song-lyrics'] .companion-widget-text";
 const accuracyNode = "#game-preview [data-widget-id='gameplay-accuracy'] .companion-widget-text";
 const obsLyric = "[data-widget-id='song-lyrics'] .companion-widget-text";
+const lyricsGuidance = () => evaluate("[...document.querySelectorAll('#song-visuals-controls > p[role=\"status\"]')][1]?.textContent || ''");
+async function guidance(language, pattern) {
+  host.setLanguage(language);
+  await until(() => evaluate('document.documentElement.lang===' + JSON.stringify(language)), 'lyrics guidance language ' + language);
+  await revealWorkspace({ webContents: contents }, '#song-visuals-controls');
+  await until(async () => pattern.test(await lyricsGuidance()), 'actual localized lyrics guidance');
+  const text = await lyricsGuidance();
+  assert.doesNotMatch(text, /indisponible dans cette version|unavailable in this version/);
+  assert.match(text, language === 'fr' ? /capture recadrée/ : /cropped game/);
+  return text;
+}
 async function command(name, payload = {}, target = contents) { return evaluate(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`, target); }
 async function configure(accuracy, lyrics) { const result = await command('gameWidgets.configure', { revision: flags().revision, accuracy, lyrics }); assert.equal(result.ok, true, JSON.stringify(result)); await until(() => flags().accuracy === accuracy && flags().lyrics === lyrics && flags().busy !== true, 'integration flags applied'); }
 function send(type, data = {}) { assert(peer && !peer.destroyed); peer.write(JSON.stringify({ schema: contract.SCHEMA, provider, game, sessionId, attemptId, playerId: 0, sequence: sequence++, type, data }) + '\n'); }
@@ -106,6 +117,7 @@ app.whenReady().then(async () => {
   await check('French and English group independent unchecked choices beside Quick Import without auto activation', async () => {
     for (const language of ['fr', 'en']) { host.setLanguage(language); await until(() => evaluate('document.documentElement.lang===' + JSON.stringify(language)), 'language ' + language); await revealWorkspace({ webContents: contents }, '#game-widget-integrations');
       assert.deepEqual(await evaluate("({accuracy:document.querySelector('#game-widgets-accuracy').checked,lyrics:document.querySelector('#game-widgets-lyrics').checked,group:document.querySelector('#game-widget-integrations').closest('#game-integrations-panel')!==null,quick:document.querySelector('#quick-import-panel').closest('#game-integrations-panel')!==null})"), { accuracy: false, lyrics: false, group: true, quick: true });
+      await guidance(language, language === 'fr' ? /Catalogue → Intégrations Clone Hero/ : /Catalogue → Clone Hero integrations/);
     } assert.equal(connections, 0); await settingsUnchanged();
   });
   await check('Malformed and stale integration commands cannot connect or change either session option', async () => {
@@ -130,6 +142,7 @@ app.whenReady().then(async () => {
     assert(Object.values(performance.active.stats).every(value => value === null)); assert(Object.values(performance.comparison).every(value => value === null)); assert(Object.values(performance.session).every(value => value === 0));
     assert.deepEqual(performance.active.metadata, metadata); assert.deepEqual(performance.active.clock, { positionSeconds: 1, durationSeconds: 12, speed: 1 });
     await until(async () => (await widgetIds()).includes('song-lyrics'), 'lyrics settings offered'); assert(!(await widgetIds()).includes('gameplay-accuracy')); await until(() => evaluate(`document.querySelector(${JSON.stringify(lyricNode)})?.textContent==='Synthetic marker one'`), 'actual game preview phrase'); await settingsUnchanged();
+    for (const language of ['fr', 'en']) await guidance(language, language === 'fr' ? /disponibles dans le widget Paroles synchronisées/ : /available in the Synchronized lyrics widget/);
     send('attemptEnd', { completed: true, state: { phase: 'results', metadata } }); await until(() => host.snapshot().state.performance?.phase === 'results', 'accepted complete attempt in public lyrics session'); assert.deepEqual(host.snapshot().state.performance.history, []); await noPublicRecords(); attemptId = 'owned-second-attempt'; state('paused', 1); await until(() => host.snapshot().state.performance?.phase === 'paused' && host.snapshot().state.lyrics?.current === 'Synthetic marker one', 'new public attempt restores only current words');
   });
   await check('Lyrics follow pause, native speed, backwards seek and gaps and reject a speedless clock', async () => {

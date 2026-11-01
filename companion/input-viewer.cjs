@@ -22,6 +22,7 @@ async function createInputViewer({ root, active = () => true, language = () => '
  let disposed = false, phase = 'stopped', revocation = null, windowsControllers = [], sourceError = null, windowsPending = false, run = 0, revision = 0;
  let inputMode = null, selectedSlot = null, browserSelection = 0, browserLease = null, configured = false, configReadyResolve;
  const configReady = new Promise(resolve => { configReadyResolve = resolve; });
+ const chartStarts = new Set();
  const alive = () => !disposed && active() === true;
  const status = () => ({ available: alive(), open: !!window && !window.isDestroyed(), phase, title: TITLE, language: language() === 'en' ? 'en' : 'fr', windowsControllers, sourceError, windowsPending, revision,
   outputOpen: !!outputWindow && !outputWindow.isDestroyed() && outputWindow.isVisible(), outputEditing, outputAlwaysOnTop });
@@ -62,6 +63,8 @@ async function createInputViewer({ root, active = () => true, language = () => '
    if (phase !== 'running' || !payload || Object.keys(payload).length !== 3 || !['run','selection','pressed'].every(key => Object.hasOwn(payload,key)) || payload.run !== run || payload.selection !== browserLease || !['browser','keyboard'].includes(inputMode)) return { ok: false };
    return { ok: outputState.updatePressed(payload.pressed) };
   }
+  if (command === 'counterSnapshot' && empty(payload)) return { ok: true, mode: outputState.getMode(), counts: outputState.snapshot().counts };
+  if (command === 'resetCounts' && empty(payload)) return { ok: true, mode: outputState.getMode(), counts: outputState.resetCounts().counts };
   if (command === 'showOutput') {
    if (!validOutputOptions(payload)) return { ok: false };
    await showOutput(payload); return { ok: true, state: status() };
@@ -103,14 +106,15 @@ async function createInputViewer({ root, active = () => true, language = () => '
  const outputSession = session.fromPartition('chartshub-input-viewer-output');
  outputSession.setPermissionCheckHandler(() => false); outputSession.setPermissionRequestHandler((_web,_permission,callback) => callback(false));
  await outputSession.protocol.handle('chartshub-companion', request => { const file = assetPath(root, request.url); return file && request.method === 'GET' ? net.fetch(pathToFileURL(file).href) : new Response('Not found', { status: 404 }); });
- async function showOutput(options) {
-  if (!alive() || !validOutputOptions(options)) return null;
+ async function showOutput(options, guard = () => true) {
+  const allowed = () => { try { return alive() && guard() === true; } catch { return false; } };
+  if (!allowed() || !validOutputOptions(options)) return null;
   const ticket = ++outputIntent;
   outputEditing = options.editing; if (Object.hasOwn(options,'alwaysOnTop')) outputAlwaysOnTop = options.alwaysOnTop;
-  if (!configured) { await open({ show: false }); await Promise.race([configReady, new Promise(resolve => setTimeout(resolve, 3000))]); }
-  if (!alive() || !configured || ticket !== outputIntent) return null;
+  if (!configured) { await open({ show: false }); if (!allowed() || ticket !== outputIntent) return null; await Promise.race([configReady, new Promise(resolve => setTimeout(resolve, 3000))]); }
+  if (!allowed() || !configured || ticket !== outputIntent) return null;
   if (outputOpening) await outputOpening;
-  if (!alive() || ticket !== outputIntent) return null;
+  if (!allowed() || ticket !== outputIntent) return null;
   if (!outputWindow || outputWindow.isDestroyed()) {
    const task = (async () => {
     const config = snapshotOutput().config;
@@ -123,13 +127,23 @@ async function createInputViewer({ root, active = () => true, language = () => '
     try { await next.loadURL(OUTPUT_PAGE); return next; } catch(error) { if (!next.isDestroyed()) next.destroy(); throw error; }
    })(); outputOpening = task; try { await task; } finally { if (outputOpening === task) outputOpening = null; }
   }
-  if (!alive() || ticket !== outputIntent || !outputWindow || outputWindow.isDestroyed()) return null;
+  if (!allowed() || ticket !== outputIntent || !outputWindow || outputWindow.isDestroyed()) return null;
   outputWindow.setAlwaysOnTop(outputAlwaysOnTop, 'screen-saver'); outputWindow.setIgnoreMouseEvents(!outputEditing,{ forward: true }); outputWindow.setFocusable(outputEditing);
   if (!outputRevocation) { outputRevocation = setInterval(() => { if (!alive()) stop(true); }, 100); outputRevocation.unref?.(); }
+  if (!allowed() || ticket !== outputIntent) return null;
   outputWindow.showInactive(); notify(); return outputWindow;
  }
  function hideOutput() { outputIntent++; if (outputRevocation) clearInterval(outputRevocation); outputRevocation = null; if (outputWindow && !outputWindow.isDestroyed()) outputWindow.hide(); notify(); }
+ async function confirmChartStart(id, guard = () => true) {
+  if (!alive() || typeof id !== 'string' || !/^[A-Za-z0-9:_-]{1,128}$/.test(id) || chartStarts.has(id)) return false;
+  chartStarts.add(id); if (chartStarts.size > 256) chartStarts.delete(chartStarts.values().next().value);
+  // This main-process hook is called only for an already authorized, verified
+  // game event. It never starts input reading, opens the editor or sets mapping.
+  const allowed = () => { try { return phase === 'running' && configured && outputState.getAutoShowOnChartStart() && guard() === true; } catch { return false; } };
+  if (!allowed()) return false;
+  return !!await showOutput({ editing: false }, allowed);
+ }
  async function dispose() { if (disposed) return; disposed = true; stop(true); source.dispose(); await opening?.catch(() => {}); await outputOpening?.catch(() => {}); if (outputWindow && !outputWindow.isDestroyed()) outputWindow.destroy(); ipcMain.removeHandler(CHANNEL); ipcMain.removeHandler(OUTPUT_CHANNEL); await ses.protocol.unhandle('chartshub-companion'); await outputSession.protocol.unhandle('chartshub-companion'); }
- return { open, stop, dispose, status, snapshotOutput, showOutput, hideOutput, getWindow: () => window, getOutputWindow: () => outputWindow };
+ return { open, stop, dispose, status, snapshotOutput, showOutput, hideOutput, confirmChartStart, confirmChartEnd: id => alive() && outputState.confirmChartEnd(id), getWindow: () => window, getOutputWindow: () => outputWindow };
 }
 module.exports = { createInputViewer, trusted, validSelection, PAGE, TITLE, CHANNEL, OUTPUT_PAGE, OUTPUT_CHANNEL };

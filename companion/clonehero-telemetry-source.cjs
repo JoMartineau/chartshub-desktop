@@ -60,8 +60,8 @@ finally {
 finally {
     await fs.unlink(temporary).catch(() => { });
 } }
-async function createTelemetrySource({ dataDirectory, connectionDirectory = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ChartsHub', 'Telemetry', 'v1'), platform = process.platform, supportedBuilds = SUPPORTED_BUILDS, onChange = () => { }, connectTransport = name => net.createConnection('\\\\.\\pipe\\' + name), now = Date.now, pollMs = 2000, staleMs = 5000, startDisabled = true } = {}) {
-    if (typeof dataDirectory !== 'string' || !path.isAbsolute(dataDirectory) || typeof connectionDirectory !== 'string' || !path.isAbsolute(connectionDirectory) || typeof onChange !== 'function' || typeof startDisabled !== 'boolean' || !Number.isFinite(pollMs) || pollMs < 10 || pollMs > 60000 || !Number.isFinite(staleMs) || staleMs < 100 || staleMs > 60000)
+async function createTelemetrySource({ dataDirectory, connectionDirectory = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ChartsHub', 'Telemetry', 'v1'), platform = process.platform, supportedBuilds = SUPPORTED_BUILDS, onChange = () => { }, onChartEvent = () => { }, connectTransport = name => net.createConnection('\\\\.\\pipe\\' + name), now = Date.now, pollMs = 2000, staleMs = 5000, startDisabled = true } = {}) {
+    if (typeof dataDirectory !== 'string' || !path.isAbsolute(dataDirectory) || typeof connectionDirectory !== 'string' || !path.isAbsolute(connectionDirectory) || typeof onChange !== 'function' || typeof onChartEvent !== 'function' || typeof startDisabled !== 'boolean' || !Number.isFinite(pollMs) || pollMs < 10 || pollMs > 60000 || !Number.isFinite(staleMs) || staleMs < 100 || staleMs > 60000)
         throw Error('Configuration de télémétrie invalide.');
     const settingsFile = path.join(dataDirectory, 'clonehero-telemetry.json'), recordsFile = path.join(dataDirectory, 'clonehero-records.json'), descriptorFile = path.join(connectionDirectory, 'connection.json');
     let settings = { windowMs: 20, goal: { kind: 'songs', target: 10 } }, enabled = true, canWrite = true, persistenceError = null, recordsWritable = true;
@@ -98,6 +98,31 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
         }
     }
     let wanted = false, disposed = false, generation = 0, socket = null, pollTimer = null, healthTimer = null, notificationTimer = null, persistence = Promise.resolve(), controls = Promise.resolve(), lastPublished = '';
+    // Main-process session hooks only. No identities, events or seen sets are
+    // persisted or added to Companion/OBS snapshots. Keep de-duplication across
+    // reconnects so the same attempt cannot reopen/reset an output twice.
+    const chartEvents = { start: new Set(), end: new Set() };
+    function notifyChartEvent(frame, current) {
+        if (!current() || frame.playerId !== 0) return;
+        const type = frame.type === 'state' && frame.data.phase === 'playing' ? 'start'
+            : frame.type === 'attemptEnd' && frame.data.completed === true ? 'end' : null;
+        if (!type) return;
+        const accepted = model.snapshot();
+        if (!current() || !accepted.connected || !accepted.active
+            || (type === 'start' && accepted.active.ended)
+            || (type === 'end' && (!accepted.active.ended || accepted.active.completed !== true))) return;
+        const id = 'chart-' + crypto.createHash('sha256').update(JSON.stringify([frame.sessionId, frame.attemptId, frame.playerId])).digest('hex');
+        const seen = chartEvents[type];
+        if (seen.has(id)) return;
+        seen.add(id);
+        if (seen.size > 2000) seen.delete(seen.values().next().value);
+        if (!current()) return;
+        try {
+            const observation = onChartEvent(Object.freeze({ type, id }));
+            if (observation && typeof observation.then === 'function') Promise.resolve(observation).catch(() => { });
+        }
+        catch { /* A UI observer cannot disconnect or own the transport. */ }
+    }
     const snapshot = () => ({ ...model.snapshot(), enabled, canWrite, persistenceError });
     function publish(force = false) { if (disposed)
         return; const value = snapshot(), signature = JSON.stringify(value); if (!force && signature === lastPublished)
@@ -192,6 +217,7 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
                     throw error('TELEMETRY_FRAME_TOO_LARGE');
                 let newline;
                 while ((newline = pending.indexOf('\n')) >= 0) {
+                    if (!current()) return;
                     const line = pending.slice(0, newline).replace(/\r$/, '');
                     pending = pending.slice(newline + 1);
                     if (!line)
@@ -206,9 +232,12 @@ async function createTelemetrySource({ dataDirectory, connectionDirectory = path
                     if (hello && frame.type === 'hello')
                         throw error('DUPLICATE_HELLO');
                     const accepted = model.ingest(frame);
+                    if (!current()) return;
                     hello = true;
                     if (accepted)
                         lastFrameAt = now();
+                    if (accepted) notifyChartEvent(frame, current);
+                    if (!current()) return;
                     if (accepted && frame.type === 'attemptEnd')
                         saveRecords();
                     schedulePublish();

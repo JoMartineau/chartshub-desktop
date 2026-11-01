@@ -45,7 +45,19 @@ export class SongVisualControls {
     this.status.textContent = this.tr(...(states[v?.state] || states.disabled)) + (v?.title ? ' · ' + v.title : '');
     const lyricsReasons = { missing: ['Cette chart ne contient pas de paroles.', 'This chart contains no lyrics.'], invalid: ['Les paroles de cette chart ne peuvent pas être synchronisées.', 'The lyrics in this chart cannot be synchronized.'], ambiguous: ['Les phrases de paroles sont ambiguës ; le widget reste transparent.', 'Lyric phrases are ambiguous; the widget stays transparent.'], unsupported: ['Ce format de paroles n’est pas encore pris en charge.', 'This lyrics format is not yet supported.'] };
     this.lyricsStatus.textContent = this.tr('Paroles : ', 'Lyrics: ') + (v?.hasLyrics ? v.clockReady ? this.tr('disponibles dans le widget Paroles synchronisées.', 'available in the Synchronized lyrics widget.') : this.tr('détectées · en attente de l’horloge et de la vitesse du jeu.', 'detected · waiting for the game clock and speed.') : v?.state === 'ready' ? this.tr(...(lyricsReasons[v.lyricsReason] || lyricsReasons.missing)) : this.tr('en attente du morceau local et de son horloge.', 'waiting for the local song and its clock.'));
-    if (snapshot?.features?.gameplayMeasurements !== true) this.lyricsStatus.textContent = this.tr('Paroles : utilisez la capture recadrée « Paroles » du jeu ci-dessous. La synchronisation du texte local nécessite une horloge de jeu, indisponible dans cette version.', 'Lyrics: use the cropped game “Lyrics” capture below. Local text synchronization requires a game clock, unavailable in this version.');
+    if (snapshot?.features?.gameplayMeasurements !== true) {
+      const captureAlternative = this.tr('La capture recadrée « Paroles » du jeu ci-dessous reste une alternative.', 'The cropped game “Lyrics” capture below remains an alternative.');
+      if (snapshot?.features?.gameWidgets === true) {
+        if (snapshot?.gameWidgets?.lyrics !== true) {
+          this.lyricsStatus.textContent = this.tr('Paroles : pour synchroniser le texte local, activez « Paroles synchronisées » dans Catalogue → Intégrations Clone Hero, avec le module Widgets optionnel.', 'Lyrics: to synchronize local text, enable “Synchronized lyrics” in Catalogue → Clone Hero integrations, using the optional Widgets module.');
+        } else if (snapshot?.gameWidgets?.connected !== true) {
+          this.lyricsStatus.textContent = this.tr('Paroles : activées · en attente de la connexion du module Widgets optionnel.', 'Lyrics: enabled · waiting for the optional Widgets module to connect.');
+        }
+        this.lyricsStatus.textContent += ' ' + captureAlternative;
+      } else {
+        this.lyricsStatus.textContent = this.tr('Paroles : la synchronisation du texte local nécessite le module Widgets optionnel compatible et son horloge de jeu.', 'Lyrics: local text synchronization requires the compatible optional Widgets module and its game clock.') + ' ' + captureAlternative;
+      }
+    }
     this.choiceLabel.textContent = this.tr('Version du morceau', 'Song version'); this.choice.parentElement.hidden = v?.state !== 'ambiguous';
     const signature = JSON.stringify([v?.selectionKey, v?.candidates, v?.selected, snapshot?.language]);
     if (this.choice.dataset.signature !== signature) {

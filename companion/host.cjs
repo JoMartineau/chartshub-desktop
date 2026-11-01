@@ -22,6 +22,7 @@ const { createCloneHeroSource } = require('./clonehero-source.cjs');
 const { loadMeasurementFactories, loadGameWidgetFactories } = require('./gameplay-measurements.cjs');
 const { createGameWidgetIntegrations } = require('./game-widget-integrations.cjs');
 const { createGameModPreflight } = require('./game-mod-preflight.cjs');
+const { createInputViewerGameEvents } = require('./input-viewer-game-events.cjs');
 const { publicTelemetrySnapshot, telemetryStateView } = require('./clonehero-telemetry-view.cjs');
 const { createCharterColorResolver } = require('./charter-color-resolver.cjs');
 const { createCloneHeroProcessProbe } = require('./clonehero-process.cjs');
@@ -150,6 +151,15 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let lifecycleRevision = 0;
   let language = 'fr';
   let telemetry = null, gameWidgetIntegrations = null, gameModPreflight = null;
+  const inputViewerGameEvents = createInputViewerGameEvents({
+    getViewer: () => inputViewer,
+    getContext: () => {
+      const state = measurementsEnabled ? telemetry?.snapshot() : gameWidgetIntegrations?.status();
+      return { ready: hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive() && catalogueAllowed() && state?.enabled === true && state?.connected === true,
+        lifecycle: lifecycleRevision, revision: measurementsEnabled ? 0 : state?.revision ?? -1 };
+    }
+  });
+  const onChartEvent = event => { void inputViewerGameEvents.handle(event).catch(() => {}); };
   const calibrationHardware = measurementsEnabled ? calibrationHardwareService ?? measurementFactories.createCalibrationHardware({ screen, bounds: () => panel && !panel.isDestroyed() ? panel.getBounds() : null, onChange: () => { if (!disposing) publishPanel(); } }) : null;
   const connectorSetup = measurementsEnabled ? connectorSetupService ?? measurementFactories.createConnectorSetup({ dataDirectory,
     chooseDirectory: async () => {
@@ -198,9 +208,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   });
   const services = new ServiceContainer({ integration, initialWidgets: widgets, logger });
   services.store.setState(state => ({ ...state, theme, stream }));
-  if (measurementsEnabled) telemetry = await measurementFactories.createTelemetrySource({ dataDirectory, startDisabled: false, onChange: () => { if (!disposing) publish(); } });
+  if (measurementsEnabled) telemetry = await measurementFactories.createTelemetrySource({ dataDirectory, startDisabled: false, onChartEvent, onChange: () => { if (!disposing) publish(); } });
   else {
-    telemetry = gameWidgetTelemetrySource ?? await gameWidgetFactories.createTelemetrySource({ dataDirectory, startDisabled: true, onChange: () => { if (!disposing && hostActive) publish(); } });
+    telemetry = gameWidgetTelemetrySource ?? await gameWidgetFactories.createTelemetrySource({ dataDirectory, startDisabled: true, onChartEvent, onChange: () => { if (!disposing && hostActive) publish(); } });
     gameWidgetIntegrations = createGameWidgetIntegrations({ telemetry,
       getContext: () => ({ active: hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive() && catalogueAllowed(), lifecycle: lifecycleRevision }),
       onChange: () => { if (!disposing && hostActive) publish(); } });
