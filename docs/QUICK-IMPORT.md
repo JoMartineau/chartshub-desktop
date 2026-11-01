@@ -4,6 +4,8 @@
 
 Cette option ajoute une nouvelle chart téléchargée à la liste du jeu sans relire tous les dossiers Songs. Elle est facultative et désactivée à chaque démarrage de ChartsHub. Les téléchargements et les autres widgets fonctionnent sans elle.
 
+Le paquet **Windows x64** contient **Quick Import/quick-import-mod/README.md**, les scripts facultatifs d’installation et le seul module ChartsHub. Ouvrez ce guide avant d’ajouter le module au jeu. MelonLoader se télécharge séparément depuis sa release officielle ; il n’est pas inclus ni installé automatiquement. Les scripts affichent d’abord un plan et conservent les fichiers existants. Le guide du module détaille aussi son retrait.
+
 ## Les étapes
 
 1. **Préparer le jeu.** Vérifiez la version de Clone Hero. L’intégration utilise MelonLoader et le module ChartsHub Quick Import correspondant. Fermez le jeu et son lanceur avant leur installation. Le bouton « Choisir Clone Hero » choisit le programme ; il n’installe aucun module.
@@ -34,6 +36,8 @@ Le statut « Prêt » correspond à un ajout confirmé par le module, avec liste
 ## English
 
 Quick Import is an **optional BETA tested with Clone Hero 1.1.0.6142-final Stable on Windows x64**. Other builds are not validated. It is off whenever ChartsHub starts.
+
+The Windows x64 download includes **Quick Import/quick-import-mod/README.md**, the optional setup scripts and the ChartsHub module. MelonLoader is obtained separately from its official release. Nothing is installed automatically; setup first displays a plan and preserves existing files.
 
 1. Prepare the matching Quick Import module and MelonLoader while Clone Hero and its launcher are closed. Selecting the executable does not install them.
 2. Choose the same Songs folder in Dashboard Library, Clone Hero and the download destination.

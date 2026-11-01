@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "kind": "production-candidate",
+  "build": "CH-1.1.0.6142-win-x64-12bc21e5a88a2fc9",
+  "moduleSha256": "50471ba7d0867f14a13fcf613480c02377e8a87ffab13b7d9b1a56392212c42f",
+  "version": "0.1.0",
+  "defaultEnabled": false,
+  "gameBinaryIncluded": false,
+  "loaderArchiveIncluded": false,
+  "installed": false,
+  "gameAssemblySha256": "12bc21e5a88a2fc9abc259d5d67f24835145eabca6c3f863b075ba37ad75f197"
+}

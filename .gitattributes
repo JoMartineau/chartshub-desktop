@@ -1,0 +1,3 @@
+# Preserve the exact reviewed UTF-8 source bytes used for deterministic builds.
+# The optional package deliberately includes an original CRLF MODULE.json.
+/quick-import-mod/** -text

@@ -14,6 +14,7 @@ Les fonctions existantes de bibliothèque, file, Input Viewer, captures du jeu, 
 ## Quick Import · BÊTA
 
 - Section facultative dans Catalogue → Téléchargements, avec étapes numérotées en français et en anglais.
+- Paquet de module distinct inclus dans le téléchargement Windows x64, avec guide FR/EN, scripts affichant un plan avant application, retrait des seuls fichiers possédés et construction reproductible. Aucun binaire Clone Hero ou MelonLoader n’est redistribué.
 - Compatibilité affichée : **Clone Hero 1.1.0.6142-final Stable · Windows x64**. Les autres versions ne sont pas validées.
 - Choix explicite du jeu et connexion volontaire, désactivée à chaque démarrage de ChartsHub. Les autres widgets et les téléchargements restent utilisables sans Quick Import.
 - Ajout des nouvelles charts au format Dossier depuis le catalogue principal ou le Tableau de bord, sans scan complet. Les formats `notes.chart` et `notes.mid` sont pris en charge par le module compatible ; les archives conservées ZIP/SNG et les téléchargements administrateur de vérification sont exclus.

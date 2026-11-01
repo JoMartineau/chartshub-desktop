@@ -43,6 +43,39 @@ jobs:
       - run: npm ci
       - name: Check native runner architecture
         run: node -e "if(process.platform!=='${{ matrix.platform }}'||process.arch!=='${{ matrix.arch }}')throw Error('A native runner is required for this target')"
+      - uses: actions/setup-dotnet@v4
+        if: runner.os == 'Windows'
+        with:
+          dotnet-version: '10.0.401'
+      - name: Reproduce optional Quick Import from public sources without running a game or loader
+        if: runner.os == 'Windows'
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reproRoot = Join-Path $env:RUNNER_TEMP 'quick-import-module-build'
+          $proofRoot = Join-Path $env:RUNNER_TEMP 'quick-import-module-proof'
+          if ((Test-Path -LiteralPath $reproRoot) -or (Test-Path -LiteralPath $proofRoot)) { throw 'Fresh module build and evidence directories required' }
+          if (@(Get-ChildItem -LiteralPath 'quick-import-mod' -Recurse -File -Force).Count -ne 20) { throw 'Only the twenty reviewed text source files may come from Git' }
+          New-Item -ItemType Directory -Path $proofRoot | Out-Null
+          Copy-Item -LiteralPath 'quick-import-mod' -Destination $reproRoot -Recurse
+          $loaderZip = Join-Path $env:RUNNER_TEMP 'quick-import-MelonLoader-0.7.3-x64.zip'
+          Invoke-WebRequest -Uri 'https://github.com/LavaGang/MelonLoader/releases/download/v0.7.3/MelonLoader.x64.zip' -OutFile $loaderZip -TimeoutSec 120
+          if ((Get-FileHash -LiteralPath $loaderZip -Algorithm SHA256).Hash.ToLowerInvariant() -cne '5b2b2f3d1cd42b59ec886c5bdc2663edae87a0097a4f4a8f58c0965a99dda416') { throw 'Official loader development archive SHA-256 mismatch' }
+          & (Join-Path $reproRoot 'Build-Module.ps1') -LoaderZip $loaderZip
+          $module = Get-Content -LiteralPath 'quick-import-mod/MODULE.json' -Raw | ConvertFrom-Json
+          $compiled = Join-Path $reproRoot 'source/bin/ProductionCandidate/net6.0/ChartsHub.QuickImport.dll'
+          if ((Get-FileHash -LiteralPath $compiled -Algorithm SHA256).Hash.ToLowerInvariant() -cne $module.moduleSha256) { throw 'Reproduced module differs from the reviewed live-tested module' }
+          Copy-Item -LiteralPath $compiled -Destination 'quick-import-mod/ChartsHub.QuickImport.dll'
+          node -e "const p=require('./package-quick-import.cjs').inspectQuickImport(process.cwd());require('node:fs').writeFileSync(process.argv[1],JSON.stringify({...p,result:'QUICK_IMPORT_PRODUCTION_REPRODUCED',sdkVersion:'10.0.401',loaderArchiveSha256:'5b2b2f3d1cd42b59ec886c5bdc2663edae87a0097a4f4a8f58c0965a99dda416',gameAccessed:false,loaderExecuted:false,installationPerformed:false,thirdPartyBinariesDistributed:false},null,2)+'\n',{flag:'wx'});" "$proofRoot/report.json"
+          if ($LASTEXITCODE -ne 0) { throw 'Optional module package provenance incomplete' }
+          'CHARTSHUB_REQUIRE_QUICK_IMPORT_PACKAGE=1' | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Windows'
+        with:
+          name: companion-quick-import-module
+          path: ${{ runner.temp }}/quick-import-module-proof/report.json
+          if-no-files-found: warn
       - name: Compile TypeScript and run tests
         run: npm test
       - name: Verify public Companion, lyrics capture and filter mini restoration on Windows
@@ -339,6 +372,24 @@ jobs:
             if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -cne $file.sha256 -or (Get-Item -LiteralPath $target).Length -ne $file.bytes) { throw 'Packaged drum dependency changed' }
           }
           if (($manifest.files | Where-Object name -eq 'ChartsHubDrumHost.exe').sha256 -cne $proof.helperSha256) { throw 'Packaged drum helper differs from offline-tested helper' }
+      - name: Verify optional module package bytes match the reproduced sources and DLL
+        if: runner.os == 'Windows'
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $proof = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP 'quick-import-module-proof/report.json') -Raw | ConvertFrom-Json
+          $directory = Join-Path $PWD 'dist/ChartsHub-win32-x64/Quick Import/quick-import-mod'
+          $manifest = Get-Content -LiteralPath (Join-Path $directory 'PACKAGE-MANIFEST.json') -Raw | ConvertFrom-Json
+          if ($proof.result -cne 'QUICK_IMPORT_PRODUCTION_REPRODUCED' -or $proof.sdkVersion -cne '10.0.401' -or $manifest.schema -ne 1 -or @($manifest.files).Count -ne 21 -or @($manifest.files | ForEach-Object name | Sort-Object -Unique).Count -ne 21 -or $manifest.moduleSha256 -cne $proof.moduleSha256 -or $manifest.build -cne $proof.build) { throw 'Optional module package provenance incomplete' }
+          foreach ($flag in @('defaultEnabled','gameBinaryIncluded','loaderArchiveIncluded','installed')) { if ($manifest.$flag -ne $false) { throw 'Optional module may not activate or install itself' } }
+          foreach ($flag in @('gameAccessed','loaderExecuted','installationPerformed','thirdPartyBinariesDistributed')) { if ($proof.$flag -ne $false) { throw 'Module reproduction exceeded compile-only scope' } }
+          if (@(Get-ChildItem -LiteralPath $directory -Recurse -File -Force).Count -ne 22) { throw 'Only the21 reviewed files and packaging receipt may be distributed' }
+          foreach ($file in $manifest.files) {
+            $expected = @($proof.files | Where-Object name -CEQ $file.name)
+            if ($expected.Count -ne 1 -or $expected[0].sha256 -cne $file.sha256 -or $expected[0].bytes -ne $file.bytes) { throw 'Optional module source or output changed after reproduction' }
+            $target = Join-Path $directory $file.name
+            if ((Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant() -cne $file.sha256 -or (Get-Item -LiteralPath $target).Length -ne $file.bytes) { throw 'Packaged optional module bytes differ' }
+          }
       - name: Verify the actual public Windows ASAR before archiving
         if: runner.os == 'Windows'
         timeout-minutes: 8

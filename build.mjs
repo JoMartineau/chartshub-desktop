@@ -7,6 +7,7 @@ const version=JSON.parse(readFileSync(new URL('./package.json',import.meta.url),
 const {twitchClientId}=createRequire(import.meta.url)('./companion/song-request-config.cjs');
 const {publicMeasurementBundleIgnore}=createRequire(import.meta.url)('./companion/gameplay-measurements.cjs');
 const {inspectDrumHost,copyDrumHost}=createRequire(import.meta.url)('./package-drum-host.cjs');
+const {inspectQuickImport,copyQuickImport}=createRequire(import.meta.url)('./package-quick-import.cjs');
 if(typeof twitchClientId!=='string'||!/^[a-zA-Z0-9]{1,128}$/.test(twitchClientId))throw Error('Configure the public ChartsHub Twitch Client ID before packaging. See docs/SONG-REQUESTS-PUBLISHER.md.');
 const platform=process.argv[2]||process.platform,arch=process.argv[3]||process.arch;
 if(!['win32','darwin','linux'].includes(platform)||!['x64','arm64'].includes(arch))throw Error('Unsupported platform');
@@ -14,6 +15,7 @@ if(platform==='win32'&&arch==='x64'&&!existsSync(new URL('./native-filters/bin/d
 if(platform==='win32'&&arch==='x64'&&!existsSync(new URL('./reshade-bridge/bin/ChartsHubReShade.addon64',import.meta.url)))throw Error('Compile the ReShade bridge with reshade-bridge/build.ps1 before packaging Windows x64.');
 if(platform==='win32'&&arch==='x64')for(const notice of ['native-filters/bin/MinHook-LICENSE.txt','reshade-bridge/bin/ReShade-SDK-LICENSE.md','reshade-bridge/bin/nlohmann-LICENSE.MIT'])if(!existsSync(new URL('./'+notice,import.meta.url)))throw Error('Missing dependency license: '+notice);
 if(platform==='win32'&&arch==='x64')inspectDrumHost(import.meta.dirname);
+if(platform==='win32'&&arch==='x64')inspectQuickImport(import.meta.dirname);
 const electronZipDir=process.env.CHARTSHUB_ELECTRON_ZIP_DIR;
 const outputDirectory=process.env.CHARTSHUB_DESKTOP_OUT||path.resolve(import.meta.dirname,'dist');
 if(electronZipDir){
@@ -21,7 +23,7 @@ if(electronZipDir){
  const checksums=JSON.parse(readFileSync(new URL('./node_modules/electron/checksums.json',import.meta.url),'utf8'));
  if(!checksums[archive]||createHash('sha256').update(readFileSync(path.join(electronZipDir,archive))).digest('hex')!==checksums[archive])throw Error('Cached Electron archive failed SHA-256 verification.');
 }
-const outputs=await packager({dir:import.meta.dirname,name:'ChartsHub',appBundleId:'ca.chartshub.desktop',appVersion:version,icon:path.join(import.meta.dirname,platform==='win32'?'icon.ico':platform==='darwin'?'icon.icns':'icon.png'),platform,arch,electronVersion:'44.4.5',electronZipDir,out:outputDirectory,overwrite:true,asar:true,prune:true,download:{cacheRoot:path.resolve(import.meta.dirname,'../electron-cache')},ignore:[...publicMeasurementBundleIgnore,/^\/native-drum-host(?:\/|$)/,/^\/package-drum-host\.cjs$/,/^\/outputs(?:\/|$)/,/^\/dist(?:\/|$)/,/^\/tests(?:\/|$)/,/^\/\.github(?:\/|$)/,/^\/smoke-test\.js$/,/^\/build\.mjs$/,/^\/package-filters-windows\.cjs$/,/^\/package-lock\.json$/,/^\/Companion-Data(?:\/|$)/,/^\/native-filters\/(?!bin(?:\/|$)|README\.md$)/,/^\/native-filters\/bin\/(?!dxgi\.dll$|MinHook-LICENSE\.txt$)/,/^\/reshade-bridge\/(?!bin(?:\/|$)|README\.md$)/,/^\/reshade-bridge\/bin\/(?!ChartsHubReShade\.addon64$|ReShade-SDK-LICENSE\.md$|nlohmann-LICENSE\.MIT$)/]});
+const outputs=await packager({dir:import.meta.dirname,name:'ChartsHub',appBundleId:'ca.chartshub.desktop',appVersion:version,icon:path.join(import.meta.dirname,platform==='win32'?'icon.ico':platform==='darwin'?'icon.icns':'icon.png'),platform,arch,electronVersion:'44.4.5',electronZipDir,out:outputDirectory,overwrite:true,asar:true,prune:true,download:{cacheRoot:path.resolve(import.meta.dirname,'../electron-cache')},ignore:[...publicMeasurementBundleIgnore,/^\/quick-import-mod(?:\/|$)/,/^\/package-quick-import\.cjs$/,/^\/native-drum-host(?:\/|$)/,/^\/package-drum-host\.cjs$/,/^\/outputs(?:\/|$)/,/^\/dist(?:\/|$)/,/^\/tests(?:\/|$)/,/^\/\.github(?:\/|$)/,/^\/smoke-test\.js$/,/^\/build\.mjs$/,/^\/package-filters-windows\.cjs$/,/^\/package-lock\.json$/,/^\/Companion-Data(?:\/|$)/,/^\/native-filters\/(?!bin(?:\/|$)|README\.md$)/,/^\/native-filters\/bin\/(?!dxgi\.dll$|MinHook-LICENSE\.txt$)/,/^\/reshade-bridge\/(?!bin(?:\/|$)|README\.md$)/,/^\/reshade-bridge\/bin\/(?!ChartsHubReShade\.addon64$|ReShade-SDK-LICENSE\.md$|nlohmann-LICENSE\.MIT$)/]});
 if(!outputs.length)throw Error('No application was built. Build on a native runner for this platform.');
 for(const output of outputs){
  if(platform==='win32'&&arch==='x64')copyDrumHost(import.meta.dirname,output);
@@ -29,6 +31,7 @@ for(const output of outputs){
  copyFileSync(new URL('./docs/DRUMS-VST.md',import.meta.url),path.join(output,'Batterie VST','Guide.md'));
  mkdirSync(path.join(output,'Quick Import'),{recursive:true});
  copyFileSync(new URL('./docs/QUICK-IMPORT.md',import.meta.url),path.join(output,'Quick Import','Guide.md'));
+ if(platform==='win32'&&arch==='x64')copyQuickImport(import.meta.dirname,output);
  copyFileSync(new URL('./COMPANION-README.txt',import.meta.url),path.join(output,'Lisez-moi.txt'));
  mkdirSync(path.join(output,'Song Request'),{recursive:true});
  copyFileSync(new URL('./docs/SONG-REQUESTS.md',import.meta.url),path.join(output,'Song Request','Configuration.md'));

@@ -108,6 +108,8 @@ async function main() {
   assert.deepEqual(members.filter(name => /(?:^|\/)ChartsHub\.CloneHero\.Telemetry\.dll$/i.test(name)), [], 'Connector binary present under another path');
   for (const name of PUBLIC_MEMBERS) assert(memberSet.has(name), 'Public production module missing: ' + name);
   assert(!members.some(name => name.startsWith('native-drum-host/')), 'Native SDK, sources and test plug-in must remain outside the application archive');
+  assert(!members.some(name => name.startsWith('quick-import-mod/')), 'Optional game module, installer and development sources must remain outside ASAR');
+  assert(!members.some(name => /(?:^|\/)ChartsHub\.QuickImport\.dll$/i.test(name)), 'Optional game module may not be hidden under another archive path');
   const publicHashes = Object.fromEntries(PUBLIC_MEMBERS.map(name => [name, hash(asar.extractFile(archive, path.join(...name.split('/'))))]));
   const version = JSON.parse(asar.extractFile(archive, 'package.json').toString('utf8')).version;
   assert.equal(version, require('../package.json').version, 'Archive and reviewed source versions differ');
