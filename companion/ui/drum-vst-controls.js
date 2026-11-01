@@ -42,6 +42,7 @@ export class DrumVstControls {
   constructor({ root, command }) {
     this.root = root; this.command = command; this.snapshot = null; this.draft = null; this.baseRevision = null;
     this.dirty = false; this.busy = false; this.pending = 0; this.disposed = false; this.abort = new AbortController();
+    this.renderSignature = null; this.liveSignature = null;
     this.labels = []; this.optionLabels = new Map(); this.fields = []; this.buttons = []; this.padRows = [];
     this.heading = this.make('h3'); this.text(this.heading, 'Batterie / VST', 'Drums / VST');
     this.intro = this.make('p'); this.intro.className = 'helper-text';
@@ -54,6 +55,12 @@ export class DrumVstControls {
     this.mtButton = this.button(pluginActions, 'drums-mt-page', 'Obtenir MT Power Drum Kit', 'Get MT Power Drum Kit', () => this.perform('drums.openMtPage'));
     const pluginHelp = this.make('p'); pluginHelp.className = 'helper-text';
     this.text(pluginHelp, 'Choisissez un instrument VST3 64 bits déjà installé ou préparez MT Power Drum Kit ci-dessous. Aucun fichier de Clone Hero n’est modifié.', 'Choose an installed 64-bit VST3 instrument or prepare MT Power Drum Kit below. No Clone Hero files are modified.');
+    const mtStartHelp = this.make('p'); mtStartHelp.className = 'helper-text';
+    this.text(mtStartHelp, 'MT Power Drum Kit gratuit : à chaque session, activez ses sons dans sa propre fenêtre. Son bouton START est différent de Démarrer l’audio dans ChartsHub.', 'Free MT Power Drum Kit: enable its sounds in its own window at the beginning of each session. Its START button is separate from Start audio in ChartsHub.');
+    this.mtStartGuide = this.make('ol'); this.mtStartGuide.id = 'drums-mt-start-steps'; this.mtStartGuide.className = 'helper-text';
+    this.text(this.make('li', this.mtStartGuide), 'Dans ChartsHub, cliquez sur Ouvrir l’instrument.', 'In ChartsHub, select Open instrument.');
+    this.text(this.make('li', this.mtStartGuide), 'Dans la fenêtre MT Power Drum Kit, cliquez sur START en bas à droite.', 'In the MT Power Drum Kit window, click START in the bottom-right corner.');
+    this.text(this.make('li', this.mtStartGuide), 'Revenez dans ChartsHub : cliquez sur Démarrer l’audio, puis sur Tester pour vérifier un pad.', 'Return to ChartsHub: select Start audio, then Test to check a pad.');
     const mtHelp = this.make('p'); mtHelp.className = 'helper-text';
     this.text(mtHelp, 'MT Power Drum Kit 2.1.5.1 : téléchargement officiel d’environ 63 Mo, uniquement après votre accord. L’instrument et ses sons restent dans le dossier privé de ChartsHub ; aucun installateur système ni audio automatique.', 'MT Power Drum Kit 2.1.5.1: official download of about 63 MB, only after your consent. The instrument and its sounds stay in ChartsHub’s private folder; no system installer or automatic audio.');
     this.mtLicenseButton = this.button(root, 'drums-mt-license', 'Consulter la licence MANDA AUDIO', 'Read the MANDA AUDIO licence', () => this.perform('drums.openMtLicense'));
@@ -85,7 +92,7 @@ export class DrumVstControls {
     const padList = this.make('div'); padList.id = 'drums-pad-list';
     for (const [id, fr, en] of PADS) this.createPad(padList, id, fr, en);
     this.saveButton = this.button(root, 'drums-save-settings', 'Appliquer les réglages', 'Apply settings', () => this.save());
-    this.reloadButton = this.button(root, 'drums-reload-settings', 'Recharger les réglages enregistrés', 'Reload saved settings', () => { this.dirty = false; this.update(this.snapshot); });
+    this.reloadButton = this.button(root, 'drums-reload-settings', 'Recharger les réglages enregistrés', 'Reload saved settings', () => { this.dirty = false; this.invalidate(); this.update(this.snapshot); });
     this.unsaved = this.make('p'); this.unsaved.className = 'helper-text'; this.unsaved.setAttribute('role', 'status');
 
     const runHeading = this.make('h4'); this.text(runHeading, '4. Jouer et envoyer le son dans OBS', '4. Play and send audio to OBS');
@@ -151,12 +158,25 @@ export class DrumVstControls {
   update(snapshot) {
     if (this.disposed) return;
     this.snapshot = snapshot; this.state = snapshot?.drums ?? (snapshot?.phase ? snapshot : null);
+    // Other Companion sources can publish many snapshots per second. Only the
+    // drum DTO and language affect this panel; live levels/progress never need
+    // to rebuild its labels, device options or in-progress mapping fields.
+    const { meters, mt, ...configuration } = this.state ?? {};
+    const { progress, ...mtConfiguration } = mt ?? {};
+    const renderSignature = JSON.stringify([snapshot?.language === 'en' ? 'en' : 'fr', configuration, mtConfiguration]);
+    const liveSignature = JSON.stringify([meters, progress]);
+    if (this.renderSignature === renderSignature) {
+      if (this.liveSignature !== liveSignature) { this.liveSignature = liveSignature; this.updateLive(); }
+      return;
+    }
+    this.renderSignature = renderSignature; this.liveSignature = liveSignature;
     for (const item of this.labels) item.node.textContent = this.tr(item.fr, item.en);
     for (const [option, item] of this.optionLabels) option.textContent = this.tr(item.fr, item.en);
     const value = this.state;
     if (!this.dirty && !this.busy && value?.settings) { this.draft = copy(value.settings); this.baseRevision = value.revision; this.populate(); }
     this.updateState();
   }
+  invalidate() { this.renderSignature = null; this.liveSignature = null; }
   sync(snapshot) { this.update(snapshot); }
   populate() {
     if (!this.draft) return;
@@ -188,13 +208,7 @@ export class DrumVstControls {
     this.mtLicenseButton.disabled = this.busy || !state;
     this.mtConsent.disabled = busy || running || mtBusy;
     this.mtInstallButton.disabled = busy || running || mtBusy || this.mtConsent.checked !== true;
-    const received = mt?.progress?.receivedBytes, total = mt?.progress?.totalBytes;
-    const progress = Number.isFinite(received) && received >= 0 ? ' · ' + (received / 1000000).toFixed(1) + (Number.isFinite(total) && total > 0 ? ' / ' + (total / 1000000).toFixed(1) : '') + ' Mo' : '';
-    this.mtStatus.textContent = mt?.state === 'downloading' ? this.tr('Téléchargement officiel en cours', 'Downloading from the publisher') + progress.replace(' Mo', this.tr(' Mo', ' MB'))
-      : mt?.state === 'extracting' ? this.tr('Vérification et préparation dans le dossier privé…', 'Checking and preparing in the private folder…')
-      : mt?.state === 'installed' ? this.tr('MT Power Drum Kit est préparé. Démarrez l’audio quand vous êtes prêt.', 'MT Power Drum Kit is prepared. Start audio when you are ready.')
-      : mt?.error ? this.errorText(mt.error) : '';
-    this.editorButton.disabled = busy || !loaded;
+    this.editorButton.disabled = busy || !selected;
     this.midi.disabled = busy || running || source !== 'midi'; this.xinput.disabled = busy || running || source !== 'xinput';
     this.saveButton.disabled = busy || running || !this.dirty || !this.settingsValid();
     this.reloadButton.disabled = busy || running || !this.dirty;
@@ -202,19 +216,30 @@ export class DrumVstControls {
     this.stopButton.disabled = !state || !(running || state.busy === true || this.busy || mtBusy);
     this.panicButton.disabled = this.stopButton.disabled;
     for (const row of this.padRows) { row.binding.disabled = busy || running || source !== 'xinput'; row.testButton.disabled = busy || !running || this.dirty; }
-    this.plugin.textContent = selected ? this.tr('Instrument : ', 'Instrument: ') + String(state.plugin.name ?? '').slice(0, 200) + (!loaded ? this.tr(' · sera chargé au démarrage', ' · loads when audio starts') : '') : this.tr('Aucun instrument choisi.', 'No instrument selected.');
-    const phases = { stopped: this.tr('Audio arrêté.', 'Audio stopped.'), loaded: this.tr('Instrument prêt. Démarrez pour jouer.', 'Instrument ready. Start to play.'), running: this.tr('Audio actif.', 'Audio running.'), error: this.tr('Audio arrêté après une erreur. Vérifiez l’instrument et la sortie, puis réessayez.', 'Audio stopped after an error. Check the instrument and output, then try again.') };
+    this.plugin.textContent = selected ? this.tr('Instrument : ', 'Instrument: ') + String(state.plugin.name ?? '').slice(0, 200) + (!loaded ? this.tr(' · ouvrez sa fenêtre pour le charger', ' · open its window to load it') : '') : this.tr('Aucun instrument choisi.', 'No instrument selected.');
+    const phases = { stopped: this.tr('Audio arrêté.', 'Audio stopped.'), loaded: this.tr('Instrument chargé. Vérifiez sa fenêtre avant de démarrer l’audio.', 'Instrument loaded. Check its window before starting audio.'), running: this.tr('Audio actif.', 'Audio running.'), error: this.tr('Audio arrêté après une erreur. Vérifiez l’instrument et la sortie, puis réessayez.', 'Audio stopped after an error. Check the instrument and output, then try again.') };
     this.status.textContent = !supported ? this.tr('Batterie VST disponible sous Windows 64 bits.', 'Drum VST is available on 64-bit Windows.') : !available ? this.tr('Le moteur audio est indisponible.', 'The audio engine is unavailable.') : phases[state.phase] ?? phases.stopped;
     if (state?.error) this.status.textContent += ' ' + this.errorText(state.error.message ?? state.error);
     this.unsaved.textContent = this.dirty ? this.settingsValid() ? this.tr('Réglages modifiés : appliquez-les avant de jouer.', 'Settings changed: apply them before playing.') : this.tr('Vérifiez les valeurs : notes 0–127, canaux 1–16, force 1–127 et volume 0–100 %.', 'Check values: notes 0–127, channels 1–16, velocity 1–127 and volume 0–100%.') : '';
     this.sourceHelp.textContent = source === 'midi' ? this.tr('MIDI : la vélocité reçue de la batterie est conservée. La force fixe sert uniquement aux boutons Tester.', 'MIDI: the drum kit’s incoming velocity is preserved. Fixed velocity is used only by Test buttons.') : source === 'xinput' ? this.tr('XInput : chaque nouvelle pression déclenche une frappe. Cette source ne mesure pas la force du coup ; la vélocité fixe du pad est utilisée.', 'XInput: each new press triggers a hit. This source does not measure hit strength; the pad’s fixed velocity is used.') : this.tr('Mode manuel : démarrez l’audio, puis cliquez sur Tester pour jouer chaque pad.', 'Manual mode: start audio, then click Test to play each pad.');
-    const meters = state?.meters, levels = Array.isArray(meters) ? meters : [meters?.left, meters?.right, meters?.peak];
-    this.meter.value = Math.max(0, ...levels.filter(value => typeof value === 'number' && Number.isFinite(value)).map(value => Math.min(1, value)));
+    this.updateLive();
     const audio = state?.audio;
     this.audioFormat.textContent = audio && Number.isFinite(audio.sampleRate) && Number.isFinite(audio.blockSize)
       ? this.tr('Format utilisé : ', 'Actual format: ') + audio.sampleRate + ' Hz · ' + audio.blockSize + this.tr(' échantillons', ' samples')
         + (audio.latencyKind === 'reported' && Number.isFinite(audio.latencyMs) ? this.tr(' · latence déclarée : ', ' · reported latency: ') + audio.latencyMs.toFixed(1) + ' ms' : '')
       : '';
+  }
+  updateLive() {
+    const meters = this.state?.meters, levels = Array.isArray(meters) ? meters : [meters?.left, meters?.right, meters?.peak];
+    const level = Math.max(0, ...levels.filter(value => typeof value === 'number' && Number.isFinite(value)).map(value => Math.min(1, value)));
+    if (this.meter.value !== level) this.meter.value = level;
+    const mt = this.state?.mt, received = mt?.progress?.receivedBytes, total = mt?.progress?.totalBytes;
+    const progress = Number.isFinite(received) && received >= 0 ? ' · ' + (received / 1000000).toFixed(1) + (Number.isFinite(total) && total > 0 ? ' / ' + (total / 1000000).toFixed(1) : '') + this.tr(' Mo', ' MB') : '';
+    const message = mt?.state === 'downloading' ? this.tr('Téléchargement officiel en cours', 'Downloading from the publisher') + progress
+      : mt?.state === 'extracting' ? this.tr('Vérification et préparation dans le dossier privé…', 'Checking and preparing in the private folder…')
+      : mt?.state === 'installed' ? this.tr('MT Power Drum Kit est préparé. Ouvrez l’instrument, cliquez sur START dans MT, puis sur Démarrer l’audio dans ChartsHub.', 'MT Power Drum Kit is prepared. Open instrument, click START in MT, then Start audio in ChartsHub.')
+      : mt?.error ? this.errorText(mt.error) : '';
+    if (this.mtStatus.textContent !== message) this.mtStatus.textContent = message;
   }
   errorText(value) { const code = typeof value === 'string' ? value : ''; return ERRORS[code] ? this.tr(...ERRORS[code]) : String(value).slice(0, 300); }
   async installMt() {
@@ -225,7 +250,7 @@ export class DrumVstControls {
   async save() {
     if (!this.dirty || !this.settingsValid() || this.state?.phase === 'running') return;
     const submitted = copy(this.draft), result = await this.perform('drums.configure', { revision: this.baseRevision, settings: submitted });
-    if (result?.ok && !this.disposed) { this.dirty = false; this.update(this.snapshot); }
+    if (result?.ok && !this.disposed) { this.dirty = false; this.invalidate(); this.update(this.snapshot); }
   }
   async testPad(id) {
     const pad = this.draft?.pads.find(item => item.id === id);
@@ -237,7 +262,7 @@ export class DrumVstControls {
     this.pending++; this.busy = true; this.feedback.hidden = true; this.updateState();
     try { const result = await this.command(name, payload); if (!result?.ok) throw Error(result?.code && ERRORS[result.code] ? this.errorText(result.code) : this.errorText(result?.error || this.tr('L’action batterie a échoué.', 'The drum action failed.'))); return result; }
     catch (error) { if (!this.disposed) { this.feedback.textContent = String(error?.message || this.tr('Action indisponible.', 'Action unavailable.')).slice(0, 500); this.feedback.hidden = false; } return null; }
-    finally { this.pending--; this.busy = this.pending > 0; if (!this.disposed) this.update(this.snapshot); }
+    finally { this.pending--; this.busy = this.pending > 0; if (!this.disposed) { this.invalidate(); this.update(this.snapshot); } }
   }
   dispose() { this.disposed = true; this.abort.abort(); }
 }

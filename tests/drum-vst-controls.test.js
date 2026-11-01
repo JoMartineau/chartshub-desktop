@@ -20,6 +20,47 @@ const snapshot = (patch = {}, language = 'fr') => ({ language, drums: {
   settings: defaultSettings(), error: null, meters: { left: 0, right: 0 }, ...patch
 } });
 const settle = () => new Promise(resolve => setImmediate(resolve));
+function observeRendering(controls) {
+  const observed = { writes: [], created: 0, options: 0, populate: 0, children: 0 };
+  const document = controls.root.ownerDocument, create = document.createElement;
+  document.createElement = (...args) => { observed.created++; return create(...args); };
+  function watch(node) {
+    for (const key of ['textContent', 'value', 'disabled', 'hidden']) {
+      let value = node[key]; Object.defineProperty(node, key, { configurable: true, get: () => value, set(next) { observed.writes.push({ node, key }); value = next; } });
+    }
+    for (const key of ['append', 'replaceChildren']) {
+      const original = node[key]; node[key] = function (...args) { observed.children++; return original.apply(this, args); };
+    }
+    for (const child of node.children) watch(child);
+  }
+  watch(controls.root);
+  for (const key of ['options', 'populate']) { const original = controls[key]; controls[key] = function (...args) { observed[key]++; return original.apply(this, args); }; }
+  return observed;
+}
+
+test('one thousand unrelated live snapshots perform no drum DOM writes, option rebuilds or field population', async () => {
+  const calls = [], controls = await fixture(async (...args) => { calls.push(args); return { ok: true }; });
+  const settings = defaultSettings(); settings.source = 'manual'; const initial = snapshot({ settings }); controls.update(initial);
+  const observed = observeRendering(controls), originalDraft = controls.draft, note = controls.padRows[0].note;
+  for (let tick = 0; tick < 1000; tick++) controls.update({ ...structuredClone(initial), now: tick, currentSong: { title: 'Synthetic ' + tick }, gameplay: { accuracy: tick / 1000 }, stream: { revision: tick } });
+  assert.deepEqual(observed, { writes: [], created: 0, options: 0, populate: 0, children: 0 });
+  assert.equal(controls.draft, originalDraft); assert.equal(controls.padRows[0].note, note); assert.deepEqual(calls, []); controls.dispose();
+});
+
+test('meter and download-progress ticks only update their live outputs and retain unsaved mapping fields', async () => {
+  const controls = await fixture(async () => ({ ok: true })); const settings = defaultSettings(); settings.source = 'xinput';
+  controls.update(snapshot({ settings, mt: { state: 'downloading', progress: { receivedBytes: 0, totalBytes: 63000000 } } }));
+  controls.padRows[0].note.change(79, 'input'); controls.padRows[0].binding.change('axis:3:-1');
+  const observed = observeRendering(controls), originalDraft = controls.draft, note = controls.padRows[0].note;
+  for (let tick = 1; tick <= 1000; tick++) controls.update(snapshot({ settings, meters: { left: (tick % 9) / 10, right: .8 }, mt: { state: 'downloading', progress: { receivedBytes: tick * 60000, totalBytes: 63000000 } } }));
+  assert.equal(observed.populate, 0); assert.equal(observed.options, 0); assert.equal(observed.created, 0); assert.equal(observed.children, 0);
+  assert(observed.writes.length > 0); assert(observed.writes.every(({ node, key }) => node === controls.meter && key === 'value' || node === controls.mtStatus && key === 'textContent'));
+  assert.equal(controls.draft, originalDraft); assert.equal(controls.padRows[0].note, note); assert.equal(note.value, '79');
+  assert.deepEqual(controls.draft.pads[0].binding, { kind: 'axis', index: 3, direction: -1 }); assert(controls.dirty); assert.equal(controls.baseRevision, 12);
+  assert.equal(controls.meter.value, .8); assert.match(controls.mtStatus.textContent, /60.0 \/ 63.0 Mo/);
+  controls.reloadButton.click(); assert.equal(controls.dirty, false); assert.equal(controls.padRows[0].note.value, '36');
+  assert.equal(observed.populate, 1, 'explicit Reload must reconcile even though the backend DTO is unchanged'); controls.dispose();
+});
 
 test('mount and repeated status updates do not load plugins, enumerate devices, read input or start audio', async () => {
   const calls = [], controls = await fixture(async (...args) => { calls.push(args); return { ok: true }; });
@@ -124,16 +165,34 @@ test('unsupported engines and missing plugins cannot start or test pads, and err
   assert(controls.padRows.every(row => row.testButton.disabled)); controls.dispose();
 });
 
-test('saved instruments can be explicitly reloaded by Start and actual audio format remains distinct from requested settings', async () => {
+test('saved instruments can be explicitly opened before audio and actual audio format remains distinct from requested settings', async () => {
   const calls = [], controls = await fixture(async (...args) => { calls.push(args); return { ok: true }; });
   const settings = defaultSettings(); settings.source = 'manual';
   controls.update(snapshot({ settings, phase: 'stopped', plugin: { name: 'Saved instrument', loaded: false } }));
-  assert.equal(controls.startButton.disabled, false); assert(controls.editorButton.disabled); assert.match(controls.plugin.textContent, /chargé au démarrage/);
+  assert.equal(controls.startButton.disabled, false); assert.equal(controls.editorButton.disabled, false); assert.match(controls.plugin.textContent, /fenêtre pour le charger/);
   assert.deepEqual(calls, []); controls.startButton.click(); await settle(); assert.deepEqual(calls, [['drums.start', {}]]);
   controls.update(snapshot({ settings, phase: 'running', audio: { sampleRate: 44100, blockSize: 256, latencyMs: 8.5, latencyKind: 'reported' } }));
   assert.match(controls.audioFormat.textContent, /44100 Hz.*256.*latence déclarée.*8.5 ms/); assert.equal(controls.draft.sampleRate, 48000);
   controls.update(snapshot({ settings, phase: 'error', error: 'DRUM_HOST_EXITED' }, 'en')); assert.match(controls.status.textContent, /audio engine closed/); assert(!controls.status.textContent.includes('DRUM_HOST_EXITED'));
   controls.dispose();
+});
+
+test('free MT session instructions distinguish its START screen from ChartsHub audio and permit opening a saved instrument', async () => {
+  const calls = [], controls = await fixture(async (...args) => { calls.push(args); return { ok: true }; });
+  const settings = defaultSettings(); settings.source = 'manual';
+  const value = snapshot({ settings, plugin: { name: 'MT Power Drum Kit', loaded: false }, phase: 'stopped', mt: { state: 'installed' } });
+  controls.update(value); assert.deepEqual(calls, []); assert.equal(controls.mtStartGuide.children.length, 3);
+  assert.match(controls.mtStartGuide.children[0].textContent, /Ouvrir l’instrument/);
+  assert.match(controls.mtStartGuide.children[1].textContent, /MT Power Drum Kit.*START.*droite/);
+  assert.match(controls.mtStartGuide.children[2].textContent, /ChartsHub.*Démarrer l’audio/);
+  assert.match(controls.mtStatus.textContent, /Ouvrez.*START dans MT.*Démarrer l’audio dans ChartsHub/);
+  assert.equal(controls.editorButton.disabled, false); controls.editorButton.click(); await settle();
+  assert.deepEqual(calls, [['drums.editor', { open: true }]], 'opening the saved instrument never automatically starts audio');
+  controls.update({ ...value, language: 'en' }); assert.match(controls.mtStartGuide.children[0].textContent, /Open instrument/);
+  assert.match(controls.mtStartGuide.children[1].textContent, /START.*bottom-right/); assert.match(controls.mtStartGuide.children[2].textContent, /Start audio/);
+  assert.match(controls.mtStatus.textContent, /Open instrument.*START in MT.*Start audio in ChartsHub/);
+  controls.update(snapshot({ settings, plugin: { name: 'MT Power Drum Kit', loaded: false }, busy: true })); assert(controls.editorButton.disabled);
+  controls.update(snapshot({ settings, plugin: null })); assert(controls.editorButton.disabled); controls.dispose();
 });
 
 test('disposing removes command listeners and ignores a late command completion', async () => {

@@ -13,14 +13,14 @@ if(-not $child.WaitForExit(15000)){$child.Kill();throw 'Offline VST3 test timed 
 $child.WaitForExit()
 if($child.ExitCode -ne 0){throw 'Offline VST3 test failed'}
 $offline=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
-if($offline.ok -ne $true -or $offline.checks.Count -ne 12 -or (Get-Item -LiteralPath $stderr).Length -ne 0){throw 'Invalid offline verification report'}
+if($offline.ok -ne $true -or $offline.checks.Count -ne 14 -or (Get-Item -LiteralPath $stderr).Length -ne 0){throw 'Invalid offline verification report'}
 foreach($field in @('audioDeviceOpened','midiDeviceOpened','xinputStateRead','gameRead','profileRead')){if($offline.$field -ne $false){throw 'Offline test accessed a forbidden source'}}
 $nodeExe=@(Get-Command node.exe -ErrorAction Stop)[0].Source
 & $nodeExe (Join-Path $nativeRoot 'tests/protocol-test.cjs')
 if($LASTEXITCODE -ne 0){throw 'Native JSON protocol verification failed'}
 $protocol=Get-Content -LiteralPath (Join-Path $outputRoot 'protocol-test.json') -Raw | ConvertFrom-Json
 if($protocol.ok -ne $true -or $protocol.checks.Count -ne 11){throw 'Invalid native protocol report'}
-$proof=[ordered]@{schema=1;ok=$true;offlineChecks=$offline.checks.Count;protocolChecks=$protocol.checks.Count;totalChecks=23;helperSha256=$protocol.helperSha256;audioDeviceOpened=$false;midiDeviceOpened=$false;xinputStateRead=$false;gameRead=$false;profileRead=$false;realAudioAndObsValidated=$false}
+$proof=[ordered]@{schema=1;ok=$true;offlineChecks=$offline.checks.Count;protocolChecks=$protocol.checks.Count;totalChecks=25;helperSha256=$protocol.helperSha256;audioDeviceOpened=$false;midiDeviceOpened=$false;xinputStateRead=$false;gameRead=$false;profileRead=$false;realAudioAndObsValidated=$false}
 $json=$proof | ConvertTo-Json -Depth 5
 [IO.File]::WriteAllText((Join-Path $outputRoot 'native-verification.json'),$json,[Text.UTF8Encoding]::new($false))
 Write-Output $json

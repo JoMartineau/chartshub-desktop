@@ -12,16 +12,29 @@ using namespace Steinberg;
 using namespace Steinberg::Vst;
 static const FUID processorId(0x402A0DB2, 0x47B94102, 0x8B12DE41, 0xDA204315);
 static const FUID controllerId(0xB913B021, 0x331A44D5, 0xB3F188A0, 0xCD2B7217);
+static const FUID notImplementedId(0x402A0DB2, 0x47B94102, 0x8B12DE41, 0xDA204316);
+static const FUID falseResultId(0x402A0DB2, 0x47B94102, 0x8B12DE41, 0xDA204317);
+static const FUID failureId(0x402A0DB2, 0x47B94102, 0x8B12DE41, 0xDA204318);
 class TestInstrument final : public AudioEffect {
   std::array<std::array<float, 128>, 16> notes{};
   double phase = 0;
+  tresult processingResult;
 
 public:
-  TestInstrument() {
+  explicit TestInstrument(tresult result = kResultOk) : processingResult(result) {
     setControllerClass(controllerId);
   }
   static FUnknown *create(void *) {
     return static_cast<IAudioProcessor *>(new TestInstrument);
+  }
+  static FUnknown *createNotImplemented(void *) {
+    return static_cast<IAudioProcessor *>(new TestInstrument(kNotImplemented));
+  }
+  static FUnknown *createFalse(void *) {
+    return static_cast<IAudioProcessor *>(new TestInstrument(kResultFalse));
+  }
+  static FUnknown *createFailure(void *) {
+    return static_cast<IAudioProcessor *>(new TestInstrument(kInternalError));
   }
   tresult PLUGIN_API initialize(FUnknown *context) override {
     auto result = AudioEffect::initialize(context);
@@ -37,7 +50,7 @@ public:
     return AudioEffect::setActive(state);
   }
   tresult PLUGIN_API setProcessing(TBool) override {
-    return kResultOk;
+    return processingResult;
   }
   tresult PLUGIN_API process(ProcessData &data) override {
     if (data.inputEvents)
@@ -80,4 +93,13 @@ DEF_CLASS2(INLINE_UID_FROM_FUID(processorId), PClassInfo::kManyInstances, kVstAu
 DEF_CLASS2(INLINE_UID_FROM_FUID(controllerId), PClassInfo::kManyInstances,
            kVstComponentControllerClass, "ChartsHub Offline Test Controller", 0, "", "0.1.0",
            kVstVersionString, TestController::create)
+DEF_CLASS2(INLINE_UID_FROM_FUID(notImplementedId), PClassInfo::kManyInstances, kVstAudioEffectClass,
+           "ChartsHub Notification NotImplemented", Vst::kDistributable, "Instrument|Drum", "0.1.0",
+           kVstVersionString, TestInstrument::createNotImplemented)
+DEF_CLASS2(INLINE_UID_FROM_FUID(falseResultId), PClassInfo::kManyInstances, kVstAudioEffectClass,
+           "ChartsHub Notification False", Vst::kDistributable, "Instrument|Drum", "0.1.0",
+           kVstVersionString, TestInstrument::createFalse)
+DEF_CLASS2(INLINE_UID_FROM_FUID(failureId), PClassInfo::kManyInstances, kVstAudioEffectClass,
+           "ChartsHub Notification Failure", Vst::kDistributable, "Instrument|Drum", "0.1.0",
+           kVstVersionString, TestInstrument::createFailure)
 END_FACTORY

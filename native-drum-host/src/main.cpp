@@ -76,6 +76,30 @@ static int selfTest(const std::string &plugin) {
   host.finish();
   host.unload();
   check(!host.loaded(), "module_lifecycle_unloaded");
+  auto classId = [&](const std::string &name) {
+    for (const auto &item : metadata["classes"])
+      if (item["name"] == name)
+        return item["id"].get<std::string>();
+    throw std::runtime_error("synthetic_notification_class_missing");
+  };
+  host.load(plugin, classId("ChartsHub Notification NotImplemented"));
+  host.prepare(48000, 512);
+  check(host.process(512, {{36, 9, 100, true}}, audio.data(), 1).left > .07f,
+        "not_implemented_notification_still_renders");
+  host.finish();
+  host.unload();
+  int failures = 0;
+  for (const auto &name : {"ChartsHub Notification False", "ChartsHub Notification Failure"}) {
+    host.load(plugin, classId(name));
+    try {
+      host.prepare(48000, 512);
+    } catch (const std::exception &error) {
+      if (std::string(error.what()) == "plugin_start_failed")
+        ++failures;
+    }
+    host.unload();
+  }
+  check(failures == 2, "real_processing_notification_failures_rejected");
   output({{"schema", 1},
           {"ok", true},
           {"mode", "offline-self-test"},

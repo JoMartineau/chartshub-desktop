@@ -115,7 +115,11 @@ void VstHost::prepare(int sampleRate, int maxBlock) {
   data.inputParameterChanges = &inputParameters;
   data.outputParameterChanges = &outputParameters;
   require(component->setActive(true) == kResultOk, "plugin_activation_failed");
-  if (processor->setProcessing(true) != kResultOk) {
+  // This is a state notification. The SDK's default AudioEffect implementation
+  // returns kNotImplemented; its own AudioHost/ProcessTest still process blocks.
+  // Real failures remain fatal, and setupProcessing/setActive stay strict.
+  const auto processingResult = processor->setProcessing(true);
+  if (processingResult != kResultOk && processingResult != kNotImplemented) {
     component->setActive(false);
     throw std::runtime_error("plugin_start_failed");
   }

@@ -8,8 +8,18 @@ Ce module fait jouer un instrument VST3 installé sur votre ordinateur à partir
 
 1. Pour préparer **MT Power Drum Kit 2.1.5.1** dans ChartsHub, consultez la licence MANDA AUDIO, cochez vous-même l’accord, puis cliquez sur **Télécharger et préparer MT Power Drum Kit**. Le paquet VST3 Windows 64 bits provient directement de l’éditeur. Ses fichiers d’origine, sons et licences fournis restent ensemble dans un nouveau dossier privé de ChartsHub, sans installation système ni démarrage automatique du son. Un reçu indique la source, votre accord et les empreintes calculées ; celles-ci ne sont pas présentées comme des empreintes publiées par l’éditeur.
    Vous pouvez aussi installer un autre instrument VST3 depuis son éditeur. **Obtenir MT Power Drum Kit** ouvre simplement la page officielle.
-2. Dans **Batterie / VST**, cliquez sur **Choisir un instrument VST3**, puis sélectionnez l’instrument installé.
+2. Après la préparation intégrée de MT Power Drum Kit, l’instrument est déjà sélectionné. Pour utiliser un autre instrument, cliquez sur **Choisir un instrument VST3**, puis sélectionnez-le.
 3. Cliquez sur **Ouvrir l’instrument** pour choisir le kit et régler les sons dans sa propre fenêtre.
+
+### MT Power Drum Kit gratuit : au début de chaque session
+
+La version gratuite reste muette tant que son écran d’accueil n’a pas été validé. **START dans MT** et **Démarrer l’audio dans ChartsHub** sont deux boutons différents.
+
+1. Dans ChartsHub, cliquez sur **Ouvrir l’instrument**, même si MT Power Drum Kit est déjà sélectionné. Cette action charge sa fenêtre sans démarrer l’audio.
+2. Dans la fenêtre MT Power Drum Kit, cliquez sur **START**, en bas à droite. Répétez cette étape à chaque nouvelle session avec la version gratuite.
+3. Revenez dans ChartsHub : après avoir vérifié et appliqué votre sortie et vos pads, cliquez sur **Démarrer l’audio**, puis sur **Tester** pour vérifier le son d’un pad.
+
+La préparation de l’instrument ne valide pas son écran d’accueil. ChartsHub n’appuie sur aucun de ces boutons automatiquement. [Explication officielle de MANDA AUDIO](https://www.powerdrumkit.com/help-page.php?os=General&topic=no_sound_when_reopening_project).
 
 ### Choisir la sortie et les pads
 
@@ -38,8 +48,18 @@ This module plays an installed VST3 instrument from a MIDI drum kit, an XInput d
 
 1. To prepare **MT Power Drum Kit 2.1.5.1** inside ChartsHub, read the MANDA AUDIO licence, manually select the consent checkbox, then choose **Download and prepare MT Power Drum Kit**. The Windows 64-bit VST3 package comes directly from its publisher. The original files, sounds and supplied licences remain together in a new private ChartsHub folder, without a system installer or automatic sound playback. A receipt records the source, your consent and computed hashes; these are not described as publisher-provided hashes.
    Alternatively, install another VST3 instrument from its publisher. **Get MT Power Drum Kit** only opens the official download page.
-2. In **Drums / VST**, choose **Choose a VST3 instrument** and select the installed instrument.
+2. After preparing MT Power Drum Kit inside ChartsHub, the instrument is already selected. To use another instrument, choose **Choose a VST3 instrument** and select it.
 3. Choose **Open instrument** to select a kit and adjust its sounds in the instrument’s own window.
+
+### Free MT Power Drum Kit: at the beginning of every session
+
+The free version remains silent until its welcome screen is dismissed. **START inside MT** and **Start audio in ChartsHub** are separate buttons.
+
+1. In ChartsHub, select **Open instrument**, even when MT Power Drum Kit is already selected. This loads its window without starting audio.
+2. In the MT Power Drum Kit window, click **START** in the bottom-right corner. Repeat this step at the beginning of each session with the free version.
+3. Return to ChartsHub: after checking and applying your audio output and pads, select **Start audio**, then **Test** to check a pad’s sound.
+
+Preparing the instrument does not dismiss its welcome screen. ChartsHub never clicks either button automatically. [Official MANDA AUDIO explanation](https://www.powerdrumkit.com/help-page.php?os=General&topic=no_sound_when_reopening_project).
 
 ### Choose audio and pads
 
