@@ -33,10 +33,13 @@ const { createCompanionHost, registerCompanionScheme } = require(path.join(produ
 const { defaultSettings } = require(path.join(productRoot, 'companion/drum-vst-model.cjs'));
 registerCompanionScheme();
 const checks = [], errors = [], externalRequests = [], calls = [], lifecycle = [], observations = [];
-const mainCompletions = [], packageOpens = [];
+const mainCompletions = [], packageOpens = [], helpOpens = [];
 const forbidden = { capture: 0, external: 0, fileDialog: 0, drumCommand: 0, realDownload: 0 };
 desktopCapturer.getSources = async () => { forbidden.capture++; throw Error('Real capture forbidden'); };
-shell.openExternal = async () => { forbidden.external++; throw Error('Real external launch forbidden'); };
+shell.openExternal = async url => {
+  if (['https://github.com/LavaGang/MelonLoader/releases/tag/v0.7.3', 'https://github.com/LavaGang/MelonLoader/blob/v0.7.3/README.md#requirements', 'https://github.com/LavaGang/MelonWiki/blob/master/docs/gettingstarted.md', 'https://github.com/LavaGang/MelonLoader.Installer#how-does-it-work'].includes(url)) { helpOpens.push(url); return; }
+  forbidden.external++; throw Error('Real external launch forbidden');
+};
 shell.openPath = async folder => { assert.equal(folder, path.join(productRoot, 'quick-import-mod')); packageOpens.push(folder); return ''; };
 dialog.showOpenDialog = async () => { forbidden.fileDialog++; throw Error('Real game selection forbidden'); };
 const jobId = '00000000-0000-4000-8000-000000000036';
@@ -86,7 +89,7 @@ async function finish(error) {
     if (owner && !owner.isDestroyed()) owner.destroy(); disposeMaintenance(); assert.equal(BrowserWindow.getAllWindows().length, 0);
   } catch (failure) { error ||= failure; }
   await fs.mkdir(directory, { recursive: true });
-  const report = { result: error ? 'failed' : 'passed', checks, error: error ? String(error.stack || error) : null, errors, externalRequests, forbiddenCalls: forbidden, calls, lifecycle,
+  const report = { result: error ? 'failed' : 'passed', checks, error: error ? String(error.stack || error) : null, errors, externalRequests, forbiddenCalls: forbidden, calls, lifecycle, helpOpens,
     actualHostAndIpc: true, actualPreloadAndRenderer: true, syntheticQuickImportService: true, syntheticDownloadWorker: true, loadedFromAsar: !!archiveArg, productRoot,
     rendererSandboxDisabled: app.commandLine.hasSwitch('no-sandbox'), visibilityUnexpected, nativeFloatingDisplaysSuppressed: true, suppressedDisplayRequests,
     realGameRead: false, realGameLaunched: false, realProviderConnected: false, realHardwareRead: false, realInputRead: false, realAudioOpened: false,
@@ -101,7 +104,7 @@ app.whenReady().then(async () => {
   await fs.writeFile(path.join(dataDirectory, 'download-state.json'), JSON.stringify({ version: 1, rootPath: songs, revision: 1, items: [historical] }), { flag: 'wx' });
   owner = new BrowserWindow({ width: 1280, height: 950, show: false, frame: false, webPreferences: { contextIsolation: true, nodeIntegration: false, sandbox: true } });
   owner.on('show', () => { visibilityUnexpected = true; owner.hide(); });
-  host = await createCompanionHost({ dataDirectory, quickImportService: fakeService, drumVstService: fakeDrums,
+  const hostOptions = { dataDirectory, quickImportService: fakeService, quickImportRuntimePlatform: 'win32', drumVstService: fakeDrums,
     cloneHeroCandidates: [], cloneHeroProcessProbe: async () => ({ running: false, sessions: [] }), isCatalogueAvailable: () => catalogueAvailable, authorizeCatalogue: async () => catalogueAvailable,
     catalogueClient: { async load() { return { items: [], revision: 'quick-import-fixture', demo: false }; }, async artwork() { throw Error('Real artwork forbidden'); } },
     downloadWorker: { async run({ rootPath }) { const folderName = 'FictionalNewChart', destination = path.join(rootPath, folderName); await fs.mkdir(destination); return { folderName, destination, files: 1, totalBytes: 1 }; }, async discard() {}, async resolveCompleted({ destination }) { return destination; } },
@@ -111,7 +114,8 @@ app.whenReady().then(async () => {
       contents.on('render-process-gone', (_event, detail) => { if (!finished) errors.push(detail.reason); });
       contents.session.webRequest.onBeforeRequest((details, callback) => { const allowed = details.url.startsWith('chartshub-companion://') || details.url.startsWith('data:') || details.url === 'about:blank'; if (!allowed) externalRequests.push(details.url); callback({ cancel: !allowed }); });
     }, activate() { view.setVisible(true); } }
-  });
+  };
+  host = await createCompanionHost(hostOptions);
   host.setLanguage('fr'); await host.open(); await until(() => evaluate("!!document.querySelector('#quick-import-connect')"), 'Quick Import renderer');
   await check('Sandboxed public panel loads Quick Import before historical notifications without any automatic command', async () => {
     const preferences = contents.getLastWebPreferences(); assert.equal(preferences.sandbox, true); assert.equal(preferences.contextIsolation, true); assert.equal(preferences.nodeIntegration, false);
@@ -125,6 +129,10 @@ app.whenReady().then(async () => {
     assert.equal(guide.ok, !archiveArg, 'Source fixture opens only the supplied local package; an ASAR-only fixture has no external optional package');
     assert.equal(packageOpens.length, archiveArg ? 0 : 1);
     assert.equal(calls.length, beforeGuide, 'Opening installation files never installs, selects a game or enables Quick Import');
+    assert.equal((await command('quickImport.release')).ok, true);
+    assert.equal(helpOpens.at(-1), 'https://github.com/LavaGang/MelonLoader/releases/tag/v0.7.3');
+    assert.equal((await command('quickImport.prerequisites')).ok, true);
+    assert.equal(helpOpens.at(-1), 'https://github.com/LavaGang/MelonLoader/blob/v0.7.3/README.md#requirements');
     assert.equal(host.snapshot().quickImport.selected, false);
     await click('#quick-import-choose-game'); await until(() => evaluate("!document.querySelector('#quick-import-connect').disabled"), 'synthetic selected game');
     assert.equal(calls.at(-1).name, 'quickImport.chooseGame'); await click('#quick-import-connect');
@@ -152,7 +160,7 @@ app.whenReady().then(async () => {
   });
   await check('Malformed commands never reach the service and failures expose fixed codes without private exception text', async () => {
     const before = calls.length;
-    for (const [name, payload] of [['quickImport.connect', null], ['quickImport.connect', { gamePath: 'C:\\Private\\game.exe' }], ['quickImport.chooseGame', []], ['quickImport.delete', {}], ['quickImport.openPackage', { path: 'private' }], ['quickImport.openPackage', { install: true }]]) assert.equal((await command(name, payload)).ok, false);
+    for (const [name, payload] of [['quickImport.connect', null], ['quickImport.connect', { gamePath: 'C:\\Private\\game.exe' }], ['quickImport.chooseGame', []], ['quickImport.delete', {}], ['quickImport.openPackage', { path: 'private' }], ['quickImport.openPackage', { install: true }], ['quickImport.release', { url: 'https://other.test' }], ['quickImport.prerequisites', { platform: 'win32' }]]) assert.equal((await command(name, payload)).ok, false);
     assert.equal(calls.length, before); nextError = 'C:\\Private\\token=SECRET';
     const result = await command('quickImport.refresh'); assert.equal(result.ok, false); assert.equal(result.code, 'QUICK_IMPORT_FAILED'); assert(!JSON.stringify(result).includes('SECRET')); assert(!JSON.stringify(result).includes('Private'));
   });
@@ -177,6 +185,27 @@ app.whenReady().then(async () => {
     const before = calls.length; assert.equal((await command('quickImport.connect')).ok, false); assert.equal(calls.length, before); host.setMaintenanceLocked(false);
     await host.stop(); assert(lifecycle.filter(value => value === 'stop').length >= stops + 2); assert.equal(state.connected, false); await host.dispose(); assert(lifecycle.includes('dispose'));
     assert.equal(host.acceptDownloadedChart({ id: jobId, destination: songs }), false); assert.equal(mainCompletions.length, completions);
+    // Main platform wins even when an injected service claims support. These
+    // cases run through the same trusted preload/IPC, not a browser OS string.
+    for (const platform of ['linux', 'darwin', 'freebsd']) {
+      const localSongs = path.join(directory, platform + '-Songs'); await fs.mkdir(localSongs);
+      host = await createCompanionHost({ ...hostOptions, dataDirectory: path.join(directory, platform + '-profile'), quickImportRuntimePlatform: platform });
+      await host.open(); await until(() => evaluate("!!document.querySelector('#quick-import-guide-system')"), platform + ' guide');
+      const expected = platform === 'freebsd' ? 'unknown' : platform;
+      assert.equal(host.snapshot().quickImport.platform, expected); assert.equal(host.snapshot().quickImport.supported, false);
+      assert.equal(await evaluate("document.querySelector('#quick-import-guide-system').value"), expected);
+      const beforeCommands = calls.length, beforeFolders = packageOpens.length;
+      for (const name of ['chooseGame', 'connect', 'disable', 'refresh', 'openPackage']) assert.equal((await command('quickImport.' + name)).code, 'QUICK_IMPORT_WINDOWS_REQUIRED');
+      assert.equal(calls.length, beforeCommands); assert.equal(packageOpens.length, beforeFolders);
+      assert.equal((await command('quickImport.prerequisites')).ok, true);
+      assert.equal(helpOpens.at(-1), platform === 'darwin' ? 'https://github.com/LavaGang/MelonLoader.Installer#how-does-it-work' : 'https://github.com/LavaGang/MelonWiki/blob/master/docs/gettingstarted.md');
+      await host.library.selectRoot(localSongs);
+      await host.downloads.selectRoot(localSongs);
+      const download = await host.downloads.enqueue({ chartId: 'synthetic-' + platform, endpoint: '/api/charts/00000000-0000-4000-8000-000000000036/abcdefghijkl/download-manifest', title: 'Fictional chart', artist: 'Example Project', charter: 'Synthetic Charter' });
+      await until(() => host.downloads.status().items.some(item => item.id === download.id && item.state === 'Completed'), platform + ' normal download');
+      assert.equal(calls.length, beforeCommands, 'Unsupported Quick Import never blocks or starts from a normal download');
+      await host.stop(); await delay(80); await host.dispose();
+    }
     assert.deepEqual(errors, []); assert.deepEqual(externalRequests, []); assert.deepEqual(forbidden, { capture: 0, external: 0, fileDialog: 0, drumCommand: 0, realDownload: 0 });
   });
   assert.equal(checks.length, 8); await finish();

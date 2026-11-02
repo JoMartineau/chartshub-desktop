@@ -17,29 +17,41 @@ async function fixture(run){
 }
 const partialAt=root=>{const name=fs.readdirSync(root).find(name=>name.startsWith('.chartshub-partial-'));return name?path.join(root,name):null;};
 const foreign='foreign sentinel; must remain unchanged';
+const identity=filename=>{const info=fs.statSync(filename,{bigint:true});return `${info.dev}:${info.ino}:${info.birthtimeNs}`;};
 function transfer(root,extra={}){let calls=0;const bytes=container();return {operation:downloadEnchor({request,directory:root,fetcher:async()=>{calls++;return new Response(bytes,{headers:{'Content-Length':String(bytes.length)}});},...extra}),calls:()=>calls};}
 
 test('replacing a registered prepared directory refuses future writes and preserves its foreign descendants',{timeout:20000},async()=>fixture(async root=>{
- let observations=0,replaced=false,partial,prepared;
+ const sentinel=path.join(root,'foreign-prepared-folder'),quarantine=path.join(root,'owned-prepared-folder');
+ fs.mkdirSync(sentinel);fs.writeFileSync(path.join(sentinel,'keep.txt'),foreign);
+ const foreignIdentity=identity(sentinel);let observations=0,replaced=false,partial,prepared,originalIdentity;
  const job=transfer(root,{guard:async()=>{
   if(replaced)return;partial=partialAt(root);if(!partial)return;prepared=path.join(partial,'prepared-folder');if(!fs.existsSync(prepared)||++observations!==2)return;
-  // The original is still empty. Recreate rather than rename so Windows does
-  // not need to move a directory while its parent has an open SNG handle.
-  assert.deepEqual(fs.readdirSync(prepared),[]);fs.rmdirSync(prepared);await new Promise(resolve=>setTimeout(resolve,5));fs.mkdirSync(prepared);fs.writeFileSync(path.join(prepared,'keep.txt'),foreign);replaced=true;
+  // Keep both original objects alive: deleting and immediately recreating the
+  // same name can reuse filesystem metadata (including NTFS creation time).
+  assert.deepEqual(fs.readdirSync(prepared),[]);originalIdentity=identity(prepared);
+  fs.renameSync(prepared,quarantine);fs.renameSync(sentinel,prepared);replaced=true;
  }});
- await assert.rejects(job.operation,error=>error.code==='DOWNLOAD_PATH');assert.equal(replaced,true);assert.equal(job.calls(),1);
+ const error=await job.operation.then(()=>null,error=>error);
+ assert.equal(replaced,true,`directory replacement must occur before checking rejection; observations=${observations}; error=${error?.code||'none'}`);
+ assert.notEqual(originalIdentity,foreignIdentity);assert.equal(identity(quarantine),originalIdentity);assert.equal(identity(prepared),foreignIdentity);
+ assert.equal(error?.code,'DOWNLOAD_PATH','the injected replacement must be refused');assert.equal(job.calls(),1);
  assert.equal(fs.readFileSync(path.join(prepared,'keep.txt'),'utf8'),foreign);assert.deepEqual(fs.readdirSync(prepared),['keep.txt']);assert.equal(fs.existsSync(path.join(root,'Band - Song')),false);
 }));
 
 test('a replaced decoded file is never published or deleted by partial cleanup',{timeout:20000},async()=>fixture(async root=>{
- let replaced=false,leaf,blockedWhileOpen=0;
+ const sentinel=path.join(root,'foreign-song.ini'),quarantine=path.join(root,'owned-song.ini');fs.writeFileSync(sentinel,foreign,{flag:'wx'});
+ const foreignIdentity=identity(sentinel);let replaced=false,leaf,blockedWhileOpen=0,originalIdentity;
  const job=transfer(root,{guard:async()=>{
   if(replaced)return;const partial=partialAt(root);if(!partial)return;leaf=path.join(partial,'prepared-folder','song.ini');if(!fs.existsSync(leaf)||fs.statSync(leaf).size===0)return;
-  try{fs.unlinkSync(leaf);}catch(error){if(process.platform==='win32'&&error.code==='EPERM'){blockedWhileOpen++;return;}throw error;}
-  await new Promise(resolve=>setTimeout(resolve,5));fs.writeFileSync(leaf,foreign,{flag:'wx'});replaced=true;
+  originalIdentity=identity(leaf);
+  try{fs.renameSync(leaf,quarantine);}catch(error){if(process.platform==='win32'&&error.code==='EPERM'){blockedWhileOpen++;return;}throw error;}
+  fs.renameSync(sentinel,leaf);replaced=true;
  }});
- await assert.rejects(job.operation,error=>error.code==='DOWNLOAD_PATH');assert.equal(replaced,true,'the mutation must run after any Windows open-handle refusal');assert.equal(job.calls(),1);
- assert.equal(fs.readFileSync(leaf,'utf8'),foreign);assert.equal(fs.existsSync(path.join(root,'Band - Song')),false);assert.ok(blockedWhileOpen>=0);
+ const error=await job.operation.then(()=>null,error=>error);
+ assert.equal(replaced,true,`file replacement must occur after any Windows open-handle refusal; blocked=${blockedWhileOpen}; error=${error?.code||'none'}`);
+ assert.notEqual(originalIdentity,foreignIdentity);assert.equal(identity(quarantine),originalIdentity);assert.equal(identity(leaf),foreignIdentity);
+ assert.equal(error?.code,'DOWNLOAD_PATH','the injected replacement must be refused');assert.equal(job.calls(),1);
+ assert.equal(fs.readFileSync(leaf,'utf8'),foreign);assert.equal(fs.existsSync(path.join(root,'Band - Song')),false);
 }));
 
 test('a foreign file in the reserved publication directory survives a refused import',{timeout:20000},async()=>fixture(async root=>{

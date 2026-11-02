@@ -58,12 +58,20 @@ const QUICK_IMPORT_CODES = new Set(PUBLIC_QUICK_IMPORT_CODES);
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, quickImportService, gameWidgetTelemetrySource, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, quickImportService, quickImportRuntimePlatform = process.platform, gameWidgetTelemetrySource, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
   const measurementFactories = loadMeasurementFactories(gameplayMeasurements);
   const measurementsEnabled = measurementFactories !== null;
   const gameWidgetFactories = measurementsEnabled ? null : loadGameWidgetFactories();
+  // Main-process dependency only. Choosing a renderer guide cannot supply a
+  // host capability or change the fixed destinations of the help buttons.
+  const quickImportPlatform = ['win32', 'linux', 'darwin'].includes(quickImportRuntimePlatform) ? quickImportRuntimePlatform : 'unknown';
+  const quickImportView = () => {
+    if (!quickImport) return null;
+    const value = quickImport.status();
+    return { ...value, platform: quickImportPlatform, supported: quickImportPlatform === 'win32' && value.supported === true };
+  };
   const [{ ServiceContainer }, { MockCloneHeroIntegration }, { createDefaultRegistry, createDefaultWidgets, ensureGameplayDocument }, { WidgetRenderer }, { SettingsRepository, validateSettings }, { SnapshotHistory }, { ThemeService, createDefaultTheme }, { validateWidgetStyle }, { createDefaultStream, validateStream }] = await Promise.all([
     import('./dist/core/services/ServiceContainer.js'), import('./dist/integrations/clonehero/MockCloneHeroIntegration.js'),
     import('./dist/widgets/core/index.js'), import('./dist/widgets/engine/WidgetRenderer.js'), import('./dist/storage/SettingsRepository.js'), import('./dist/layout/WidgetHistory.js'),
@@ -294,7 +302,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     return { ...(measurementsEnabled || editor ? view : publicWidgetState(view, flags)), lyrics: measurementsEnabled || flags?.lyrics === true ? songVisuals?.lyricsSnapshot() ?? null : null };
   };
   const telemetryPanel = () => { const value = measurementsEnabled ? telemetry?.snapshot() : null; return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, hardware: calibrationHardware.snapshot(), connectorSetup: connectorSetup.snapshot(), reason: value.reason } : null; };
-  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true, gameWidgets: !measurementsEnabled }, gameWidgets: gameWidgetIntegrations?.status() ?? null, gameModPreflight: gameModPreflight?.status() ?? null, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView({ editor: true }), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), drums: drums.status(), quickImport: quickImport?.status() ?? null, requestDiscovery: songRequestDiscovery?.status() ?? null, chat: unifiedChat?.status() ?? null, sessionActivity: sessionActivity?.snapshot() ?? null, sessionWidgets: { revision: sessionWidgetRevision, settings: { ...sessionWidgetSettings } }, profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true, gameWidgets: !measurementsEnabled }, gameWidgets: gameWidgetIntegrations?.status() ?? null, gameModPreflight: gameModPreflight?.status() ?? null, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView({ editor: true }), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), drums: drums.status(), quickImport: quickImportView(), requestDiscovery: songRequestDiscovery?.status() ?? null, chat: unifiedChat?.status() ?? null, sessionActivity: sessionActivity?.snapshot() ?? null, sessionWidgets: { revision: sessionWidgetRevision, settings: { ...sessionWidgetSettings } }, profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   // Installation destinations belong only to the private Companion panel.
   const overlaySnapshot = value => ({ ...value, state: stateView(), uiPalette: undefined, drums: undefined, quickImport: undefined, gameWidgets: undefined, gameModPreflight: undefined, requestDiscovery: undefined, chat: undefined, sessionActivity: undefined, sessionWidgets: undefined, telemetry: value.telemetry ? { ...value.telemetry, connectorSetup: undefined } : null, songRequests: undefined, player: undefined });
   const floatingPanelSnapshot = name => {
@@ -609,7 +617,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!disposing) publishPanel();
   } });
   await catalogue.load();
-  quickImport = quickImportService ?? createQuickImportService({ dataDirectory, expectedBuild: quickImportExpectedBuild,
+  quickImport = quickImportService ?? createQuickImportService({ dataDirectory, expectedBuild: quickImportExpectedBuild, platform: quickImportPlatform,
     getContext: () => ({ active: hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive(), root: library.status().settings.rootPath, lifecycle: lifecycleRevision }),
     onChange: () => { if (!disposing) publishPanel(); },
     chooseGame: async () => {
@@ -1031,11 +1039,16 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       }
       if (command.startsWith('quickImport.')) {
         if (!trustedPanel(event)) return { ok: false, error: 'Commande non autorisée.' };
-        if (command === 'quickImport.prerequisites') {
+        if (command === 'quickImport.prerequisites' || command === 'quickImport.release') {
           if (!hostActive) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
-          await shell.openExternal('https://github.com/LavaGang/MelonLoader/blob/v0.7.3/README.md#requirements');
+          const url = command === 'quickImport.release' ? 'https://github.com/LavaGang/MelonLoader/releases/tag/v0.7.3'
+            : quickImportPlatform === 'win32' ? 'https://github.com/LavaGang/MelonLoader/blob/v0.7.3/README.md#requirements'
+            : quickImportPlatform === 'darwin' ? 'https://github.com/LavaGang/MelonLoader.Installer#how-does-it-work'
+            : 'https://github.com/LavaGang/MelonWiki/blob/master/docs/gettingstarted.md';
+          await shell.openExternal(url);
           return { ok: true };
         }
+        if (quickImportPlatform !== 'win32') return { ok: false, code: 'QUICK_IMPORT_WINDOWS_REQUIRED' };
         if (command === 'quickImport.openPackage') {
           const owner = panelContents, revision = lifecycleRevision;
           if (!hostActive || owner !== panelContents || !trustedPanel(event) || revision !== lifecycleRevision || maintenanceLocked) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
@@ -1046,7 +1059,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
           const error = await shell.openPath(folder);
           return error ? { ok: false, code: 'QUICK_IMPORT_FAILED' } : { ok: true };
         }
-        await quickImport.command(command, payload); publishPanel(); return { ok: true, result: quickImport.status() };
+        await quickImport.command(command, payload); publishPanel(); return { ok: true, result: quickImportView() };
       }
       if (command.startsWith('drums.')) { const result = await drums.command(command, payload); publishPanel(); return { ok: true, result }; }
       if (command === 'player.report' || command === 'player.spectrum' || command === 'player.ended') {

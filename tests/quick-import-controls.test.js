@@ -13,7 +13,7 @@ async function fixture(command = async () => ({ ok: true })) {
   return new QuickImportControls({ root, command });
 }
 const snapshot = (patch = {}, language = 'fr', hasRoot = true) => ({ language, library: { settings: { rootPath: hasRoot ? 'C:/Synthetic/Songs' : null } }, quickImport: {
-  supported: true, selected: true, gameName: 'Clone Hero test', busy: false, connected: false, enabled: false, error: null, jobs: [], savedCanWrite: true, ...patch,
+  supported: true, platform: 'win32', selected: true, gameName: 'Clone Hero test', busy: false, connected: false, enabled: false, error: null, jobs: [], savedCanWrite: true, ...patch,
 } });
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 const id = '11111111-1111-4111-8111-111111111111';
@@ -149,4 +149,49 @@ test('disposal removes the new guide button listeners and ignores a late guide f
   controls.update(snapshot()); const pending = controls.openHelp('openPackage'); controls.dispose();
   controls.nodes.openPackage.click(); controls.nodes.prerequisites.click(); result.resolve({ ok: false }); await pending;
   assert.deepEqual(calls, ['quickImport.openPackage']); assert.equal(controls.helpError, false);
+});
+
+test('Linux and macOS guides default from the main snapshot in FR and EN without Windows commands or active import controls', async () => {
+  for (const platform of ['linux', 'darwin']) for (const language of ['fr', 'en']) {
+    const calls = [], controls = await fixture((...args) => { calls.push(args); return { ok: true }; });
+    controls.update(snapshot({ platform, supported: false }, language));
+    assert.equal(controls.nodes.guideSystem.value, platform);
+    assert.match(controls.nodes.installIntro.textContent, platform === 'linux' ? /Linux/ : /macOS/);
+    assert.match(controls.nodes.status.textContent, /Scan Songs/);
+    assert.equal(controls.nodes.installCommand.hidden, true); assert.equal(controls.nodes.installCommand.textContent, '');
+    assert.equal(controls.nodes.openPackage.hidden, true); assert.equal(controls.nodes.openPackage.disabled, true);
+    assert.equal(controls.nodes.actions.hidden, true);
+    for (const action of ['chooseGame', 'connect', 'disable', 'refresh']) { assert.equal(controls.nodes[action].disabled, true); await controls.run(action); }
+    await controls.openHelp('openPackage'); assert.deepEqual(calls, []);
+    const instructions = controls.nodes.installSteps.children.flatMap(row => row.children.map(node => node.textContent)).join(' ');
+    assert.doesNotMatch(instructions, /Install-QuickImport\.ps1|-Apply|-EnableBeta/);
+    assert.match(instructions, platform === 'linux' ? /Installer\.Linux/ : /Installer\.MacOS\.dmg/);
+    assert.match(instructions, platform === 'linux' ? /Wine/ : /arm64/);
+  }
+});
+
+test('switching instructional guides never changes runtime support, activates a module or sends an OS from the renderer', async () => {
+  const calls = [], controls = await fixture((...args) => { calls.push(args); return { ok: true }; });
+  controls.update(snapshot({ platform: 'linux', supported: false }));
+  controls.nodes.guideSystem.value = 'win32'; controls.nodes.guideSystem.dispatchEvent(new Event('change'));
+  assert.equal(controls.nodes.guideSystem.value, 'win32'); assert.equal(controls.nodes.connect.disabled, true);
+  assert.equal(controls.nodes.installCommand.textContent, ''); assert.equal(controls.nodes.openPackage.disabled, true);
+  await controls.run('connect'); await controls.openHelp('release'); await controls.openHelp('prerequisites');
+  assert.deepEqual(calls, [['quickImport.release', {}], ['quickImport.prerequisites', {}]]);
+  controls.update(snapshot({ platform: 'linux', supported: true }, 'en'));
+  assert.equal(controls.nodes.connect.disabled, true, 'Even a malformed supported flag never overrides the main platform');
+  assert.equal(controls.nodes.guideSystem.value, 'win32', 'The chosen explanation survives language changes');
+  controls.dispose(); controls.nodes.guideSystem.value = 'linux'; controls.nodes.guideSystem.dispatchEvent(new Event('change'));
+  assert.equal(controls.guideSelection, 'win32');
+});
+
+test('unknown or missing platforms stay unvalidated without PowerShell examples while help stays explicit', async () => {
+  const calls = [], controls = await fixture((...args) => { calls.push(args); return { ok: true }; });
+  for (const platform of [undefined, 'unknown', 'freebsd', '<img>']) {
+    controls.update(snapshot({ platform }, 'en'));
+    assert.equal(controls.nodes.guideSystem.value, 'unknown'); assert.match(controls.nodes.status.textContent, /not validated/);
+    assert.equal(controls.nodes.installCommand.textContent, ''); assert.equal(controls.nodes.connect.disabled, true);
+    assert.doesNotMatch(texts(controls), /<img>/);
+  }
+  assert.deepEqual(calls, []);
 });
