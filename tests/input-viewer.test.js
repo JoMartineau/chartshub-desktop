@@ -136,6 +136,29 @@ test('viewer revocation, render failure and disposal close input execution witho
  const f=fixture();let active=true;const service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron,active:()=>active});const window=await service.open();window.webContents.emit('render-process-gone');assert.equal(window.isDestroyed(),true);active=false;assert.equal(await service.open(),null);await service.dispose();assert.equal(f.handlers.has(CHANNEL),false);
 });
 
+test('closing controller settings retains the selected native reader, outputs and counts until explicit Stop',async t=>{
+ const f=fixture();let callbacks,starts=0,stops=0,selection=0;
+ const service=await actualCreateInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron,xinputFactory:value=>{callbacks=value;return{start(){starts++;callbacks.onDevices([{index:0}]);return true;},select(){selection++;return true;},getSelection(){return selection;},stop(){stops++;},dispose(){}};}});t.after(()=>service.dispose());
+ const editor=await service.open(),invoke=(name,payload={})=>f.handlers.get(CHANNEL)(f.event(editor),name,payload),config=plain(model.preset());config.controls[0].mapping.kind='button';config.controls[0].mapping.index=0;
+ await invoke('configure',{config});await invoke('start');await invoke('selectXInput',{index:0});const output=await service.showOutput({editing:false});
+ const sample=down=>({index:0,selection,connected:true,buttons:[{pressed:down,value:down?1:0}],axes:[]});callbacks.onSample(sample(false));callbacks.onSample(sample(true));assert.equal(service.snapshotOutput().counts.fret0,1);
+ const stopCount=stops;await invoke('close');assert.equal(editor.isDestroyed(),false);assert.equal(editor.isVisible(),false);assert.equal(service.status().open,false);assert.equal(service.status().phase,'running');assert.equal(stops,stopCount);assert.equal(output.isVisible(),true);
+ callbacks.onSample(sample(false));assert.equal(service.snapshotOutput().pressed.fret0,false);callbacks.onSample(sample(true));assert.equal(service.snapshotOutput().counts.fret0,2);
+ assert.equal(await service.open(),editor);assert.equal(starts,1);assert.equal(service.status().open,true);let prevented=false;editor.emit('close',{preventDefault(){prevented=true;}});assert.equal(prevented,true);assert.equal(editor.isVisible(),false);assert.equal(service.status().phase,'running');
+ service.stop(false);assert.equal(stops,stopCount+1);assert.equal(service.status().phase,'stopped');assert.equal(service.snapshotOutput().pressed.fret0,false);assert.equal(service.snapshotOutput().counts.fret0,2);
+ await service.dispose();assert.equal(editor.isDestroyed(),true);assert.equal(output.isDestroyed(),true);
+});
+
+test('hidden browser controller reading keeps its active lease, while closing focused keyboard settings stops it',async t=>{
+ const f=fixture(),service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron});t.after(()=>service.dispose());
+ let editor=await service.open();const invoke=(name,payload={})=>f.handlers.get(CHANNEL)(f.event(editor),name,payload),config=plain(model.preset());await invoke('configure',{config});await invoke('start');const lease=await invoke('selectXInput',{index:null});
+ await invoke('close');assert.equal(service.status().phase,'running');assert.equal(editor.isVisible(),false);
+ assert.equal((await invoke('pressed',{run:lease.run,selection:lease.selection,pressed:{fret0:true}})).ok,true);assert.equal(service.snapshotOutput().pressed.fret0,true);
+ await invoke('stop');assert.equal((await invoke('pressed',{run:lease.run,selection:lease.selection,pressed:{fret0:true}})).ok,false);assert.equal(service.snapshotOutput().pressed.fret0,false);
+ await service.open();config.source='keyboard';await invoke('configure',{config});await invoke('start');await invoke('close');assert.equal(editor.isDestroyed(),true);assert.equal(service.status().phase,'stopped');
+ editor=await service.open();assert.equal(service.status().phase,'stopped');assert.equal(service.snapshotOutput().phase,'stopped');
+});
+
 test('pending output opens cannot resurrect after hide, stopped outputs revoke access, and failed or crashed outputs are replaced',async t=>{
  const f=fixture();let active=true;const service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron,active:()=>active});t.after(()=>service.dispose());
  let editor=await service.open();const configure=()=>f.handlers.get(CHANNEL)(f.event(editor),'configure',{config:model.preset()});assert.equal((await configure()).ok,true);
@@ -157,10 +180,31 @@ test('counter snapshots and reset require the owned editor while chart events re
 
 test('confirmed chart starts are opt-in, require explicit reading and reuse the separate locked output once',async t=>{
  const f=fixture(),service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron});t.after(()=>service.dispose());const editor=await service.open(),invoke=(name,payload={})=>f.handlers.get(CHANNEL)(f.event(editor),name,payload),config=plain(model.preset());
+ config.autoShowOnChartStart=false;
  await invoke('configure',{config});assert.equal(await service.confirmChartStart('off'),false);config.autoShowOnChartStart=true;await invoke('configure',{config});assert.equal(await service.confirmChartStart('stopped'),false);assert.equal(f.windows.length,1);
  await invoke('start');for(const id of ['',null,{},'bad/path'])assert.equal(await service.confirmChartStart(id),false);
  assert.equal(await service.confirmChartStart('playing:1'),true);const output=service.getOutputWindow();assert.equal(output.ignoresMouse,true);assert.equal(service.status().outputEditing,false);assert.equal(f.windows.length,2);
  service.hideOutput();assert.equal(await service.confirmChartStart('playing:1'),false);assert.equal(output.isVisible(),false);assert.equal(await service.confirmChartStart('playing:2'),true);assert.equal(service.getOutputWindow(),output);assert.equal(f.windows.length,2);assert.equal(service.status().phase,'running');
+});
+
+test('automatic chart display hides at the confirmed end, resets counts once and keeps controller reading active',async t=>{
+ const f=fixture(),service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron});t.after(()=>service.dispose());const editor=await service.open(),invoke=(name,payload={})=>f.handlers.get(CHANNEL)(f.event(editor),name,payload),config=plain(model.preset());config.autoShowOnChartStart=true;config.autoResetOnChartEnd=true;await invoke('configure',{config});await invoke('start');const lease=await invoke('selectXInput',{index:null});const press=pressed=>invoke('pressed',{run:lease.run,selection:lease.selection,pressed});
+ await press({});await press({fret0:true});assert.equal(service.snapshotOutput().counts.fret0,1);assert.equal(await service.confirmChartStart('playing:auto'),true);const output=service.getOutputWindow();await invoke('close');assert.equal(editor.isVisible(),false);
+ assert.equal(service.confirmChartEnd('playing:auto'),true);assert.equal(output.isVisible(),false);assert.equal(service.status().phase,'running');assert.equal(editor.isDestroyed(),false);assert.equal(service.snapshotOutput().counts.fret0,0);
+ await press({});await press({fret0:true});assert.equal(service.snapshotOutput().counts.fret0,1);assert.equal(service.confirmChartEnd('playing:auto'),false);assert.equal(service.snapshotOutput().counts.fret0,1);assert.equal(await service.confirmChartStart('playing:auto'),false);assert.equal(output.isVisible(),false);
+ assert.equal(await service.confirmChartStart('playing:new'),true);assert.equal(output.isVisible(),true);
+});
+
+test('a confirmed end cancels a pending automatic output and an old end cannot hide a newer chart output',async t=>{
+ const f=fixture(),service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron});t.after(()=>service.dispose());const editor=await service.open(),invoke=(name,payload={})=>f.handlers.get(CHANNEL)(f.event(editor),name,payload);await invoke('configure',{config:model.preset()});await invoke('start');let release;f.load.nextOutput=()=>new Promise(resolve=>{release=resolve;});const pending=service.confirmChartStart('playing:pending');await new Promise(resolve=>setImmediate(resolve));assert.equal(service.confirmChartEnd('playing:pending'),true);release();assert.equal(await pending,false);assert.equal(service.status().outputOpen,false);
+ await service.confirmChartStart('playing:older');await service.confirmChartStart('playing:newer');service.confirmChartEnd('playing:older');assert.equal(service.status().outputOpen,true);service.confirmChartEnd('playing:newer');assert.equal(service.status().outputOpen,false);
+});
+
+test('phase tracking is leased only by explicit Start with enabled options and survives closing the settings',async t=>{
+ const f=fixture(),calls=[];let connected=false;const service=await createInputViewer({root:path.resolve(__dirname,'../companion'),electron:f.electron,onChartTrackingChange:enabled=>{calls.push(enabled);connected=enabled;},getChartTrackingStatus:()=>({connected,status:connected?'connected':'disabled'})});t.after(()=>service.dispose());const editor=await service.open(),invoke=(name,payload={})=>f.handlers.get(CHANNEL)(f.event(editor),name,payload),config=plain(model.preset());await invoke('configure',{config});await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(calls,[]);
+ await invoke('start');await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(calls,[true]);assert.equal(service.status().chartAutomation.connected,true);await invoke('close');assert.deepEqual(calls,[true]);assert.equal(service.status().phase,'running');
+ config.autoShowOnChartStart=false;config.autoResetOnChartEnd=false;await invoke('configure',{config});await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(calls,[true,false]);assert.equal(service.status().chartAutomation.requested,false);
+ config.autoResetOnChartEnd=true;await invoke('configure',{config});await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(calls,[true,false,true]);service.stop(false);await new Promise(resolve=>setImmediate(resolve));assert.deepEqual(calls,[true,false,true,false]);assert.equal(service.status().chartAutomation.requested,false);
 });
 
 test('pending automatic output respects Stop, changed options and authorization guards after loading',async t=>{

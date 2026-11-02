@@ -84,7 +84,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   async function ensureInputViewer() {
     if (inputViewer) return inputViewer;
     if (!inputViewerTask) {
-      const task = createInputViewer({ root: __dirname, active: () => hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive(), language: () => language, onChange: () => { if (!disposing) publishPanel(); } });
+      const task = createInputViewer({ root: __dirname, active: () => hostActive && !disposing && !stopTask && !maintenanceLocked && panelAlive(), language: () => language,
+        onChartTrackingChange: enabled => measurementsEnabled ? Promise.resolve() : gameWidgetIntegrations?.setInputViewerEnabled(enabled),
+        getChartTrackingStatus: () => measurementsEnabled ? telemetry?.snapshot() : gameWidgetIntegrations?.status(),
+        onChange: () => { if (!disposing) publishPanel(); } });
       inputViewerTask = task;
       task.then(value => { inputViewer = value; }, () => { if (inputViewerTask === task) inputViewerTask = null; });
     }
@@ -1050,6 +1053,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'capture.player') { await setPlayerWidget(true); return { ok: true }; }
       if (command === 'gameCapture.open') { await (await ensureGameCapture()).open(); return { ok: true }; }
       if (command === 'inputViewer.open') { await (await ensureInputViewer()).open(); return { ok: true }; }
+      if (command === 'inputViewer.stop') { inputViewer?.stop(false); return { ok: true }; }
       if (command === 'inputViewer.showOutput') {
         const shown = await (await ensureInputViewer()).showOutput(payload);
         return shown ? { ok: true } : { ok: false, error: language === 'en' ? 'Open Input Viewer settings before showing the game widget.' : 'Ouvrez les réglages de l’Input Viewer avant d’afficher le widget du jeu.' };

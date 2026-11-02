@@ -55,7 +55,7 @@ function validCommand(command, payload, widgetIds) {
     return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 2 && Object.keys(payload).every(name => [key, 'confirmation'].includes(name)) && typeof payload[key] === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(payload[key]) && payload.confirmation === true;
   }
   if (command === 'gameCapture.open') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
-  if (['inputViewer.open', 'inputViewer.copyUrl', 'inputViewer.hideOutput'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (['inputViewer.open', 'inputViewer.stop', 'inputViewer.copyUrl', 'inputViewer.hideOutput'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (command === 'inputViewer.showOutput') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && Object.keys(payload).length >= 1 && Object.keys(payload).length <= 2 && Object.keys(payload).every(key => ['editing', 'alwaysOnTop'].includes(key))
     && typeof payload.editing === 'boolean' && (!Object.hasOwn(payload, 'alwaysOnTop') || typeof payload.alwaysOnTop === 'boolean');

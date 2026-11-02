@@ -32,7 +32,7 @@ function trusted(event, window, page) {
 }
 function captureRequestAllowed(request, contents, selected, enabled) {
   return enabled && /^window:\d+:0$/.test(selected?.id) && !!contents && !contents.isDestroyed() && request.frame === contents.mainFrame
-    && request.frame?.url === PAGES.controller && request.securityOrigin === ORIGIN && request.userGesture === true
+    && request.frame?.url === PAGES.controller && [ORIGIN, ORIGIN + '/'].includes(request.securityOrigin) && request.userGesture === true
     && request.videoRequested === true && request.audioRequested === false;
 }
 
@@ -71,7 +71,13 @@ async function createGameCapture({ root, onChange = () => {}, active = () => tru
     }
     notify();
   }
-  const canCapture = (web, permission, origin, details) => permission === 'display-capture' && alive() && !!selected
+  // Electron 44 on Windows asks for `media` with an empty mediaTypes list before
+  // invoking the display-media handler. Denying that preflight prevents the
+  // selected window from ever reaching getDisplayMedia. Camera/microphone
+  // requests have nonempty mediaTypes and remain denied. The actual grant below
+  // still requires a user gesture, the exact owned frame and video only.
+  const canCapture = (web, permission, origin, details) => (permission === 'display-capture'
+    || permission === 'media' && Array.isArray(details?.mediaTypes) && details.mediaTypes.length === 0) && alive() && !!selected
     && controller && !controller.isDestroyed() && web === controller.webContents && web.mainFrame.url === PAGES.controller
     && details?.isMainFrame === true && (details.requestingUrl === undefined || details.requestingUrl === PAGES.controller)
     && (origin === undefined || origin === ORIGIN || origin === ORIGIN + '/');
@@ -195,7 +201,8 @@ async function createGameCapture({ root, onChange = () => {}, active = () => tru
         crops[payload.kind] = { ...payload.rect }; sizeOutput(payload.kind); notify();
       } else if (command === 'output' && exact(payload, ['kind']) && Object.hasOwn(TITLES, payload.kind)) await openOutput(payload.kind);
       else if (command === 'stop') stop();
-      else if (command === 'failed') stop('capture-unavailable');
+      else if (command === 'failed' && (payload === undefined || exact(payload, ['reason'])
+        && ['capture-unavailable','permission-denied','no-video-frame'].includes(payload.reason))) stop(payload?.reason ?? 'capture-unavailable');
       else if (command === 'signal' && exact(payload, ['kind','revision','signal']) && Object.hasOwn(TITLES, payload.kind)
         && payload.revision === revision && phase === 'capturing' && validSignal(payload.signal)) {
         const window = outputs.get(payload.kind);

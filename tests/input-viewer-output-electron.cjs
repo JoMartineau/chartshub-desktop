@@ -12,9 +12,11 @@ const archiveArg=process.argv.find(value=>value.startsWith('--fixture-asar=')),a
 const root=archive?path.join(archive,'companion'):path.resolve(__dirname,'../companion');
 require(path.join(root,'host.cjs')).registerCompanionScheme();
 const {createInputViewer,OUTPUT_PAGE}=require(path.join(root,'input-viewer.cjs'));
+const {createInputViewerGameEvents}=require(path.join(root,'input-viewer-game-events.cjs'));
+const {createGameWidgetIntegrations}=require(path.join(root,'game-widget-integrations.cjs'));
 const {createLocalOverlayServer}=require(path.join(root,'stream-server.cjs'));
 const checks=[],errors=[],externalRequests=[],sources=[];
-let service,editor,game,rogue,obs,server,ownedLoopbackOrigin=null,localObsRequestCount=0,actualLocalObsServerAndBrowser=false,finished=false;
+let service,editor,game,rogue,obs,server,chartController,chartBridge,ownedLoopbackOrigin=null,localObsRequestCount=0,actualLocalObsServerAndBrowser=false,finished=false;
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const evaluate=source=>editor.webContents.executeJavaScript(source);
 async function until(action,name){const end=Date.now()+10000;while(Date.now()<end){if(await action())return;await delay(15);}throw Error('Timed out: '+name);}
@@ -32,13 +34,22 @@ class PassiveWindow extends BrowserWindow{
  show(){this.showInactive();}focus(){}setIgnoreMouseEvents(value,options){this.fixtureMouse.push({value,options});return super.setIgnoreMouseEvents(value,options);}
 }
 const electron={...require('electron'),BrowserWindow:PassiveWindow};
+async function trackedViewer(language=()=> 'fr'){
+ const state={enabled:false,connected:false,status:'disabled'};
+ const telemetry={snapshot:()=>({...state}),setEnabled:async value=>{Object.assign(state,{enabled:value,connected:value,status:value?'connected':'disabled'});},start(){},stop(){Object.assign(state,{enabled:false,connected:false,status:'disabled'});}};
+ chartController=createGameWidgetIntegrations({telemetry,getContext:()=>({active:true,lifecycle:1}),platform:'win32'});
+ const controller=chartController;
+ const next=await createInputViewer({root,electron,xinputFactory:factory,language,onChartTrackingChange:value=>controller.setInputViewerEnabled(value),getChartTrackingStatus:()=>controller.status()});
+ chartBridge=createInputViewerGameEvents({getViewer:()=>next,getContext:()=>{const value=controller.status();return{ready:value.inputViewer&&value.connected,lifecycle:1,revision:value.revision};}});
+ return next;
+}
 const deadline=setTimeout(()=>void finish(Error('Output fixture timed out')),90000);
 async function finish(error){if(finished)return;finished=true;clearTimeout(deadline);if(error)console.error(error.stack||error);try{rogue?.destroy();obs?.destroy();await server?.stop();await service?.dispose();assert.equal(BrowserWindow.getAllWindows().length,0);}catch(cleanup){error ||= cleanup;}await fs.mkdir(directory,{recursive:true});
  const report={result:error?'failed':'passed',checks,errors,externalRequests,error:error?String(error.stack||error):null,archive,loadedFromAsar:!!archive,productRoot:archive||path.dirname(root),actualDirectorAndPreloads:true,actualOutputRenderer:true,actualLocalObsServerAndBrowser,localObsRequestCount,defaultRendererSecurity:true,syntheticWindowsTransport:true,syntheticGamepads:true,realInputRead:false,realDevicesRead:false,realGameRead:false,realProfileRead:false,electron:process.versions.electron,chrome:process.versions.chrome};
  await fs.writeFile(path.join(directory,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify({directory,result:report.result,checks:checks.length}));app.exit(error?1:0);}
 process.on('uncaughtException',error=>void finish(error));process.on('unhandledRejection',error=>void finish(error));
 app.whenReady().then(async()=>{
- await fs.mkdir(directory,{recursive:true});service=await createInputViewer({root,electron,xinputFactory:factory});editor=await service.open();
+ await fs.mkdir(directory,{recursive:true});service=await trackedViewer();editor=await service.open();
  await until(()=>evaluate("document.getElementById('element').options.length===8"),'editor');
  await check('The opaque movable editor prominently explains mapping and focuses the visible mapping action',async()=>{
   assert.equal(editor.fixtureOptions.transparent,false);assert.equal(editor.fixtureOptions.frame,true);assert.equal(editor.isAlwaysOnTop(),false);assert.equal(editor.isResizable(),true);assert.equal(editor.isMovable(),true);
@@ -48,12 +59,13 @@ app.whenReady().then(async()=>{
   await change('kind','button');await change('index','0');await change('color','#d43ba5');
   assert.equal(await evaluate("document.getElementById('mapping-count').textContent"),'1/8 touches associées');
  });
- await check('Press-counter options start disabled and the visual demo cannot count or start reading a device',async()=>{
-  assert.equal(await evaluate("document.getElementById('counts').checked"),false);assert.equal(await evaluate("document.getElementById('counts-auto-reset').checked"),false);assert.equal(await evaluate("document.getElementById('auto-show-chart').checked"),false);
+ await check('New layouts offer chart automation without starting a source, retain explicit opt-out, and the visual demo never reads a device',async()=>{
+  assert.equal(await evaluate("document.getElementById('counts').checked"),false);assert.equal(await evaluate("document.getElementById('counts-auto-reset').checked"),true);assert.equal(await evaluate("document.getElementById('auto-show-chart').checked"),true);assert.equal(chartController.status().enabled,false);
+  await evaluate("document.getElementById('counts-auto-reset').click();document.getElementById('auto-show-chart').click()");
   await evaluate("document.getElementById('counts').click();document.getElementById('demo').click()");await delay(120);assert(Object.values(service.snapshotOutput().counts).every(value=>value===0));assert.equal(service.status().phase,'stopped');assert.equal(native().starts,0);await evaluate("document.getElementById('demo').click()");
  });
  const saved=await stored();await delay(50);await service.dispose();
- service=await createInputViewer({root,electron,xinputFactory:factory});
+ service=await trackedViewer();
  await check('Opening output first restores saved mappings and colors through a hidden editor without starting reads',async()=>{
   game=await service.showOutput({editing:true});editor=service.getWindow();assert(game);assert.equal(editor.isVisible(),false);assert.equal(service.status().phase,'stopped');assert.equal(native().starts,0);
   assert.deepEqual(await stored(),saved);const value=service.snapshotOutput();assert.equal(value.config.controls[0].color,'#d43ba5');assert.equal(value.config.controls[0].mapping,undefined);assert.equal(value.config.source,undefined);assert.equal(value.config.deadzone,undefined);
@@ -72,7 +84,7 @@ app.whenReady().then(async()=>{
   for(const [window,id]of[[editor,'viewer'],[game,'output']])await window.webContents.executeJavaScript(`(()=>{window.fixturePaintedCounts=[];const c=document.getElementById('${id}').getContext('2d'),original=c.fillText.bind(c);c.fillText=(value,...args)=>{if(/^\\d+$/.test(String(value)))window.fixturePaintedCounts.push(String(value));if(window.fixturePaintedCounts.length>64)window.fixturePaintedCounts.shift();return original(value,...args);};})()`);
   editor.hide();native().callbacks.onSample(sample(false));native().callbacks.onSample(sample(true));assert.equal(service.snapshotOutput().pressed.fret0,true);assert.equal(service.snapshotOutput().counts.fret0,1);
   await until(()=>game.webContents.executeJavaScript("document.getElementById('output').dataset.active==='fret0'"),'game output native press');
-  await until(()=>game.webContents.executeJavaScript("window.fixturePaintedCounts.includes('1')"),'actual game counter paint');await until(()=>evaluate("window.fixturePaintedCounts.includes('1')&&document.getElementById('counts-status').textContent.includes('Vert: 1')"),'actual editor counter paint');native().callbacks.onSample(sample(true));native().callbacks.onSample(sample(true));assert.equal(service.snapshotOutput().counts.fret0,1);
+  await until(()=>game.webContents.executeJavaScript("window.fixturePaintedCounts.includes('1')"),'actual game counter paint');await until(()=>evaluate("document.getElementById('counts-status').textContent.includes('Vert: 1')"),'hidden editor counter status');await service.open();await until(()=>evaluate("window.fixturePaintedCounts.includes('1')"),'editor counter paint on reopen');editor.hide();native().callbacks.onSample(sample(true));native().callbacks.onSample(sample(true));assert.equal(service.snapshotOutput().counts.fret0,1);
   assert.equal(JSON.stringify(service.snapshotOutput()).includes('xinput'),false);assert.equal(service.snapshotOutput().config.controls[0].mapping,undefined);
   native().callbacks.onSample(sample(false));await until(()=>game.webContents.executeJavaScript("document.getElementById('output').dataset.active===''"),'native release');
  });
@@ -115,14 +127,41 @@ app.whenReady().then(async()=>{
   await evaluate('window.fixtureDown=false');await until(()=>service.snapshotOutput().pressed.fret0===false,'browser release');
   await evaluate("document.getElementById('counts-reset').click()");await until(()=>service.snapshotOutput().counts.fret0===0,'explicit session reset');assert.equal(service.status().phase,'running');assert.equal((await stored()).showCounts,true);assert(!Object.hasOwn(await stored(),'counts'));
  });
- await check('Closing the editor stops reading, clears held output and hides the game surface without losing saved setup',async()=>{
-  await evaluate('window.fixtureDown=true');await until(()=>service.snapshotOutput().pressed.fret0===true,'held before close');await evaluate("document.getElementById('close-editor').click()");
-  await until(()=>editor.isDestroyed(),'editor closes');assert.equal(service.status().phase,'stopped');assert.equal(native().running,false);assert.equal(game.isVisible(),false);assert(Object.values(service.snapshotOutput().pressed).every(value=>value===false));
+ await check('Closing browser-controller settings keeps the reader, press totals and actual Game / OBS outputs active without another Start',async()=>{
+  server=createLocalOverlayServer({root,token:'d'.repeat(64),inputViewer:{snapshot:()=>service.snapshotOutput()}});await server.start(0);const url=server.status().inputViewerUrl;ownedLoopbackOrigin=new URL(url).origin;
+  obs=new BrowserWindow({show:false,width:800,height:320,webPreferences:{session:session.fromPartition('fixture-hidden-input-output-'+randomUUID()),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,backgroundThrottling:false}});await obs.loadURL(url);obs.showInactive();
+  const currentEditor=editor,starts=native().starts,before=await stored();await service.showOutput({editing:false});await evaluate('window.fixtureDown=true');await until(()=>service.snapshotOutput().pressed.fret0===true,'held before close');await evaluate("document.getElementById('close-editor').click()");
+  await until(()=>!editor.isVisible(),'settings hidden');assert.equal(editor.isDestroyed(),false);assert.equal(service.status().open,false);assert.equal(service.status().phase,'running');assert.equal(native().starts,starts);assert.equal(game.isVisible(),true);
+  await until(()=>obs.webContents.executeJavaScript("document.getElementById('output').dataset.active==='fret0'"),'held browser reaches OBS after close');
+  await evaluate('window.fixtureDown=false');await until(()=>service.snapshotOutput().pressed.fret0===false,'hidden browser release accepted');await until(()=>obs.webContents.executeJavaScript("document.getElementById('output').dataset.active===''"),'hidden browser release in OBS');
+  const count=service.snapshotOutput().counts.fret0;await evaluate('window.fixtureDown=true');await until(()=>service.snapshotOutput().counts.fret0===count+1,'hidden browser count');
+  await until(()=>game.webContents.executeJavaScript("document.getElementById('output').dataset.active==='fret0'"),'hidden browser game press');await until(()=>obs.webContents.executeJavaScript("document.getElementById('output').dataset.active==='fret0'"),'hidden browser OBS press');
+  await service.open();assert.equal(service.getWindow(),currentEditor);assert.equal(native().starts,starts);assert.deepEqual(await stored(),before);assert.equal(await evaluate("document.getElementById('start').disabled"),true);assert.equal(await evaluate("document.getElementById('device').value"),'0');
+  await evaluate('window.fixtureDown=false');await until(()=>service.snapshotOutput().pressed.fret0===false,'release after reopen');obs.destroy();obs=null;await server.stop();server=null;
  });
- await service.dispose();service=await createInputViewer({root,electron,xinputFactory:factory,language:()=> 'en'});editor=await service.open();await until(()=>evaluate("document.getElementById('element').options.length===8"),'English editor');
+ await check('The native title-bar Close hides only settings; Stop clears output and reads, and a later open cannot silently restart them',async()=>{
+  await evaluate("document.getElementById('stop').click();document.getElementById('start').click()");await until(()=>service.status().phase==='running','restart for native Close');await until(()=>evaluate("Array.from(document.getElementById('device').options).some(option=>option.value==='windows:0')"),'native list for Close');await change('device','windows:0');await until(()=>native().selected===0,'native selection for Close');
+  const starts=native().starts;native().callbacks.onSample(sample(false));native().callbacks.onSample(sample(true));editor.close();await until(()=>!editor.isVisible(),'native title close hidden');assert.equal(editor.isDestroyed(),false);assert.equal(service.status().phase,'running');assert.equal(native().running,true);assert.equal(game.isVisible(),true);
+  native().callbacks.onSample(sample(false));native().callbacks.onSample(sample(true));await until(()=>game.webContents.executeJavaScript("document.getElementById('output').dataset.active==='fret0'"),'native output after title Close');assert.equal(native().starts,starts);
+  service.stop(false);await until(()=>service.status().phase==='stopped','Dashboard-equivalent Stop');assert.equal(native().running,false);assert(Object.values(service.snapshotOutput().pressed).every(value=>value===false));await until(()=>game.webContents.executeJavaScript("document.getElementById('output').dataset.active===''"),'output cleared after Stop');
+  await service.open();await until(()=>evaluate("document.getElementById('start').disabled===false&&document.getElementById('stop').disabled===true"),'stopped state on reopen');assert.equal(native().starts,starts);assert.equal(service.status().phase,'stopped');
+ });
+ await check('Explicit Start leases phase-only chart tracking, shows the game output at start, and a confirmed finish hides it and resets all totals once',async()=>{
+  await evaluate("document.getElementById('counts-auto-reset').click();document.getElementById('auto-show-chart').click();document.getElementById('start').click()");await until(()=>service.status().phase==='running'&&chartController.status().connected,'phase-only tracking starts');assert.equal(chartController.status().accuracy,false);assert.equal(chartController.status().lyrics,false);assert.equal(chartController.readings(),null);
+  await until(()=>evaluate("document.getElementById('chart-auto-status').textContent.includes('connecté')"),'connected chart status');await until(()=>evaluate("Array.from(document.getElementById('device').options).some(option=>option.value==='windows:0')"),'native list for chart cycle');await change('device','windows:0');await until(()=>native().selected===0,'native selection for chart cycle');
+  const id='chart-'+ 'e'.repeat(64);service.hideOutput();editor.close();await until(()=>!editor.isVisible(),'settings closed during chart cycle');assert.equal(await chartBridge.handle({type:'start',id}),true);assert.equal(game.isVisible(),true);assert.equal(editor.isVisible(),false);
+  native().callbacks.onSample(sample(false));native().callbacks.onSample(sample(true));assert(service.snapshotOutput().counts.fret0>0);assert.equal(await chartBridge.handle({type:'end',id}),true);assert.equal(game.isVisible(),false);assert(Object.values(service.snapshotOutput().counts).every(value=>value===0));assert.equal(service.status().phase,'running');assert.equal(native().running,true);
+  native().callbacks.onSample(sample(false));native().callbacks.onSample(sample(true));assert.equal(service.snapshotOutput().counts.fret0,1);assert.equal(await chartBridge.handle({type:'end',id}),false);assert.equal(service.snapshotOutput().counts.fret0,1);await service.open();service.stop(false);await until(()=>!chartController.status().inputViewer,'Stop releases phase-only source');assert.equal(chartController.status().enabled,false);
+ });
+ await check('Closing keyboard settings stops focused keyboard input and clears its held key instead of listening globally',async()=>{
+  await change('source','keyboard');await evaluate("document.hasFocus=()=>true;document.getElementById('start').click()");await until(()=>service.status().phase==='running','keyboard Start');await delay(50);await evaluate("window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyA',bubbles:true}))");await until(()=>service.snapshotOutput().pressed.fret0===true,'keyboard press before close');editor.close();await until(()=>editor.isDestroyed(),'keyboard closes normally');assert.equal(service.status().phase,'stopped');assert.equal(native().running,false);assert(Object.values(service.snapshotOutput().pressed).every(value=>value===false));assert.equal(game.isVisible(),false);
+ });
+ await service.dispose();service=await trackedViewer(()=> 'en');editor=await service.open();await until(()=>evaluate("document.getElementById('element').options.length===8"),'English editor');
+ assert.equal(service.status().phase,'stopped');assert.equal(native().starts,0);await change('source','gamepad');
  await check('English setup steps, mapping count and separate-output action remain understandable after restoring settings',async()=>{
   assert.match(await evaluate("document.getElementById('mapping-guide').textContent"),/Start.*Choose.*Map/);assert.equal(await evaluate("document.getElementById('mapping-count').textContent"),'1/8 controls mapped');assert.equal(await evaluate("document.getElementById('show-output').textContent"),'Show over game');assert.equal(await evaluate("document.getElementById('close-editor').textContent"),'Close');
-  assert.equal(await evaluate("document.getElementById('counts').parentNode.textContent"),'Show press counters');assert.equal(await evaluate("document.getElementById('counts-reset').textContent"),'Reset press counters');assert.match(await evaluate("document.getElementById('counts-help').textContent"),/Game Widgets.*first start input/);assert(Object.values(service.snapshotOutput().counts).every(value=>value===0));
+  assert.match(await evaluate("document.getElementById('privacy').textContent"),/Closing settings keeps.*Game \/ OBS.*Stop.*Dashboard/);
+  assert.equal(await evaluate("document.getElementById('counts').parentNode.textContent"),'Show press counters');assert.equal(await evaluate("document.getElementById('counts-reset').textContent"),'Reset press counters');assert.match(await evaluate("document.getElementById('counts-help').textContent"),/Game Widgets.*Start enables chart tracking/);assert(Object.values(service.snapshotOutput().counts).every(value=>value===0));
   await evaluate("document.getElementById('configure-mapping').click()");assert.equal(await evaluate('document.activeElement.id'),'learn');await fs.writeFile(path.join(directory,'editor-en.png'),(await editor.webContents.capturePage()).toPNG());assert.deepEqual(errors,[]);assert.deepEqual(externalRequests,[]);
  });
  await finish();

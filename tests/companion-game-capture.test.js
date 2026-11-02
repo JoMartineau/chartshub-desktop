@@ -44,10 +44,36 @@ test('capture request needs the owned main frame, selection, video only and user
   const f=fixture(), contents={mainFrame:{url:PAGES.controller},isDestroyed:()=>false};
   const request={frame:contents.mainFrame,securityOrigin:'chartshub-companion://app',userGesture:true,videoRequested:true,audioRequested:false};
   assert.equal(captureRequestAllowed(request,contents,{id:'window:42:0'},true),true);
+  assert.equal(captureRequestAllowed({...request,securityOrigin:'chartshub-companion://app/'},contents,{id:'window:42:0'},true),true,'Electron serializes this privileged origin with a trailing slash');
   for(const changed of [{frame:{url:PAGES.controller}},{securityOrigin:'https://example.com'},{userGesture:false},{videoRequested:false},{audioRequested:true}]) assert.equal(captureRequestAllowed({...request,...changed},contents,{id:'window:42:0'},true),false);
   assert.equal(captureRequestAllowed(request,contents,null,true),false);
   assert.equal(captureRequestAllowed(request,contents,{id:'screen:0:0'},true),false);
   assert.equal(captureRequestAllowed(request,contents,{id:'window:42:0'},false),false);
+});
+
+test('Electron empty-media display preflight is scoped to the selected owned controller and never grants camera or microphone',async t=>{
+  const f=fixture(),service=await createGameCapture({root,electron:f.electron});t.after(()=>service.dispose());
+  await service.open();const preview=f.windows[0],details={isMainFrame:true,mediaTypes:[],requestingUrl:PAGES.controller,securityOrigin:'chartshub-companion://app/'};
+  const request=(permission,changed={})=>{let granted;f.ses.permission(preview.webContents,permission,v=>{granted=v;},{...details,...changed});return granted;};
+  assert.equal(request('media'),false,'No source has been selected');
+  await f.call(preview,'list');await f.call(preview,'select',{id:'window:42:0'});
+  assert.equal(request('media'),true);assert.equal(request('display-capture'),true);
+  for(const mediaTypes of [['video'],['audio'],['video','audio'],undefined,null])assert.equal(request('media',{mediaTypes}),false);
+  assert.equal(request('media',{isMainFrame:false}),false);assert.equal(request('media',{requestingUrl:'https://example.com'}),false);
+  assert.equal(request('notifications'),false);
+  assert.equal(f.ses.check(preview.webContents,'media','https://example.com',details),false);
+  assert.equal(f.ses.check({mainFrame:preview.webContents.mainFrame},'media','chartshub-companion://app/',details),false);
+  let grant;await f.ses.display({...f.request(preview),securityOrigin:'chartshub-companion://app/'},v=>{grant=v;});assert.equal(grant.video.id,'window:42:0');
+  assert.equal((await f.call(preview,'failed',{reason:'permission-denied'})).ok,true);assert.equal((await f.call(preview,'snapshot')).state.error,'permission-denied');
+  assert.equal(request('media'),false,'Stopping revokes even the empty-media preflight');
+});
+
+test('capture failures expose only bounded actionable reasons and stop their tracks and outputs',async t=>{
+  const f=fixture(),service=await createGameCapture({root,electron:f.electron});t.after(()=>service.dispose());await service.open();const preview=f.windows[0];
+  assert.equal((await f.call(preview,'failed',{reason:'private raw exception'})).ok,false);
+  assert.equal((await f.call(preview,'failed',{reason:'no-video-frame',extra:'private'})).ok,false);
+  assert.equal((await f.call(preview,'failed',{reason:'no-video-frame'})).ok,true);assert.equal((await f.call(preview,'snapshot')).state.error,'no-video-frame');
+  assert.equal((await f.call(preview,'failed')).ok,true);assert.equal((await f.call(preview,'snapshot')).state.error,'capture-unavailable');
 });
 test('capture stays stopped until explicit selection and start, routes only owned outputs, and stop revokes everything',async t=>{
   const f=fixture(), service=await createGameCapture({root,electron:f.electron});t.after(()=>service.dispose());

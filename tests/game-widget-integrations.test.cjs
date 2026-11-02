@@ -25,3 +25,23 @@ test('A failed source activation is reported using only a bounded public code an
 test('Unsupported platforms and inactive contexts cannot start a source',async()=>{const f=fixture({platform:'linux'});await assert.rejects(f.configure({accuracy:true}),{code:'GAME_WIDGETS_UNAVAILABLE'});assert.deepEqual(f.calls,[]);const g=fixture();g.setContext({active:false,lifecycle:1});await assert.rejects(g.configure({lyrics:true}),{code:'GAME_WIDGETS_INACTIVE'});assert.deepEqual(g.calls,[]);});
 test('Dispose revokes input and prevents further configuration or stale readings',async()=>{const f=fixture();await f.configure({lyrics:true});f.controller.dispose();await assert.rejects(f.configure({accuracy:true}),{code:'GAME_WIDGETS_CANCELLED'});assert.equal(f.controller.readings(),null);assert.equal(f.state.connected,false);});
 test('Malformed source values cannot expose unbounded measurements, a private reason or trial history',async()=>{const f=fixture();await f.configure({accuracy:true,lyrics:true});f.state.timing.lastOffsetMs=Infinity;f.state.active.clock.durationSeconds=Infinity;f.state.reason='C:/private/connection.json';f.state.active.metadata.title='x'.repeat(513);const r=f.controller.readings();assert.equal(r.timing.lastOffsetMs,null);assert.equal(r.active.clock,null);assert.equal(r.active.metadata.title,undefined);assert.equal(f.controller.status().reason,null);assert.deepEqual(r.history,[]);});
+
+test('the internal Input Viewer phase-only lease connects without enabling or exposing Accuracy, Lyrics, labels or history',async()=>{
+ const f=fixture();assert.equal(f.controller.status().inputViewer,false);await f.controller.setInputViewerEnabled(true);
+ const s=f.controller.status();assert.equal(s.inputViewer,true);assert.equal(s.enabled,true);assert.equal(s.connected,true);assert.equal(s.accuracy,false);assert.equal(s.lyrics,false);assert.equal(f.controller.readings(),null);
+ assert.equal(f.calls.filter(c=>c==='start').length,1);await f.configure({});assert.equal(f.controller.status().inputViewer,true);assert.equal(f.controller.readings(),null);
+ await f.controller.setInputViewerEnabled(false);assert.equal(f.controller.status().enabled,false);assert.equal(f.state.enabled,false);assert.equal(f.controller.readings(),null);
+ for(const value of [null,{},'yes',1])await assert.rejects(f.controller.setInputViewerEnabled(value),{code:'GAME_WIDGETS_INVALID'});
+ await assert.rejects(f.controller.configure({revision:f.controller.status().revision,accuracy:false,lyrics:false,inputViewer:true}),{code:'GAME_WIDGETS_INVALID'});
+});
+
+test('releasing Input Viewer tracking preserves existing Accuracy/Lyrics opt-ins and their shared transport',async()=>{
+ const f=fixture();await f.configure({accuracy:true,lyrics:true});await f.controller.setInputViewerEnabled(true);const starts=f.calls.filter(c=>c==='start').length,stops=f.calls.filter(c=>c==='stop').length;
+ await f.controller.setInputViewerEnabled(false);assert.equal(f.controller.status().accuracy,true);assert.equal(f.controller.status().lyrics,true);assert.equal(f.controller.status().connected,true);assert.equal(f.calls.filter(c=>c==='start').length,starts);assert.equal(f.calls.filter(c=>c==='stop').length,stops);assert.equal(f.controller.readings().timing.sampleCount,50);
+ await f.controller.setInputViewerEnabled(true);await f.configure({});assert.equal(f.controller.status().inputViewer,true);assert.equal(f.controller.status().enabled,true);assert.equal(f.controller.readings(),null);f.controller.stop();assert.equal(f.controller.status().inputViewer,false);assert.equal(f.state.connected,false);
+});
+
+test('adding a phase-only lease during a pending source activation cannot strand or revive the transport',async()=>{
+ const gate=deferred(),f=fixture({setEnabled:v=>v?gate.promise:Promise.resolve()});const accuracy=f.configure({accuracy:true});const tracking=f.controller.setInputViewerEnabled(true);gate.resolve();await assert.rejects(accuracy,{code:'GAME_WIDGETS_CANCELLED'});await tracking;assert.equal(f.controller.status().connected,true);assert.equal(f.controller.status().inputViewer,true);assert.equal(f.calls.filter(c=>c==='start').length,1);
+ const stoppedGate=deferred(),g=fixture({setEnabled:v=>v?stoppedGate.promise:Promise.resolve()});const pending=g.controller.setInputViewerEnabled(true);g.controller.stop();stoppedGate.resolve();await assert.rejects(pending,{code:'GAME_WIDGETS_CANCELLED'});assert.equal(g.controller.status().enabled,false);assert.equal(g.state.enabled,false);assert.equal(g.calls.filter(c=>c==='start').length,0);
+});

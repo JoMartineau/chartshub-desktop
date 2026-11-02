@@ -124,7 +124,7 @@ function createInputViewerOutputState({ validateConfig, sampleControls, now = Da
     resetCounts(); return true;
   }
 
-  return { configure, setRunning, clear, updateGamepad, updatePressed, resetCounts, confirmChartEnd, snapshot, getSource: () => config?.source ?? null, getMode: () => config?.mode ?? null, getAutoShowOnChartStart: () => config?.autoShowOnChartStart === true };
+  return { configure, setRunning, clear, updateGamepad, updatePressed, resetCounts, confirmChartEnd, snapshot, getSource: () => config?.source ?? null, getMode: () => config?.mode ?? null, getAutoShowOnChartStart: () => config?.autoShowOnChartStart === true, getAutoResetOnChartEnd: () => config?.autoResetOnChartEnd === true };
 }
 
 module.exports = { createInputViewerOutputState, projectOutputSnapshot };

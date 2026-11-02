@@ -41,6 +41,10 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.39
+
+La lecture d’une manette déjà démarrée reste active après fermeture des réglages de l’Input Viewer. Les options de suivi des charts permettent d’afficher le widget au début, de le masquer à la fin et de remettre les compteurs à zéro avec le module facultatif. La capture des fenêtres Clone Hero corrige aussi son autorisation vidéo et attend une première image avant d’annoncer un aperçu actif. [Notes 0.14.39](docs/RELEASE-0.14.39.md).
+
 ### Version 0.14.38
 
 Le catalogue flottant affiche des cartes plus compactes et les pochettes ChorusEncore disponibles. La recherche se lance après une courte pause de frappe ; Entrée ou Rechercher restent immédiats. Les charts ChartsHub restent téléchargeables après un changement de bibliothèque, avec vérification au moment de l’ajout. [Notes 0.14.38](docs/RELEASE-0.14.38.md).
