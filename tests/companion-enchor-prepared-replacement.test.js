@@ -17,7 +17,7 @@ async function fixture(run){
 }
 const partialAt=root=>{const name=fs.readdirSync(root).find(name=>name.startsWith('.chartshub-partial-'));return name?path.join(root,name):null;};
 const foreign='foreign sentinel; must remain unchanged';
-const identity=filename=>{const info=fs.statSync(filename,{bigint:true});return `${info.dev}:${info.ino}:${info.birthtimeNs}`;};
+const identity=filename=>{const info=fs.statSync(filename,{bigint:true});return `${info.dev}:${info.ino}`;};
 function transfer(root,extra={}){let calls=0;const bytes=container();return {operation:downloadEnchor({request,directory:root,fetcher:async()=>{calls++;return new Response(bytes,{headers:{'Content-Length':String(bytes.length)}});},...extra}),calls:()=>calls};}
 
 test('replacing a registered prepared directory refuses future writes and preserves its foreign descendants',{timeout:20000},async()=>fixture(async root=>{

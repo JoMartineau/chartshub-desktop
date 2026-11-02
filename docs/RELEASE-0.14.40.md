@@ -9,3 +9,5 @@ Le panneau **Batterie / VST** ajoute une marge intérieure autour des textes, de
 Quick Import reste facultatif et validé uniquement avec **Clone Hero 1.1.0.6142-final Stable · Windows x64**. Le guide distingue l’installation du module, son activation explicite et la connexion dans ChartsHub. Le retrait préserve les fichiers modifiés et les composants partagés encore nécessaires aux autres modules. Chansons et profils sont conservés.
 
 Cette version inclut les corrections du catalogue flottant de la 0.14.38, ainsi que la lecture continue de l’Input Viewer et les corrections d’aperçu vidéo de la 0.14.39.
+
+Les téléchargements ChorusEncore conservent désormais les identifiants natifs de fichiers en entiers 64 bits exacts. Les contrôles de remplacement et de nettoyage préservent les fichiers étrangers, même lorsque Windows conserve l’heure de création d’un ancien nom.

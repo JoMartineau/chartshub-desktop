@@ -22,6 +22,7 @@ const PRIVATE_MEMBERS = Object.freeze([
   'companion/calibration-hardware-windows.ps1'
 ]);
 const PUBLIC_MEMBERS = Object.freeze([
+  'enchor-download.js', 'enchor-archive.js',
   'companion/ui/companion.css', 'companion/security.cjs',
   'companion/catalogue-client.cjs', 'companion/catalogue-enchor-client.cjs',
   'companion/catalogue-external.cjs', 'companion/catalogue-service.cjs',

@@ -9,7 +9,7 @@ function record(length,fields){const data=Buffer.alloc(length);for(const [offset
 async function outputFile(filename,signal,touch,action,guard=async()=>{}){
  signal.throwIfAborted();await guard(filename);const file=await fs.open(filename,'wx',0o600);let offset=0;
  try{
-  await guard(filename,await file.stat());
+  await guard(filename,await file.stat({bigint:true}));
   const write=async bytes=>{
    let written=0;
    while(written<bytes.length){signal.throwIfAborted();await guard(filename);const result=await file.write(bytes,written,bytes.length-written,offset);signal.throwIfAborted();if(!result.bytesWritten)throw Error('L’écriture de l’archive a été interrompue.');written+=result.bytesWritten;offset+=result.bytesWritten;touch();}
@@ -60,12 +60,12 @@ async function writeFilteredSng({sourceFile,header,outputFile:filename,signal,to
 async function writeFolderFromSng({sourceFile,header,outputDirectory,signal,touch=()=>{},includeVideo=true,progress=()=>{},guard=async()=>{}}){
  const members=selectSngMembers(header,{includeVideo}),entries=members.slice();
  if(!entries.some(member=>member.name.toLowerCase()==='song.ini')){const data=Buffer.from(encodeSongIni(header.metadataEntries));entries.unshift({name:'song.ini',parts:['song.ini'],size:data.length,data});}
- signal.throwIfAborted();await guard(outputDirectory);await fs.mkdir(outputDirectory,{mode:0o700});await guard(outputDirectory,await fs.lstat(outputDirectory));await guard(sourceFile);const source=await fs.open(sourceFile,'r');
+ signal.throwIfAborted();await guard(outputDirectory);await fs.mkdir(outputDirectory,{mode:0o700});await guard(outputDirectory,await fs.lstat(outputDirectory,{bigint:true}));await guard(sourceFile);const source=await fs.open(sourceFile,'r');
  try{
   let completed=0;
   for(const member of entries){
    signal.throwIfAborted();const target=path.resolve(outputDirectory,...member.parts);if(!target.startsWith(outputDirectory+path.sep))throw Error('Chemin de fichier ChorusEncore invalide.');await guard(outputDirectory);let parent=outputDirectory;
-   for(const part of member.parts.slice(0,-1)){parent=path.join(parent,part);await guard(parent);let created=false;try{await fs.mkdir(parent,{mode:0o700});created=true;}catch(error){if(error.code!=='EEXIST')throw error;}if(created)await guard(parent,await fs.lstat(parent));else await guard(parent);}
+   for(const part of member.parts.slice(0,-1)){parent=path.join(parent,part);await guard(parent);let created=false;try{await fs.mkdir(parent,{mode:0o700});created=true;}catch(error){if(error.code!=='EEXIST')throw error;}if(created)await guard(parent,await fs.lstat(parent,{bigint:true}));else await guard(parent);}
    await outputFile(target,signal,touch,async write=>{if(member.data)await write(member.data);else await readMember(source,member,header.mask,signal,touch,async bytes=>{await write(bytes);progress({name:member.name,completed,total:entries.length});});},guard);completed++;
   }
   return {files:entries.length,format:'folder'};
