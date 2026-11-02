@@ -1,8 +1,9 @@
+import { startVideoFrames, captureFailure } from './game-capture-media.js';
 const api = window.ChartsHubGameCapture;
 const $ = id => document.getElementById(id);
 const video = $('game'), selection = $('selection'), context = selection.getContext('2d');
 let snapshot = null, stream = null, starting = false, disposed = false, drag = null, frame = null;
-let listed = [], selectedId = '', lastWidth = 0, lastHeight = 0;
+let listed = [], selectedId = '', lastWidth = 0, lastHeight = 0, startAbort = null;
 const peers = new Map(), canvases = new Map(), pendingCandidates = new Map();
 const regions = ['highway','score','lyrics'];
 const tr = (fr, en) => snapshot?.language === 'en' ? en : fr;
@@ -15,6 +16,8 @@ function closePeer(kind) {
   pendingCandidates.delete(kind);
 }
 function cleanup() {
+  starting = false;
+  startAbort?.abort(); startAbort = null;
   if (frame !== null) { video.cancelVideoFrameCallback?.(frame); cancelAnimationFrame(frame); frame = null; }
   stream?.getTracks().forEach(t => { t.onended = null; t.stop(); }); stream = null; video.srcObject = null;
   for (const kind of [...peers.keys()]) closePeer(kind);
@@ -95,12 +98,16 @@ function render(value) {
   $('open-highway').textContent = tr('Ouvrir Highway pour OBS', 'Open Highway for OBS'); $('open-score').textContent = tr('Ouvrir Score pour OBS', 'Open Score for OBS'); $('open-lyrics').textContent = tr('Ouvrir Paroles pour OBS', 'Open Lyrics for OBS');
   $('instructions').textContent = tr('Dans OBS, ajoutez les sources « Capture de fenêtre » souhaitées : ChartsHub — Highway, ChartsHub — Score ou ChartsHub — Paroles. Conservez ces fenêtres et cet aperçu ouverts. Chaque zone contient le fond du jeu ; le texte des paroles reste une image, sans transparence ni extraction de texte.', 'In OBS, add the Window Capture sources you want: ChartsHub — Highway, ChartsHub — Score or ChartsHub — Paroles. Keep these windows and this preview open. Each region includes the game background; lyrics remain an image without transparency or text extraction.');
   $('safety').textContent = tr('La capture reste arrêtée à l’ouverture. Fermer cet aperçu ou cliquer sur Arrêter met fin à la capture. Une fenêtre disparue doit être choisie à nouveau.', 'Capture starts only when you click Start. Closing this preview or clicking Stop ends capture. A lost window must be selected again.');
+  $('capture-help').textContent = tr('Si l’image reste noire, gardez Clone Hero visible et essayez le mode fenêtré ou sans bordure, puis redémarrez la capture.', 'If the image stays black, keep Clone Hero visible, try Windowed or Borderless mode, then restart capture.');
+  $('capture-help').hidden = !active && !value.error;
   $('source').disabled = active || starting; $('refresh').disabled = active || starting;
   $('start').disabled = active || starting || !value.selected; $('stop').disabled = !active && !starting;
   $('region').disabled = value.phase !== 'capturing';
   for (const kind of regions) $('open-'+kind).disabled = value.phase !== 'capturing' || !value.crops[kind];
   sizePreview();
-  if (value.error) status('Capture interrompue. Actualisez les fenêtres et choisissez Clone Hero à nouveau.', 'Capture stopped. Refresh the window list and select Clone Hero again.');
+  if (value.error === 'permission-denied') status('La capture a été refusée. Autorisez la capture de fenêtre dans les réglages du système, puis choisissez Clone Hero et réessayez.', 'Window capture was denied. Allow window capture in your system settings, then select Clone Hero and try again.');
+  else if (value.error === 'no-video-frame') status('Aucune image reçue de Clone Hero. Gardez le jeu visible, essayez le mode fenêtré ou sans bordure, puis choisissez la fenêtre à nouveau.', 'No video frame received from Clone Hero. Keep the game visible, try Windowed or Borderless mode, then select its window again.');
+  else if (value.error) status('Capture interrompue. Actualisez les fenêtres et choisissez Clone Hero à nouveau.', 'Capture stopped. Refresh the window list and select Clone Hero again.');
   else if (value.phase === 'capturing') status('Aperçu actif. Tracez la highway, le score ou les paroles.', 'Preview active. Draw highway, score or lyrics regions.');
   else if (value.phase === 'starting') status('Démarrage de la capture…', 'Starting capture…');
   else status('Capture arrêtée.', 'Capture stopped.');
@@ -129,18 +136,21 @@ $('source').addEventListener('change', async () => {
 });
 $('start').addEventListener('click', async () => {
   if (starting || stream || !snapshot?.selected) return;
-  starting = true; render(snapshot);
+  starting = true; const attempt = new AbortController(); startAbort = attempt; render(snapshot);
   try {
     const current = await navigator.mediaDevices.getDisplayMedia({ audio:false, video:{ frameRate:{ideal:60,max:60} } });
-    if (disposed || snapshot?.phase === 'stopped' && !starting) { current.getTracks().forEach(t => t.stop()); return; }
+    if (disposed || attempt.signal.aborted) { current.getTracks().forEach(t => t.stop()); return; }
     stream = current; const track = current.getVideoTracks()[0];
     if (!track || current.getAudioTracks().length) throw Error('Unexpected tracks');
     track.onended = () => { cleanup(); void command('stop').catch(() => {}); };
-    video.srcObject = current; await video.play();
+    video.srcObject = current; await startVideoFrames(video, {signal:attempt.signal});
+    if (attempt.signal.aborted) return;
     lastWidth = video.videoWidth; lastHeight = video.videoHeight;
     await command('started', {width:lastWidth,height:lastHeight}); tick();
-  } catch { cleanup(); void command('failed').catch(() => {}); }
-  finally { starting = false; if (snapshot) render(snapshot); }
+  } catch (error) {
+    if (!attempt.signal.aborted) { cleanup(); void command('failed', {reason:captureFailure(error)}).catch(() => {}); }
+  }
+  finally { if (startAbort === attempt) startAbort = null; if (!attempt.signal.aborted) starting = false; if (snapshot) render(snapshot); }
 });
 $('stop').addEventListener('click', () => { starting = false; cleanup(); void command('stop').catch(() => {}); });
 for (const kind of regions) $('open-'+kind).addEventListener('click', () => { void command('output', {kind}).catch(() => status('Sélectionnez cette zone sur l’aperçu.', 'Select this region in the preview.')); });

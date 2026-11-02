@@ -18,7 +18,7 @@ test('Input Viewer opens only through an empty main-panel action, never renderer
 });
 
 test('Input Viewer output actions accept only positioning flags and cannot supply URLs, bounds or inputs', () => {
-  for (const command of ['inputViewer.copyUrl', 'inputViewer.hideOutput']) {
+  for (const command of ['inputViewer.copyUrl', 'inputViewer.hideOutput', 'inputViewer.stop']) {
     for (const payload of [undefined, null, {}]) assert.equal(validCommand(command, payload, []), true);
     for (const payload of [[], true, { url: 'http://127.0.0.1:1/' }, { token: 'secret' }, { inputs: {} }]) assert.equal(validCommand(command, payload, []), false);
   }
@@ -31,7 +31,7 @@ test('Input Viewer output actions accept only positioning flags and cannot suppl
     const contents = { mainFrame: { url: 'chartshub-companion://app/ui/' + page } };
     const window = { isDestroyed: () => false, webContents: contents };
     const event = { sender: contents, senderFrame: contents.mainFrame };
-    for (const [name, payload] of [['inputViewer.copyUrl', {}], ['inputViewer.showOutput', { editing: true }], ['inputViewer.hideOutput', {}]]) {
+    for (const [name, payload] of [['inputViewer.copyUrl', {}], ['inputViewer.showOutput', { editing: true }], ['inputViewer.hideOutput', {}], ['inputViewer.stop', {}]]) {
       assert.equal(trustedFiltersWidgetCommand(event, window, name, payload), false);
       assert.equal(trustedCatalogueWidgetCommand(event, window, name, payload), false);
     }

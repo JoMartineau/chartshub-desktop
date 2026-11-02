@@ -10,7 +10,7 @@ const model=scope.model,plain=value=>JSON.parse(JSON.stringify(value));
 function fixture(mode='guitar',overrides={}){
  let time=1000;
  const state=createInputViewerOutputState({validateConfig:model.validateConfig,sampleControls:model.sampleControls,now:()=>time});
- let config={...plain(model.preset(mode)),showCounts:true,...overrides};
+ let config={...plain(model.preset(mode)),showCounts:true,autoResetOnChartEnd:false,autoShowOnChartStart:false,...overrides};
  state.configure(config);state.setRunning(true);
  return {state,get config(){return config;},configure(next){config=next;return state.configure(next);},
   press(map={}){time++;assert.equal(state.updatePressed(map),true);return state.snapshot();},
@@ -138,6 +138,12 @@ test('counter options migrate disabled and session totals never enter saved conf
  const stored=JSON.parse(saved);assert.equal(stored.showCounts,true);assert.equal(Object.hasOwn(stored,'counts'),false);assert.equal(Object.hasOwn(stored,'totals'),false);
  const next=fixture();next.configure(stored);assert.equal(next.counts().fret0,0);
  for(const injected of [{...stored,counts:{fret0:300}},{...stored,totals:[1]},{...stored,showCounts:1},{...stored,autoResetOnChartEnd:'yes'}])assert.throws(()=>model.validateConfig(injected));
+});
+
+test('new layouts offer automatic chart display and resets, while saved false choices and absent legacy flags remain off',()=>{
+ const fresh=plain(model.preset());assert.equal(fresh.autoShowOnChartStart,true);assert.equal(fresh.autoResetOnChartEnd,true);
+ const previous=plain(fresh);previous.autoShowOnChartStart=false;previous.autoResetOnChartEnd=false;let bytes;model.writeConfig({setItem(_key,value){bytes=value;}},previous);const restored=model.readConfig({getItem:key=>key===model.STORAGE_KEY?bytes:null});assert.equal(restored.autoShowOnChartStart,false);assert.equal(restored.autoResetOnChartEnd,false);
+ delete previous.autoShowOnChartStart;delete previous.autoResetOnChartEnd;const legacy=model.validateConfig(previous);assert.equal(legacy.autoShowOnChartStart,false);assert.equal(legacy.autoResetOnChartEnd,false);
 });
 
 test('hundreds of independent fronts remain exact and repeated held readings do not inflate totals',()=>{

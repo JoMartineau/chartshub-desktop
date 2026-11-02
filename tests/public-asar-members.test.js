@@ -22,3 +22,8 @@ test('floating catalogue images, live search and translations are hash-bound to 
   for (const name of ['catalogue-client.cjs', 'catalogue-enchor-client.cjs', 'catalogue-external.cjs', 'catalogue-service.cjs']) assert.ok(archiveMembers.has('companion/' + name), name);
   for (const name of ['catalogue-card.js', 'catalogue-card-data.js', 'catalogue-widget.html', 'catalogue-widget.js', 'catalogue-widget.css', 'localization.js']) assert.ok(archiveMembers.has('companion/ui/' + name), name);
 });
+
+test('capture frame readiness is bound to the actual release archive', () => {
+  const archiveMembers = new Set(literalArray('public-asar-smoke.cjs', 'PUBLIC_MEMBERS'));
+  assert.ok(archiveMembers.has('companion/ui/game-capture-media.js'));
+});

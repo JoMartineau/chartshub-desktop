@@ -63,3 +63,15 @@ test('positioning a hidden widget enters editing even when its previous editing 
   controls.positionButton.click(); await settle(); assert.deepEqual(calls[1], ['inputViewer.showOutput', { editing: false }]);
   controls.dispose();
 });
+
+test('the Dashboard exposes an explicit Stop action while controller reading continues with settings closed', async () => {
+  const calls = [], controls = await fixture(async (...args) => { calls.push(args); return { ok: true }; });
+  controls.update(snapshot({ phase: 'stopped', open: false })); assert.equal(controls.stopButton.disabled, true);
+  controls.update(snapshot({ phase: 'running', open: false })); assert.equal(controls.stopButton.disabled, false);
+  assert.match(controls.status.textContent, /arrière-plan.*fermés/); assert.match(controls.description.textContent, /fermer les réglages/);
+  controls.stopButton.click(); await settle(); assert.deepEqual(calls, [['inputViewer.stop', {}]]);
+  assert.match(controls.feedback.textContent, /arrêtée/);
+  controls.update(snapshot({ phase: 'running', open: false }, {}, 'en')); assert.equal(controls.stopButton.textContent, 'Stop input reading');
+  assert.match(controls.status.textContent, /background; settings closed/);
+  controls.update(snapshot({ available: false, phase: 'running' })); assert.equal(controls.stopButton.disabled, true); controls.dispose();
+});

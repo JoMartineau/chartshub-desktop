@@ -9,6 +9,7 @@ export class InputViewerControls {
       node.addEventListener('click', () => void action(), { signal: this.abort.signal }); return node;
     };
     this.button = button('input-viewer-open', () => this.open());
+    this.stopButton = button('input-viewer-stop', () => this.perform('inputViewer.stop', {}, this.tr('Lecture des entrées arrêtée.', 'Input reading stopped.')));
     this.showButton = button('input-viewer-show-output', () => this.perform('inputViewer.showOutput', { editing: false }));
     this.positionButton = button('input-viewer-position-output', () => this.perform('inputViewer.showOutput', { editing: !(this.snapshot?.inputViewer?.outputOpen === true && this.snapshot.inputViewer.outputEditing === true) }));
     this.hideButton = button('input-viewer-hide-output', () => this.perform('inputViewer.hideOutput', {}));
@@ -27,21 +28,24 @@ export class InputViewerControls {
     this.heading.textContent = this.tr('Input Viewer — guitare et batterie', 'Input Viewer — guitar and drums');
     const viewer = snapshot?.inputViewer, available = viewer?.available === true, opened = viewer?.outputOpen === true, editing = opened && viewer?.outputEditing === true;
     const hasUrl = typeof snapshot?.stream?.inputViewerUrl === 'string' && snapshot.stream.inputViewerUrl.length > 0;
-    this.description.textContent = this.tr('Personnalisez les touches, couleurs, formes et traînées dans les réglages, puis affichez le widget séparément au-dessus du jeu. Dans OBS, ajoutez une source Navigateur et collez son lien. Démarrez la lecture depuis les réglages ; le clavier nécessite leur fenêtre active. Sans MelonLoader et sans mesure Accuracy.', 'Customize inputs, colors, shapes and trails in settings, then show the separate widget over the game. In OBS, add a Browser Source and paste its link. Start input reading from settings; keyboard input requires the settings window to be focused. No MelonLoader or Accuracy measurement.');
+    this.description.textContent = this.tr('Personnalisez les touches, couleurs, formes et traînées, puis cliquez sur Démarrer dans les réglages. Vous pouvez ensuite fermer les réglages : la manette et les widgets Jeu / OBS restent actifs. Utilisez Arrêter la lecture pour les arrêter. Dans OBS, ajoutez une source Navigateur avec son lien. Le clavier nécessite la fenêtre des réglages active. Lecture des touches sans MelonLoader ; automatismes via le module Widgets facultatif.', 'Customize inputs, colors, shapes and trails, then click Start in settings. You can then close settings: the controller and Game / OBS widgets stay active. Use Stop input reading to stop them. In OBS, add a Browser Source with its link. Keyboard input requires the settings window to be focused. Input reading works without MelonLoader; automation uses the optional Game Widgets module.');
     this.button.textContent = this.tr('Ouvrir et personnaliser l’Input Viewer', 'Open and customize Input Viewer');
+    this.stopButton.textContent = this.tr('Arrêter la lecture', 'Stop input reading');
     this.showButton.textContent = this.tr('Afficher au-dessus du jeu', 'Show over the game');
     this.positionButton.textContent = editing ? this.tr('Verrouiller la position', 'Lock position') : this.tr('Déplacer et redimensionner', 'Move and resize');
     this.hideButton.textContent = this.tr('Masquer le widget du jeu', 'Hide game widget');
     this.copyButton.textContent = hasUrl ? this.tr('Copier le lien navigateur OBS', 'Copy OBS browser link') : this.tr('Activer Stream et copier le lien OBS', 'Enable Stream and copy OBS link');
     this.topText.textContent = this.tr(' Au-dessus du jeu', ' Always on top'); this.topCheckbox.checked = viewer?.outputAlwaysOnTop !== false;
     this.button.disabled = this.busy || !available;
+    this.stopButton.disabled = this.busy || !available || viewer?.phase !== 'running';
     this.showButton.disabled = this.busy || !available || opened && !editing;
     this.positionButton.disabled = this.busy || !available;
     this.hideButton.disabled = this.busy || !available || !opened;
     this.copyButton.disabled = this.busy || !available;
     this.topCheckbox.disabled = this.busy || !available || !opened;
     const outputState = !opened ? this.tr('Widget du jeu masqué.', 'Game widget hidden.') : editing ? this.tr('Positionnement actif : déplacez le widget, puis verrouillez sa position.', 'Positioning active: move the widget, then lock its position.') : this.tr('Widget du jeu affiché ; les clics traversent le widget.', 'Game widget visible; clicks pass through it.');
-    this.status.textContent = !available ? this.tr('Input Viewer indisponible.', 'Input Viewer unavailable.') : `${outputState} ${hasUrl ? this.tr('Lien navigateur OBS prêt.', 'OBS browser link ready.') : this.tr('Le bouton OBS active le serveur Stream si nécessaire.', 'The OBS button enables the Stream server if needed.')}`;
+    const readingState = viewer?.phase === 'running' ? viewer.open === false ? this.tr('Lecture active en arrière-plan ; réglages fermés.', 'Input reading active in the background; settings closed.') : this.tr('Lecture active.', 'Input reading active.') : this.tr('Lecture arrêtée.', 'Input reading stopped.');
+    this.status.textContent = !available ? this.tr('Input Viewer indisponible.', 'Input Viewer unavailable.') : `${readingState} ${outputState} ${hasUrl ? this.tr('Lien navigateur OBS prêt.', 'OBS browser link ready.') : this.tr('Le bouton OBS active le serveur Stream si nécessaire.', 'The OBS button enables the Stream server if needed.')}`;
   }
   async open() { return this.perform('inputViewer.open', {}); }
   async perform(command, payload, success) {
