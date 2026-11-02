@@ -16,3 +16,9 @@ test('every optional native fixture source digest is bound to a required member 
   assert.equal(new Set(nativeSources).size, nativeSources.length, 'Fixture source identities must be distinct');
   assert.deepEqual(nativeSources.filter(name => !archiveMembers.has(name)), [], 'Every before/after digest needs its actual archive-member digest');
 });
+
+test('floating catalogue images, live search and translations are hash-bound to the actual release archive', () => {
+  const archiveMembers = new Set(literalArray('public-asar-smoke.cjs', 'PUBLIC_MEMBERS'));
+  for (const name of ['catalogue-client.cjs', 'catalogue-enchor-client.cjs', 'catalogue-external.cjs', 'catalogue-service.cjs']) assert.ok(archiveMembers.has('companion/' + name), name);
+  for (const name of ['catalogue-card.js', 'catalogue-card-data.js', 'catalogue-widget.html', 'catalogue-widget.js', 'catalogue-widget.css', 'localization.js']) assert.ok(archiveMembers.has('companion/ui/' + name), name);
+});

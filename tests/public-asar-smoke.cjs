@@ -22,6 +22,11 @@ const PRIVATE_MEMBERS = Object.freeze([
   'companion/calibration-hardware-windows.ps1'
 ]);
 const PUBLIC_MEMBERS = Object.freeze([
+  'companion/catalogue-client.cjs', 'companion/catalogue-enchor-client.cjs',
+  'companion/catalogue-external.cjs', 'companion/catalogue-service.cjs',
+  'companion/ui/catalogue-card.js', 'companion/ui/catalogue-card-data.js',
+  'companion/ui/catalogue-widget.html', 'companion/ui/catalogue-widget.js',
+  'companion/ui/catalogue-widget.css', 'companion/ui/localization.js',
   'companion/unified-chat.cjs', 'companion/song-request-discovery.cjs',
   'companion/song-request-connections.cjs', 'companion/song-request-tiktok.cjs', 'companion/stream-server.cjs',
   'companion/session-activity.cjs', 'companion/session-widget-model.cjs',

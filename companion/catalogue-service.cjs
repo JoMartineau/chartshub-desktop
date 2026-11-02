@@ -7,6 +7,7 @@ const { normalizeMetadata, findMatches, buildInstalledLookup, annotateInstalled 
 const { endpointValid } = require('../download.js');
 const { createCatalogueFavorites } = require('./catalogue-favorites.cjs');
 const { createExternalCatalogue } = require('./catalogue-external.cjs');
+const { externalArtworkUrl } = require('./catalogue-enchor-client.cjs');
 
 const HEX = /^[a-f0-9]{64}$/, ID = /^[A-Za-z0-9][A-Za-z0-9:._-]{0,511}$/;
 const MAX_ARTWORK = 3 * 1024 * 1024, CACHE_BYTES = 32 * 1024 * 1024;
@@ -48,7 +49,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
   let libraryCache = null, linkedCache = null, linkRevision = 0;
   const contexts = new Map();
   let artworkGeneration = 0, artworkBytes = 0, artworkRunning = 0;
-  const artworkUrls = new Map(), artworkCache = new Map(), artworkRequests = new Map(), artworkQueue = [], artworkControllers = new Set();
+  const artworkUrls = new Map(), artworkCache = new Map(), artworkRequests = new Map(), artworkQueue = [], artworkControllers = new Map();
 
   function status() { return { status: phase, error, warning: [networkWarning, staleWarning, storageWarning, favorites.status().warning].filter(Boolean).join(' ') || null, revision, availableCount: records.size, lastLoadedAt, demo }; }
   function notify() { try { onChange?.(status()); } catch { console.warn('La notification du catalogue a échoué.'); } }
@@ -75,9 +76,27 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
   }
   function clearArtwork() {
     artworkGeneration++; artworkCache.clear(); artworkBytes = 0; artworkUrls.clear();
-    for (const controller of artworkControllers) controller.abort();
+    for (const controller of artworkControllers.keys()) controller.abort();
     for (const task of artworkQueue.splice(0)) task.resolve(null);
     artworkRequests.clear();
+  }
+  function syncArtworkUrls() {
+    const known = new Map();
+    for (const item of records.values()) for (const url of [item.artworkUrl, item.charterIconUrl]) if (typeof url === 'string' && url) known.set(digest(url), url);
+    for (const url of externalCatalogue.artworkUrls()) known.set(digest(url), url);
+    for (const key of artworkUrls.keys()) if (!known.has(key)) {
+      artworkUrls.delete(key);
+      const cached = artworkCache.get(key);
+      if (cached) { artworkBytes -= cached.bytes.length; artworkCache.delete(key); }
+    }
+    for (const [key, url] of known) artworkUrls.set(key, url);
+    for (const [controller, task] of artworkControllers) if (!known.has(task.key)) controller.abort();
+  }
+  function publicExternalRecord(item) {
+    const result = structuredClone(item), cover = externalArtworkUrl(result.coverUrl);
+    delete result.coverUrl;
+    result.artworkUrl = cover ? `chartshub-companion://app/catalogue-artwork/${digest(cover)}` : null;
+    return result;
   }
   async function start() {
     const expected = generation; await load(); if (expected === generation) { await favorites.start(); if (expected === generation) { active = true; externalCatalogue.start(); } } return status();
@@ -143,7 +162,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
           if (!next.has(item.id)) next.set(item.id, { ...item });
         }
         records = next; clearArtwork();
-        for (const item of records.values()) for (const url of [item.artworkUrl, item.charterIconUrl]) if (typeof url === 'string' && url) artworkUrls.set(digest(url), url);
+        syncArtworkUrls();
         hasCatalogue = true; remoteRevision = typeof result.revision === 'string' ? result.revision : null; demo = result.demo;
         networkWarning = typeof result.warning === 'string' ? result.warning.slice(0, 512) : null;
         lastLoadedAt = new Date().toISOString(); phase = 'ready'; error = null; staleWarning = null; linkedCache = null; revision++; notify();
@@ -167,7 +186,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     return result;
   }
   async function search(input = {}, { scope = 'panel', isCurrent = () => true } = {}) {
-    const selected = filters(input), expectedExternal = externalCatalogue.prepare(selected, scope); await load();
+    const selected = filters(input), expectedExternal = externalCatalogue.prepare(selected, scope); syncArtworkUrls(); await load();
     if (!active) throw failure('Le catalogue est arrêté. Rouvrez le panneau pour continuer.');
     if (selected.source !== 'chorusencore') {
       try { await fetchCatalogue(); } catch (problem) { if (selected.source === 'chartshub' || !active) throw problem; }
@@ -199,11 +218,12 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     }
     const externalResult = await externalCatalogue.search(selected, matching.length, scope), offset = selected.source === 'chartshub' ? (selected.page - 1) * 20 : externalResult.offset, limit = selected.source === 'chartshub' ? 20 : externalResult.limit;
     if (!active) throw stale();
+    syncArtworkUrls();
     const externalItems = externalResult.items, nativePage = matching.slice(offset, offset + limit).map(record => publicRecord(record, current));
     const externalOffset = Math.max(0, offset - matching.length), externalSlots = limit - nativePage.length;
     for (const item of externalItems) { for (const value of item.instruments) instruments.add(value); for (const value of item.difficulties) difficulties.add(value); }
     const total = matching.length + externalResult.external.total;
-    return { items: [...nativePage, ...externalItems.slice(externalOffset, externalOffset + externalSlots).map(item => structuredClone(item))], page: selected.page, pageSize: 20, total, hasMore: offset + limit < matching.length + externalItems.length || externalResult.external.hasMore, nativeTotal: matching.length, externalTotal: externalResult.external.total, source: selected.source, external: externalResult.external,
+    return { items: [...nativePage, ...externalItems.slice(externalOffset, externalOffset + externalSlots).map(publicExternalRecord)], page: selected.page, pageSize: 20, total, hasMore: offset + limit < matching.length + externalItems.length || externalResult.external.hasMore, nativeTotal: matching.length, externalTotal: externalResult.external.total, source: selected.source, external: externalResult.external,
       facets: { instruments: [...instruments].sort(), difficulties: [...difficulties].sort() } };
   }
   async function favorite(payload) {
@@ -298,7 +318,12 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
   }
   function pumpArtwork() {
     while (active && artworkRunning < 4 && artworkQueue.length) {
-      const task = artworkQueue.shift(); artworkRunning++; const controller = new AbortController(); artworkControllers.add(controller);
+      const task = artworkQueue.shift();
+      if (task.generation !== artworkGeneration || artworkUrls.get(task.key) !== task.url) {
+        if (artworkRequests.get(task.key) === task.promise) artworkRequests.delete(task.key);
+        task.resolve(null); continue;
+      }
+      artworkRunning++; const controller = new AbortController(); artworkControllers.set(controller, task);
       Promise.resolve().then(() => client.artwork(task.url, { signal: controller.signal })).then(result => {
         if (task.generation !== artworkGeneration || !active || artworkUrls.get(task.key) !== task.url || !result || !Buffer.isBuffer(result.bytes) || result.bytes.length > MAX_ARTWORK || !['image/png', 'image/jpeg', 'image/webp'].includes(result.contentType)) return null;
         const entry = { bytes: Buffer.from(result.bytes), contentType: result.contentType };
@@ -320,7 +345,7 @@ function createCatalogueService({ dataDirectory, client, getLibrary, onChange } 
     const task = { key, url: artworkUrls.get(key), generation: artworkGeneration, resolve: null, promise: null };
     task.promise = new Promise(resolve => { task.resolve = resolve; }); artworkRequests.set(key, task.promise); artworkQueue.push(task); pumpArtwork(); return task.promise;
   }
-  return { load, start, stop, status, search, refresh, favorite, candidates, link, unlink, openUrl, downloadDescriptor, artwork, libraryChanged, cancelSearch: (scope, clear = false) => externalCatalogue.cancelScope(scope, clear) };
+  return { load, start, stop, status, search, refresh, favorite, candidates, link, unlink, openUrl, downloadDescriptor, artwork, libraryChanged, cancelSearch: (scope, clear = false) => { externalCatalogue.cancelScope(scope, clear); syncArtworkUrls(); } };
 }
 function publicDownload(endpoint) { return typeof endpoint === 'string' && endpoint.startsWith('/api/charts/') && endpointValid(endpoint); }
 module.exports = { createCatalogueService };

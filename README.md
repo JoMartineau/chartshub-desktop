@@ -41,6 +41,10 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.38
+
+Le catalogue flottant affiche des cartes plus compactes et les pochettes ChorusEncore disponibles. La recherche se lance après une courte pause de frappe ; Entrée ou Rechercher restent immédiats. Les charts ChartsHub restent téléchargeables après un changement de bibliothèque, avec vérification au moment de l’ajout. [Notes 0.14.38](docs/RELEASE-0.14.38.md).
+
 ### Version 0.14.37
 
 **Intégrations Clone Hero · BÊTA** regroupe Quick Import, Accuracy et les paroles synchronisées, avec une seule installation MelonLoader partagée. Chaque fonction reste indépendante et désactivée à l’ouverture de ChartsHub. Un diagnostic à la demande vérifie la version exacte du jeu, le chargeur, le module et les prérequis avant l’installation. Compatibilité validée : **Clone Hero 1.1.0.6142-final Stable · Windows x64**. [Notes 0.14.37](docs/RELEASE-0.14.37.md) · [Installation et retrait du module des widgets](game-widgets-mod/README.md).
@@ -85,7 +89,7 @@ Validation : `npm test` et `npm run test:companion:duplicates -- <dossier-de-res
 
 Le panneau Catalogue du Tableau de bord peut s’ouvrir dans une petite fenêtre au-dessus du jeu. Le raccourci `Ctrl+Maj+K` sous Windows (`Commande+Maj+K` sous macOS) affiche ou masque cette fenêtre lorsque la session ChartsHub est active. Déplacez-la par sa barre de titre ; le bouton Fermer ou `Échap` la masque sans arrêter les téléchargements.
 
-Les onglets Recherche, Téléchargements et Récents permettent de chercher par titre, artiste ou charter, d’affiner par instrument ou difficulté, puis de suivre la progression. Chaque ajout à la file exige un clic ; choisissez explicitement le dossier de destination avant de télécharger. Pause, reprise, annulation et nouvelle tentative restent disponibles dans la file. Après l’installation de nouvelles chansons, lancez **Scan Songs** dans Clone Hero pour les indexer.
+Les onglets Recherche, Téléchargements et Récents permettent de chercher par titre, artiste ou charter, d’affiner par instrument ou difficulté, puis de suivre la progression. La recherche se lance après une courte pause de frappe à partir de deux caractères ; Entrée et Rechercher la lancent immédiatement. Chaque ajout à la file exige un clic ; choisissez explicitement le dossier de destination avant de télécharger. Pause, reprise, annulation et nouvelle tentative restent disponibles dans la file. Après l’installation de nouvelles chansons, utilisez Quick Import si vous l’avez activé ou lancez **Scan Songs** dans Clone Hero.
 
 Le volet Apparence propose couleur de fond, transparence, couleur du texte, police et taille. L’aperçu reste local jusqu’à « Enregistrer ». Les réglages du Catalogue et du panneau Filtres sont indépendants et conservés après redémarrage dans `companion/floating-panels.json`. Le bouton des valeurs par défaut prépare un aperçu à enregistrer ; il ne modifie pas les widgets de jeu.
 

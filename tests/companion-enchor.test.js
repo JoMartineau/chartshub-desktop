@@ -25,10 +25,24 @@ test('provider traffic requires explicit search; all mode returns native matches
   const initial = await f.service.search(selected({ externalSearch: false })); assert.equal(initial.items.length, 1); assert.equal(f.calls.length, 0);
   const page = await f.service.search(selected()); assert.deepEqual(page.items.map(item => item.source), ['chartshub', 'chorusencore']); assert.equal(page.pageSize, 20);
   const chart = page.items[1]; for (const key of ['favorite', 'verified', 'staffRole', 'installed', 'creatorId', 'contentHash', 'downloadEndpoint', 'previewUrl']) assert.equal(Object.hasOwn(chart, key), false, key);
-  assert.equal(chart.artworkUrl, null); assert.equal(await f.service.openUrl(chart.id), external().sourceUrl); assert.equal(f.service.downloadDescriptor(chart.id).endpoint, chart.id);
+  assert.match(chart.artworkUrl, /^chartshub-companion:\/\/app\/catalogue-artwork\/[a-f0-9]{64}$/); assert.equal(Object.hasOwn(chart, 'coverUrl'), false); assert.equal(await f.service.openUrl(chart.id), external().sourceUrl); assert.equal(f.service.downloadDescriptor(chart.id).endpoint, chart.id);
   await assert.rejects(f.service.favorite({ chartId: chart.id, favorite: true }));
   const cached = await f.service.search(selected({ externalSearch: false })); assert.equal(cached.items[1].id, chart.id); assert.equal(f.calls.length, 1);
   await f.service.search(selected({ query: 'Other', externalSearch: false })); await assert.rejects(f.service.openUrl(chart.id)); assert.throws(() => f.service.downloadDescriptor(chart.id));
+});
+
+test('external intensity numbers preserve the canonical zero-to-1000 author ranks for present instruments without inventing difficulty flags', async t => {
+  const f = await fixture(t, { search: () => result([external(1, { instruments: ['Guitar', 'Drums', 'Bass', 'Keys'], instrumentDifficulties: { Guitar: ['Hard'] }, instrumentIntensities: { Guitar: 0, Drums: 6, Bass: 11, Keys: 1000 } })]) });
+  const row = (await f.service.search(selected())).items[0];
+  assert.deepEqual(row.instrumentIntensities, { Guitar: 0, Bass: 11, Drums: 6, Keys: 1000 });
+  assert.deepEqual(row.instrumentDifficulties, { Guitar: ['Hard'] }); assert.deepEqual(row.difficulties, ['Hard']);
+});
+
+test('external intensity numbers reject invalid or absent-instrument fields and never add instruments', async t => {
+  const f = await fixture(t, { search: () => result([external(1, { instrumentIntensities: { Guitar: '6', Drums: 5, Unknown: 3 } }),
+    external(2, { instrumentIntensities: { Guitar: -1 } }), external(3, { instrumentIntensities: { Guitar: 1001 } }), external(4, { instrumentIntensities: { Guitar: 2.5 } }), external(5, { instrumentIntensities: { Guitar: Number.MAX_SAFE_INTEGER + 1 } })]) });
+  const page = await f.service.search(selected());
+  for (const row of page.items) { assert.equal(Object.hasOwn(row, 'instrumentIntensities'), false); assert.deepEqual(row.instruments, ['Guitar']); assert.deepEqual(row.instrumentDifficulties, { Guitar: ['Expert'] }); }
 });
 
 test('global pages remain bounded, exhaust native rows first and fetch only one next provider page when needed', async t => {

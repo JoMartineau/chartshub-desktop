@@ -1,5 +1,5 @@
 'use strict';
-const { normalizeResult, normalizeStatus, buildRequest, failure } = require('./catalogue-enchor-client.cjs');
+const { normalizeResult, normalizeStatus, buildRequest, failure, externalArtworkUrl } = require('./catalogue-enchor-client.cjs');
 const { normalizeMetadata } = require('./chart-matching.cjs');
 
 // Searches belong to the requesting trusted surface. Native caching and manual
@@ -92,8 +92,11 @@ function createExternalCatalogue({ client, now = Date.now } = {}) {
     return output();
   }
   function lookup(id) { for (const current of scopes.values()) { const item = current.items.find(item => item.id === id); if (item) return item; } return null; }
+  // Only the two currently retained, bounded provider searches authorize art.
+  // Replacing/clearing a search removes its old URLs from the local proxy.
+  function artworkUrls() { return [...new Set([...scopes.values()].flatMap(current => current.items.map(item => externalArtworkUrl(item.coverUrl)).filter(Boolean)))]; }
   function stop() { active = false; for (const current of scopes.values()) cancel(current); scopes.clear(); enabled = null; suspended = false; retryUntil = 0; }
   function start() { active = true; }
-  return { search, lookup, stop, start, prepare, isCurrent, cancelScope };
+  return { search, lookup, stop, start, prepare, isCurrent, cancelScope, artworkUrls };
 }
 module.exports = { createExternalCatalogue };
