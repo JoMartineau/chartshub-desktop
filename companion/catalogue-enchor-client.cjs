@@ -10,6 +10,9 @@ const MAX_BYTES = 2 * 1024 * 1024;
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const clean = (value, max = 200) => typeof value === 'string' ? value.slice(0, 8192).replace(/<[^>\r\n]{0,256}>/g, '').replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, max) : '';
 const cancelled = () => Object.assign(Error('Recherche ChorusEncore annulée.'), { name: 'AbortError', code: 'ABORT_ERR' });
+// Fixed raster CDN contract already supplied by the public search proxy.
+// Renderers never load this URL directly; the main artwork proxy owns it.
+const externalArtworkUrl = value => typeof value === 'string' && /^https:\/\/files\.enchor\.us\/[a-f0-9]{32}\.jpg$/.test(value) ? value : null;
 function charterColor(value) {
   if (typeof value !== 'string' || value.length > 40) return undefined;
   const color = value.trim().replace(/^["']|["']$/g, '').toLowerCase();
@@ -27,11 +30,11 @@ function normalizeChart(row) {
   const instruments = Object.keys(INSTRUMENTS).filter(key => key !== 'Pro Drums' && Array.isArray(row.instruments) && row.instruments.includes(key)), instrumentDifficulties = {};
   for (const instrument of instruments) if (Array.isArray(row.instrumentDifficulties?.[instrument])) instrumentDifficulties[instrument] = LEVELS.filter(level => row.instrumentDifficulties[instrument].includes(level));
   const difficulties = LEVELS.filter(level => Object.values(instrumentDifficulties).some(levels => levels.includes(level)));
+  const instrumentIntensities = Object.fromEntries(instruments.filter(key => Number.isSafeInteger(row.instrumentIntensities?.[key]) && row.instrumentIntensities[key] >= 0 && row.instrumentIntensities[key] <= 1000).map(key => [key, row.instrumentIntensities[key]]));
   const parts = row.charterSegments;
   const charterSegments = Array.isArray(parts) && parts.length <= 200 && parts.every(part => object(part) && typeof part.text === 'string' && part.text.length <= 200 && !/[<>\u0000-\u001f\u007f]/.test(part.text)) && parts.map(part => part.text).join('') === charter ? parts.map(part => ({ text: part.text, ...(charterColor(part.color) ? { color: charterColor(part.color) } : {}) })) : undefined;
-  return { id: row.id, md5: row.md5, source: 'chorusencore', sourceUrl: row.sourceUrl, viewUrl: row.sourceUrl, externalChartId: row.externalChartId, title, artist, charter, ...(charterSegments ? { charterSegments } : {}), album: clean(row.album), genre: clean(row.genre), year: clean(row.year, 16), duration: Number.isSafeInteger(row.duration) && row.duration >= 0 ? row.duration : null, instruments, difficulties, instrumentDifficulties,
-    // CDN art is validated even though external cards currently use a local placeholder.
-    coverUrl: typeof row.coverUrl === 'string' && /^https:\/\/files\.enchor\.us\/[a-f0-9]{32}\.jpg$/.test(row.coverUrl) ? row.coverUrl : '', artworkUrl: null, downloadable: true };
+  return { id: row.id, md5: row.md5, source: 'chorusencore', sourceUrl: row.sourceUrl, viewUrl: row.sourceUrl, externalChartId: row.externalChartId, title, artist, charter, ...(charterSegments ? { charterSegments } : {}), album: clean(row.album), genre: clean(row.genre), year: clean(row.year, 16), duration: Number.isSafeInteger(row.duration) && row.duration >= 0 ? row.duration : null, instruments, difficulties, instrumentDifficulties, ...(Object.keys(instrumentIntensities).length ? { instrumentIntensities } : {}),
+    coverUrl: externalArtworkUrl(row.coverUrl) || '', artworkUrl: null, downloadable: true };
 }
 function normalizeResult(value, page) {
   if (!object(value) || value.source !== 'chorusencore' || value.page !== page || value.perPage !== 25 || !Number.isSafeInteger(value.found) || value.found < 0 || typeof value.hasMore !== 'boolean' || !Array.isArray(value.charts) || value.charts.length > 5000 || value.cached !== undefined && typeof value.cached !== 'boolean') throw failure('ENCHOR_INVALID_RESPONSE');
@@ -118,4 +121,4 @@ function createEnchorClient({ fetcher = globalThis.fetch, timeoutMs = 15000, now
   }
   return { enchorStatus, enchorSearch };
 }
-module.exports = { createEnchorClient, normalizeChart, normalizeResult, normalizeStatus, buildRequest, failure };
+module.exports = { createEnchorClient, normalizeChart, normalizeResult, normalizeStatus, buildRequest, failure, externalArtworkUrl };

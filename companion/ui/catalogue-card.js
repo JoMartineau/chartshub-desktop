@@ -55,7 +55,6 @@ export function createCatalogueCard(document, item, { locale, demo, signal, expa
     installed.title = linked ? tr('Association confirmée avec la bibliothèque locale.', 'Confirmed link to the local library.') : tr('Correspondance possible, installation non confirmée.', 'Possible match; installation is not confirmed.');
     tags.append(installed);
   }
-  body.append(tags);
 
   const instruments = make('div', '', 'catalogue-card-instruments');
   for (const key of Object.keys(instrumentNames).filter(key => Array.isArray(item.instruments) && item.instruments.includes(key))) {
@@ -73,7 +72,6 @@ export function createCatalogueCard(document, item, { locale, demo, signal, expa
     }
     instrument.append(levels); instruments.append(instrument);
   }
-  body.append(instruments);
 
   const identity = make('div', '', 'catalogue-card-charter');
   const charter = safeText(item.charter), name = make('span', '', 'catalogue-charter-name catalogue-item-details');
@@ -88,7 +86,8 @@ export function createCatalogueCard(document, item, { locale, demo, signal, expa
   };
   if (!external && !demo && ['administrator', 'moderator'].includes(item.staffRole)) identity.append(badge(item.staffRole));
   if (!external && !demo && item.verified === true) identity.append(badge('verified'));
-  body.append(identity);
+  const metadata = make('div', '', 'catalogue-card-meta'); metadata.append(tags, identity);
+  body.append(metadata, instruments);
 
   const details = make('details', '', 'catalogue-card-details'); details.open = expanded;
   details.append(make('summary', tr('Voir les détails', 'View details')));

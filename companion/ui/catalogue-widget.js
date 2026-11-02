@@ -10,16 +10,23 @@ const states = { Queued: 'En attente', Downloading: 'Téléchargement en cours',
 const allowed = { pause: ['Queued', 'Downloading'], resume: ['Paused'], cancel: ['Queued', 'Downloading', 'Paused', 'Failed'], retry: ['Failed', 'Cancelled'] };
 const actionLabels = { pause: 'Mettre en pause', resume: 'Reprendre', cancel: 'Annuler', retry: 'Réessayer' };
 const text = (value, fallback = '—') => typeof value === 'string' && value.trim() ? value : fallback;
+const liveSearchDelay = 450;
 
 export class CatalogueWidgetControls {
   constructor({ root, command }) {
     this.root = root; this.command = command; this.abort = new AbortController(); this.resultAbort = new AbortController(); this.downloadAbort = new AbortController();
     this.catalogue = null; this.downloads = null; this.snapshotSignature = ''; this.items = []; this.page = 1; this.hasMore = false; this.filters = null; this.external = null;
-    this.searchSerial = 0; this.loading = false; this.refreshing = false; this.choosing = false; this.closing = false; this.stale = false; this.disposed = false; this.tab = 'search';
+    this.searchSerial = 0; this.searchTimer = null; this.loading = false; this.refreshing = false; this.choosing = false; this.closing = false; this.stale = false; this.disposed = false; this.tab = 'search';
     this.pendingCharts = new Set(); this.pendingDownloads = new Set(); this.pendingOpens = new Set(); this.expandedCharts = new Set(); this.selectedCharts = new Set(); this.pendingFavorites = new Set();
     this.batchRunning = false; this.batchCancelled = false; this.batchReport = null; this.operationEpoch = 0;
     const signal = this.abort.signal;
-    this.element('#catalogue-widget-search-form').addEventListener('submit', event => { event.preventDefault(); if (this.batchRunning || this.pendingFavorites.size) return; this.filters = this.readFilters(); void this.search(1); }, { signal });
+    this.element('#catalogue-widget-search-form').addEventListener('submit', event => { event.preventDefault(); this.cancelLiveSearch(); if (this.batchRunning || this.pendingFavorites.size) return; this.filters = this.readFilters(); void this.search(1); }, { signal });
+    for (const field of ['query', 'artist', 'charter', 'instrument', 'difficulty']) {
+      const input = this.element(`#catalogue-widget-${field}`);
+      input.addEventListener('input', event => this.scheduleLiveSearch(event.isComposing), { signal });
+      input.addEventListener('compositionend', () => this.scheduleLiveSearch(), { signal });
+    }
+    for (const field of ['source', 'installed', 'favorites']) this.element(`#catalogue-widget-${field}`).addEventListener('change', () => this.scheduleLiveSearch(), { signal });
     this.element('#catalogue-widget-refresh').addEventListener('click', () => { void this.refresh(); }, { signal });
     this.element('#catalogue-widget-prev').addEventListener('click', () => { if (this.page > 1) void this.search(this.page - 1); }, { signal });
     this.element('#catalogue-widget-next').addEventListener('click', () => { if (this.hasMore) void this.search(this.page + 1); }, { signal });
@@ -48,8 +55,10 @@ export class CatalogueWidgetControls {
     const labels = { 'source-label': ['Source', 'Source'], 'source-all': ['Toutes les sources', 'All sources'], 'installed-label': ['Installation', 'Installation'], 'installed-all': ['Toutes les charts', 'All charts'], 'installed-linked': ['Déjà installées', 'Already installed'],
       'installed-unlinked': ['Sans installation confirmée', 'No confirmed installation'], 'favorites-label': ['Favoris', 'Favorites'], 'favorites-all': ['Toutes les charts', 'All charts'], 'favorites-yes': ['Mes favoris', 'My favorites'] };
     for (const [id, labelsForId] of Object.entries(labels)) this.element('#catalogue-widget-' + id).textContent = this.tr(...labelsForId);
+    if (this.stale) this.element('#catalogue-widget-search-status').textContent = this.staleMessage();
     this.renderExternalStatus();
   }
+  staleMessage() { return this.tr('Le catalogue a changé. Relancez la recherche pour actualiser les résultats et les liens Chorus Encore.', 'The catalogue has changed. Search again to refresh results and Chorus Encore links.'); }
   readFilters() {
     const value = field => this.element(`#catalogue-widget-${field}`).value.trim().slice(0, field === 'query' ? 200 : 128);
     const installed = value('installed');
@@ -68,7 +77,7 @@ export class CatalogueWidgetControls {
     const previousConditions = this.resultConditions();
     if (snapshot.catalogue) {
       if (this.catalogue && this.catalogue.revision !== snapshot.catalogue.revision && this.items.length && !this.loading) {
-        this.stale = true; this.element('#catalogue-widget-search-status').textContent = 'Le catalogue a changé. Relancez la recherche.';
+        this.stale = true; this.element('#catalogue-widget-search-status').textContent = this.staleMessage();
       }
       this.catalogue = snapshot.catalogue;
     }
@@ -88,6 +97,7 @@ export class CatalogueWidgetControls {
   }
   availability() {
     const changing = this.batchRunning || this.pendingFavorites.size > 0;
+    for (const field of ['source', 'query', 'artist', 'charter', 'instrument', 'difficulty', 'installed', 'favorites']) this.element(`#catalogue-widget-${field}`).disabled = changing || this.closing;
     this.element('#catalogue-widget-search').disabled = !this.catalogue || this.refreshing || changing;
     this.element('#catalogue-widget-refresh').disabled = !this.catalogue || this.refreshing || changing;
     this.element('#catalogue-widget-prev').disabled = this.loading || this.refreshing || this.stale || changing || this.page <= 1;
@@ -101,7 +111,33 @@ export class CatalogueWidgetControls {
     const node = this.element('#catalogue-widget-external-status');
     node.textContent = externalCatalogueStatus(this.external, this.filters?.source || 'all', this.locale()); node.hidden = !node.textContent;
   }
+  cancelLiveSearch() { if (this.searchTimer !== null) clearTimeout(this.searchTimer); this.searchTimer = null; }
+  scheduleLiveSearch(composing = false) {
+    this.cancelLiveSearch();
+    if (this.disposed || this.closing || this.refreshing || this.batchRunning || this.pendingFavorites.size || !this.catalogue) return;
+    // A new draft invalidates the old response immediately, before the debounce
+    // fires. Its cards cannot be selected while a different search is pending.
+    const wasLoading = this.loading;
+    this.searchSerial++; this.loading = true; if (!wasLoading) this.renderResults(); this.availability();
+    if (composing) return;
+    this.searchTimer = setTimeout(() => {
+      this.searchTimer = null;
+      if (this.disposed || this.closing || this.refreshing || this.batchRunning || this.pendingFavorites.size || !this.catalogue) { if (!this.disposed) { this.loading = false; this.renderResults(); this.availability(); } return; }
+      this.filters = this.readFilters();
+      const query = this.filters.query.replace(/\s+/g, ' '), hasFilters = ['artist', 'charter', 'instrument', 'difficulty'].some(name => this.filters[name]);
+      if (query && (query.length < 2 || query === '*') || this.filters.source === 'chorusencore' && !query && !hasFilters) {
+        this.loading = false; this.stale = false; this.items = []; this.external = null; this.hasMore = false; this.selectedCharts.clear(); this.batchReport = null;
+        this.renderExternalStatus(); this.renderResults(); this.element('#catalogue-widget-page').textContent = '';
+        this.element('#catalogue-widget-search-status').textContent = this.tr('Saisissez au moins deux caractères ou ajoutez un filtre pour rechercher.', 'Enter at least two characters or add a filter to search.'); this.availability();
+        return;
+      }
+      // Clearing the text may browse ChartsHub, but never starts an empty
+      // external search. Provider rate limits remain enforced by the host.
+      void this.search(1, !!query || hasFilters);
+    }, liveSearchDelay);
+  }
   async search(page, externalSearch = true) {
+    this.cancelLiveSearch();
     if (this.disposed || this.closing || this.batchRunning || this.pendingFavorites.size || !this.catalogue || this.refreshing || !this.filters || page < 1 || page > 1000) return;
     const serial = ++this.searchSerial, filters = { ...this.filters, page, externalSearch };
     this.loading = true; this.stale = false; this.items = []; this.external = null; this.renderExternalStatus(); this.expandedCharts.clear(); this.selectedCharts.clear(); this.batchReport = null; this.renderResults(); this.feedback(''); this.element('#catalogue-widget-search-status').textContent = 'Recherche en cours…'; this.availability();
@@ -135,11 +171,12 @@ export class CatalogueWidgetControls {
       selection.append(checkbox, this.make('span', this.tr('Sélectionner', 'Select')));
       const controls = this.make('div', '', 'catalogue-card-controls'); if (!external) controls.append(favorite); controls.append(selection); body.append(controls);
       const queued = this.isQueued(item.id);
-      const button = this.make('button', queued ? 'Déjà dans la file' : 'Télécharger', 'catalogue-download-single'); button.type = 'button'; button.dataset.chartId = item.id;
+      const button = this.make('button', queued ? this.tr('Déjà dans la file', 'Already queued') : this.tr('Télécharger', 'Download'), 'catalogue-download-single'); button.type = 'button'; button.dataset.chartId = item.id;
       button.disabled = !this.canDownload(item) || this.pendingCharts.has(item.id) || this.batchRunning || this.pendingFavorites.size > 0;
       button.addEventListener('click', () => { void this.enqueue(item.id); }, { signal: this.resultAbort.signal }); body.append(button); container.append(card);
       if (external) {
-        const open = this.make('button', this.tr('Ouvrir sur Chorus Encore', 'Open on Chorus Encore'), 'catalogue-open-external'); open.type = 'button';
+        const open = this.make('button', 'Chorus Encore ↗', 'catalogue-open-external'); open.type = 'button';
+        open.title = this.tr('Ouvrir sur Chorus Encore', 'Open on Chorus Encore'); open.setAttribute('aria-label', open.title);
         open.disabled = this.loading || this.stale || this.closing || this.batchRunning || this.pendingOpens.has(item.id);
         open.addEventListener('click', () => { void this.openExternal(item, open); }, { signal: this.resultAbort.signal }); body.append(open);
       }
@@ -148,7 +185,7 @@ export class CatalogueWidgetControls {
   }
   isQueued(id) { return this.downloads?.items?.some(value => value.chartId === id && ['Queued', 'Downloading', 'Paused'].includes(value.state)); }
   availableToDownload(item) { return !!item && chartId(item.id) && (!isExternalCatalogueItem(item) || /^enchor:[a-f0-9]{32}$/.test(item.id)) && item.downloadable === true && !this.catalogue?.demo && !!this.downloads?.hasRoot && !this.isQueued(item.id); }
-  canDownload(item) { return this.availableToDownload(item) && !this.loading && !this.stale && !this.closing && !this.disposed; }
+  canDownload(item) { return this.availableToDownload(item) && !this.loading && (!this.stale || !isExternalCatalogueItem(item)) && !this.closing && !this.disposed; }
   renderSelection() {
     const selected = this.items.filter(item => this.selectedCharts.has(item.id));
     const panel = this.element('#catalogue-widget-selection'), count = selected.length;
@@ -226,6 +263,7 @@ export class CatalogueWidgetControls {
   }
   async refresh() {
     if (this.disposed || this.closing || this.refreshing || this.batchRunning || this.pendingFavorites.size) return;
+    this.cancelLiveSearch();
     this.refreshing = true; this.searchSerial++; this.loading = false; this.items = []; this.selectedCharts.clear(); this.batchReport = null; this.hasMore = false; this.renderResults(); this.availability(); this.feedback('Actualisation du catalogue…');
     try { const response = await this.command('catalogue.refresh'); if (!this.disposed) this.feedback(response?.ok ? 'Catalogue actualisé. Lancez une recherche.' : response?.error || 'Le catalogue ne peut pas être actualisé.', !response?.ok); }
     catch (_) { if (!this.disposed) this.feedback('Le catalogue ne peut pas être actualisé.', true); }
@@ -278,12 +316,20 @@ export class CatalogueWidgetControls {
     finally { this.pendingDownloads.delete(id); if (!this.disposed) this.renderDownloads(); }
   }
   async close() {
-    if (this.disposed || this.closing) return; this.closing = true; this.operationEpoch++; this.batchCancelled = true; this.availability();
+    if (this.disposed || this.closing) return;
+    const interruptedSearch = this.loading || this.searchTimer !== null;
+    this.cancelLiveSearch(); this.searchSerial++; this.loading = false; this.closing = true; this.operationEpoch++; this.batchCancelled = true;
+    if (interruptedSearch) {
+      this.items = []; this.external = null; this.hasMore = false; this.stale = false; this.selectedCharts.clear(); this.expandedCharts.clear(); this.batchReport = null;
+      this.renderExternalStatus(); this.renderResults(); this.element('#catalogue-widget-page').textContent = '';
+      this.element('#catalogue-widget-search-status').textContent = this.tr('Recherche interrompue. Modifiez les critères ou cliquez sur Rechercher.', 'Search interrupted. Change the filters or choose Search.');
+    }
+    this.availability();
     try { const response = await this.command('catalogue.widget', { enabled: false }); if (!this.disposed && !response?.ok) this.feedback('La fenêtre n’a pas pu être masquée.', true); }
     catch (_) { if (!this.disposed) this.feedback('La fenêtre n’a pas pu être masquée.', true); }
     finally { if (!this.disposed) { this.closing = false; this.availability(); } }
   }
-  dispose() { this.disposed = true; this.searchSerial++; this.operationEpoch++; this.batchCancelled = true; this.abort.abort(); this.resultAbort.abort(); this.downloadAbort.abort(); }
+  dispose() { this.cancelLiveSearch(); this.disposed = true; this.searchSerial++; this.operationEpoch++; this.batchCancelled = true; this.abort.abort(); this.resultAbort.abort(); this.downloadAbort.abort(); }
 }
 
 if (typeof window !== 'undefined' && typeof document !== 'undefined' && document.querySelector('#catalogue-widget-app')) {

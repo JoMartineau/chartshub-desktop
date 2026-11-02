@@ -36,14 +36,23 @@ html, body { margin: 0; min-width: 0; height: 100%; background: transparent; }
 .catalogue-widget-provider-status { font-size: .85em; line-height: 1.5; overflow-wrap: anywhere; }
 .catalogue-open-external { display: block; max-width: 100%; margin-top: 8px; overflow-wrap: anywhere; }
 .floating-catalogue-item button { margin-top: 8px; max-width: 100%; min-width: 0; overflow-wrap: anywhere; }
-.floating-catalogue-item { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 12px; padding: 12px; margin: 10px 0; border: 1px solid #8a87f448; border-radius: 9px; background: #00000010; }
-.catalogue-card-body { min-width: 0; }
+.floating-catalogue-item { display: grid; grid-template-columns: 52px minmax(0, 1fr); align-items: start; gap: 10px; padding: 8px; margin: 6px 0; border: 1px solid #8a87f448; border-radius: 9px; background: #00000010; }
+.catalogue-card-body { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(112px, 150px); column-gap: 10px; row-gap: 3px; align-items: start; }
+.catalogue-card-body > h3 { grid-column: 1; grid-row: 1; margin: 0; }
+.catalogue-card-body > .catalogue-item-artist { grid-column: 1; grid-row: 2; margin: 0; }
+.catalogue-card-meta { grid-column: 1; grid-row: 3; display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; min-width: 0; }
+.catalogue-card-body > .catalogue-card-instruments { grid-column: 1; grid-row: 4; margin: 0; gap: 4px; }
+.catalogue-card-body > .catalogue-card-details { grid-column: 1 / -1; grid-row: 5; margin-top: 2px; }
+.catalogue-card-body > .catalogue-card-controls { grid-column: 2; grid-row: 1; margin: 0; gap: 5px; justify-content: flex-end; }
+.catalogue-card-body > .catalogue-download-single { grid-column: 2; grid-row: 2 / 4; width: 100%; margin: 0; min-height: 32px; padding: 4px 7px; }
+.catalogue-card-body > .catalogue-open-external { grid-column: 2; grid-row: 4; width: 100%; margin: 0; min-height: 32px; padding: 4px 7px; font-size: .82em; }
 .catalogue-card-artwork, .catalogue-charter-avatar { position: relative; display: grid; place-items: center; overflow: hidden; border: 1px solid #ffffff30; border-radius: 7px; background: #ffffff09; flex: none; }
-.catalogue-card-artwork { width: 70px; height: 70px; font-size: 1.8em; }
+.catalogue-card-artwork { width: 52px; height: 52px; font-size: 1.5em; }
 .catalogue-card-artwork img, .catalogue-charter-avatar img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .catalogue-charter-avatar { width: 28px; height: 28px; font-size: .65em; font-weight: 700; }
 .catalogue-charter-avatar img { object-fit: contain; }
 .catalogue-card-tags, .catalogue-card-charter, .catalogue-card-instruments { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 6px 0; }
+.catalogue-card-meta > .catalogue-card-tags, .catalogue-card-meta > .catalogue-card-charter { margin: 0; }
 .catalogue-game-badge { border: 1px solid #5184a8; color: #8bd6ff; border-radius: 5px; padding: 1px 6px; font-size: .75em; }
 .catalogue-installed-badge { border: 1px solid #48c7fa88; color: #48c7fa; border-radius: 5px; padding: 1px 6px; font-size: .75em; }
 .catalogue-installed-badge[data-status="candidate"] { border-color: #e8cb8888; color: #e8cb88; }
@@ -82,6 +91,13 @@ html, body { margin: 0; min-width: 0; height: 100%; background: transparent; }
 .catalogue-widget-appearance { margin-top: 18px; }
 .catalogue-widget-appearance .floating-panels-controls { margin-top: 8px; background: var(--surface); }
 .catalogue-widget-shortcut { font-size: .8em; margin-bottom: 0; }
+@media (max-width: 559px) {
+  .catalogue-card-body { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 6px; }
+  .catalogue-card-body > h3, .catalogue-card-body > .catalogue-item-artist, .catalogue-card-meta, .catalogue-card-body > .catalogue-card-instruments { grid-column: 1 / -1; }
+  .catalogue-card-body > .catalogue-card-controls { grid-column: 1 / -1; grid-row: 6; justify-content: flex-start; }
+  .catalogue-card-body > .catalogue-download-single { grid-column: 1; grid-row: 7; }
+  .catalogue-card-body > .catalogue-open-external { grid-column: 2; grid-row: 7; }
+}
 @media (max-width: 400px) { .catalogue-widget-filter-grid { grid-template-columns: minmax(0, 1fr); } .catalogue-widget-tabs { gap: 4px; } .catalogue-widget-tabs button { font-size: .85em; } }
 @media (max-width: 400px) { .floating-catalogue-item { grid-template-columns: 52px minmax(0, 1fr); gap: 8px; padding: 9px; } .catalogue-card-artwork { width: 52px; height: 52px; } }
 @media (max-width: 340px), (max-height: 360px) {

@@ -193,14 +193,24 @@ test('oversized and malformed error bodies are cancelled and never displayed',as
  for(const body of ['<html>SECRET</html>','{"code":','null','"SECRET"'])await assert.rejects(downloadChart({endpoint,directory:'unused',fetcher:async()=>new Response(body,{status:502})}),error=>{assert.match(error.message,/HTTP 502/);assert.doesNotMatch(error.message,/SECRET|SyntaxError/);return true;});
 });
 
-test('error streams obey cancellation and idle timeouts in both download phases',async()=>{
+test('error streams obey cancellation and idle timeouts in both download phases',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
  for(const phase of ['manifest','file'])for(const mode of ['idle','cancel','broken']){
-  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-error-stream-')),controller=new AbortController();fs.writeFileSync(path.join(root,'keep.txt'),'keep');let cancelled=false;
-  try{await assert.rejects(downloadChart({endpoint,directory:root,signal:controller.signal,idleTimeoutMs:30,fetcher:async url=>{
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-error-stream-')),controller=new AbortController();fs.writeFileSync(path.join(root,'keep.txt'),'keep');let cancelled=false,markReading,requestSignal,streams=0;
+  const reading=new Promise(resolve=>{markReading=resolve;});
+  try{const download=downloadChart({endpoint,directory:root,signal:controller.signal,idleTimeoutMs:30,fetcher:async(url,options)=>{
    if(phase==='file'&&url.endsWith('download-manifest'))return Response.json({title:'Test',files:[entry()]});
-   const stream=new ReadableStream({start(source){if(mode==='broken')source.error(new Error('SECRET error stream'));if(mode==='cancel')setTimeout(()=>controller.abort(new Error('Annulation demandée.')),5);},cancel(){cancelled=true;}});
+   requestSignal=options.signal;streams++;
+   // A zero high-water mark makes pull evidence of an actual error-body
+   // consumer. Disk preparation must finish before advancing the idle clock.
+   const stream=new ReadableStream({pull(source){markReading();if(mode==='broken')source.error(new Error('SECRET error stream'));},cancel(){cancelled=true;}},{highWaterMark:0});
    return new Response(stream,{status:502});
-  }}),error=>{assert.match(error.message,mode==='idle'?/aucune donnée/:mode==='cancel'?/Annulation demandée/:/HTTP 502/);assert.doesNotMatch(error.message,/SECRET/);return true;});assert.deepEqual(fs.readdirSync(root),['keep.txt']);if(mode!=='broken')assert.equal(cancelled,true);}
+  }});
+  const rejected=assert.rejects(download,error=>{assert.match(error.message,mode==='idle'?/aucune donnée/:mode==='cancel'?/Annulation demandée/:/HTTP 502/);assert.doesNotMatch(error.message,/SECRET/);return true;});
+  await Promise.race([reading,download]);assert.equal(streams,1);assert.equal(requestSignal.aborted,false);
+  if(mode==='idle'){t.mock.timers.tick(29);assert.equal(requestSignal.aborted,false);t.mock.timers.tick(1);}
+  if(mode==='cancel')controller.abort(new Error('Annulation demandée.'));
+  await rejected;assert.deepEqual(fs.readdirSync(root),['keep.txt']);if(mode!=='broken'){assert.equal(requestSignal.aborted,true);assert.equal(cancelled,true);}}
   finally{fs.rmSync(root,{recursive:true,force:true});}
  }
 });

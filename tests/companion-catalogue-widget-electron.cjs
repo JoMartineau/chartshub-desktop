@@ -25,7 +25,10 @@ async function waitFor(check, label, timeout = 15000) {
   while (Date.now() < end) { if (await check()) return; await delay(30); }
   throw Error('Timed out: ' + label);
 }
-const evaluate = code => mini.webContents.executeJavaScript(code);
+const evaluate = async code => {
+  try { return await mini.webContents.executeJavaScript(code); }
+  catch (error) { throw Error('Mini fixture evaluation failed: ' + code.slice(0, 600), { cause: error }); }
+};
 const command = (name, payload) => evaluate(`window.ChartsHubCompanion.command(${JSON.stringify(name)},${JSON.stringify(payload)})`);
 async function click(selector, target = mini) {
     await revealWorkspace(target, selector);
@@ -107,7 +110,7 @@ const charts = [
 }));
 let fixtureCharts = charts, fixtureDemo = false, fixtureRevision = 0, includeExternal = false;
 const externalMd5 = 'b'.repeat(32), externalChart = { id: 'enchor:' + externalMd5, md5: externalMd5, externalChartId: 732, source: 'chorusencore', sourceUrl: 'https://enchor.us/chart/' + externalMd5,
-  title: 'Encore synthetic chart', artist: 'External synthetic artist <img src=x onerror="window.__unsafe=true">', charter: 'External creator', instruments: ['Guitar'], instrumentDifficulties: { Guitar: ['Expert'] }, coverUrl: '' };
+  title: 'Signal d’aurore', artist: 'Groupe Exemple <img src=x onerror="window.__unsafe=true">', charter: 'Charter Démo', instruments: ['Guitar'], instrumentDifficulties: { Guitar: ['Expert'] }, instrumentIntensities: { Guitar: 6 }, coverUrl: 'https://files.enchor.us/' + externalMd5 + '.jpg' };
 const cardSelector = id => `article[data-chart-id="${id}"]`;
 const favoriteSelector = id => cardSelector(id) + ' .catalogue-favorite';
 const selectionSelector = id => cardSelector(id) + ' .catalogue-selection-check';
@@ -415,10 +418,16 @@ async function verifyExternalSources() {
     await host.setCatalogueWidget(true); await click('#catalogue-widget-tab-search'); await replaceCatalogue(charts);
     const matchingBefore = await fs.readFile(matchingFile, 'utf8');
     includeExternal = true;
-    await fillFields({ '#catalogue-widget-source': 'chorusencore', '#catalogue-widget-query': 'Encore' }); await click('#catalogue-widget-search');
+    await fillFields({ '#catalogue-widget-source': 'chorusencore', '#catalogue-widget-query': 'Signal' }); await click('#catalogue-widget-search');
     await waitFor(() => evaluate(`document.querySelector('#catalogue-widget-results').getAttribute('aria-busy')==='false'&&document.querySelectorAll('#catalogue-widget-results article').length===1&&!!document.querySelector(${JSON.stringify(cardSelector(externalChart.id))})`), 'external provider result in mini');
     const selector = cardSelector(externalChart.id);
-    assert.equal(await evaluate(`(()=>{const card=document.querySelector(${JSON.stringify(selector)});return card.dataset.source==='chorusencore'&&/Chorus Encore/.test(card.textContent)&&card.querySelector('.catalogue-item-artist').textContent==='External synthetic artist'&&!card.querySelector('.catalogue-favorite,.catalogue-installed-badge,.catalogue-staff-badge,.catalogue-charter-avatar,script,[onerror]')&&window.__unsafe===undefined})()`), true, 'the host strips provider HTML while the renderer keeps source claims distinct and inert');
+    assert.equal(await evaluate(`(()=>{const card=document.querySelector(${JSON.stringify(selector)});return card.dataset.source==='chorusencore'&&/Chorus Encore/.test(card.textContent)&&card.querySelector('.catalogue-item-artist').textContent==='Groupe Exemple'&&card.querySelector('.catalogue-instrument-intensity').textContent==='6'&&!card.querySelector('.catalogue-favorite,.catalogue-installed-badge,.catalogue-staff-badge,.catalogue-charter-avatar,script,[onerror]')&&window.__unsafe===undefined})()`), true, 'the host strips provider HTML while the renderer preserves source claims and the actual supplied intensity');
+    await waitFor(() => evaluate(`(()=>{const image=document.querySelector(${JSON.stringify(selector + ' .catalogue-card-artwork img')});return !!image&&image.complete&&image.naturalWidth===96&&!image.hidden})()`), 'external cover decodes through the actual local artwork protocol');
+    const coverState = await evaluate(`(()=>{const card=document.querySelector(${JSON.stringify(selector)}),image=card.querySelector('.catalogue-card-artwork img');return {src:image.getAttribute('src'),height:card.getBoundingClientRect().height,fallback:!card.querySelector('.catalogue-card-artwork').firstElementChild.hidden}})()`);
+    assert.match(coverState.src, /^chartshub-companion:\/\/app\/catalogue-artwork\/[a-f0-9]{64}$/);
+    assert.equal(coverState.fallback, false); assert.ok(coverState.height <= 200, 'external floating card stays compact at its normal 650px width: ' + coverState.height);
+    await evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoView({block:'center',behavior:'instant'})`);
+    await recordLayout('external-cover-compact-normal'); await capture('chorus-encore-cover-compact'); await capture('clean-compact-preview-fr');
     assert.equal(runs.length, before, 'external search never transfers automatically');
     await click(selector + ' .catalogue-open-external'); await waitFor(() => opened !== null, 'external open action in mini');
     assert.equal(opened, externalChart.sourceUrl);
@@ -433,8 +442,8 @@ async function verifyExternalSources() {
     const scoped = await evaluate('window.ChartsHubCompanion.getSnapshot()');
     assert.doesNotMatch(JSON.stringify(scoped), /rootPath|destination|download-manifest|externalChartId/);
     await complete(runs.at(-1)); assert.equal(await fs.readFile(matchingFile, 'utf8'), matchingBefore, 'completed external chart creates no native association');
-    assert.ok(externalRequests.some(request => request.body.search === 'Encore'));
-    passed.push('Chorus Encore mini results render inert metadata and source labels at 280x220 in both languages; explicit canonical opening and synthetic download preserve native associations');
+    assert.ok(externalRequests.some(request => request.body.search === 'Signal'));
+    passed.push('Chorus Encore covers decode through the bounded local proxy in compact cards; inert metadata and source labels fit 280x220 in both languages, and explicit opening/download preserve native associations');
   } finally {
     includeExternal = false; shell.openExternal = originalOpenExternal; host.setLanguage('fr'); await resizeNative(650, 880);
   }
@@ -451,7 +460,7 @@ async function openHost() {
         return { source: 'chorusencore', page: body.page, perPage: 25, found: charts.length, hasMore: false, charts };
       },
       async load() { catalogueLoads++; return { items: fixtureCharts, revision: 'mini-electron-fixture-' + fixtureRevision, demo: fixtureDemo }; },
-      async artwork(url) { artworkRequests.push(url); assert.ok(charts.some(item => item.artworkUrl === url || item.charterIconUrl === url), 'only known synthetic catalogue artwork is requested'); return url.includes('/FixtureArtwork00/') ? { bytes: syntheticArtwork(), contentType: 'image/png' } : null; },
+      async artwork(url) { artworkRequests.push(url); assert.ok(url === externalChart.coverUrl || charts.some(item => item.artworkUrl === url || item.charterIconUrl === url), 'only known synthetic catalogue artwork is requested'); return url === externalChart.coverUrl || url.includes('/FixtureArtwork00/') ? { bytes: syntheticArtwork(), contentType: 'image/png' } : null; },
     },
     downloadWorker: worker() });
   panel = await host.open(); await host.setCatalogueWidget(true); mini = host.getCatalogueWidget(); mini.setSize(650, 880);
@@ -486,6 +495,9 @@ app.whenReady().then(async () => {
   pickerCancelled = false; await click('#catalogue-widget-choose-root'); await waitFor(() => host.downloads.status().rootPath === songs, 'synthetic folder selected');
   passed.push('explicit native picker cancellation preserves the queue and selection uses only the synthetic Songs folder');
 
+  await click('#catalogue-widget-query'); await mini.webContents.insertText('Notes');
+  await waitFor(() => evaluate("document.querySelector('#catalogue-widget-results').getAttribute('aria-busy')==='false'&&document.querySelectorAll('#catalogue-widget-results article').length===1&&!!document.querySelector('[data-chart-id=\"mini-complete\"]')"), 'typing searches the real mini without Enter');
+  assert.equal(runs.length, 0, 'typeahead only searches, never downloads');
   await search({ query: 'Notes' }, ['mini-complete']);
   await search({ artist: 'Fixture artist' }, ['mini-cancel']);
   await search({ charter: 'JoMartineau' }, ['mini-complete']);
@@ -494,7 +506,7 @@ app.whenReady().then(async () => {
   assert.equal(catalogueLoads, 1); assert.equal(runs.length, 0);
   assert.deepEqual(await evaluate("Object.fromEntries([...document.querySelectorAll('#catalogue-widget-results article')].map(n=>[n.dataset.chartId,n.querySelector('h3').textContent]))"), Object.fromEntries(charts.map(item => [item.id, item.title])));
   assert.equal(await evaluate("!!document.querySelector('#catalogue-widget-results script,#catalogue-widget-results [onerror]')||window.__unsafe===true"), false);
-  await capture('search'); passed.push('title/artist/charter search renders hostile catalogue text inertly and never starts an automatic download');
+  await capture('search'); passed.push('typing without Enter and title/artist/charter search render hostile text inertly and never start an automatic download');
   await verifyCardPresentation(); await verifyResponsiveCards(); await verifyFavorites(); assert.equal(runs.length, 0);
 
   await verifyCompactDownload(); assert.equal(runs.length, 1); const firstId = runs[0].id;

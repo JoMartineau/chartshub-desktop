@@ -3,7 +3,7 @@
 // Contract checked against ChartsHub's public server/index.js, drive.js and
 // chart-analysis.js. Search/pagination are local: /api/charts is a full snapshot.
 const ORIGIN = 'https://chartshub.ca';
-const { createEnchorClient } = require('./catalogue-enchor-client.cjs');
+const { createEnchorClient, externalArtworkUrl } = require('./catalogue-enchor-client.cjs');
 const MAX_JSON_BYTES = 24 * 1024 * 1024, MAX_ARTWORK_BYTES = 3 * 1024 * 1024, MAX_ITEMS = 20000;
 const INSTRUMENTS = ['Guitar', 'Bass', 'Drums', 'Vocals', 'Keys', 'Guitar Co-op', 'Rhythm', 'Guitar 6-fret', 'Guitar Co-op 6-fret', 'Rhythm 6-fret', 'Bass 6-fret', 'Pro Drums'];
 const DIFFICULTIES = ['Easy', 'Medium', 'Hard', 'Expert'];
@@ -171,7 +171,7 @@ function createChartsHubClient({ fetcher = globalThis.fetch, timeoutMs = 15000 }
   }
   async function artwork(url, { signal } = {}) {
     if (signal?.aborted) throw cancelled();
-    const safe = artworkUrl(url); if (!safe) return null;
+    const safe = artworkUrl(url) || externalArtworkUrl(url); if (!safe) return null;
     try { return await request(safe, { signal, image: true }); }
     catch (error) { if (error?.name === 'AbortError') throw error; return null; }
   }

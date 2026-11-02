@@ -70,6 +70,8 @@ test('external result cards identify Chorus Encore and suppress native claims an
   const count = ui.calls.length; await ui.controls.setFavorite(external.id); assert.equal(ui.calls.length, count);
   ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
   assert.match(cardFor(ui, external.id).textContent, /Chorus Encore/); assert.equal(ui.calls.length, count);
+  assert.equal(cardFor(ui, external.id).querySelector('.catalogue-download-single').textContent, 'Download'); assert.equal(cardFor(ui, 'native').querySelector('.catalogue-download-single').textContent, 'Download');
+  assert.equal(cardFor(ui, external.id).querySelector('.catalogue-open-external').getAttribute('aria-label'), 'Open on Chorus Encore');
 });
 
 test('external open and single download actions pass only the result identifier to the host', async t => {
@@ -77,6 +79,7 @@ test('external open and single download actions pass only the result identifier 
   const external = externalChart('d'.repeat(32), { downloadEndpoint: 'https://private.invalid/archive.zip', destination: 'C:/outside', viewUrl: 'https://private.invalid/open' });
   await ui.respond(0, { items: [external] });
   const card = cardFor(ui, external.id), open = card.querySelector('.catalogue-open-external'); assert.ok(open, 'external cards expose an explicit browser action');
+  assert.equal(open.textContent, 'Chorus Encore ↗'); assert.equal(open.getAttribute('aria-label'), 'Ouvrir sur Chorus Encore'); assert.equal(open.title, 'Ouvrir sur Chorus Encore');
   open.focus(); open.click(); assert.equal(ui.calls[1].name, 'catalogue.open'); assert.deepEqual(ui.calls[1].payload, { chartId: external.id });
   assert.equal(cardFor(ui, external.id), card); assert.equal(open.disabled, true); assert.equal(ui.document.activeElement, open);
   ui.calls[1].resolve({ ok: true }); await tick();
@@ -363,13 +366,112 @@ test('late searches and refresh responses cannot replace the current results or 
   ui.calls[3].resolve({ ok: true }); await tick(); assert.equal(ui.calls.length, 4); assert.match(ui.get('#catalogue-widget-feedback').textContent, /Lancez une recherche/);
 });
 
-test('pagination retains filters, and a changed catalogue blocks stale downloads until a new search', async t => {
+test('pagination retains filters and catalogue changes keep native downloads usable while external links await a new search', async t => {
   const ui = await setup(t); ui.controls.update(snapshot()); ui.search('song'); await ui.respond(0, { total: 40, hasMore: true });
   ui.get('#catalogue-widget-next').click(); assert.equal(ui.calls[1].payload.query, 'song'); assert.equal(ui.calls[1].payload.page, 2);
-  await ui.respond(1, { page: 2, total: 40, items: [chart('second')] }); assert.equal(ui.get('#catalogue-widget-next').disabled, true);
+  const external = externalChart('9'.repeat(32));
+  await ui.respond(1, { page: 2, total: 40, items: [chart('second'), external] }); assert.equal(ui.get('#catalogue-widget-next').disabled, true);
   ui.controls.update(snapshot({ catalogue: { revision: 2, status: 'ready', demo: false } }));
-  assert.equal(ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').disabled, true); assert.match(ui.get('#catalogue-widget-search-status').textContent, /catalogue a changé/);
-  ui.search('song'); await ui.respond(2); assert.equal(ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').disabled, false);
+  assert.equal(cardFor(ui, 'second').querySelector('.catalogue-download-single').disabled, false);
+  assert.equal(cardFor(ui, external.id).querySelector('.catalogue-download-single').disabled, true);
+  assert.equal(cardFor(ui, external.id).querySelector('.catalogue-open-external').disabled, true);
+  assert.match(ui.get('#catalogue-widget-search-status').textContent, /catalogue a changé.*Chorus Encore/);
+  assert.equal(ui.calls.length, 2, 'a catalogue change never searches or transfers automatically');
+  cardFor(ui, 'second').querySelector('.catalogue-download-single').click(); assert.equal(ui.calls[2].name, 'downloads.enqueue'); assert.deepEqual(ui.calls[2].payload, { chartId: 'second' }); ui.calls[2].resolve({ ok: true }); await tick();
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange')); assert.match(ui.get('#catalogue-widget-search-status').textContent, /Search again.*Chorus Encore/);
+  ui.search('song'); await ui.respond(3, { items: [external] }); assert.equal(cardFor(ui, external.id).querySelector('.catalogue-download-single').disabled, false);
+});
+
+test('a library update during a native batch does not silently skip the remaining selected downloads', async t => {
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('batch'); await ui.respond(0, { items: [chart('a'), chart('b')] });
+  selectChart(ui, 'a'); selectChart(ui, 'b'); ui.get('#catalogue-widget-download-selected').click();
+  ui.controls.update(snapshot({ catalogue: { revision: 2, status: 'ready', demo: false } }));
+  ui.calls[1].resolve({ ok: true }); await tick(); assert.equal(ui.calls[2].name, 'downloads.enqueue'); assert.deepEqual(ui.calls[2].payload, { chartId: 'b' });
+  ui.calls[2].resolve({ ok: true }); await tick(); assert.match(ui.get('#catalogue-widget-batch-status').textContent, /2 ajout\(s\).*0 échec\(s\).*0 ignorée/);
+});
+
+test('live search waits for a typing pause, searches only the latest draft and never runs on mount or snapshots', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ui = await setup(t); ui.controls.update(snapshot()); t.mock.timers.tick(5000); assert.equal(ui.calls.length, 0);
+  const input = ui.get('#catalogue-widget-query'); input.value = 'Si'; input.dispatchEvent(new Event('input')); t.mock.timers.tick(200);
+  input.value = 'Signal'; input.dispatchEvent(new Event('input')); t.mock.timers.tick(449); assert.equal(ui.calls.length, 0);
+  t.mock.timers.tick(1); assert.equal(ui.calls.length, 1); assert.equal(ui.calls[0].name, 'catalogue.search'); assert.equal(ui.calls[0].payload.query, 'Signal'); assert.equal(ui.calls[0].payload.page, 1);
+  await ui.respond(0); ui.controls.update(snapshot({ catalogue: { revision: 2, status: 'ready', demo: false } })); t.mock.timers.tick(120000); assert.equal(ui.calls.length, 1);
+});
+
+test('typing immediately supersedes an older response and Enter submits once without waiting for the debounce', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('old');
+  const input = ui.get('#catalogue-widget-query'); input.value = 'new'; input.dispatchEvent(new Event('input'));
+  await ui.respond(0, { items: [chart('old')] }); assert.equal(ui.get('#catalogue-widget-results').children.length, 0);
+  ui.search('new'); assert.equal(ui.calls.length, 2); assert.equal(ui.calls[1].payload.query, 'new'); await ui.respond(1, { items: [chart('new')] });
+  t.mock.timers.tick(2000); assert.equal(ui.calls.length, 2); assert.equal(ui.get('#catalogue-widget-results').children[0].dataset.chartId, 'new');
+});
+
+test('a typing burst preserves the disabled result card and artwork until its one delayed search starts', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('previous'); await ui.respond(0, { items: [chart('old', { artworkUrl: 'chartshub-companion://app/catalogue-artwork/' + 'b'.repeat(64) })] });
+  const input = ui.get('#catalogue-widget-query'); input.value = 'Ne'; input.dispatchEvent(new Event('input'));
+  const card = cardFor(ui, 'old'), image = card.querySelector('img'); assert.ok(image); assert.equal(card.querySelector('.catalogue-download-single').disabled, true);
+  for (const value of ['New', 'Newest']) { input.value = value; input.dispatchEvent(new Event('input')); assert.equal(cardFor(ui, 'old'), card); assert.equal(cardFor(ui, 'old').querySelector('img'), image); }
+  t.mock.timers.tick(450); assert.equal(ui.calls.length, 2); assert.equal(ui.calls[1].payload.query, 'Newest'); await ui.respond(1);
+});
+
+test('a newer live response cannot be replaced by the older response that finishes after it', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('old');
+  const input = ui.get('#catalogue-widget-query'); input.value = 'current'; input.dispatchEvent(new Event('input')); t.mock.timers.tick(450);
+  await ui.respond(1, { items: [chart('current')] }); await ui.respond(0, { items: [chart('old')] });
+  assert.equal(ui.get('#catalogue-widget-results').children[0].dataset.chartId, 'current'); assert.equal(ui.controls.loading, false);
+});
+
+test('composing an accented or IME draft cancels its old timer and waits until composition finishes', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ui = await setup(t); ui.controls.update(snapshot()); const input = ui.get('#catalogue-widget-query');
+  input.value = 'Ec'; input.dispatchEvent(new Event('input')); t.mock.timers.tick(200);
+  input.value = 'Éc'; const composing = new Event('input'); Object.defineProperty(composing, 'isComposing', { value: true }); input.dispatchEvent(composing); t.mock.timers.tick(2000); assert.equal(ui.calls.length, 0);
+  input.value = 'Écho'; input.dispatchEvent(new Event('compositionend')); t.mock.timers.tick(450); assert.equal(ui.calls.length, 1); assert.equal(ui.calls[0].payload.query, 'Écho'); await ui.respond(0);
+});
+
+test('short drafts do not query providers, clearing browses native charts and an empty external-only draft waits for criteria', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ui = await setup(t); ui.controls.update(snapshot()); const input = ui.get('#catalogue-widget-query');
+  for (const value of ['a', '*']) { input.value = value; input.dispatchEvent(new Event('input')); t.mock.timers.tick(450); assert.equal(ui.calls.length, 0); assert.match(ui.get('#catalogue-widget-search-status').textContent, /deux caractères/); assert.equal(ui.controls.loading, false); }
+  input.value = ''; input.dispatchEvent(new Event('input')); t.mock.timers.tick(450); assert.equal(ui.calls.length, 1); assert.equal(ui.calls[0].payload.query, ''); assert.equal(ui.calls[0].payload.externalSearch, false); await ui.respond(0);
+  ui.get('#catalogue-widget-source').value = 'chorusencore'; ui.get('#catalogue-widget-source').dispatchEvent(new Event('change')); t.mock.timers.tick(450); assert.equal(ui.calls.length, 1);
+  ui.get('#catalogue-widget-artist').value = 'Artiste Démo'; ui.get('#catalogue-widget-artist').dispatchEvent(new Event('input')); t.mock.timers.tick(450); assert.equal(ui.calls.length, 2); assert.equal(ui.calls[1].payload.source, 'chorusencore'); assert.equal(ui.calls[1].payload.externalSearch, true); await ui.respond(1);
+});
+
+test('refresh, close and disposal cancel pending live work and closing fences an already submitted answer', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  for (const action of ['refresh', 'close', 'dispose']) {
+    const ui = await setup(t); ui.controls.update(snapshot()); ui.get('#catalogue-widget-query').value = 'pending'; ui.get('#catalogue-widget-query').dispatchEvent(new Event('input'));
+    if (action === 'dispose') ui.controls.dispose();
+    else { ui.get(action === 'refresh' ? '#catalogue-widget-refresh' : '#catalogue-widget-close').click(); assert.equal(ui.calls.length, 1); ui.calls[0].resolve({ ok: true }); await tick(); }
+    const count = ui.calls.length; t.mock.timers.tick(5000); assert.equal(ui.calls.length, count, action + ' prevents a hidden delayed search');
+  }
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('in flight'); ui.get('#catalogue-widget-close').click(); ui.calls[1].resolve({ ok: true }); await tick(); await ui.respond(0, { items: [chart('late')] }); assert.equal(ui.get('#catalogue-widget-results').children.length, 0);
+});
+
+test('closing a pending live draft clears obsolete disabled cards and reopening an unchanged snapshot does not search', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('previous'); await ui.respond(0, { items: [chart('old')] }); selectChart(ui, 'old');
+  const input = ui.get('#catalogue-widget-query'); input.value = 'new draft'; input.dispatchEvent(new Event('input')); assert.equal(cardFor(ui, 'old').querySelector('.catalogue-download-single').disabled, true);
+  ui.get('#catalogue-widget-close').click(); assert.equal(ui.calls[1].name, 'catalogue.widget'); ui.calls[1].resolve({ ok: true }); await tick();
+  ui.controls.update(snapshot()); t.mock.timers.tick(5000);
+  assert.equal(ui.calls.length, 2); assert.equal(ui.get('#catalogue-widget-results').children.length, 0); assert.equal(ui.controls.selectedCharts.size, 0); assert.equal(ui.controls.loading, false); assert.equal(input.value, 'new draft'); assert.match(ui.get('#catalogue-widget-search-status').textContent, /Rechercher/);
+  ui.search(input.value); await ui.respond(2, { items: [chart('new')] }); assert.equal(cardFor(ui, 'new').querySelector('.catalogue-download-single').disabled, false);
+});
+
+test('live drafts cannot replace an active batch or favorite mutation and a provider cooldown never retries on a timer', async t => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const ui = await setup(t); ui.controls.update(snapshot()); ui.search('batch'); await ui.respond(0, { items: [chart('a')] }); selectChart(ui, 'a'); ui.get('#catalogue-widget-download-selected').click();
+  const input = ui.get('#catalogue-widget-query'); assert.equal(input.disabled, true); input.value = 'blocked'; input.dispatchEvent(new Event('input')); t.mock.timers.tick(2000); assert.equal(ui.calls.length, 2);
+  ui.calls[1].resolve({ ok: true }); await tick(); assert.equal(input.disabled, false);
+  ui.search('favorite'); await ui.respond(2, { items: [chart('favorite')] }); cardFor(ui, 'favorite').querySelector('.catalogue-favorite').click(); assert.equal(input.disabled, true); input.value = 'blocked favorite'; input.dispatchEvent(new Event('input')); t.mock.timers.tick(2000); assert.equal(ui.calls.length, 4);
+  ui.calls[3].resolve({ ok: true, result: { chartId: 'favorite', favorite: true } }); await tick(); assert.equal(ui.calls.length, 5); assert.equal(ui.calls[4].payload.query, 'favorite'); await ui.respond(4);
+  input.value = 'cooldown'; input.dispatchEvent(new Event('input')); t.mock.timers.tick(450); await ui.respond(5, { external: { status: 'cooldown', retryAfterSeconds: 30 } });
+  t.mock.timers.tick(120000); assert.equal(ui.calls.length, 6); assert.equal(input.disabled, false); assert.equal(cardFor(ui, 'chart-1').querySelector('.catalogue-download-single').disabled, false);
 });
 
 test('missing download root, demo entries and queued charts stay disabled, and choosing a folder is explicit', async t => {
@@ -380,6 +482,7 @@ test('missing download root, demo entries and queued charts stay disabled, and c
   ui.controls.update(snapshot({ catalogue: { revision: 1, status: 'ready', demo: true } })); assert.equal(ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').disabled, true);
   ui.controls.update(snapshot({ downloads: { revision: 2, hasRoot: true, items: [download(1)] } }));
   assert.equal(ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').disabled, true); assert.match(ui.get('#catalogue-widget-results').textContent, /Déjà dans la file/);
+  ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange')); assert.equal(ui.get('#catalogue-widget-results').querySelector('.catalogue-download-single').textContent, 'Already queued');
 });
 
 test('download controls show real progress and send only allowed actions by queue id', async t => {
