@@ -3,7 +3,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { runPowerShellFixture } = require('./helpers/powershell-fixture.cjs');
 
 const filename = path.join(__dirname, '../companion/calibration-hardware-windows.ps1');
 const source = fs.readFileSync(filename, 'utf8');
@@ -58,13 +58,8 @@ $labels = @(
 $empty = New-Object ChartsHub.ReadOnlyCalibration.AudioMetadata
 [ordered]@{ labels = $labels; empty = $empty } | ConvertTo-Json -Depth 4 -Compress
 `;
-    const powershell = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
-    const result = spawnSync(powershell, ['-NoLogo', '-NoProfile', '-NonInteractive', '-STA', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], {
-        windowsHide: true, timeout: 15000, maxBuffer: 64 * 1024, encoding: 'utf8'
-    });
-    assert.ifError(result.error);
-    assert.equal(result.status, 0, result.stderr);
-    const parsed = JSON.parse(result.stdout.replace(/^\uFEFF/, '').trim());
+    const output = runPowerShellFixture(script);
+    const parsed = JSON.parse(output.replace(/^\uFEFF/, '').trim());
     assert.deepEqual(parsed.labels, ['Haut-parleurs (Realtek(R) Audio)', 'Speaker name', 'x'.repeat(120), 'Controller', 'Controller', 'Controller', 'Controller', null]);
     assert.deepEqual(parsed.empty, {
         outputName: null, sampleRateHz: null, channels: null,

@@ -68,7 +68,7 @@ test('service construction and status do not load preferences, read game or cons
   const unused = () => { calls++; throw Error('No construction I/O'); };
   const service = createQuickImportService({ getContext: unused, chooseGame: unused, clientFactory: unused,
     preferences: { load: unused, status: () => ({ canWrite: true }), flush: async () => {} } });
-  assert.deepEqual(service.status(), { supported: process.platform === 'win32', selected: false, gameName: null,
+  assert.deepEqual(service.status(), { supported: process.platform === 'win32', platform: ['win32', 'linux', 'darwin'].includes(process.platform) ? process.platform : 'unknown', selected: false, gameName: null,
     busy: false, connected: false, enabled: false, error: null, jobs: [], savedCanWrite: true });
   assert.equal(calls, 0);
 });
@@ -119,7 +119,12 @@ test('symlink or junction in selected game ancestry is refused', async t => {
 });
 
 test('unsupported platforms and inactive Companion refuse connection or picker', async t => {
-  const f = await fixture(t, { platform: 'linux' }); await rejected(f.choose(), 'QUICK_IMPORT_WINDOWS_REQUIRED'); assert.equal(f.clients.length, 0);
+  for (const platform of ['linux', 'darwin', 'freebsd']) {
+    const f = await fixture(t, { platform });
+    await rejected(f.choose(), 'QUICK_IMPORT_WINDOWS_REQUIRED'); await rejected(f.service.command('quickImport.connect', {}), 'QUICK_IMPORT_WINDOWS_REQUIRED');
+    assert.equal(f.clients.length, 0); assert.deepEqual(f.calls, []);
+    assert.equal(f.service.status().supported, false); assert.equal(f.service.status().platform, platform === 'freebsd' ? 'unknown' : platform);
+  }
   const active = await fixture(t); active.set({ active: false }); await rejected(active.choose(), 'QUICK_IMPORT_UNAVAILABLE');
 });
 

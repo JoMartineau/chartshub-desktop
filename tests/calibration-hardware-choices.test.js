@@ -1,7 +1,7 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const {parseProbe,createCalibrationHardware}=require('../companion/calibration-hardware.cjs');
-const cp=require('node:child_process');
+const {runPowerShellFixture,POWERSHELL_FIXTURE_TIMEOUT_MS}=require('./helpers/powershell-fixture.cjs');
 const audio={status:'available',outputName:'Speakers',sampleRateHz:48000,channels:2,defaultPeriodMs:10,minimumPeriodMs:3};
 test('Output candidates are bounded friendly labels with default markers, never device identifiers or routes',()=>{
  const result=parseProbe(JSON.stringify({audio,outputs:[{name:'USB Headset serial: SECRET123',kind:'candidate',windowsDefault:false},{name:'Speakers',kind:'candidate',windowsDefault:true},{name:'Speakers',kind:'candidate',windowsDefault:false}],inputs:[]}));
@@ -28,7 +28,15 @@ test('Hardware detection stays metadata-only: no capture endpoint, ID read, init
  assert.match(script,/outputs = @\(\$outputs\)/);
  assert(Buffer.from(script,'utf16le').toString('base64').length<=30000,'Fixed script must leave space for the Windows command line');
 });
-function powershell(script){const exe=path.win32.join(process.env.SystemRoot||'C:\\Windows','System32/WindowsPowerShell/v1.0/powershell.exe');return cp.execFileSync(exe,['-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',Buffer.from("$ErrorActionPreference='Stop';$ProgressPreference='SilentlyContinue';[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false);\n"+script,'utf16le').toString('base64')],{windowsHide:true,encoding:'utf8',timeout:15000,maxBuffer:16384});}
+function powershell(script){return runPowerShellFixture(script,{maxBuffer:16384});}
+test('Offline PowerShell fixtures allow bounded cold startup without relaxing production discovery',()=>{
+ let calls=0;const script="'{\"synthetic\":true}'";
+ const out=runPowerShellFixture(script,{maxBuffer:16384,execute(exe,args,options){calls++;assert(path.win32.isAbsolute(exe));assert(exe.endsWith('\\WindowsPowerShell\\v1.0\\powershell.exe'));assert.deepEqual(args.slice(0,5),['-NoLogo','-NoProfile','-NonInteractive','-STA','-EncodedCommand']);assert(Buffer.from(args[5],'base64').toString('utf16le').endsWith(script));assert.match(Buffer.from(args[5],'base64').toString('utf16le'),/\$ErrorActionPreference='Stop'/);assert.equal(options.timeout,45000);assert(options.timeout<60000);assert.equal(options.windowsHide,true);assert.equal(options.maxBuffer,16384);assert.equal(options.encoding,'utf8');return '{"synthetic":true}';}});
+ assert.equal(calls,1);assert.equal(POWERSHELL_FIXTURE_TIMEOUT_MS,45000);assert.equal(out,'{"synthetic":true}');
+});
+test('Offline PowerShell fixture failures and timeouts fail immediately without retry or substitution',()=>{
+ for(const code of ['ETIMEDOUT','ENOENT','POWERSHELL_COMPILE_FAILURE']){let calls=0;const error=Object.assign(new Error('Synthetic fixture failure'),{code,status:code==='POWERSHELL_COMPILE_FAILURE'?1:null,stderr:'Synthetic compiler error'});assert.throws(()=>runPowerShellFixture('throw "synthetic"',{execute(){calls++;throw error;}}),value=>value===error);assert.equal(calls,1);}
+});
 test('Windows USB function keeps synthetic bus/hub, composite and unknown USB candidates without reading devices',{skip:process.platform!=='win32'},()=>{
  const file=path.resolve(__dirname,'../companion/calibration-hardware-windows.ps1').replaceAll("'","''"),definitions="$tokens=$null;$errors=$null;$source=[IO.File]::ReadAllText('"+file+"',[Text.Encoding]::UTF8);$ast=[Management.Automation.Language.Parser]::ParseInput($source,[ref]$tokens,[ref]$errors);if($errors.Count){throw 'Invalid fixed script'};$functions=@($ast.FindAll({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -in @('Get-SafeFriendlyName','Get-CalibrationInputCandidates')},$true));if($functions.Count -ne 2){throw 'Missing helpers'};foreach($fn in $functions){. ([scriptblock]::Create($fn.Extent.Text))};";
  const fixtures=[{Name:'Guitare USB Exemple',PNPClass:'USB'},{Name:'USB Composite Device Exemple',PNPClass:'USBDevice'},{Name:'Contrôleur hôte USB Exemple',PNPClass:'USB'},{Name:'USB Root Hub Exemple',PNPClass:'USB'},{Name:'Périphérique USB Inconnu Exemple',PNPClass:'WinUSB'},{Name:'Clavier Exemple serial: PRIVATE123',PNPClass:'Keyboard'}];

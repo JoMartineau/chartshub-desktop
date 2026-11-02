@@ -11,3 +11,11 @@
 .quick-import-steps { margin: 12px 0; padding-left: 24px; }
 .quick-import-steps li { padding: 4px 0; }
 .quick-import-steps p { margin: 4px 0 6px; line-height: 1.5; }
+.quick-import-installation { min-width: 0; margin: 16px 0; padding: 14px; border: 1px solid var(--border, #31465f); border-radius: 8px; background: var(--surface-raised, #162638); }
+.quick-import-installation h4 { margin: 0 0 8px; }
+.quick-import-guide-label { display: block; margin: 12px 0 6px; }
+#quick-import-guide-system { max-width: 100%; }
+.quick-import-installation ol { margin: 12px 0; padding-left: 22px; line-height: 1.5; }
+.quick-import-installation li { padding: 4px 0; }
+.quick-import-installation li p { margin: 4px 0; }
+.quick-import-install-command { max-width: 100%; padding: 10px; border: 1px solid var(--border, #31465f); border-radius: 6px; background: var(--surface, #101d2c); white-space: pre-wrap; overflow-wrap: anywhere; font: 11px/1.6 Consolas, monospace; user-select: text; }

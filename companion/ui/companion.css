@@ -155,6 +155,12 @@ h1 { font-size: 34px; font-weight: 650; letter-spacing: -1px; margin: 0 0 7px; l
 .workspace:has(#builder-inspector[hidden]) .settings-column { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); }
 .main-column, .settings-column { min-width: 0; display: flex; flex-direction: column; gap: 18px; }
 .card { border: 1px solid var(--border); border-radius: 10px; background: var(--surface); overflow: hidden; }
+#drum-vst-panel { box-sizing: border-box; min-width: 0; padding: 20px; }
+#drum-vst-panel > *, #drum-vst-panel label { min-width: 0; max-width: 100%; }
+#drum-vst-panel > :first-child { margin-top: 0; }
+#drum-vst-panel > :last-child { margin-bottom: 0; }
+#drum-vst-panel input:not([type="checkbox"]), #drum-vst-panel select { min-width: 0; max-width: 100%; }
+@media (max-width: 650px) { #drum-vst-panel { padding: 16px; } }
 .card-heading { padding: 18px 20px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 h2 { font-size: 14px; font-weight: 600; margin: 0 0 5px; }
 .helper-text { color: var(--muted); font-size: 11px; line-height: 1.5; }

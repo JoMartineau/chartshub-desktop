@@ -1,7 +1,7 @@
 {
   "name": "chartshub-desktop",
   "productName": "ChartsHub",
-  "version": "0.14.39",
+  "version": "0.14.40",
   "private": true,
   "description": "ChartsHub pour Windows, macOS et Linux — téléchargement natif des charts",
   "main": "main.js",

@@ -100,7 +100,7 @@ function createQuickImportService({ dataDirectory, getContext = () => ({ active:
   function status() {
     let savedCanWrite = false;
     try { savedCanWrite = prefs.status().canWrite === true; } catch {}
-    return { supported, selected: gameRoot !== null, gameName: gameRoot !== null ? 'Clone Hero' : null,
+    return { supported, platform: ['win32', 'linux', 'darwin'].includes(platform) ? platform : 'unknown', selected: gameRoot !== null, gameName: gameRoot !== null ? 'Clone Hero' : null,
       busy: busyLease !== null, connected: enabled && clientStatus()?.phase === 'available', enabled,
       error: fault, jobs: jobs(), savedCanWrite };
   }

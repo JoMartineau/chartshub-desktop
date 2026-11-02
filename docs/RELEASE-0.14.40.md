@@ -1,0 +1,13 @@
+# ChartsHub 0.14.40
+
+Quick Import présente aussi des guides Windows, Linux et macOS en français et anglais. Le système réel vient du processus principal ; choisir un guide ne modifie pas la compatibilité. Les instructions et téléchargements MelonLoader 0.7.3 sont officiels et s’ouvrent uniquement au clic. Quick Import reste validé uniquement pour Clone Hero 1.1.0.6142-final Stable Windows x64 ; ses commandes sont indisponibles sur Linux/macOS et les téléchargements normaux restent utilisables. Aucun installateur Linux/macOS de Quick Import ni support Wine/Proton n’est annoncé.
+
+Le panneau **Batterie / VST** ajoute une marge intérieure autour des textes, des étapes et des commandes. Les champs restent dans le cadre lorsque la fenêtre est réduite. Les autres cartes et le fonctionnement audio restent inchangés.
+
+**Quick Import · BÊTA** présente directement sa première installation : jeu et lanceur fermés, archive officielle MelonLoader 0.7.3 Windows x64, prérequis, lecture du plan puis application explicite. Le bouton **Ouvrir les fichiers d’installation** ouvre le dossier du module et son guide, sans lancer de script. Les exemples de commandes doivent être adaptés aux dossiers du joueur.
+
+Quick Import reste facultatif et validé uniquement avec **Clone Hero 1.1.0.6142-final Stable · Windows x64**. Le guide distingue l’installation du module, son activation explicite et la connexion dans ChartsHub. Le retrait préserve les fichiers modifiés et les composants partagés encore nécessaires aux autres modules. Chansons et profils sont conservés.
+
+Cette version inclut les corrections du catalogue flottant de la 0.14.38, ainsi que la lecture continue de l’Input Viewer et les corrections d’aperçu vidéo de la 0.14.39.
+
+Les téléchargements ChorusEncore conservent désormais les identifiants natifs de fichiers en entiers 64 bits exacts. Les contrôles de remplacement et de nettoyage préservent les fichiers étrangers, même lorsque Windows conserve l’heure de création d’un ancien nom.
