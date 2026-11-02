@@ -1031,6 +1031,21 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       }
       if (command.startsWith('quickImport.')) {
         if (!trustedPanel(event)) return { ok: false, error: 'Commande non autorisée.' };
+        if (command === 'quickImport.prerequisites') {
+          if (!hostActive) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
+          await shell.openExternal('https://github.com/LavaGang/MelonLoader/blob/v0.7.3/README.md#requirements');
+          return { ok: true };
+        }
+        if (command === 'quickImport.openPackage') {
+          const owner = panelContents, revision = lifecycleRevision;
+          if (!hostActive || owner !== panelContents || !trustedPanel(event) || revision !== lifecycleRevision || maintenanceLocked) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
+          const folder = app.isPackaged ? path.join(process.resourcesPath, '..', 'Clone Hero Integrations', 'quick-import-mod') : path.join(__dirname, '..', 'quick-import-mod');
+          const info = await fs.lstat(folder);
+          if (!info.isDirectory() || info.isSymbolicLink() || path.resolve(await fs.realpath(folder)) !== path.resolve(folder)) return { ok: false, code: 'QUICK_IMPORT_FAILED' };
+          if (!hostActive || disposing || stopTask || maintenanceLocked || revision !== lifecycleRevision || owner !== panelContents || !trustedPanel(event)) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
+          const error = await shell.openPath(folder);
+          return error ? { ok: false, code: 'QUICK_IMPORT_FAILED' } : { ok: true };
+        }
         await quickImport.command(command, payload); publishPanel(); return { ok: true, result: quickImport.status() };
       }
       if (command.startsWith('drums.')) { const result = await drums.command(command, payload); publishPanel(); return { ok: true, result }; }

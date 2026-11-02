@@ -97,9 +97,62 @@ test('stalled manifest and file body time out, cancel streams and clean partial 
  }
 });
 
-test('ongoing file activity resets the idle deadline instead of limiting total duration',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-active-')),value='abcdefgh';
- try{const result=await downloadChart({endpoint,directory:root,idleTimeoutMs:80,signal:new AbortController().signal,fetcher:async url=>url.endsWith('download-manifest')?Response.json({title:'Test',files:[entry('guitar.ogg',value)]}):new Response(new ReadableStream({start(controller){let index=0;const timer=setInterval(()=>{controller.enqueue(Buffer.from(value[index++]));if(index===value.length){clearInterval(timer);controller.close();}},20);}}))});assert.equal(fs.readFileSync(path.join(result.destination,'guitar.ogg'),'utf8'),value);}finally{fs.rmSync(root,{recursive:true,force:true});}
+test('ongoing file activity resets the idle deadline instead of limiting total duration',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});
+ for(const finish of ['complete','idle']){
+  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-active-')),value='abcdefgh';
+  const abort=new AbortController();let download,rejected;
+  fs.writeFileSync(path.join(root,'keep.txt'),'Existing chart');
+  let requestSignal,cancelled=false,waitingPull,markWriting,markVerifiedChunk,outputClosed;
+  const pulls=[],writing=new Promise(resolve=>{markWriting=resolve;});
+  const nextPull=()=>pulls.length?Promise.resolve(pulls.shift()):new Promise(resolve=>{waitingPull=resolve;});
+  const createWriteStream=fs.createWriteStream;
+  const observeOutput=t.mock.method(fs,'createWriteStream',function(...args){
+   const output=createWriteStream.apply(this,args);output.once('ready',markWriting);
+   const write=output.write;output.write=function(...values){
+    const accepted=write.apply(this,values);const verified=markVerifiedChunk;markVerifiedChunk=null;verified?.();return accepted;
+   };
+   outputClosed=new Promise(resolve=>output.once('close',resolve));return output;
+  });
+  try{
+   download=downloadChart({endpoint,directory:root,idleTimeoutMs:80,signal:abort.signal,fetcher:async(url,options)=>{
+    requestSignal=options.signal;
+    if(url.endsWith('download-manifest'))return Response.json({title:'Test',files:[entry('guitar.ogg',value)]});
+    // HWM zero and an unresolved pull are barriers on the actual pipeline read,
+    // not stream prefill or a wall-clock guess about filesystem scheduling.
+    return new Response(new ReadableStream({pull(controller){
+     let release;const consumed=new Promise(resolve=>{release=resolve;}),pull={controller,release};
+     if(waitingPull){const ready=waitingPull;waitingPull=null;ready(pull);}else pulls.push(pull);
+     return consumed;
+    },cancel(){cancelled=true;}},{highWaterMark:0}));
+   }});
+   rejected=finish==='idle'?assert.rejects(download,/aucune donnée/):null;void rejected?.catch(()=>{});
+   const reading=()=>Promise.race([nextPull(),download.then(()=>{throw Error('Download finished before the next read');})]);
+   let [pull]=await Promise.race([Promise.all([reading(),writing]),download]);
+   const chunks=finish==='complete'?value.length:3;
+   for(let index=0;index<chunks;index++){
+    t.mock.timers.tick(20);assert.equal(requestSignal.aborted,false);
+    const verified=new Promise(resolve=>{markVerifiedChunk=resolve;});
+    pull.controller.enqueue(Buffer.from(value[index]));pull.release();
+    // Observe the real destination write as well as the next pull. The write
+    // proves this byte passed the verification Transform and renewed the idle
+    // deadline, even if Readable.fromWeb prefetches another read beforehand.
+    [pull]=await Promise.all([reading(),verified]);assert.equal(requestSignal.aborted,false);
+   }
+   if(finish==='complete'){
+    // 8 × 20ms > the 80ms timeout: a total-duration cap would already have failed.
+    pull.controller.close();pull.release();const result=await download;
+    assert.equal(fs.readFileSync(path.join(result.destination,'guitar.ogg'),'utf8'),value);
+    assert.deepEqual(fs.readdirSync(root).sort(),[result.folderName,'keep.txt'].sort());
+   }else{
+    t.mock.timers.tick(79);assert.equal(requestSignal.aborted,false);
+    t.mock.timers.tick(1);await rejected;await outputClosed;
+    assert.equal(requestSignal.aborted,true);assert.equal(cancelled,true);
+    assert.deepEqual(fs.readdirSync(root),['keep.txt']);
+   }
+   assert.equal(fs.readFileSync(path.join(root,'keep.txt'),'utf8'),'Existing chart');
+  }finally{abort.abort();await download?.catch(()=>{});await outputClosed;observeOutput.mock.restore();fs.rmSync(root,{recursive:true,force:true});}
+ }
 });
 
 test('mixed modern inventories and hashed files download atomically, including videos',async()=>{

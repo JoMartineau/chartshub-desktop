@@ -66,9 +66,11 @@ test('optional game widgets accept independent explicit flags and a revision, ne
   for (const payload of [null, [], {}, { revision: 0, accuracy: true }, { revision: 0, accuracy: 1, lyrics: false }, { revision: -1, accuracy: true, lyrics: true }, { revision: 0, accuracy: true, lyrics: true, path: 'C:/Game' }]) assert.equal(validCommand('gameWidgets.configure', payload, []), false);
   assert.equal(validCommand('gameWidgets.check', { revision: 0 }, []), true);
   for (const payload of [{}, { revision: 1, root: 'C:/Game' }, { revision: 1.5 }, { revision: -1 }]) assert.equal(validCommand('gameWidgets.check', payload, []), false);
-  for (const name of ['gameWidgets.openPackage', 'gameWidgets.prerequisites']) {
+  for (const name of ['gameWidgets.openPackage', 'gameWidgets.prerequisites', 'quickImport.openPackage', 'quickImport.prerequisites']) {
     assert.equal(validCommand(name, {}, []), true);
     assert.equal(validCommand(name, { path: 'C:/Game', url: 'https://other.test' }, []), false);
+    assert.equal(validCommand(name, [], []), false);
+    assert.equal(validCommand(name, { install: true }, []), false);
   }
   assert.equal(validCommand('gameWidgets.install', {}, []), false);
 });

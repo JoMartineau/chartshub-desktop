@@ -33,10 +33,11 @@ const { createCompanionHost, registerCompanionScheme } = require(path.join(produ
 const { defaultSettings } = require(path.join(productRoot, 'companion/drum-vst-model.cjs'));
 registerCompanionScheme();
 const checks = [], errors = [], externalRequests = [], calls = [], lifecycle = [], observations = [];
-const mainCompletions = [];
+const mainCompletions = [], packageOpens = [];
 const forbidden = { capture: 0, external: 0, fileDialog: 0, drumCommand: 0, realDownload: 0 };
 desktopCapturer.getSources = async () => { forbidden.capture++; throw Error('Real capture forbidden'); };
 shell.openExternal = async () => { forbidden.external++; throw Error('Real external launch forbidden'); };
+shell.openPath = async folder => { assert.equal(folder, path.join(productRoot, 'quick-import-mod')); packageOpens.push(folder); return ''; };
 dialog.showOpenDialog = async () => { forbidden.fileDialog++; throw Error('Real game selection forbidden'); };
 const jobId = '00000000-0000-4000-8000-000000000036';
 let state = { supported: true, selected: false, gameName: null, busy: false, connected: false, enabled: false, error: null, jobs: [], savedCanWrite: true };
@@ -119,6 +120,12 @@ app.whenReady().then(async () => {
   });
   await check('French controls select and connect only through empty trusted IPC payloads with an explicit Songs folder', async () => {
     await host.library.selectRoot(songs); await until(() => evaluate("window.ChartsHubCompanion.getSnapshot().then(s=>s.library.settings.rootPath!==null)"), 'synthetic Songs selected');
+    const beforeGuide = calls.length;
+    const guide = await command('quickImport.openPackage');
+    assert.equal(guide.ok, !archiveArg, 'Source fixture opens only the supplied local package; an ASAR-only fixture has no external optional package');
+    assert.equal(packageOpens.length, archiveArg ? 0 : 1);
+    assert.equal(calls.length, beforeGuide, 'Opening installation files never installs, selects a game or enables Quick Import');
+    assert.equal(host.snapshot().quickImport.selected, false);
     await click('#quick-import-choose-game'); await until(() => evaluate("!document.querySelector('#quick-import-connect').disabled"), 'synthetic selected game');
     assert.equal(calls.at(-1).name, 'quickImport.chooseGame'); await click('#quick-import-connect');
     await until(() => evaluate("document.querySelector('#quick-import-status').textContent==='Connecté'"), 'French connected status');
@@ -145,7 +152,7 @@ app.whenReady().then(async () => {
   });
   await check('Malformed commands never reach the service and failures expose fixed codes without private exception text', async () => {
     const before = calls.length;
-    for (const [name, payload] of [['quickImport.connect', null], ['quickImport.connect', { gamePath: 'C:\\Private\\game.exe' }], ['quickImport.chooseGame', []], ['quickImport.delete', {}]]) assert.equal((await command(name, payload)).ok, false);
+    for (const [name, payload] of [['quickImport.connect', null], ['quickImport.connect', { gamePath: 'C:\\Private\\game.exe' }], ['quickImport.chooseGame', []], ['quickImport.delete', {}], ['quickImport.openPackage', { path: 'private' }], ['quickImport.openPackage', { install: true }]]) assert.equal((await command(name, payload)).ok, false);
     assert.equal(calls.length, before); nextError = 'C:\\Private\\token=SECRET';
     const result = await command('quickImport.refresh'); assert.equal(result.ok, false); assert.equal(result.code, 'QUICK_IMPORT_FAILED'); assert(!JSON.stringify(result).includes('SECRET')); assert(!JSON.stringify(result).includes('Private'));
   });
@@ -157,8 +164,10 @@ app.whenReady().then(async () => {
   await check('Actual read-only overlay and player snapshots exclude Quick Import and cannot invoke its commands', async () => {
     await host.setOverlay(true); const overlay = host.getOverlay(); assert(overlay); assert.equal(overlay.isVisible(), false);
     const before = calls.length; assert.equal((await evaluate('window.ChartsHubCompanion.getSnapshot()', overlay.webContents)).quickImport, undefined); assert.equal((await command('quickImport.connect', {}, overlay.webContents)).ok, false);
+    assert.equal((await command('quickImport.openPackage', {}, overlay.webContents)).ok, false);
     assert.equal((await command('capture.player')).ok, true); const player = host.getPlayerWidget(); assert(player); assert.equal(player.isVisible(), false);
     assert.equal((await evaluate('window.ChartsHubCompanion.getSnapshot()', player.webContents)).quickImport, undefined); assert.equal((await command('quickImport.connect', {}, player.webContents)).ok, false);
+    assert.equal((await command('quickImport.openPackage', {}, player.webContents)).ok, false);
     assert.equal(calls.length, before); await host.setOverlay(false);
   });
   await check('Songs changes notify the service and maintenance stop and disposal revoke command access without touching a game', async () => {
