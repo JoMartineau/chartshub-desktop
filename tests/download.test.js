@@ -43,6 +43,28 @@ test('native download writes song.ini and publishes the directory only after has
  assert.equal(fs.readFileSync(path.join(result.destination,'song.ini'),'utf8'),data);assert.equal(result.files,1);assert.equal(progress.at(-1).percent,100);assert.deepEqual(fs.readdirSync(root),[result.folderName]);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
+test('published folder downloads skip video requests only when the user excludes videos',async()=>{
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-video-preference-'));
+ const published=endpoint.replace('/admin/','/'),files=[
+  entry('song.ini','[Song]\nname=Demo'),entry('VIDEO.WEBM','video'),
+  entry('background.mp4','background video'),entry('background.png','background image')
+ ].map((file,index)=>({...file,url:published.replace('download-manifest','files/fileabcdefghijk'+index)}));
+ const bodies=['[Song]\nname=Demo','video','background video','background image'];
+ try{
+  for(const includeVideo of [undefined,false,true]){
+   const requested=[];
+   const result=await downloadChart({endpoint:published,directory:root,includeVideo,signal:new AbortController().signal,fetcher:async url=>{
+    if(url.endsWith('download-manifest'))return Response.json({title:'Demo',files});
+    const index=files.findIndex(file=>url===ORIGIN+file.url);
+    assert.ok(index>=0);requested.push(index);return new Response(bodies[index]);
+   }});
+   const selected=includeVideo===false?[0,3]:[0,1,2,3];
+   assert.deepEqual(requested.sort(),selected);
+   assert.deepEqual(fs.readdirSync(result.destination).sort(),selected.map(index=>files[index].parts[0]).sort());
+   assert.equal(result.files,selected.length);
+  }
+ }finally{fs.rmSync(root,{recursive:true,force:true});}
+});
 test('mismatched bytes, refusal and cancellation clean only the new staging directory',async()=>{
  for(const mode of ['hash','http','cancel','size']){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-failed-test-'));fs.writeFileSync(path.join(root,'keep.txt'),'keep');const controller=new AbortController();

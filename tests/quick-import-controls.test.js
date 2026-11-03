@@ -55,7 +55,7 @@ test('errors are fixed guidance and never render raw provider details or paths',
   assert.doesNotMatch(texts(controls), /Private|secret-token|token.txt/);
   controls.update(snapshot({ error: 'UNVERIFIED_BUILD' })); assert.match(controls.nodes.feedback.textContent, /terminer/);
   controls.localError = false; controls.update(snapshot({ error: 'UNVERIFIED_BUILD' })); assert.match(controls.nodes.feedback.textContent, /validé/);
-  controls.update(snapshot({ error: 'CONNECTION_UNAVAILABLE' })); assert.match(controls.nodes.feedback.textContent, /Ouvrez Clone Hero/);
+  controls.update(snapshot({ error: 'CONNECTION_UNAVAILABLE' })); assert.match(controls.nodes.feedback.textContent, /Mods\/ChartsHub\.QuickImport\.dll/);
 });
 test('one thousand unrelated live snapshots perform no DOM writes or job-list replacement', async () => {
   const controls = await fixture(); controls.update(snapshot()); let writes = 0;
@@ -106,10 +106,11 @@ test('first setup is visible before connection steps and explains the real optio
   for (const language of ['fr', 'en']) {
     controls.update(snapshot({}, language));
     assert.match(controls.nodes.installTitle.textContent, /MelonLoader/);
+    assert.equal(controls.nodes.setup.textContent, language === 'fr' ? 'Installer Quick Import' : 'Install Quick Import');
     assert.equal(controls.nodes.installSteps.children.length, 4);
     const instructions = controls.nodes.installSteps.children.flatMap(row => row.children.map(node => node.textContent)).join(' ');
-    for (const required of ['1.1.0.6142-final Stable', 'Windows x64', '0.7.3', '.NET 6 Desktop Runtime', 'README.md', '-Apply', '-EnableBeta']) assert(instructions.includes(required), required);
-    assert.match(controls.nodes.installCommand.textContent, /^\.\\Install-QuickImport\.ps1 -GameRoot .* -SongsRoot .* -LoaderZip /);
+    for (const required of ['1.1.0.6142-final Stable', 'Windows x64', '0.7.3', '.NET 6 Desktop Runtime', 'Clone Hero.exe', 'Songs', '0 Mods loaded', 'Mods/ChartsHub.QuickImport.dll']) assert(instructions.includes(required), required);
+    assert.equal(controls.nodes.installCommand.textContent, 'powershell.exe -NoProfile -STA -File .\\Install-QuickImport.ps1 -Guided -Language ' + language);
     assert.doesNotMatch(controls.nodes.installCommand.textContent, /-Apply|-EnableBeta/);
     assert.match(controls.nodes.installRemoval.textContent, /Uninstall-QuickImport\.ps1/);
     assert.match(controls.nodes.installShared.textContent, /Accuracy/);
@@ -121,9 +122,23 @@ test('setup help uses only fixed empty-payload guide commands and remains availa
   controls.update(snapshot({ supported: false, selected: false, savedCanWrite: false }, 'fr', false));
   assert.equal(controls.nodes.openPackage.id, 'quick-import-open-package'); assert.equal(controls.nodes.openPackage.disabled, false);
   assert.equal(controls.nodes.openPackage.type, 'button');
-  await controls.openHelp('openPackage'); await controls.openHelp('prerequisites'); await controls.openHelp('install'); await controls.run('openPackage');
-  assert.deepEqual(calls, [['quickImport.openPackage', {}], ['quickImport.prerequisites', {}]]);
+  await controls.openHelp('openPackage'); await controls.openHelp('prerequisites'); await controls.openHelp('setup'); await controls.openHelp('install'); await controls.run('openPackage');
+  assert.deepEqual(calls, [['quickImport.openPackage', {}], ['quickImport.prerequisites', {}], ['quickImport.setup', {}]]);
   assert.equal(controls.nodes.connect.disabled, true); assert.equal(controls.nodes.installFeedback.hidden, true);
+});
+
+test('console buttons require a selected Windows game and send an explicit visibility choice', async () => {
+  const calls = [], controls = await fixture(async (name, payload) => { calls.push([name, payload]); return { ok: true }; });
+  controls.update(snapshot({ selected: false }));
+  await controls.openHelp('hideConsole');
+  assert.deepEqual(calls, []);
+  controls.update(snapshot());
+  await controls.openHelp('hideConsole');
+  assert.match(controls.nodes.installNotice.textContent, /sera masqué/);
+  controls.update(snapshot({}, 'en'));
+  await controls.openHelp('showConsole');
+  assert.match(controls.nodes.installNotice.textContent, /will be visible/);
+  assert.deepEqual(calls, [['quickImport.console', { hidden: true }], ['quickImport.console', { hidden: false }]]);
 });
 
 test('opening a setup folder never cancels a pending connection or enables imports', async () => {

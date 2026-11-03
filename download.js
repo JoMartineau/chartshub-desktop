@@ -5,6 +5,7 @@ const {pipeline}=require('node:stream/promises');
 const {idleTransfer}=require('./transfer-timeout');
 const {MAX_BYTES,MAX_FILE_BYTES}=require('./enchor-sng');
 const ORIGIN='https://chartshub.ca';
+const CHART_VIDEO=/^(?:video|background)\.(?:mp4|webm|avi|vp8|ogv|mpeg|mpg|mov|m4v|mkv)$/i;
 function endpointValid(endpoint){return typeof endpoint==='string'&&/^\/api\/(?:admin\/)?charts\/[a-f0-9-]{36}\/[A-Za-z0-9_-]{10,200}\/download-manifest$/.test(endpoint);}
 // Manifest contract: up to six components, each <=180 UTF-16 units /255 UTF-8 bytes.
 function safePart(value){return typeof value==='string'&&value.length>0&&value.length<=180&&Buffer.byteLength(value,'utf8')<=255&&!/[<>:"/\\|?*\x00-\x1f\x7f]/.test(value)&&!/[. ]$/.test(value)&&!/^(?:\.{1,2}|CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\.|$)/i.test(value);}
@@ -79,21 +80,24 @@ async function readJson(response,activity){
  try{return JSON.parse(body);}catch{throw Error('Liste des fichiers illisible. Actualisez la chart puis réessayez.');}
 }
 async function downloadChart(options){const activity=idleTransfer(options.signal,options.idleTimeoutMs??60000);try{return await transferChart({...options,signal:activity.signal,wait:activity.wait,touch:activity.touch});}finally{activity.close();}}
-async function transferChart({endpoint,directory,fetcher,signal,wait,touch,progress=()=>{},idleTimeoutMs,headerTimeoutMs=idleTimeoutMs??1800000}){
+async function transferChart({endpoint,directory,includeVideo=true,fetcher,signal,wait,touch,progress=()=>{},idleTimeoutMs,headerTimeoutMs=idleTimeoutMs??1800000}){
  if(!endpointValid(endpoint))throw Error('Lien ChartsHub invalide.');
  const options={credentials:'include',redirect:'error',cache:'no-store',signal};
  progress({message:'Préparation du téléchargement…',percent:0});
  const manifest=await readJson(await wait(fetcher(ORIGIN+endpoint,options)),{wait,touch,signal});
- const total=validateManifest(manifest,endpoint);
+ validateManifest(manifest,endpoint);
+ const files=includeVideo?[...manifest.files]:manifest.files.filter(file=>!CHART_VIDEO.test(file.parts.at(-1)));
+ if(!files.length)throw Error('Aucun fichier à télécharger.');
+ const total=files.reduce((bytes,file)=>bytes+file.size,0);
  signal?.throwIfAborted();
  const root=await fsp.realpath(directory);
  const info=await fsp.stat(root);if(!info.isDirectory())throw Error('Choisissez un dossier.');
- validateDestination(root,songFolderName(manifest),manifest.files);
- validateDestination(root,'.chartshub-partial-XXXXXXXXXXXX',manifest.files);
+ validateDestination(root,songFolderName(manifest),files);
+ validateDestination(root,'.chartshub-partial-XXXXXXXXXXXX',files);
  const prefix=path.join(root,'.chartshub-partial-');
  const staging=await fsp.mkdtemp(prefix);let committed=false,saved=0,lastProgress=0,reserved;
  try{
-  const files=[...manifest.files].sort((a,b)=>Number(!/\.(ini|chart|mid)$/i.test(a.parts.at(-1)))-Number(!/\.(ini|chart|mid)$/i.test(b.parts.at(-1)))||a.size-b.size);
+  files.sort((a,b)=>Number(!/\.(ini|chart|mid)$/i.test(a.parts.at(-1)))-Number(!/\.(ini|chart|mid)$/i.test(b.parts.at(-1)))||a.size-b.size);
   for(const file of files){
    signal?.throwIfAborted();const name=file.parts.join('/');progress({message:'Vérification et téléchargement : '+name,percent:total?Math.floor(saved/total*100):0});
    // The server prepares the whole file before releasing headers; allow its bounded transfer window.
@@ -109,15 +113,15 @@ async function transferChart({endpoint,directory,fetcher,signal,wait,touch,progr
    saved+=bytes;
   }
   signal?.throwIfAborted();
-  let ini='';const iniFile=manifest.files.find(f=>f.parts.length===1&&f.parts[0].toLowerCase()==='song.ini');
+  let ini='';const iniFile=files.find(f=>f.parts.length===1&&f.parts[0].toLowerCase()==='song.ini');
   if(iniFile&&!manifest.artist){const handle=await fsp.open(path.join(staging,...iniFile.parts),'r');try{const buffer=Buffer.alloc(65536);const {bytesRead}=await handle.read(buffer,0,buffer.length,0);ini=buffer.subarray(0,bytesRead).toString('utf8');}finally{await handle.close();}}
   const base=songFolderName(manifest,ini);let folderName,destination;
-  for(let n=1;;n++){signal?.throwIfAborted();folderName=base+(n===1?'':` (${n})`);validateDestination(root,folderName,manifest.files);destination=path.join(root,folderName);try{await fsp.mkdir(destination,{mode:0o700});reserved=destination;break;}catch(error){if(error.code!=='EEXIST')throw error;}}
+  for(let n=1;;n++){signal?.throwIfAborted();folderName=base+(n===1?'':` (${n})`);validateDestination(root,folderName,files);destination=path.join(root,folderName);try{await fsp.mkdir(destination,{mode:0o700});reserved=destination;break;}catch(error){if(error.code!=='EEXIST')throw error;}}
   // Reserve a fresh directory atomically so an existing song is never replaced.
   for(const entry of await fsp.readdir(staging))await fsp.rename(path.join(staging,entry),path.join(destination,entry));
   committed=true;
   progress({message:'Téléchargement terminé : '+folderName,percent:100});
-  return {folderName,destination,files:manifest.files.length};
+  return {folderName,destination,files:files.length};
  }finally{
   // Only remove this operation's freshly created, verified child of the chosen root.
   if(path.dirname(staging)===root&&path.basename(staging).startsWith('.chartshub-partial-'))await fsp.rm(staging,{recursive:true,force:true});

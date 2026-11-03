@@ -1,6 +1,6 @@
 'use strict';
 function canPreviewVisitor(user){return user?.emailVerified===true&&user.staffRole==='administrator';}
-function applicationMenu({language,load,web,close,cancel,downloading,toggleFullscreen,visitorPreview,companion}){
+function applicationMenu({language,load,web,close,cancel,downloading,toggleFullscreen,visitorPreview,companion,manualUpdate}){
  const fr=language==='fr',t=(a,b)=>fr?a:b;
  return [
   {label:t('Catalogue','Catalogue'),click:()=>load('/')},
@@ -18,6 +18,7 @@ function applicationMenu({language,load,web,close,cancel,downloading,toggleFulls
   {label:t('Taille normale','Reset zoom'),click:()=>web.setZoomLevel(0)},
   {label:t('Plein écran','Full screen'),click:toggleFullscreen},
   {type:'separator'},
+  ...(manualUpdate?[{label:t('Mises à jour','Updates'),enabled:!downloading,click:manualUpdate}]:[]),
   {label:t('Annuler le téléchargement','Cancel download'),enabled:downloading,click:cancel},
   {label:t('Quitter ChartsHub','Quit ChartsHub'),click:close}
  ];

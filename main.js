@@ -104,11 +104,18 @@ else{
   const noteCompletedDownload=(endpoint,result,event,token,signal)=>completedForQuickImport({endpoint,result,authorized:!signal.aborted&&allowedSender(event)&&downloads.current(token)});
   let accountRevision=0;
   songRequestSharing=require('./desktop/song-request-sharing.cjs').createSongRequestSharing({fetcher:(url,options)=>ses.fetch(url,options),readAccount,generation:()=>accountRevision});
+  let reminderDownload=false;
   updater=require('./desktop/update-service.cjs').createUpdateService({currentVersion:require('./package.json').version,platform:process.platform,arch:process.arch,packaged:app.isPackaged===true,
    applicationDirectory:path.dirname(process.execPath),dataDirectory:app.getPath('userData'),
    busyReasons:()=>[...(job?['chart_downloads']:[]),...(backupModule?.getState().busy?['configuration_busy']:[]),...(activeCompanionHost?.maintenanceStatus?.().busyReasons??[])],
    openExternal:url=>shell.openExternal(url),launchHelper:require('./desktop/update-launcher.cjs').launchWindowsHelper,
-   onChange:()=>maintenance?.publish()
+   onChange:state=>{
+    maintenance?.publish();
+    if(reminderDownload&&!job&&!closing&&!win.isDestroyed()){
+     const progress=state.progress;
+     win.setProgressBar(state.status==='downloading'?(progress?progress.receivedBytes/progress.totalBytes:2):-1);
+    }
+   }
   });
   maintenance=require('./desktop/maintenance-ipc.cjs').createMaintenanceIpc({ipcMain,updater,dialog,
    getContents:()=>activeCompanionHost?.getPanelContents(),getOwner:()=>win,isAvailable:()=>companionAvailable&&!closing&&!win.isDestroyed(),language:()=>companionLanguage,
@@ -123,6 +130,41 @@ else{
    }
   });
   void updater.loadPreviousResult();
+  const {createUpdateReminders,updateReminderPreferences}=require('./desktop/update-reminders.cjs');
+  const updateWindowCurrent=()=>!closing&&!win.isDestroyed();
+  const canPromptUpdate=()=>updateWindowCurrent()&&!maintenanceLocked&&!job&&!maintenance.isConfirming()&&!win.isMinimized?.();
+  const updateText=(fr,en)=>companionLanguage==='fr'?fr:en;
+  const updateNotice=(message,type='info')=>dialog.showMessageBox(win,{type,title:'ChartsHub',message,noLink:true});
+  const updateReminders=createUpdateReminders({
+   updater,preferences:updateReminderPreferences(app.getPath('userData')),canPrompt:canPromptUpdate,
+   show:async state=>{
+    const answer=await dialog.showMessageBox(win,{
+     type:'info',title:'ChartsHub',buttons:[updateText('Mettre à jour','Update'),updateText('Plus tard','Later')],
+     defaultId:1,cancelId:1,noLink:true,
+     message:updateText('Une mise à jour de ChartsHub est disponible.','A ChartsHub update is available.'),
+     detail:updateText('Version '+state.latestVersion+' · installée '+state.currentVersion,'Version '+state.latestVersion+' · installed '+state.currentVersion)
+    });
+    return answer.response===0;
+   },
+   onAccept:async state=>{
+    try{
+     if(!state.installSupported||!companionAvailable){await updater.openRelease();return;}
+     if(state.status==='available'){
+      reminderDownload=true;
+      try{await updater.download();}
+      finally{reminderDownload=false;if(!job&&updateWindowCurrent())win.setProgressBar(-1);}
+     }
+     if(!updateWindowCurrent())return;
+     const result=await maintenance.confirmInstall(()=>updateWindowCurrent()&&companionAvailable);
+     if(!result.ok&&updateWindowCurrent())await updateNotice(updateText('La mise à jour est téléchargée. Terminez les opérations en cours, puis ouvrez Application → Mises à jour.','The update is downloaded. Finish any active operations, then open Application → Updates.'));
+    }catch{
+     if(updateWindowCurrent())await updateNotice(updateText('La mise à jour n’a pas pu être terminée. Réessayez depuis Application → Mises à jour.','The update could not finish. Try again from Application → Updates.'),'warning');
+    }
+   },
+   onManualResult:failed=>updateNotice(failed?updateText('La vérification a échoué. Réessayez plus tard.','The update check failed. Try again later.'):updateText('ChartsHub est à jour.','ChartsHub is up to date.'),failed?'warning':'info')
+  });
+  if(app.isPackaged===true)updateReminders.start();
+  win.once('closed',()=>updateReminders.dispose());
   const profileDirectory=path.join(app.getPath('userData'),'companion');
   backupReady=require('./desktop/config-backup.cjs').createConfigBackup({directory:profileDirectory,version:require('./package.json').version,onChange:()=>maintenance?.publish()}).then(engine=>{
    backupEngine=engine;
@@ -245,7 +287,7 @@ else{
   ipcMain.handle('chartshub:menu',async(event,language)=>{
    if(!allowedSender(event)||!['fr','en'].includes(language))return;
    void refreshAdministrator();
-   Menu.buildFromTemplate(applicationMenu({language,load,companion:companionAvailable?showCompanion:undefined,visitorPreview:adminAllowed?()=>void openGuest():undefined,web,close:()=>win.close(),cancel:()=>job?.abort(),downloading:Boolean(job),toggleFullscreen:()=>win.setFullScreen(!win.isFullScreen())})).popup({window:win});
+   Menu.buildFromTemplate(applicationMenu({language,load,companion:companionAvailable?showCompanion:undefined,visitorPreview:adminAllowed?()=>void openGuest():undefined,web,close:()=>win.close(),cancel:()=>job?.abort(),downloading:Boolean(job),manualUpdate:()=>void updateReminders.checkManually(),toggleFullscreen:()=>win.setFullScreen(!win.isFullScreen())})).popup({window:win});
   });
   web.on('before-input-event',(event,input)=>{
    if(input.type!=='keyDown')return;
@@ -253,8 +295,8 @@ else{
    if(key==='f5'||(command&&key==='r')){event.preventDefault();web.reload();}
    else if(command&&['+','=','-','0'].includes(key)){event.preventDefault();const level=key==='0'?0:Math.max(-2,Math.min(3,web.getZoomLevel()+(key==='-'?-.5:.5)));web.setZoomLevel(level);}
   });
-  ipcMain.handle('chartshub:download-batch',async(event,endpoints)=>{
-   if(!allowedSender(event)||!batchValid(endpoints))return {ok:false,error:'Sélection non autorisée.'};
+  ipcMain.handle('chartshub:download-batch',async(event,endpoints,includeVideo=true)=>{
+   if(!allowedSender(event)||typeof includeVideo!=='boolean'||!batchValid(endpoints))return {ok:false,error:'Sélection non autorisée.'};
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const items=normalizeBatch(endpoints),identities=items.map(item=>item.endpoint),requests=items.map(item=>item.request||item.endpoint);
    const controller=new AbortController();job=controller;
@@ -268,7 +310,7 @@ else{
     const directory=await chooseFolder('catalogue');
     if(!directory)return result={ok:false,cancelled:true,results:[]};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    result=await downloadBatch({endpoints:requests,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data),onDownloaded:value=>completedFolders.push(value)});
+    result=await downloadBatch({endpoints:requests,directory,includeVideo,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data),onDownloaded:value=>completedFolders.push(value)});
     await refreshAccount();
     if(!downloads.current(token))return {ok:false,cancelled:true,results:[]};
     for(const value of completedFolders)noteCompletedDownload(value.endpoint,value.result,event,token,controller.signal);
@@ -276,8 +318,8 @@ else{
    }catch(error){return result={ok:false,error:error.message,cancelled:controller.signal.aborted};}
    finally{downloads.finish(token,result);notificationBroker.finishNative(notificationScope,identities,result);job=null;if(win&&!win.isDestroyed())win.setProgressBar(-1);}
   });
-  ipcMain.handle('chartshub:download',async(event,endpoint)=>{
-   if(!allowedSender(event)||!endpointValid(endpoint))return {ok:false,error:'Demande non autorisée.'};
+  ipcMain.handle('chartshub:download',async(event,endpoint,includeVideo=true)=>{
+   if(!allowedSender(event)||!endpointValid(endpoint)||typeof includeVideo!=='boolean')return {ok:false,error:'Demande non autorisée.'};
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const controller=new AbortController();job=controller;
    let outcome,token,notificationScope;
@@ -289,7 +331,7 @@ else{
     const directory=await chooseFolder(endpoint.includes('/admin/')?'review':'catalogue');
     if(!directory)return outcome={ok:false,cancelled:true};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    const result=await downloadChart({endpoint,directory,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,{...data,endpoint,itemPercent:data.percent})});
+    const result=await downloadChart({endpoint,directory,includeVideo:endpoint.includes('/admin/')||includeVideo,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,{...data,endpoint,itemPercent:data.percent})});
     await refreshAccount();if(!downloads.current(token))return outcome={ok:false,cancelled:true};
     noteCompletedDownload(endpoint,result,event,token,controller.signal);
     // Only a path produced by this download operation is passed to the OS.

@@ -53,8 +53,8 @@ html[data-ch-bloom="on"] .ch-bloom-dialog .ch-bloom-sample { box-shadow: var(--c
   .ch-bloom-button, .ch-bloom-sample { border: 1px solid ButtonText; }
 }
 @media print { #ch-bloom-open, .ch-bloom-dialog { display: none !important; } }
-#companion-app > .app-header:has(#ch-bloom-open) { gap: 12px; }
-@media (max-width: 720px) { #companion-app > .app-header:has(#ch-bloom-open) { flex-wrap: wrap; height: auto; min-height: 73px; padding: 12px 0; } }
+#companion-app > .app-header:has(#ch-bloom-open) { gap: 12px; padding-inline-end: 16px; }
+@media (max-width: 720px) { #companion-app > .app-header:has(#ch-bloom-open) { flex-wrap: wrap; height: auto; min-height: 73px; padding-block: 12px; } }
 /* Local interface controls inherit the Catalogue; previews keep their own
    widget colors, geometry and text styling. */
 html[data-ch-catalogue-palette] .ch-bloom-dialog,

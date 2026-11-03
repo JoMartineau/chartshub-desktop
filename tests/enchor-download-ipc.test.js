@@ -44,8 +44,9 @@ test('ordinary navigation preserves the external job and the shared cancel butto
 test('the existing batch IPC accepts native and external entries while its state retains only validated stable identities',async()=>{
  const endpoint='/api/charts/12345678-1234-1234-1234-123456789012/chartabcdef1/download-manifest',d=await desktop();
  for(const values of [[payload,{...payload,url:'https://evil.test/sng'}],[endpoint,endpoint],['https://evil.test/sng']])assert.equal((await d.invoke('download-batch',values)).ok,false);
+ assert.equal((await d.invoke('download-batch',[endpoint,payload],null)).ok,false);
  assert.equal(d.calls,0);
- const pending=d.invoke('download-batch',[endpoint,payload]);await settle();assert.equal(d.calls,1);assert.deepEqual(d.transfer.endpoints,[endpoint,payload]);assert.equal(d.transfer.directory,'/exports');
+ const pending=d.invoke('download-batch',[endpoint,payload],false);await settle();assert.equal(d.calls,1);assert.deepEqual(d.transfer.endpoints,[endpoint,payload]);assert.equal(d.transfer.directory,'/exports');assert.equal(d.transfer.includeVideo,false);
  const state=await d.invoke('download-state');assert.deepEqual(Array.from(state.operation.endpoints),[endpoint,'enchor:'+md5]);
  d.transfer.progress({endpoint:'enchor:'+md5,itemPercent:50,percent:75,message:'External'});assert.equal((await d.invoke('download-state')).items.find(item=>item.endpoint==='enchor:'+md5).percent,50);
  assert.equal((await d.invoke('download-enchor',payload)).ok,false);

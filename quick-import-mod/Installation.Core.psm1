@@ -1,6 +1,8 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference='Stop'
 $script:QiLoaderSha='5b2b2f3d1cd42b59ec886c5bdc2663edae87a0097a4f4a8f58c0965a99dda416'
+$script:QiLoaderUri='https://github.com/LavaGang/MelonLoader/releases/download/v0.7.3/MelonLoader.x64.zip'
+$script:QiLoaderBytes=20155622
 $script:QiProgram=@{'Clone Hero.exe'='3ff57876872fdeac94cf88052a69b19e70c7fc58a70919353c9bfcf64dfd2c87';'GameAssembly.dll'='12bc21e5a88a2fc9abc259d5d67f24835145eabca6c3f863b075ba37ad75f197';'Clone Hero_Data/il2cpp_data/Metadata/global-metadata.dat'='5f14231810f2641639167eb72956e85cced2f36cb4a84682bdefb1e9da3e3d42'}
 function Get-QiDigest([string]$File){$s=[IO.File]::OpenRead($File);$a=[Security.Cryptography.SHA256]::Create();try{([BitConverter]::ToString($a.ComputeHash($s))).Replace('-','').ToLowerInvariant()}finally{$a.Dispose();$s.Dispose()}}
 function Assert-QiNoLinks([string]$Path){for($at=[IO.Path]::GetFullPath($Path);$at;$at=[IO.Path]::GetDirectoryName($at)){if((Test-Path -LiteralPath $at) -and ((Get-Item -LiteralPath $at -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Linked paths are refused.'}}}
@@ -26,6 +28,85 @@ function Get-QiLoaderEntries([string]$LoaderZip){
  Assert-QiNoLinks $LoaderZip;if((Get-QiDigest $LoaderZip) -ne $script:QiLoaderSha){throw 'The official MelonLoader 0.7.3 x64 archive identity differs.'}
  Add-Type -AssemblyName System.IO.Compression.FileSystem;$zip=[IO.Compression.ZipFile]::OpenRead($LoaderZip)
  try{foreach($entry in $zip.Entries){if($entry.FullName.EndsWith('/')){continue};$name=$entry.FullName.Replace('\','/');if($name -ne 'version.dll' -and !$name.StartsWith('MelonLoader/',[StringComparison]::Ordinal)){throw 'Unexpected loader archive entry.'};$stream=$entry.Open();$a=[Security.Cryptography.SHA256]::Create();try{[pscustomobject]@{relative=$name;sha256=([BitConverter]::ToString($a.ComputeHash($stream))).Replace('-','').ToLowerInvariant();kind='loader';source=$name}}finally{$a.Dispose();$stream.Dispose()}}}finally{$zip.Dispose()}
+}
+function Find-QiSongsRoot([string]$GameRoot,[string]$DocumentsDirectory,[string]$SongsHint){
+ $portable=Join-Path $GameRoot 'PlayerData'
+ $data=if([IO.Directory]::Exists($portable)){$portable}elseif($DocumentsDirectory){Join-Path $DocumentsDirectory 'Clone Hero'}else{return}
+ $settings=Join-Path $data 'settings.ini'
+ if(![IO.File]::Exists($settings)){return}
+ Assert-QiNoLinks $settings
+ $stream=[IO.File]::Open($settings,[IO.FileMode]::Open,[IO.FileAccess]::Read,[IO.FileShare]::Read)
+ try{
+  if($stream.Length -gt 65536){return}
+  $reader=[IO.StreamReader]::new($stream,[Text.UTF8Encoding]::new($false,$true),$true)
+  try{$lines=$reader.ReadToEnd() -split '\r?\n'}finally{$reader.Dispose()}
+ }finally{$stream.Dispose()}
+ $section=''
+ $roots=[Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+ foreach($line in $lines){
+  if($line -match '^\s*\[([^\]]+)\]\s*$'){$section=$Matches[1];continue}
+  if($section -ne 'directories' -or $line -notmatch '^\s*path[0-9]+\s*=\s*(.*)$'){continue}
+  $value=$Matches[1].Trim()
+  if(!$value){continue}
+  if($value -notmatch '^[A-Za-z]:[\\/][^<>:"|?*\x00-\x1f]*$'){return}
+  $root=[IO.Path]::GetFullPath($value)
+  if($root -eq [IO.Path]::GetPathRoot($root) -or ![IO.Directory]::Exists($root)){return}
+  Assert-QiNoLinks $root
+  [void]$roots.Add($root.TrimEnd('\','/'))
+ }
+ if($roots.Count -gt 1){
+  if($SongsHint -match '^[A-Za-z]:[\\/][^<>:"|?*\x00-\x1f]*$'){
+   $hint=[IO.Path]::GetFullPath($SongsHint).TrimEnd('\','/')
+   if($roots.Contains($hint)){return $hint}
+  }
+  return
+ }
+ if($roots.Count -eq 1){return $roots | Select-Object -First 1}
+ $songs=Join-Path $data 'Songs'
+ if([IO.Directory]::Exists($songs)){Assert-QiNoLinks $songs;return $songs}
+}
+
+# Keep the official archive in the caller's temporary stream. Redirects are
+# restricted to GitHub's asset hosts and the body is bounded before writing.
+function Receive-QiLoaderArchive([IO.Stream]$OutputStream){
+ $uri=[Uri]$script:QiLoaderUri
+ $clock=[Diagnostics.Stopwatch]::StartNew()
+ for($hop=0;$hop -lt 4;$hop++){
+  if($uri.Scheme -ne 'https' -or !$uri.IsDefaultPort -or $uri.UserInfo -or
+     $uri.Host -notin @('github.com','release-assets.githubusercontent.com','objects.githubusercontent.com')){
+   throw 'Unexpected MelonLoader archive redirect.'
+  }
+  $request=[Net.HttpWebRequest][Net.WebRequest]::Create($uri)
+  $request.AllowAutoRedirect=$false
+  $request.Timeout=20000
+  $request.ReadWriteTimeout=20000
+  $response=$request.GetResponse()
+  try{
+   $status=[int]$response.StatusCode
+   if($status -in @(301,302,303,307,308)){
+    $location=$response.Headers['Location']
+    if(!$location){throw 'Missing MelonLoader archive redirect.'}
+    $uri=[Uri]::new($uri,$location)
+    continue
+   }
+   if($status -ne 200 -or ($response.ContentLength -ge 0 -and $response.ContentLength -ne $script:QiLoaderBytes)){
+    throw 'Unexpected MelonLoader archive response.'
+   }
+   $stream=$response.GetResponseStream()
+   try{
+    $buffer=[byte[]]::new(65536)
+    $count=0
+    while(($read=$stream.Read($buffer,0,$buffer.Length)) -gt 0){
+     $count+=$read
+     if($count -gt $script:QiLoaderBytes -or $clock.Elapsed.TotalSeconds -gt 120){throw 'MelonLoader download exceeded its limits.'}
+     $OutputStream.Write($buffer,0,$read)
+    }
+    if($count -ne $script:QiLoaderBytes){throw 'Incomplete MelonLoader archive.'}
+   }finally{$stream.Dispose()}
+   return
+  }finally{$response.Dispose()}
+ }
+ throw 'Too many MelonLoader archive redirects.'
 }
 function New-QiInstallPlan([string]$GameRoot,[string]$SongsRoot,[string]$PackageRoot,[string]$LoaderZip,[bool]$EnableBeta=$false){
  $game=[IO.Path]::GetFullPath($GameRoot).TrimEnd('\','/');$songs=[IO.Path]::GetFullPath($SongsRoot).TrimEnd('\','/');$package=[IO.Path]::GetFullPath($PackageRoot)
@@ -124,4 +205,4 @@ function Invoke-QiUninstall([object]$Plan){
  foreach($dir in @($Plan.createdDirectories)|Sort-Object Length -Descending){$absolute=[IO.Path]::GetFullPath($dir);if(!$absolute.StartsWith($Plan.gameRoot+'\',[StringComparison]::OrdinalIgnoreCase)){throw 'Receipt directory escaped root.'};Assert-QiNoLinks $absolute;if([IO.Directory]::Exists($absolute) -and @([IO.Directory]::EnumerateFileSystemEntries($absolute)).Count -eq 0){Remove-Item -LiteralPath $absolute -Force}}
  [pscustomobject]@{result='OWNED_UNMODIFIED_FILES_REMOVED';removed=$Plan.remove.Count;preserved=$Plan.preserve.Count;loaderKeptForOtherMods=$Plan.loaderKeptForOtherMods;programBytesUnchanged=$true;profilesAccessed=$false;songsAndNativeCacheRemoved=$false;gameLaunched=$false}
 }
-Export-ModuleMember -Function New-QiInstallPlan,Invoke-QiInstall,New-QiUninstallPlan,Invoke-QiUninstall,Assert-QiProgram,Assert-QiClosed,Get-QiDigest
+Export-ModuleMember -Function New-QiInstallPlan,Invoke-QiInstall,New-QiUninstallPlan,Invoke-QiUninstall,Assert-QiProgram,Assert-QiClosed,Assert-QiNoLinks,Find-QiSongsRoot,Receive-QiLoaderArchive,Get-QiDigest

@@ -40,6 +40,8 @@ const PUBLIC_MEMBERS = Object.freeze([
   'desktop/quick-import-download-completion.cjs', 'companion/quick-import-service.cjs',
   'companion/quick-import-preferences.cjs', 'companion/quick-import-client.cjs',
   'companion/quick-import-download-observer.cjs', 'companion/quick-import-build.cjs',
+  'companion/melon-console.cjs', 'companion/ui/ui-bloom.css',
+  'desktop/update-reminders.cjs',
   'companion/ui/quick-import-controls.js', 'companion/ui/quick-import-controls.css',
   'companion/drum-vst-model.cjs', 'companion/drum-vst-service.cjs',
   'companion/drum-vst-preferences.cjs', 'companion/drum-mt-installer.cjs', 'companion/ui/drum-vst-controls.js',

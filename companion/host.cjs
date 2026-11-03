@@ -3,7 +3,8 @@ const { app, BrowserWindow, WebContentsView, ipcMain, protocol, session, net, sc
 const path = require('node:path');
 const os = require('node:os');
 const fs = require('node:fs/promises');
-const { randomBytes } = require('node:crypto');
+const { execFile } = require('node:child_process');
+const { createHash, randomBytes } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const { assetPath, trustedSender, trustedContentsSender, trustedPlayerFullscreen, trustedFiltersWidgetCommand, trustedCatalogueWidgetCommand, validCommand } = require('./security.cjs');
 const { createFiltersService } = require('./filters-service.cjs');
@@ -67,6 +68,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   // Main-process dependency only. Choosing a renderer guide cannot supply a
   // host capability or change the fixed destinations of the help buttons.
   const quickImportPlatform = ['win32', 'linux', 'darwin'].includes(quickImportRuntimePlatform) ? quickImportRuntimePlatform : 'unknown';
+  let quickImportSetupRunning = false;
+  let melonConsole;
   const quickImportView = () => {
     if (!quickImport) return null;
     const value = quickImport.status();
@@ -1049,15 +1052,86 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
           return { ok: true };
         }
         if (quickImportPlatform !== 'win32') return { ok: false, code: 'QUICK_IMPORT_WINDOWS_REQUIRED' };
-        if (command === 'quickImport.openPackage') {
+        if (command === 'quickImport.console') {
+          const root = quickImport.selectedGameRoot?.(), revision = lifecycleRevision;
+          if (!root) return { ok: false, code: 'QUICK_IMPORT_GAME_REQUIRED' };
+          const current = () => hostActive && !disposing && !stopTask && !maintenanceLocked &&
+            revision === lifecycleRevision && trustedPanel(event) && quickImport.selectedGameRoot?.() === root && !quickImportSetupRunning;
+          if (!current()) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
+          melonConsole ??= require('./melon-console.cjs').createMelonConsole();
+          try {
+            const result = await melonConsole.write(root, payload.hidden, () => {
+              if (!current()) throw Object.assign(Error('Setup selection changed'), { code: 'MELON_CONSOLE_CANCELLED' });
+            });
+            return { ok: true, hidden: result.hideConsole };
+          } catch (error) {
+            const code = error?.code === 'MELON_CONSOLE_GAME_RUNNING' ? 'MELON_CONSOLE_GAME_RUNNING' : 'MELON_CONSOLE_FAILED';
+            return { ok: false, code };
+          }
+        }
+        if (command === 'quickImport.openPackage' || command === 'quickImport.setup') {
           const owner = panelContents, revision = lifecycleRevision;
+          const setup = command === 'quickImport.setup';
+          if (setup && (process.platform !== 'win32' || quickImportSetupRunning)) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
           if (!hostActive || owner !== panelContents || !trustedPanel(event) || revision !== lifecycleRevision || maintenanceLocked) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
-          const folder = app.isPackaged ? path.join(process.resourcesPath, '..', 'Clone Hero Integrations', 'quick-import-mod') : path.join(__dirname, '..', 'quick-import-mod');
-          const info = await fs.lstat(folder);
-          if (!info.isDirectory() || info.isSymbolicLink() || path.resolve(await fs.realpath(folder)) !== path.resolve(folder)) return { ok: false, code: 'QUICK_IMPORT_FAILED' };
-          if (!hostActive || disposing || stopTask || maintenanceLocked || revision !== lifecycleRevision || owner !== panelContents || !trustedPanel(event)) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
-          const error = await shell.openPath(folder);
-          return error ? { ok: false, code: 'QUICK_IMPORT_FAILED' } : { ok: true };
+          if (setup) quickImportSetupRunning = true;
+          try {
+            const folder = app.isPackaged ? path.join(process.resourcesPath, '..', 'Quick Import', 'quick-import-mod') : path.join(__dirname, '..', 'quick-import-mod');
+            const info = await fs.lstat(folder);
+            if (!info.isDirectory() || info.isSymbolicLink() || path.resolve(await fs.realpath(folder)) !== path.resolve(folder)) return { ok: false, code: 'QUICK_IMPORT_FAILED' };
+            const installer = path.join(folder, 'Install-QuickImport.ps1');
+            if (setup) {
+              let manifest;
+              if (app.isPackaged) {
+                const manifestPath = path.join(folder, 'PACKAGE-MANIFEST.json');
+                const info = await fs.lstat(manifestPath);
+                if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > 64 * 1024) return { ok: false, code: 'QUICK_IMPORT_FAILED' };
+                manifest = JSON.parse(await fs.readFile(manifestPath, 'utf8'));
+                if (!Array.isArray(manifest?.files)) return { ok: false, code: 'QUICK_IMPORT_FAILED' };
+              }
+              for (const file of [installer, path.join(folder, 'Installation.Core.psm1')]) {
+                const script = await fs.lstat(file);
+                if (!script.isFile() || script.isSymbolicLink() || script.nlink !== 1 || script.size > 1024 * 1024) return { ok: false, code: 'QUICK_IMPORT_FAILED' };
+                if (manifest) {
+                  const expected = manifest.files.find(entry => entry?.name === path.basename(file));
+                  const bytes = await fs.readFile(file);
+                  if (bytes.length !== expected?.bytes || createHash('sha256').update(bytes).digest('hex') !== expected.sha256) return { ok: false, code: 'QUICK_IMPORT_FAILED' };
+                }
+              }
+            }
+            if (!hostActive || disposing || stopTask || maintenanceLocked || revision !== lifecycleRevision || owner !== panelContents || !trustedPanel(event)) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
+            if (!setup) {
+              const error = await shell.openPath(folder);
+              return error ? { ok: false, code: 'QUICK_IMPORT_FAILED' } : { ok: true };
+            }
+            const systemRoot = process.env.SystemRoot;
+            if (!systemRoot || !path.isAbsolute(systemRoot)) return { ok: false, code: 'QUICK_IMPORT_FAILED' };
+            const powershell = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+            const args = ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', installer, '-Guided', '-Language', language];
+            const rememberedGame = quickImport.selectedGameRoot?.();
+            if (rememberedGame) args.push('-InitialGameRoot', rememberedGame);
+            const rememberedSongs = library.status().settings.rootPath;
+            if (rememberedSongs) args.push('-SongsHint', rememberedSongs);
+            const stdout = await new Promise((resolve, reject) => {
+              execFile(powershell, args, { cwd: folder, windowsHide: true, maxBuffer: 64 * 1024 },
+                (error, output) => error ? reject(error) : resolve(output));
+            });
+            if (!stdout.trim()) return { ok: true, cancelled: true };
+            if (!hostActive || disposing || stopTask || maintenanceLocked || revision !== lifecycleRevision || owner !== panelContents || !trustedPanel(event)) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
+            const installed = JSON.parse(stdout.trim());
+            if (installed.result !== 'INSTALLED_BETA_OPTIONAL' || typeof installed.gameRoot !== 'string' || typeof installed.songsRoot !== 'string' ||
+                !path.isAbsolute(installed.gameRoot) || !path.isAbsolute(installed.songsRoot)) return { ok: false, code: 'QUICK_IMPORT_FAILED' };
+            if (quickImport.selectedGameRoot?.() !== rememberedGame) return { ok: true };
+            await quickImport.rememberInstalledGame(path.join(installed.gameRoot, 'Clone Hero.exe'));
+            if (hostActive && !disposing && !stopTask && !maintenanceLocked && revision === lifecycleRevision &&
+                owner === panelContents && trustedPanel(event) && library.status().settings.rootPath === rememberedSongs) {
+              await library.selectRoot(installed.songsRoot);
+            }
+            publishPanel();
+            return { ok: true };
+          } finally {
+            if (setup) quickImportSetupRunning = false;
+          }
         }
         await quickImport.command(command, payload); publishPanel(); return { ok: true, result: quickImportView() };
       }

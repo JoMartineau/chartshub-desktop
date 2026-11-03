@@ -37,6 +37,14 @@ test('mixed batches download sequentially into the same destination and keep sou
  assert.deepEqual(called,['native','external','native']);assert.deepEqual(result.results.map(item=>item.endpoint),[endpoint(1),'enchor:'+md5,endpoint(2)]);assert.deepEqual(result.results.map(item=>item.ok),[true,false,true]);
  assert.deepEqual(events.filter(item=>item.itemPercent===50).map(item=>item.endpoint),[endpoint(1),'enchor:'+md5,endpoint(2)]);assert.equal(result.cancelled,false);
 });
+test('batch video preference applies to both sources',async()=>{
+ const received=[];
+ const record=async ({includeVideo})=>{received.push(includeVideo);return {folderName:'Saved',files:2};};
+ const result=await downloadBatch({endpoints:[endpoint(1),{md5:'0123456789abcdef0123456789abcdef'}],includeVideo:false,
+  signal:new AbortController().signal,download:record,downloadExternal:record});
+ assert.equal(result.ok,true);
+ assert.deepEqual(received,[false,false]);
+});
 test('cancelling a mixed batch preserves an already imported SNG and skips following native charts',async()=>{
  const md5='0123456789abcdef0123456789abcdef',controller=new AbortController();let native=0;
  const result=await downloadBatch({endpoints:[{md5},endpoint(1)],signal:controller.signal,download:async()=>{native++;},downloadExternal:async()=>{controller.abort();return {folderName:'External',fileName:'External.sng',files:3};}});

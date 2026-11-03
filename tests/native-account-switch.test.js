@@ -32,3 +32,14 @@ test('Electron revalidates a snapshot against an expired session even without a 
  const d=await desktop(),pending=d.invoke('download',endpoint);await settle();d.finish();await pending;
  d.setUser(null);assert.equal((await d.invoke('download-state')).items.length,0);
 });
+test('Electron honors an explicit video choice for published charts and keeps complete review downloads',async()=>{
+ const published=endpoint.replace('/admin/','/');
+ for(const [target,choice,expected] of [[published,false,false],[published,undefined,true],[endpoint,false,true]]){
+  const d=await desktop();
+  assert.equal((await d.invoke('download',target,'false')).ok,false);
+  assert.equal(d.transfer,undefined);
+  const pending=d.invoke('download',target,choice);await settle();
+  assert.equal(d.transfer.includeVideo,expected);
+  d.finish();assert.equal((await pending).ok,true);
+ }
+});
