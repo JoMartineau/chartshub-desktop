@@ -1,6 +1,18 @@
 :root { --request-accent: #38bdf8; --request-font-size: 24px; color-scheme: dark; font: 16px/1.45 system-ui,sans-serif; color: #f1f6ff; }
 * { box-sizing: border-box; }
 html, body { margin: 0; background: transparent; }
+.request-capture { min-height: 100%; background: var(--request-capture-background, #101827); scrollbar-width: none; }
+.request-capture .request-widget { margin-inline: auto; }
+.request-capture .request-card .request-platform { color: #fff; border-color: var(--badge-color, #8c9dbb); background: var(--badge-dim, #242c3d); }
+.request-capture [data-platform="twitch"] { --badge-color: #b879ff; --badge-solid: #592790; --badge-dim: #241633; }
+.request-capture [data-platform="tiktok"] { --badge-color: #ff5668; --badge-solid: #a91e38; --badge-dim: #381620; }
+.request-capture [data-platform="youtube"] { --badge-color: #ff8a75; --badge-solid: #922b1e; --badge-dim: #391b18; }
+.request-capture [data-platform="website"] { --badge-color: #62c4a9; --badge-solid: #1e644f; --badge-dim: #15332c; }
+.request-capture[data-badge-style="solid"] .request-platform { background: var(--badge-solid, #414e68); border-color: transparent; }
+.request-capture[data-badge-style="stripe"] .request-platform { border-color: transparent; }
+.request-capture[data-badge-style="stripe"] .request-card { border-inline-start: 4px solid var(--badge-color, var(--request-accent)); }
+.request-capture .request-card.is-new { animation: none; }
+.request-capture .request-widget :is(.request-brand, .request-brand span, .request-total strong, .request-total span, .request-status, .request-rank, .request-next-label, .request-title, .request-artist, .request-viewer, .request-viewer-name, .request-votes) { color: #fff; }
 body { padding: 16px; }
 [hidden] { display: none !important; }
 .request-widget { width: 100%; max-width: 680px; padding: 22px; overflow: hidden; border: 1px solid #80c6ff32; border-radius: 22px; background: linear-gradient(145deg,#101b2ef0,#111425ed); box-shadow: 0 12px 35px #0003, inset 0 1px #ffffff08; font-size: var(--request-font-size); }

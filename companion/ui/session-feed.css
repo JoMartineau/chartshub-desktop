@@ -1,1 +1,13 @@
 html,body{margin:0;background:transparent;color:#fff;font:18px/1.45 "Segoe UI",sans-serif}*{box-sizing:border-box}#feed{padding:8px;--feed-accent:#49bbff}#items{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}.feed-item{padding:9px 13px;border-left:3px solid var(--feed-accent);border-radius:4px;background:rgba(10,16,28,.72);overflow-wrap:anywhere;text-shadow:0 1px 3px #000}.feed-heading{display:flex;gap:9px;align-items:baseline;margin:0 0 2px}.feed-name{color:var(--feed-accent);font-weight:700}.feed-platform{font-size:.68em;text-transform:uppercase;opacity:.8}.feed-message{margin:0;white-space:pre-wrap}.feed-action{display:block;font-size:.75em;opacity:.85}.feed-title{font-weight:600}
+.feed-capture{min-height:100%;scrollbar-width:none;background:var(--feed-capture-background,#101827)}
+.feed-capture #feed{padding:16px}
+.feed-capture-heading{font-size:1.12em;margin:0 0 12px;text-shadow:0 1px 4px #000}
+.feed-capture-status{margin:0;padding:10px 12px;border-radius:4px;background:#101827;color:#f1f6ff;font-size:.78em}
+.feed-capture .feed-heading{align-items:center;justify-content:space-between;flex-wrap:wrap}
+.feed-capture .feed-name{color:#fff}
+.feed-item[data-platform=twitch]{--badge-color:#b879ff;--badge-solid:#592790;--badge-dim:#241633}
+.feed-item[data-platform=tiktok]{--badge-color:#ff5668;--badge-solid:#a91e38;--badge-dim:#381620}
+.feed-capture .feed-platform{padding:2px 8px;border:1px solid var(--badge-color);border-radius:6px;background:var(--badge-dim);color:#fff;opacity:1;font-weight:700;text-transform:none}
+.feed-capture[data-badge-style=solid] .feed-platform{background:var(--badge-solid);border-color:transparent}
+.feed-capture[data-badge-style=stripe] .feed-platform{border-color:transparent}
+.feed-capture[data-badge-style=stripe] .feed-item{border-left-color:var(--badge-color,var(--feed-accent))}

@@ -7,3 +7,5 @@ Les commandes **Masquer le terminal MelonLoader** et **Afficher le terminal Melo
 Les téléchargements vers le dossier d’export prennent en charge le choix vidéo du catalogue, y compris pour une sélection de charts. Le tableau de bord garde aussi une marge à droite du bouton de thème quand la fenêtre est réduite.
 
 ChartsHub signale chaque nouvelle version une fois et laisse le choix de lancer le téléchargement. Le menu Application permet de vérifier à nouveau les mises à jour.
+
+Les widgets flottants du chat multistream et de la file de demandes peuvent servir de sources de capture de fenêtre dans OBS ou TikTok LIVE Studio. Leur couleur de fond et leur style de badges sont personnalisables. Le chat multistream affiche les connexions Twitch et TikTok LIVE. L’intégration Kick est retirée de l’interface.

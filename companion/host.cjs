@@ -33,8 +33,8 @@ const { createSongRequests } = require('./song-requests.cjs');
 const { createSongRequestDiscovery } = require('./song-request-discovery.cjs');
 const { createUnifiedChat } = require('./unified-chat.cjs');
 const { createSessionActivity } = require('./session-activity.cjs');
-const { defaultSessionWidgetSettings, validateSessionWidgetSettings } = require('./session-widget-model.cjs');
-const { createSongRequestServer } = require('./song-request-server.cjs');
+const { defaultSessionWidgetSettings, validateSessionWidgetSettings, projectSessionFeed } = require('./session-widget-model.cjs');
+const { createSongRequestServer, overlayState: requestOverlayState } = require('./song-request-server.cjs');
 const { createSongRequestPreferences } = require('./song-request-preferences.cjs');
 const { createSongRequestAccountStore } = require('./song-request-account-store.cjs');
 const { createSongRequestConnections } = require('./song-request-connections.cjs');
@@ -55,6 +55,7 @@ const { expectedBuild: quickImportExpectedBuild } = require('./quick-import-buil
 const { validateUIPalette } = require('../desktop/ui-palette.cjs');
 const SCHEME = 'chartshub-companion';
 const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu', player: 'ChartsHub — Lecteur Songs' });
+const STREAM_CAPTURE_DEFAULT_BACKGROUND = '#101827';
 const QUICK_IMPORT_CODES = new Set(PUBLIC_QUICK_IMPORT_CODES);
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
@@ -120,6 +121,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       return !disposing && !maintenanceLocked && !choice.canceled && choice.filePaths.length === 1 ? choice.filePaths[0] : null;
     }, openMtPage: url => shell.openExternal(url) });
   let songRequests = null, songRequestServer = null, songRequestConnections = null, songRequestBusy = false;
+  const streamCaptures = {
+    requests: { title: 'ChartsHub — Song Request Queue', page: 'song-requests.html', backgroundColor: STREAM_CAPTURE_DEFAULT_BACKGROUND, badgeStyle: 'outline', window: null, load: null, lastState: '' },
+    chat: { title: 'ChartsHub — Multistream Chat', page: 'session-feed.html', backgroundColor: STREAM_CAPTURE_DEFAULT_BACKGROUND, badgeStyle: 'outline', window: null, load: null, lastState: '' }
+  };
+  const captureAppearance = ({ title, backgroundColor, badgeStyle }) => ({ title, backgroundColor, badgeStyle });
+  let requestWidgetRevision = 0;
   let songRequestDiscovery = null;
   let unifiedChat = null;
   let sessionActivity = null, sessionWidgetSettings = defaultSessionWidgetSettings(), sessionWidgetRevision = 0;
@@ -290,8 +297,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     player: { canOpen: hostActive && !disposing && !stopTask && panelAlive(), title: CAPTURE_WINDOW_TITLES.player }
   });
   const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), widget: songRequestPreferences.status().widget,
+    queueWindow: captureAppearance(streamCaptures.requests),
     publicRequests: songRequestShareBroker?.status(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare, autoSync: songRequestShareSync?.status(),
     progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
+  const chatSnapshot = () => ({ ...unifiedChat?.status(), captureWindow: captureAppearance(streamCaptures.chat) });
   const privateWidgetTypes = new Set(['gameplay.accuracy','gameplay.combo','gameplay.fc','gameplay.progress','gameplay.comparison','session.goal','session.history','song.lyrics']);
   function publicWidgetState(state, flags) {
     const instances = state.widgets.instances.filter(widget => !privateWidgetTypes.has(widget.type) || widget.type === 'gameplay.accuracy' && flags?.accuracy === true || widget.type === 'song.lyrics' && flags?.lyrics === true);
@@ -305,7 +314,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     return { ...(measurementsEnabled || editor ? view : publicWidgetState(view, flags)), lyrics: measurementsEnabled || flags?.lyrics === true ? songVisuals?.lyricsSnapshot() ?? null : null };
   };
   const telemetryPanel = () => { const value = measurementsEnabled ? telemetry?.snapshot() : null; return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, hardware: calibrationHardware.snapshot(), connectorSetup: connectorSetup.snapshot(), reason: value.reason } : null; };
-  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true, gameWidgets: !measurementsEnabled }, gameWidgets: gameWidgetIntegrations?.status() ?? null, gameModPreflight: gameModPreflight?.status() ?? null, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView({ editor: true }), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), drums: drums.status(), quickImport: quickImportView(), requestDiscovery: songRequestDiscovery?.status() ?? null, chat: unifiedChat?.status() ?? null, sessionActivity: sessionActivity?.snapshot() ?? null, sessionWidgets: { revision: sessionWidgetRevision, settings: { ...sessionWidgetSettings } }, profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true, gameWidgets: !measurementsEnabled }, gameWidgets: gameWidgetIntegrations?.status() ?? null, gameModPreflight: gameModPreflight?.status() ?? null, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView({ editor: true }), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), drums: drums.status(), quickImport: quickImportView(), requestDiscovery: songRequestDiscovery?.status() ?? null, chat: chatSnapshot(), sessionActivity: sessionActivity?.snapshot() ?? null, sessionWidgets: { revision: sessionWidgetRevision, settings: { ...sessionWidgetSettings } }, profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   // Installation destinations belong only to the private Companion panel.
   const overlaySnapshot = value => ({ ...value, state: stateView(), uiPalette: undefined, drums: undefined, quickImport: undefined, gameWidgets: undefined, gameModPreflight: undefined, requestDiscovery: undefined, chat: undefined, sessionActivity: undefined, sessionWidgets: undefined, telemetry: value.telemetry ? { ...value.telemetry, connectorSetup: undefined } : null, songRequests: undefined, player: undefined });
   const floatingPanelSnapshot = name => {
@@ -368,6 +377,17 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (panelAlive() && !panelContents.isLoading()) panelContents.send('companion:changed', value ?? snapshot());
     if (playerWindow && !playerWindow.isDestroyed() && !playerWindow.webContents.isLoading()) playerWindow.webContents.send('companion:changed', playerWidgetSnapshot());
     if (catalogueAllowed() && catalogueWidget && !catalogueWidget.isDestroyed() && !catalogueWidget.webContents.isLoading()) catalogueWidget.webContents.send('companion:changed', catalogueWidgetSnapshot());
+    for (const [kind, capture] of Object.entries(streamCaptures)) {
+      if (!capture.window || capture.window.isDestroyed() || capture.window.webContents.isLoading()) continue;
+      const playing = kind === 'requests' ? requestNowPlaying() : null;
+      const sourceKey = kind === 'chat'
+        ? [unifiedChat.getRevision(), sessionWidgetRevision, catalogueAllowed() && !maintenanceLocked]
+        : [songRequests.getRevision(), requestWidgetRevision, playing?.songId, playing?.title, playing?.artist, playing?.state];
+      const stateKey = JSON.stringify([language, capture.backgroundColor, capture.badgeStyle, ...sourceKey]);
+      if (stateKey === capture.lastState) continue;
+      capture.lastState = stateKey;
+      capture.window.webContents.send('companion:changed', streamCaptureSnapshot(kind, playing));
+    }
   }
   function setLanguage(value) { if (!['fr','en'].includes(value) || language === value) return language; language=value; if (!embedded && panelAlive()) panel.setTitle?.(tr('ChartsHub — Tableau de bord', 'ChartsHub — Dashboard')); publish(); return language; }
   function setButtonMotion(value) {
@@ -1012,8 +1032,68 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     playerPreferencesTask = task.catch(() => {}); return task;
   }
   function trustedPlayer(event) { return trustedSender(event, playerWindow, 'music-player.html'); }
+  function streamCaptureSnapshot(kind, playing = kind === 'requests' ? requestNowPlaying() : null) {
+    const { backgroundColor, badgeStyle } = streamCaptures[kind];
+    if (kind === 'chat') {
+      const chat = unifiedChat.status();
+      return { ...projectSessionFeed('chat', { enabled: chat.enabled && catalogueAllowed() && !maintenanceLocked, language,
+        settings: sessionWidgetSettings, items: chat.messages }), backgroundColor, badgeStyle };
+    }
+    return { ...requestOverlayState(songRequests.snapshot(), songRequestPreferences.status().widget, playing), language, backgroundColor, badgeStyle };
+  }
+  async function openStreamCapture(kind) {
+    if (!hostActive || !panelAlive() || kind === 'chat' && !catalogueAllowed()) return { ok: false };
+    const capture = streamCaptures[kind];
+    const revision = lifecycleRevision;
+    if (!capture.window || capture.window.isDestroyed()) {
+      const window = new BrowserWindow({ width: 450, height: 590, minWidth: 260, minHeight: 210, show: false,
+        title: capture.title, backgroundColor: capture.backgroundColor, alwaysOnTop: true, webPreferences: preferences });
+      capture.window = window;
+      harden(window, capture.page);
+      window.on('page-title-updated', event => event.preventDefault());
+      window.on('closed', () => {
+        if (capture.window !== window) return;
+        capture.window = null; capture.load = null; capture.lastState = '';
+      });
+      window.webContents.on('render-process-gone', () => { if (!window.isDestroyed()) window.destroy(); });
+      capture.load = window.loadURL(`${SCHEME}://app/ui/${capture.page}`).catch(error => {
+        if (!window.isDestroyed()) window.destroy();
+        throw error;
+      });
+    }
+    const window = capture.window;
+    await capture.load;
+    if (disposing || stopTask || maintenanceLocked || revision !== lifecycleRevision || capture.window !== window || window.isDestroyed()) return { ok: false };
+    window.show();
+    return { ok: true };
+  }
+  function setStreamCaptureBackground(kind, color) {
+    const capture = streamCaptures[kind];
+    capture.backgroundColor = color.toLowerCase();
+    if (capture.window && !capture.window.isDestroyed()) capture.window.setBackgroundColor(capture.backgroundColor);
+    publishPanel();
+    return { ok: true };
+  }
+  function setStreamCaptureBadgeStyle(kind, badgeStyle) {
+    const capture = streamCaptures[kind];
+    if (capture.badgeStyle !== badgeStyle) {
+      capture.badgeStyle = badgeStyle;
+      publishPanel();
+    }
+    return { ok: true };
+  }
+  function destroyStreamCaptures() {
+    for (const capture of Object.values(streamCaptures)) {
+      if (capture.window && !capture.window.isDestroyed()) capture.window.destroy();
+    }
+  }
   function canRead(event) { return trustedPanel(event) || trustedSender(event, overlay, 'overlay.html'); }
-  ipcMain.handle('companion:snapshot', event => trustedPanel(event) ? snapshot() : trustedPlayer(event) ? playerWidgetSnapshot() : canRead(event) ? overlaySnapshot(snapshot()) : trustedSender(event, filtersWidget, 'filters-widget.html') ? filtersWidgetSnapshot() : catalogueAllowed() && trustedSender(event, catalogueWidget, 'catalogue-widget.html') ? catalogueWidgetSnapshot() : null);
+  ipcMain.handle('companion:snapshot', event => {
+    for (const [kind, capture] of Object.entries(streamCaptures)) {
+      if (trustedSender(event, capture.window, capture.page)) return streamCaptureSnapshot(kind);
+    }
+    return trustedPanel(event) ? snapshot() : trustedPlayer(event) ? playerWidgetSnapshot() : canRead(event) ? overlaySnapshot(snapshot()) : trustedSender(event, filtersWidget, 'filters-widget.html') ? filtersWidgetSnapshot() : catalogueAllowed() && trustedSender(event, catalogueWidget, 'catalogue-widget.html') ? catalogueWidgetSnapshot() : null;
+  });
   ipcMain.handle('companion:command', async (event, command, payload) => {
     const mini = catalogueAllowed() && trustedCatalogueWidgetCommand(event, catalogueWidget, command, payload);
     const playerSender = trustedPlayer(event) && typeof command === 'string' && (command.startsWith('player.') || (command === 'panels.appearance' && payload?.panel === 'player'));
@@ -1188,6 +1268,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         await songRequestConnections.setChatEnabled(payload.enabled); publishPanel(); return result;
       }
       if (command === 'chat.clear') { const result = unifiedChat.clear(); publishPanel(); return result; }
+      if (command === 'chat.openCaptureWindow') return await openStreamCapture('chat');
+      if (command === 'chat.captureWindowBackground') return setStreamCaptureBackground('chat', payload.color);
+      if (command === 'chat.captureWindowBadgeStyle') return setStreamCaptureBadgeStyle('chat', payload.style);
       if (command === 'sessionWidgets.configure') {
         if (!catalogueAllowed()) return { ok: false };
         if (payload.revision !== sessionWidgetRevision) return { ok: false, code: 'SESSION_WIDGETS_STALE' };
@@ -1207,7 +1290,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'songRequests.discoveryMatches') return { ok: true, result: await songRequestDiscovery.matches(payload.id) };
       if (command === 'songRequests.discoveryDismiss') { songRequestDiscovery.dismiss(payload.id); return { ok: true }; }
       if (command === 'songRequests.discoveryConfirm') return await songRequestDiscovery.confirm(payload.id, payload.songId);
-      if (command === 'songRequests.widget') { await songRequestPreferences.saveWidget(payload.settings); publishPanel(); return { ok: true }; }
+      if (command === 'songRequests.widget') { await songRequestPreferences.saveWidget(payload.settings); requestWidgetRevision++; publishPanel(); return { ok: true }; }
+      if (command === 'songRequests.openQueueWindow') return await openStreamCapture('requests');
+      if (command === 'songRequests.queueWindowBackground') return setStreamCaptureBackground('requests', payload.color);
+      if (command === 'songRequests.queueWindowBadgeStyle') return setStreamCaptureBadgeStyle('requests', payload.style);
       if (['songRequests.connect', 'songRequests.disconnect', 'songRequests.cancelAuth'].includes(command) && !hostActive) return { ok: false };
       if (command === 'songRequests.connect') {
         // Consent and LIVE connection run in the background so Cancel/Stop remain usable.
@@ -1590,6 +1676,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     songRequests.configure({ enabled: false });
     const songRequestStop = songRequestServer?.stop();
     const songRequestConnectionsStop = songRequestConnections?.stop();
+    destroyStreamCaptures();
     hostActive = false; catalogueWidgetTicket++; catalogueWidgetEnabled = false;
     gameCapture?.stop();
     musicPlayer?.stop();
@@ -1729,7 +1816,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if(persistenceError||profiles.status().error||floatingPanels.status().error||songRequestPreferences.status().error)throw Object.assign(Error('Visual settings could not be saved'),{code:'BACKUP_WRITE_FAILED'});
   }
   return { open, stop, snapshot, services, integration, registry, setLanguage, setButtonMotion, setUIPalette, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
-    maintenanceStatus, flushPortableConfiguration, acceptDownloadedChart, setMaintenanceLocked: value => { maintenanceLocked = value === true; gameWidgetIntegrations?.update(); if (maintenanceLocked) gameModPreflight?.stop(); if (maintenanceLocked) { void drums.stop(); void quickImport?.stop(); unifiedChat?.stop(); void songRequestConnections?.setChatEnabled(false); songRequestDiscovery?.clear(); sessionActivity?.clear(); activityDownloadScopes.clear(); sessionWidgetSettings = { ...sessionWidgetSettings, shareChat: false, shareActivity: false }; sessionWidgetRevision++; } else { quickImport?.update(); sessionActivity?.update(); if (songRequests) sessionActivity?.observeRequests(songRequests.snapshot()); } if (!disposing) publishPanel(); },
+    maintenanceStatus, flushPortableConfiguration, acceptDownloadedChart, setMaintenanceLocked: value => { maintenanceLocked = value === true; gameWidgetIntegrations?.update(); if (maintenanceLocked) gameModPreflight?.stop(); if (maintenanceLocked) { destroyStreamCaptures(); void drums.stop(); void quickImport?.stop(); unifiedChat?.stop(); void songRequestConnections?.setChatEnabled(false); songRequestDiscovery?.clear(); sessionActivity?.clear(); activityDownloadScopes.clear(); sessionWidgetSettings = { ...sessionWidgetSettings, shareChat: false, shareActivity: false }; sessionWidgetRevision++; } else { quickImport?.update(); sessionActivity?.update(); if (songRequests) sessionActivity?.observeRequests(songRequests.snapshot()); } if (!disposing) publishPanel(); },
     getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, getPlayerWidget: () => playerWindow, dispose
   };
 }

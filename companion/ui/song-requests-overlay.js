@@ -91,10 +91,14 @@ function render(state) {
     entry.rank.textContent = String(index + 1).padStart(2, '0'); entry.next.hidden = index !== 0;
     entry.next.textContent = tr('À jouer ensuite', 'Up next');
     entry.title.textContent = request.title || tr('Morceau sans titre', 'Untitled song'); entry.artist.textContent = request.artist;
-    entry.viewer.hidden = !widget.showViewerNames || !request.viewerName;
+    const showName = widget.showViewerNames && !!request.viewerName;
+    entry.viewer.hidden = queueWindowBridge ? !request.platform && !showName : !showName;
+    row.dataset.platform = request.platform;
     entry.platform.textContent = request.platform === 'website' ? tr('Site web', 'Website') : platforms[request.platform] ?? '';
     entry.platform.hidden = !request.platform; entry.platform.dataset.platform = request.platform;
     entry.by.textContent = tr('Demandé par', 'Requested by');
+    entry.by.hidden = !showName;
+    entry.name.hidden = !showName;
     entry.name.textContent = widget.showViewerNames ? request.platform === 'website' && request.viewerName === 'Spectateur web'
       ? tr('Spectateur web', 'Web viewer') : request.viewerName : '';
     entry.votes.textContent = `${request.votes} vote${request.votes === 1 ? '' : 's'}`;
@@ -146,4 +150,23 @@ async function refresh() {
   }
 }
 addEventListener('pagehide', () => { stopped = true; clearTimeout(timer); activeRequest?.abort(); });
-void refresh();
+const queueWindowBridge = globalThis.ChartsHubStreamCapture;
+if (queueWindowBridge) {
+  document.documentElement.classList.add('request-capture');
+  let receivedUpdate = false;
+  const show = state => {
+    try {
+      document.documentElement.dataset.badgeStyle = ['solid', 'stripe'].includes(state?.badgeStyle) ? state.badgeStyle : 'outline';
+      if (typeof state?.backgroundColor === 'string' && /^#[a-f0-9]{6}$/i.test(state.backgroundColor)) {
+        document.documentElement.style.setProperty('--request-capture-background', state.backgroundColor);
+      }
+      render(state);
+    } catch { unavailable(); }
+  };
+  const unsubscribe = queueWindowBridge.subscribe(state => { receivedUpdate = true; show(state); });
+  queueWindowBridge.getSnapshot().then(state => { if (!stopped && !receivedUpdate) show(state); },
+    () => { if (!stopped && !receivedUpdate) unavailable(); });
+  addEventListener('pagehide', unsubscribe);
+} else {
+  void refresh();
+}

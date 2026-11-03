@@ -99,7 +99,12 @@ const library = new LibraryControls({ root: query('#companion-app'), command: (n
 const badSongs = new BadSongsCleanupControls({ root: query('#library-bad-songs'), command: (name, payload) => command(name, payload) });
 const songRequests = new SongRequestControls({ root: query('#song-requests-panel'), command: (name, payload) => command(name, payload) });
 const requestDiscoveryControls = new RequestDiscoveryControls({ root: query('#request-discovery-panel'), command: (name, payload) => command(name, payload), onSearch: text => { workspaceNavigation.select('catalogue'); catalogue.searchForRequest(text); } });
-const unifiedChatControls = new UnifiedChatControls({ root: query('#unified-chat-panel'), command: (name, payload) => command(name, payload), onAccounts: () => { workspaceNavigation.select('requests'); const details=query('#song-requests-connections-details'); details.open=true; details.scrollIntoView({block:'start'}); } });
+const unifiedChatControls = new UnifiedChatControls({
+  root: query('#unified-chat-panel'),
+  command: (name, payload) => command(name, payload),
+  onAccounts: () => { workspaceNavigation.select('requests'); const details=query('#song-requests-connections-details'); details.open=true; details.scrollIntoView({block:'start'}); },
+  onWidgetSettings: () => { workspaceNavigation.select('stream'); query('#session-widgets-panel').scrollIntoView({block:'start'}); },
+});
 const sessionWidgetControls = new SessionWidgetControls({ root: query('#session-widgets-panel'), command: (name, payload) => command(name, payload) });
 window.addEventListener('companion:library-focus', () => {
   window.ChartshubWorkspaceNavigation?.select('library');

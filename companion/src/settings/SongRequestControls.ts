@@ -19,6 +19,7 @@ interface Snapshot {
   songRequests?: {
     enabled: boolean; revision: number; order?: 'votes' | 'manual'; rules: SongRequestRules; requests: SongRequest[];
     widget?: WidgetSettings;
+    queueWindow?: { backgroundColor: string; title: string; badgeStyle?: string };
     publicRequests?: { supported: boolean; active: boolean; connected: boolean; error: string | null; pendingAcknowledgements: number };
     bridge: { enabled: boolean; port?: number; url: string | null; overlayUrl: string | null; error: string | null; platforms: string[] };
     sharing?: { supported: boolean; url: string | null; count: number; updatedAt: string | null; busy: boolean; error: string | null; unavailableCount?: number;
@@ -71,6 +72,19 @@ export class SongRequestControls {
         void this.send('songRequests.' + command, {});
       }, { signal });
     }
+    this.element('#song-requests-open-queue-window').addEventListener('click', () => {
+      if (this.snapshot?.songRequests?.queueWindow && !this.busy) void this.send('songRequests.openQueueWindow', {});
+    }, { signal });
+    this.element<HTMLInputElement>('#song-requests-queue-window-background').addEventListener('change', event => {
+      if (this.snapshot?.songRequests?.queueWindow && !this.busy) {
+        void this.send('songRequests.queueWindowBackground', { color: (event.target as HTMLInputElement).value });
+      }
+    }, { signal });
+    this.element<HTMLSelectElement>('#song-requests-queue-window-badges').addEventListener('change', event => {
+      if (this.snapshot?.songRequests?.queueWindow && !this.busy) {
+        void this.send('songRequests.queueWindowBadgeStyle', { style: (event.target as HTMLSelectElement).value });
+      }
+    }, { signal });
     for (const [id, command] of [['publish-library', 'publishLibrary'], ['copy-library', 'copyLibraryUrl'], ['remove-library', 'removeLibrary']] as const) {
       this.element('#song-requests-' + id).addEventListener('click', () => {
         const sharing = this.snapshot?.songRequests?.sharing;
@@ -227,6 +241,9 @@ export class SongRequestControls {
     this.element<HTMLButtonElement>('#song-requests-apply').disabled = unavailable || !this.dirty;
     this.element<HTMLButtonElement>('#song-requests-copy-bridge').disabled = unavailable || !current?.bridge.enabled || !current.bridge.url;
     this.element<HTMLButtonElement>('#song-requests-copy-overlay').disabled = unavailable || !current?.bridge.enabled || !current.bridge.overlayUrl;
+    this.element<HTMLButtonElement>('#song-requests-open-queue-window').disabled = unavailable || !current?.queueWindow;
+    this.element<HTMLInputElement>('#song-requests-queue-window-background').disabled = unavailable || !current?.queueWindow;
+    this.element<HTMLSelectElement>('#song-requests-queue-window-badges').disabled = unavailable || !current?.queueWindow;
     this.element<HTMLButtonElement>('#song-requests-reset-order').disabled = unavailable || current?.order !== 'manual';
     this.element('#song-requests-reset-order').hidden = current?.order !== 'manual';
     const sharing = current?.sharing, sharingUnavailable = unavailable || !sharing?.supported || sharing.busy;
@@ -260,15 +277,23 @@ export class SongRequestControls {
   }
   private render(): void {
     if (this.disposed) return;
+    const queueWindow = this.snapshot?.songRequests?.queueWindow;
+    const captureTitle = queueWindow?.title ?? 'ChartsHub — Song Request Queue';
+    const background = this.element<HTMLInputElement>('#song-requests-queue-window-background');
+    if (queueWindow && this.options.root.ownerDocument.activeElement !== background) background.value = queueWindow.backgroundColor;
+    const badges = this.element<HTMLSelectElement>('#song-requests-queue-window-badges');
+    if (queueWindow) badges.value = queueWindow.badgeStyle ?? 'outline';
+    const badgeLabels = this.tr('Contour|Fond plein|Barre latérale', 'Outline|Solid|Side stripe').split('|');
+    Array.from(badges.querySelectorAll('option')).forEach((option, index) => { option.textContent = badgeLabels[index] ?? ''; });
     const copy: Record<string, string> = {
       title: this.tr('Song Request', 'Song Request'),
       'connections-summary': this.tr('Connexions du chat', 'Chat connections'),
       'health-chat-label': this.tr('Chat', 'Chat'), 'health-library-label': this.tr('Bibliothèque Songs', 'Songs library'), 'health-sharing-label': this.tr('Liste publique', 'Public list'),
       'resolve-chat': this.tr('Configurer le chat', 'Configure chat'), 'resolve-library': this.tr('Voir la bibliothèque', 'Open library'), 'resolve-sharing': this.tr('Gérer le partage', 'Manage sharing'),
       'queue-title': this.tr('File des demandes', 'Request queue'), 'queue-help': this.tr('Acceptez une demande, puis marquez-la jouée. Passer la retire de la file.', 'Accept a request, then mark it played. Skip removes it from the queue.'),
-      'widget-summary': this.tr('Personnaliser le widget OBS', 'Customize OBS widget'), 'widget-color-label': this.tr('Couleur d’accent', 'Accent color'), 'widget-size-label': this.tr('Taille du texte (px)', 'Text size (px)'), 'widget-count-label': this.tr('Prochaines demandes', 'Upcoming requests'),
+      'widget-summary': this.tr('Personnaliser le widget', 'Customize widget'), 'widget-color-label': this.tr('Couleur d’accent', 'Accent color'), 'widget-size-label': this.tr('Taille du texte (px)', 'Text size (px)'), 'widget-count-label': this.tr('Prochaines demandes', 'Upcoming requests'),
       'widget-now-playing-label': this.tr('Afficher le morceau actuel', 'Show current song'), 'widget-viewers-label': this.tr('Afficher les pseudos', 'Show viewer names'), 'widget-apply': this.tr('Appliquer au widget', 'Apply to widget'),
-      'widget-help': this.tr('Trois prochaines demandes par défaut. Ces réglages s’appliquent au lien OBS existant.', 'Three upcoming requests by default. These settings apply to the existing OBS link.'),
+      'widget-help': this.tr('Trois prochaines demandes par défaut. Ces réglages s’appliquent au widget flottant et au lien OBS.', 'Three upcoming requests by default. These settings apply to the floating widget and the OBS link.'),
       description: this.tr('Connectez votre chat, puis activez les demandes pour les morceaux de votre dossier Songs.', 'Connect your chat, then enable requests for songs in your Songs folder.'),
       'enabled-label': this.tr('Recevoir les demandes du chat', 'Receive chat requests'),
       'duration-label': this.tr('Durée maximale (minutes)', 'Maximum duration (minutes)'),
@@ -279,13 +304,21 @@ export class SongRequestControls {
       'rules-help': this.tr('Laissez la durée vide pour tout accepter. Les métadonnées absentes ne valident pas une règle active. Le port se modifie quand la réception est arrêtée.', 'Leave duration blank for any length. Missing metadata cannot satisfy an active rule. Change the port while reception is stopped.'),
       'copy-bridge': this.tr('Copier la configuration du pont', 'Copy bridge configuration'),
       'copy-overlay': this.tr('Copier le lien du widget OBS', 'Copy OBS widget link'),
+      'open-queue-window': this.tr('Ouvrir le widget flottant', 'Open floating widget'),
+      'queue-window-background-label': this.tr('Fond du widget flottant', 'Floating widget background'),
+      'queue-window-badges-label': this.tr('Style des badges', 'Badge style'),
+      'capture-summary': this.tr('Afficher la file dans OBS ou TikTok LIVE Studio', 'Show the queue in OBS or TikTok LIVE Studio'),
+      'capture-open': this.tr('Cliquez sur « Ouvrir le widget flottant ». Choisissez un fond uni avec le sélecteur de couleur.', 'Click “Open floating widget”. Choose a solid background using the color picker.'),
+      'capture-select': this.tr('Dans OBS ou TikTok LIVE Studio, ajoutez une source « Capture de fenêtre » et sélectionnez « ' + captureTitle + ' ». Dans LIVE Studio, cherchez « Window Capture » si l’interface est en anglais.', 'In OBS or TikTok LIVE Studio, add a Window Capture source and select “' + captureTitle + '”.'),
+      'capture-place': this.tr('Placez la source dans votre scène. Gardez ChartsHub et le widget ouverts sur le même PC pendant le live.', 'Position the source in your scene. Keep ChartsHub and the widget open on the same PC while streaming.'),
       'connections-title': this.tr('Connecter le chat', 'Connect chat'),
       'connections-help': this.tr('Les commandes !sr, !vote, !queue et !song sont prêtes. Connecter un compte ne démarre pas la réception.', 'The !sr, !vote, !queue and !song commands are ready. Connecting an account does not start reception.'),
       'twitch-connect': this.tr('Connecter Twitch', 'Connect Twitch'), 'twitch-disconnect': this.tr('Déconnecter', 'Disconnect'),
       'twitch-cancel': this.tr('Annuler la connexion', 'Cancel connection'),
       'tiktok-connect': this.tr('Connecter TikTok LIVE', 'Connect TikTok LIVE'), 'tiktok-disconnect': this.tr('Déconnecter', 'Disconnect'),
+      'tiktok-title': this.tr('Chat TikTok LIVE', 'TikTok LIVE chat'),
       'tiktok-username-label': this.tr('Nom du compte TikTok', 'TikTok username'),
-      'tiktok-provider-help': this.tr('Ce connecteur non officiel utilise le service Euler Stream pour accéder au chat LIVE public du compte indiqué. Aucun mot de passe TikTok n’est demandé. Les réponses restent dans ChartsHub ; aucun message n’est envoyé dans le chat TikTok.', 'This unofficial connector uses the Euler Stream service to access the selected account’s public LIVE chat. No TikTok password is requested. Replies stay in ChartsHub; no messages are sent to TikTok chat.'),
+      'tiktok-provider-help': this.tr('Connectez le chat pour recevoir ses commandes de demandes. La connexion est facultative pour afficher le widget en stream. Ce connecteur non officiel utilise Euler Stream pour lire le chat LIVE public du compte indiqué. Aucun mot de passe TikTok n’est demandé. Les réponses restent dans ChartsHub et aucun message n’est envoyé dans le chat TikTok.', 'Connect chat to receive its request commands. This connection is optional for showing the widget on stream. This unofficial connector uses Euler Stream to read the selected account’s public LIVE chat. No TikTok password is requested. Replies stay in ChartsHub and no messages are sent to TikTok chat.'),
       'last-response-label': this.tr('Dernière réponse TikTok — visible ici', 'Last TikTok response — shown here'),
       'rules-summary': this.tr('Règles des demandes', 'Request rules'),
       'advanced-summary': this.tr('Options avancées · pont local', 'Advanced options · local bridge'),

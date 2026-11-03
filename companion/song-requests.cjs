@@ -392,7 +392,7 @@ function createSongRequests({ getLibrarySnapshot, searchSongs, resolveSong, getN
       return { ok: true };
     });
   }
-  return { configure, snapshot, search, receive,
+  return { configure, snapshot, getRevision: () => revision, search, receive,
     accept: id => transition(id, 'accepted'), reject: id => transition(id, 'rejected'),
     played: id => transition(id, 'played'), move, resetOrder };
 }

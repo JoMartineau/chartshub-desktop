@@ -299,7 +299,21 @@
         </div><p id="song-requests-rules-help" class="helper-text"></p><div class="song-requests-actions"><button id="song-requests-apply" class="button secondary" type="submit" disabled>Appliquer les réglages</button><span id="song-requests-draft-status" class="helper-text"></span></div></form>
         </details>
         <details id="song-requests-widget-details" class="song-requests-details"><summary id="song-requests-widget-summary">Personnaliser le widget OBS</summary><form id="song-requests-widget-form"><div class="song-requests-widget-settings"><label for="song-requests-widget-color"><span id="song-requests-widget-color-label">Couleur d’accent</span><input id="song-requests-widget-color" type="color" value="#38bdf8" disabled></label><label for="song-requests-widget-size"><span id="song-requests-widget-size-label">Taille du texte (px)</span><input id="song-requests-widget-size" type="number" min="16" max="48" step="1" value="24" disabled></label><label for="song-requests-widget-count"><span id="song-requests-widget-count-label">Prochaines demandes</span><input id="song-requests-widget-count" type="number" min="1" max="10" step="1" value="3" disabled></label></div><div class="song-requests-widget-toggles"><label><input id="song-requests-widget-now-playing" type="checkbox" checked disabled><span id="song-requests-widget-now-playing-label">Afficher le morceau actuel</span></label><label><input id="song-requests-widget-viewers" type="checkbox" checked disabled><span id="song-requests-widget-viewers-label">Afficher les pseudos</span></label></div><p id="song-requests-widget-help" class="helper-text">Trois prochaines demandes par défaut. Ces réglages s’appliquent au lien OBS existant.</p><div class="song-requests-actions"><button id="song-requests-widget-apply" class="button secondary" type="submit" disabled>Appliquer au widget</button><span id="song-requests-widget-draft" class="helper-text"></span></div></form></details>
-        <div class="song-requests-actions"><button id="song-requests-copy-overlay" class="button secondary" type="button" disabled>Copier le lien du widget OBS</button></div><p id="song-requests-overlay-help" class="helper-text"></p>
+        <div class="song-requests-actions">
+          <button id="song-requests-open-queue-window" class="button primary" type="button" disabled>Ouvrir le widget flottant</button>
+          <button id="song-requests-copy-overlay" class="button secondary" type="button" disabled>Copier le lien du widget OBS</button>
+        </div>
+        <label><span id="song-requests-queue-window-background-label">Fond du widget flottant</span> <input id="song-requests-queue-window-background" type="color" value="#101827" disabled></label>
+        <label><span id="song-requests-queue-window-badges-label">Style des badges</span> <select id="song-requests-queue-window-badges" disabled><option value="outline">Contour</option><option value="solid">Fond plein</option><option value="stripe">Barre latérale</option></select></label>
+        <details class="song-requests-details">
+          <summary id="song-requests-capture-summary">Afficher la file dans OBS ou TikTok LIVE Studio</summary>
+          <ol class="helper-text">
+            <li id="song-requests-capture-open"></li>
+            <li id="song-requests-capture-select"></li>
+            <li id="song-requests-capture-place"></li>
+          </ol>
+          <p id="song-requests-overlay-help" class="helper-text"></p>
+        </details>
         <details id="song-requests-advanced" class="song-requests-details"><summary id="song-requests-advanced-summary">Options avancées · pont local</summary>
           <p id="song-requests-setup-help" class="helper-text"></p>
           <p id="song-requests-error" class="song-requests-feedback is-error" role="alert" hidden></p>
