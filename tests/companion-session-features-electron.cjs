@@ -131,7 +131,7 @@ app.whenReady().then(async () => {
     await click('#unified-chat-panel .unified-chat-actions button:nth-of-type(1)'); assert.equal(await evaluate("document.querySelector('#song-requests-connections-details').open"), true); assert.deepEqual(providerCalls, []);
     await click('#song-requests-twitch-connect'); assert.equal((await command('songRequests.connect', { platform: 'tiktok', username: 'fixture' })).ok, true);
     await until(() => host.snapshot().chat.connections.twitch.state === 'connected' && host.snapshot().chat.connections.tiktok.state === 'connected', 'explicit synthetic providers'); assert.equal(providerCalls.length, 2);
-    assert.equal(host.snapshot().chat.connections.kick.state, 'not_configured');
+    assert.equal(Object.hasOwn(host.snapshot().chat.connections, 'kick'), false);
   });
   await check('Authenticated synthetic Twitch and TikTok messages render literally and expose no provider identity or credential', async () => {
     const id = randomUUID(); providers.twitch.emit('<img src=x onerror=alert(1)> & fixture', id); providers.twitch.emit('duplicate', id); providers.tiktok.emit('Bonjour du second chat');
