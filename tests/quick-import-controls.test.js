@@ -107,12 +107,20 @@ test('first setup is visible before connection steps and explains the real optio
     controls.update(snapshot({}, language));
     assert.match(controls.nodes.installTitle.textContent, /MelonLoader/);
     assert.equal(controls.nodes.setup.textContent, language === 'fr' ? 'Installer Quick Import' : 'Install Quick Import');
-    assert.equal(controls.nodes.installSteps.children.length, 4);
+    assert.equal(controls.nodes.installSteps.children.length, 5);
     const instructions = controls.nodes.installSteps.children.flatMap(row => row.children.map(node => node.textContent)).join(' ');
     for (const required of ['1.1.0.6142-final Stable', 'Windows x64', '0.7.3', '.NET 6 Desktop Runtime', 'Clone Hero.exe', 'Songs', '0 Mods loaded', 'Mods/ChartsHub.QuickImport.dll']) assert(instructions.includes(required), required);
+    assert.doesNotMatch(instructions, /\.NET 9|SDK/);
+    assert.equal(controls.nodes.runtimeDownload.hidden, false);
     assert.equal(controls.nodes.installCommand.textContent, 'powershell.exe -NoProfile -STA -File .\\Install-QuickImport.ps1 -Guided -Language ' + language);
     assert.doesNotMatch(controls.nodes.installCommand.textContent, /-Apply|-EnableBeta/);
     assert.match(controls.nodes.installRemoval.textContent, /Uninstall-QuickImport\.ps1/);
+    assert.match(controls.nodes.installRemoval.textContent, /powershell\.exe/);
+    assert.match(controls.nodes.installRemoval.textContent, language === 'fr' ? /barre d’adresse.*Entrée/ : /address bar.*Enter/);
+    assert.equal(controls.nodes.removalCommand.hidden, false);
+    assert.equal(controls.nodes.removalCommand.textContent, ".\\Uninstall-QuickImport.ps1 -GameRoot 'C:\\Games\\Clone Hero'");
+    assert.doesNotMatch(controls.nodes.removalCommand.textContent, /-Apply/);
+    assert.match(controls.nodes.removalReview.textContent, /-Apply/);
     assert.match(controls.nodes.installShared.textContent, /Accuracy/);
   }
 });
@@ -122,8 +130,8 @@ test('setup help uses only fixed empty-payload guide commands and remains availa
   controls.update(snapshot({ supported: false, selected: false, savedCanWrite: false }, 'fr', false));
   assert.equal(controls.nodes.openPackage.id, 'quick-import-open-package'); assert.equal(controls.nodes.openPackage.disabled, false);
   assert.equal(controls.nodes.openPackage.type, 'button');
-  await controls.openHelp('openPackage'); await controls.openHelp('prerequisites'); await controls.openHelp('setup'); await controls.openHelp('install'); await controls.run('openPackage');
-  assert.deepEqual(calls, [['quickImport.openPackage', {}], ['quickImport.prerequisites', {}], ['quickImport.setup', {}]]);
+  await controls.openHelp('openPackage'); await controls.openHelp('prerequisites'); await controls.openHelp('setup'); await controls.openHelp('runtimeDownload'); await controls.openHelp('install'); await controls.run('openPackage');
+  assert.deepEqual(calls, [['quickImport.openPackage', {}], ['quickImport.prerequisites', {}], ['quickImport.setup', {}], ['quickImport.runtimeDownload', {}]]);
   assert.equal(controls.nodes.connect.disabled, true); assert.equal(controls.nodes.installFeedback.hidden, true);
 });
 
@@ -174,14 +182,19 @@ test('Linux and macOS guides default from the main snapshot in FR and EN without
     assert.match(controls.nodes.installIntro.textContent, platform === 'linux' ? /Linux/ : /macOS/);
     assert.match(controls.nodes.status.textContent, /Scan Songs/);
     assert.equal(controls.nodes.installCommand.hidden, true); assert.equal(controls.nodes.installCommand.textContent, '');
+    assert.equal(controls.nodes.removalCommand.hidden, true); assert.equal(controls.nodes.removalCommand.textContent, '');
     assert.equal(controls.nodes.openPackage.hidden, true); assert.equal(controls.nodes.openPackage.disabled, true);
+    assert.equal(controls.nodes.runtimeDownload.hidden, true); assert.equal(controls.nodes.runtimeDownload.disabled, true);
     assert.equal(controls.nodes.actions.hidden, true);
     for (const action of ['chooseGame', 'connect', 'disable', 'refresh']) { assert.equal(controls.nodes[action].disabled, true); await controls.run(action); }
-    await controls.openHelp('openPackage'); assert.deepEqual(calls, []);
+    await controls.openHelp('openPackage'); await controls.openHelp('runtimeDownload'); assert.deepEqual(calls, []);
     const instructions = controls.nodes.installSteps.children.flatMap(row => row.children.map(node => node.textContent)).join(' ');
     assert.doesNotMatch(instructions, /Install-QuickImport\.ps1|-Apply|-EnableBeta/);
     assert.match(instructions, platform === 'linux' ? /Installer\.Linux/ : /Installer\.MacOS\.dmg/);
     assert.match(instructions, platform === 'linux' ? /Wine/ : /arm64/);
+    assert.match(instructions, platform === 'linux' ? /Wine ou Proton|Wine or Proton/ : /Wine ou CrossOver|Wine or CrossOver/);
+    assert.match(instructions, /\.NET Desktop Runtime/);
+    assert.match(instructions, language === 'fr' ? /Retirer MelonLoader/ : /Remove MelonLoader/);
   }
 });
 
@@ -209,4 +222,43 @@ test('unknown or missing platforms stay unvalidated without PowerShell examples 
     assert.doesNotMatch(texts(controls), /<img>/);
   }
   assert.deepEqual(calls, []);
+});
+
+test('MelonLoader removal is explicit and limited to the actual Linux or macOS guide', async () => {
+  const calls = [], waiting = deferred();
+  const controls = await fixture((...args) => { calls.push(args); return waiting.promise; });
+  controls.update(snapshot({ platform: 'win32' }));
+  controls.nodes.guideSystem.value = 'darwin';
+  controls.nodes.guideSystem.dispatchEvent(new Event('change'));
+  assert.equal(controls.nodes.uninstallMelonLoader.hidden, true);
+  await controls.openHelp('uninstallMelonLoader');
+  assert.deepEqual(calls, []);
+
+  controls.update(snapshot({ platform: 'darwin', supported: false, selected: false }));
+  assert.equal(controls.nodes.uninstallMelonLoader.hidden, false);
+  assert.equal(controls.nodes.uninstallMelonLoader.textContent, 'Désinstaller MelonLoader');
+  assert.match(controls.nodes.uninstallMelonLoaderHelp.textContent, /vérifiez le plan/);
+  const removal = controls.openHelp('uninstallMelonLoader');
+  assert.equal(controls.nodes.uninstallMelonLoader.disabled, true);
+  await controls.openHelp('uninstallMelonLoader');
+  assert.deepEqual(calls, [['quickImport.uninstallMelonLoader', {}]]);
+  waiting.resolve({ ok: true });
+  await removal;
+  assert.match(controls.nodes.installNotice.textContent, /désinstallé/);
+});
+
+test('MelonLoader removal translates cancellation and errors without exposing backend details', async () => {
+  let result;
+  const controls = await fixture(async () => result);
+  controls.update(snapshot({ platform: 'linux', supported: false, selected: false }, 'en'));
+  for (const [code, expected] of [['MELON_UNINSTALL_UNRECOGNIZED', /not recognised/], ['MELON_UNINSTALL_FAILED', /did not complete/], ['MELON_UNINSTALL_GAME_RUNNING', /still open/], ['MELON_UNINSTALL_PROCESS_UNKNOWN', /could not verify/]]) {
+    result = { ok: false, code, error: '/private/path' };
+    await controls.openHelp('uninstallMelonLoader');
+    assert.match(controls.nodes.installFeedback.textContent, expected);
+    assert.doesNotMatch(controls.nodes.installFeedback.textContent, /private/);
+  }
+  result = { ok: false, code: 'MELON_UNINSTALL_CANCELLED' };
+  await controls.openHelp('uninstallMelonLoader');
+  assert.equal(controls.nodes.installFeedback.hidden, true);
+  assert.equal(controls.nodes.installNotice.textContent, 'Uninstall cancelled.');
 });

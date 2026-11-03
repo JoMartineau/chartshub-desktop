@@ -10,8 +10,6 @@ Cette extension facultative prend en charge uniquement **Clone Hero 1.1.0.6142-f
 
 Pour Clone Hero, MelonLoader 0.7.3 indique le [.NET 6 Desktop Runtime](https://github.com/LavaGang/MelonLoader/blob/v0.7.3/README.md#requirements) comme prérequis IL2CPP. Dans la [page Microsoft .NET 6](https://dotnet.microsoft.com/fr-fr/download/dotnet/6.0), choisissez **Desktop Runtime → Windows → x64**, puis lancez l’installateur.
 
-Pour installer aussi le **SDK .NET 9.0**, ouvrez la [page Microsoft .NET 9](https://dotnet.microsoft.com/fr-fr/download/dotnet/9.0), choisissez **SDK → Windows → x64** et lancez l’installateur. Dans une nouvelle fenêtre PowerShell, `dotnet --list-sdks` doit afficher une version `9.0.x`. Le SDK est facultatif pour utiliser Quick Import.
-
 **Installation guidée.** Fermez Clone Hero et son lanceur. Dans ChartsHub → Tableau de bord → Catalogue → Quick Import BÊTA, cliquez sur **Installer Quick Import** et sélectionnez `Clone Hero.exe`. Vérifiez le dossier Songs proposé. Choisissez **Non** pour le changer ou **Oui** pour télécharger et vérifier MelonLoader 0.7.3, installer le module et l’activer. Ensuite, ouvrez cette même copie du jeu et connectez-la dans ChartsHub.
 
 Vous pouvez aussi ouvrir les fichiers d’installation depuis ChartsHub et lancer cette commande dans PowerShell depuis ce dossier.
@@ -75,8 +73,6 @@ La construction extrait uniquement trois références de compilation de l’arch
 ## English
 
 For Clone Hero, MelonLoader 0.7.3 lists the [.NET 6 Desktop Runtime](https://github.com/LavaGang/MelonLoader/blob/v0.7.3/README.md#requirements) as its IL2CPP prerequisite. On the [Microsoft .NET 6 page](https://dotnet.microsoft.com/en-us/download/dotnet/6.0), select **Desktop Runtime → Windows → x64** and run the installer.
-
-To also install the **.NET 9.0 SDK**, open the [Microsoft .NET 9 page](https://dotnet.microsoft.com/en-us/download/dotnet/9.0), select **SDK → Windows → x64** and run the installer. In a new PowerShell window, `dotnet --list-sdks` should list a `9.0.x` version. The SDK is optional for using Quick Import.
 
 Quick Import adds a completed chart download to Clone Hero’s song menu without running a full library scan. Requests made during gameplay wait for the song menu. Songs are not launched automatically.
 

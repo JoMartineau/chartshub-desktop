@@ -8,15 +8,27 @@ const TEXT = {
     installIntro: 'MelonLoader charge les extensions du jeu. Le module Quick Import est fourni avec ChartsHub et doit être installé dans la copie de Clone Hero que vous ouvrez.',
     installSteps: [
       ['Fermer le jeu', 'Gardez une copie de sécurité de Clone Hero, puis fermez le jeu et son lanceur. Vérifiez la version 1.1.0.6142-final Stable · Windows x64.'],
+      ['Installer le runtime sur Windows', 'Si le .NET 6 Desktop Runtime x64 manque, cliquez sur le bouton Microsoft ci-dessus. Ouvrez le fichier téléchargé et cliquez sur Installer. Gardez l’emplacement proposé par Microsoft : le runtime s’installe sur Windows, hors du dossier Clone Hero. Il permet à MelonLoader 0.7.3 de démarrer. Microsoft ne maintient plus .NET 6.'],
       ['Choisir le jeu', 'Cliquez sur Installer Quick Import et sélectionnez Clone Hero.exe. L’assistant propose le dossier Songs trouvé dans les réglages du jeu. Choisissez Non pour en sélectionner un autre.'],
-      ['Confirmer l’installation', 'Cliquez sur Oui. L’assistant télécharge et vérifie MelonLoader 0.7.3, puis installe et active Quick Import. Le README donne les liens Microsoft pour le .NET 6 Desktop Runtime requis et le SDK .NET 9.0 facultatif.'],
+      ['Confirmer l’installation', 'Cliquez sur Oui. L’assistant télécharge et vérifie MelonLoader 0.7.3, puis installe et active Quick Import.'],
       ['Ouvrir Clone Hero', 'Ouvrez cette copie du jeu, puis connectez-la dans ChartsHub. Si MelonLoader affiche « 0 Mods loaded », vérifiez que Mods/ChartsHub.QuickImport.dll se trouve dans le dossier de ce Clone Hero.exe.'],
     ],
     installExample: 'Autre façon d’ouvrir l’assistant depuis le dossier d’installation. Collez cette commande dans PowerShell.',
     installShared: 'Une installation MelonLoader compatible déjà présente est conservée. Quick Import, Accuracy et les paroles utilisent le même chargeur, avec des modules et des activations séparés.',
-    installRemoval: 'Pour retirer Quick Import, Uninstall-QuickImport.ps1 affiche d’abord le plan ; -Apply retire seulement les fichiers créés par cette installation et restés inchangés. Les chansons et profils sont conservés, ainsi que le chargeur si d’autres modules en dépendent.',
+    installRemoval: 'Pour retirer Quick Import, fermez Clone Hero et son lanceur. Cliquez sur « Ouvrir les fichiers d’installation ». Dans la barre d’adresse de l’Explorateur, tapez powershell.exe, puis appuyez sur Entrée. PowerShell s’ouvre dans le dossier du script Uninstall-QuickImport.ps1.',
+    removalReview: 'Remplacez le chemin de l’exemple par le dossier qui contient votre Clone Hero.exe et lancez la commande pour afficher le plan. Après avoir vérifié ce plan, relancez la même commande avec -Apply pour retirer les fichiers inchangés créés par ChartsHub. Les chansons et les profils sont conservés, ainsi que le chargeur si d’autres modules en dépendent.',
     openPackage: 'Ouvrir les fichiers d’installation', prerequisites: 'Prérequis officiels MelonLoader',
     setup: 'Installer Quick Import',
+    runtimeDownload: 'Télécharger le .NET 6 Desktop Runtime x64',
+    runtimeDownloadError: 'La page de téléchargement Microsoft n’a pas pu être ouverte. Réessayez depuis ce guide.',
+    uninstallMelonLoader: 'Désinstaller MelonLoader',
+    uninstallMelonLoaderHelp: 'Fermez Clone Hero et son lanceur. Choisissez l’installation exacte du jeu dans l’assistant, puis vérifiez le plan avant de confirmer.',
+    uninstallMelonLoaderDone: 'MelonLoader a été désinstallé du jeu sélectionné.',
+    uninstallMelonLoaderCancelled: 'Désinstallation annulée.',
+    uninstallMelonLoaderUnrecognized: 'L’installation sélectionnée n’a pas été reconnue. Vérifiez que vous avez choisi la copie du jeu où MelonLoader est installé, puis consultez les étapes du guide si nécessaire.',
+    uninstallMelonLoaderRunning: 'Clone Hero ou son lanceur est encore ouvert. Fermez les deux, puis réessayez.',
+    uninstallMelonLoaderProcessUnknown: 'ChartsHub n’a pas pu vérifier que le jeu et son lanceur sont fermés. Vérifiez-les, puis réessayez ou suivez les étapes du guide.',
+    uninstallMelonLoaderError: 'La désinstallation n’a pas abouti. Fermez le jeu et son lanceur, puis vérifiez l’installation choisie ou suivez les étapes du guide.',
     hideConsole: 'Masquer le terminal MelonLoader', showConsole: 'Afficher le terminal MelonLoader',
     hideConsoleDone: 'Le terminal MelonLoader sera masqué au prochain lancement du jeu.',
     showConsoleDone: 'Le terminal MelonLoader sera visible au prochain lancement du jeu.',
@@ -59,15 +71,27 @@ const TEXT = {
     installIntro: 'MelonLoader loads game extensions. The Quick Import module comes with ChartsHub and must be installed into the copy of Clone Hero you open.',
     installSteps: [
       ['Close the game', 'Keep a backup of Clone Hero, then close the game and its launcher. Check for version 1.1.0.6142-final Stable · Windows x64.'],
+      ['Install the runtime on Windows', 'If the .NET 6 Desktop Runtime x64 is missing, use the Microsoft button above. Open the downloaded file and click Install. Keep the Microsoft installer’s default location. The runtime is installed in Windows, outside the Clone Hero folder, and lets MelonLoader 0.7.3 run. Microsoft no longer supports .NET 6.'],
       ['Select the game', 'Click Install Quick Import and select Clone Hero.exe. The wizard suggests the Songs folder from the game settings. Choose No to select another folder.'],
-      ['Confirm setup', 'Choose Yes. The wizard downloads and verifies MelonLoader 0.7.3, then installs and enables Quick Import. The README links to the required Microsoft .NET 6 Desktop Runtime and the optional .NET 9.0 SDK.'],
+      ['Confirm setup', 'Choose Yes. The wizard downloads and verifies MelonLoader 0.7.3, then installs and enables Quick Import.'],
       ['Open Clone Hero', 'Open that copy of the game and connect it in ChartsHub. If MelonLoader shows “0 Mods loaded”, check for Mods/ChartsHub.QuickImport.dll in the folder containing that Clone Hero.exe.'],
     ],
     installExample: 'Another way to open the wizard from the setup folder. Paste this command into PowerShell.',
     installShared: 'An existing compatible MelonLoader installation is preserved. Quick Import, Accuracy and lyrics share the loader, with separate modules and activation choices.',
-    installRemoval: 'To remove Quick Import, Uninstall-QuickImport.ps1 first previews a plan; -Apply removes only unchanged files created by that setup. Songs and profiles are preserved, together with the loader when other modules depend on it.',
+    installRemoval: 'To remove Quick Import, close Clone Hero and its launcher. Click “Open setup files”. In the File Explorer address bar, type powershell.exe, then press Enter. PowerShell opens in the folder containing Uninstall-QuickImport.ps1.',
+    removalReview: 'Replace the example path with the folder containing your Clone Hero.exe and run the command to preview the plan. After reviewing the plan, run the same command with -Apply to remove unchanged files created by ChartsHub. Songs and profiles are preserved, together with the loader when other modules depend on it.',
     openPackage: 'Open setup files', prerequisites: 'Official MelonLoader prerequisites',
     setup: 'Install Quick Import',
+    runtimeDownload: 'Download .NET 6 Desktop Runtime x64',
+    runtimeDownloadError: 'The Microsoft download page could not be opened. Try again from this guide.',
+    uninstallMelonLoader: 'Uninstall MelonLoader',
+    uninstallMelonLoaderHelp: 'Close Clone Hero and its launcher. Select the exact game installation in the wizard, then review the plan before confirming.',
+    uninstallMelonLoaderDone: 'MelonLoader was uninstalled from the selected game.',
+    uninstallMelonLoaderCancelled: 'Uninstall cancelled.',
+    uninstallMelonLoaderUnrecognized: 'The selected installation was not recognised. Check that you chose the copy of the game where MelonLoader is installed, then refer to the guide if needed.',
+    uninstallMelonLoaderRunning: 'Clone Hero or its launcher is still open. Close both, then try again.',
+    uninstallMelonLoaderProcessUnknown: 'ChartsHub could not verify that the game and launcher are closed. Check both, then try again or follow the guide.',
+    uninstallMelonLoaderError: 'Uninstall did not complete. Close the game and its launcher, then verify the selected installation or follow the guide.',
     hideConsole: 'Hide the MelonLoader console', showConsole: 'Show the MelonLoader console',
     hideConsoleDone: 'The MelonLoader console will be hidden the next time the game opens.',
     showConsoleDone: 'The MelonLoader console will be visible the next time the game opens.',
@@ -109,7 +133,8 @@ const PLATFORM_GUIDES = {
       steps: [
         ['Identifier le jeu', 'Fermez le jeu et gardez une copie de sécurité. Distinguez Clone Hero Linux natif d’un jeu Windows lancé avec Wine : leurs installations MelonLoader sont différentes.'],
         ['Choisir les fichiers officiels', 'La release 0.7.3 propose MelonLoader.Installer.Linux et MelonLoader.Linux.x64.zip pour Linux natif. Choisissez les fichiers correspondant à votre jeu et consultez les prérequis officiels. ChartsHub ne télécharge ni ne lance cet installateur.'],
-        ['Suivre le guide Linux ou Wine', 'Le guide officiel décrit les bibliothèques .so et LD_LIBRARY_PATH / LD_PRELOAD pour Linux natif. Pour Wine, il décrit le chargeur Windows, ses prérequis .NET dans le même préfixe et le réglage version=n,b. Ces étapes ne valident pas Quick Import sous Wine.'],
+        ['Suivre le guide Linux ou Wine', 'Le guide officiel décrit les bibliothèques .so et LD_LIBRARY_PATH / LD_PRELOAD pour Linux natif, et le réglage version=n,b pour Wine. Le .NET Desktop Runtime Windows s’applique seulement au jeu Windows. Si le guide Wine ou Proton le demande, installez-le dans le même préfixe que le jeu.'],
+        ['Retirer MelonLoader', 'Fermez le jeu et son lanceur. Pour un jeu Linux natif, utilisez la procédure officielle de retrait adaptée à votre méthode d’installation. Pour un jeu Windows lancé avec Wine ou Proton, suivez la procédure Windows officielle dans le même préfixe Wine ou Proton. Conservez une copie des chansons, des profils et de vos autres modules.'],
         ['Continuer sans Quick Import', 'Le module actuel vérifie des fichiers et des points d’entrée propres à Windows x64. Les commandes Quick Import restent indisponibles sur Linux ; téléchargez vos charts normalement puis lancez Scan Songs dans Clone Hero.'],
       ],
     },
@@ -119,6 +144,8 @@ const PLATFORM_GUIDES = {
         ['Préparer une copie du jeu', 'Fermez le jeu et gardez une copie de sécurité. Vérifiez l’architecture de votre jeu ; la présence d’un chargeur macOS ne prouve pas sa compatibilité avec Clone Hero.'],
         ['Choisir le téléchargement officiel', 'La release 0.7.3 propose MelonLoader.Installer.MacOS.dmg et MelonLoader.macOS.x64.zip. Elle ne propose pas d’archive macOS arm64 ; aucune compatibilité Apple Silicon ou Rosetta de Quick Import n’est validée.'],
         ['Suivre l’installateur macOS officiel', 'L’aide officielle de MelonLoader Installer explique le choix d’un jeu Steam ou son ajout manuel, puis le choix de la version du chargeur. Sélectionnez 0.7.3 et suivez ces instructions pour votre jeu. ChartsHub ne modifie ni ne lance le jeu ou cet installateur.'],
+        ['Vérifier le runtime du jeu', 'Pour macOS natif, suivez les prérequis officiels de MelonLoader pour macOS. Si votre jeu est la version Windows dans Wine ou CrossOver et que son guide demande le .NET Desktop Runtime Windows, installez-le dans le même préfixe ou la même bouteille que le jeu.'],
+        ['Retirer MelonLoader', 'Fermez le jeu et son lanceur. Pour un jeu macOS natif, utilisez la procédure officielle correspondant à l’installation d’origine. Pour un jeu Windows lancé avec Wine ou CrossOver, utilisez la procédure Windows officielle dans le même préfixe ou la même bouteille. Conservez les chansons, les profils et vos autres modules.'],
         ['Continuer sans Quick Import', 'Le module ChartsHub actuel est spécifique à Windows x64. Les commandes Quick Import restent indisponibles sur macOS ; les téléchargements normaux et Scan Songs dans Clone Hero restent disponibles.'],
       ],
     },
@@ -130,7 +157,8 @@ const PLATFORM_GUIDES = {
       steps: [
         ['Identify the game', 'Close the game and keep a backup. Distinguish native Linux Clone Hero from a Windows game running in Wine: their MelonLoader installations differ.'],
         ['Choose the official files', 'Release 0.7.3 offers MelonLoader.Installer.Linux and MelonLoader.Linux.x64.zip for native Linux. Choose files matching your game and read the official prerequisites. ChartsHub does not download or launch that installer.'],
-        ['Follow the Linux or Wine guide', 'The official guide describes .so libraries and LD_LIBRARY_PATH / LD_PRELOAD for native Linux. For Wine, it describes the Windows loader, its .NET prerequisites in the same prefix and the version=n,b override. These steps do not validate Quick Import on Wine.'],
+        ['Follow the Linux or Wine guide', 'The official guide describes .so libraries and LD_LIBRARY_PATH / LD_PRELOAD for native Linux, and the version=n,b override for Wine. The Windows .NET Desktop Runtime applies only to the Windows game. If the Wine or Proton guide requires it, install it in the same prefix as the game.'],
+        ['Remove MelonLoader', 'Close the game and its launcher. For a native Linux game, use the official removal procedure for your installation method. For a Windows game running in Wine or Proton, follow the official Windows procedure in the same Wine or Proton prefix. Keep a backup of your songs, profiles and other mods.'],
         ['Continue without Quick Import', 'The current module checks Windows x64-specific files and entry points. Quick Import commands remain unavailable on Linux; download charts normally, then run Scan Songs in Clone Hero.'],
       ],
     },
@@ -140,6 +168,8 @@ const PLATFORM_GUIDES = {
         ['Prepare a game backup', 'Close the game and keep a backup. Check your game architecture; a macOS loader does not prove Clone Hero compatibility.'],
         ['Choose the official download', 'Release 0.7.3 offers MelonLoader.Installer.MacOS.dmg and MelonLoader.macOS.x64.zip. It has no macOS arm64 archive; Quick Import compatibility with Apple Silicon or Rosetta is not validated.'],
         ['Follow the official macOS installer', 'The official MelonLoader Installer help explains choosing a Steam game or adding a game manually, then selecting the loader version. Select 0.7.3 and follow those instructions for your game. ChartsHub does not modify or launch the game or installer.'],
+        ['Check the game runtime', 'For native macOS, follow the official MelonLoader prerequisites for macOS. If your game is the Windows version running in Wine or CrossOver and its guide requires the Windows .NET Desktop Runtime, install it in the same prefix or bottle as the game.'],
+        ['Remove MelonLoader', 'Close the game and its launcher. For a native macOS game, use the official procedure that matches the original setup. For a Windows game running in Wine or CrossOver, follow the official Windows procedure in the same prefix or bottle. Keep your songs, profiles and other mods.'],
         ['Continue without Quick Import', 'The current ChartsHub module is Windows x64-specific. Quick Import commands remain unavailable on macOS; normal downloading and Scan Songs in Clone Hero remain available.'],
       ],
     },
@@ -148,11 +178,19 @@ const PLATFORM_GUIDES = {
 };
 const platformName = value => ['win32', 'linux', 'darwin'].includes(value) ? value : 'unknown';
 const GUIDED_INSTALL = 'powershell.exe -NoProfile -STA -File .\\Install-QuickImport.ps1 -Guided -Language ';
+const PREVIEW_REMOVAL = ".\\Uninstall-QuickImport.ps1 -GameRoot 'C:\\Games\\Clone Hero'";
 const ACTIONS = ['chooseGame', 'connect', 'disable', 'refresh'];
 const HELP_ACTIONS = Object.freeze({
   setup: 'quickImport.setup', openPackage: 'quickImport.openPackage', prerequisites: 'quickImport.prerequisites', release: 'quickImport.release',
+  runtimeDownload: 'quickImport.runtimeDownload',
+  uninstallMelonLoader: 'quickImport.uninstallMelonLoader',
   hideConsole: 'quickImport.console', showConsole: 'quickImport.console',
 });
+const MELON_UNINSTALL_ERRORS = new Map([
+  ['MELON_UNINSTALL_UNRECOGNIZED', 'uninstallMelonLoaderUnrecognized'],
+  ['MELON_UNINSTALL_GAME_RUNNING', 'uninstallMelonLoaderRunning'],
+  ['MELON_UNINSTALL_PROCESS_UNKNOWN', 'uninstallMelonLoaderProcessUnknown'],
+]);
 function errorText(code, t) {
   if (['QUICK_IMPORT_NOT_VALIDATED', 'UNVERIFIED_BUILD', 'IMPORT_NOT_VALIDATED'].includes(code)) return t.unavailable;
   if (['CONNECTION_UNAVAILABLE', 'INVALID_DESCRIPTOR', 'CONNECTION_CHANGED'].includes(code)) return t.moduleMissing;
@@ -183,22 +221,28 @@ export class QuickImportControls {
     guideSystem.addEventListener('change', guideListener); this.listeners.push([guideSystem, guideListener, 'change']);
     const helpActions = make('div', 'quick-import-actions'), setup = make('button', 'button primary'), openPackage = make('button', 'button secondary'), prerequisites = make('button', 'button secondary'), release = make('button', 'button secondary');
     const consoleActions = make('div', 'quick-import-actions'), hideConsole = make('button', 'button secondary'), showConsole = make('button', 'button secondary');
-    for (const [button, action] of [[setup, 'setup'], [openPackage, 'openPackage'], [prerequisites, 'prerequisites'], [release, 'release'], [hideConsole, 'hideConsole'], [showConsole, 'showConsole']]) {
-      button.type = 'button'; button.id = action === 'openPackage' ? 'quick-import-open-package' : 'quick-import-' + action;
+    const runtimeDownload = make('button', 'button secondary');
+    runtimeDownload.id = 'quick-import-runtime-download';
+    const uninstallMelonLoader = make('button', 'button secondary'), uninstallMelonLoaderHelp = make('p', 'helper-text');
+    uninstallMelonLoaderHelp.id = 'quick-import-uninstall-melonloader-help';
+    uninstallMelonLoader.setAttribute('aria-describedby', uninstallMelonLoaderHelp.id);
+    for (const [button, action] of [[setup, 'setup'], [runtimeDownload, 'runtimeDownload'], [openPackage, 'openPackage'], [prerequisites, 'prerequisites'], [release, 'release'], [hideConsole, 'hideConsole'], [showConsole, 'showConsole'], [uninstallMelonLoader, 'uninstallMelonLoader']]) {
+      button.type = 'button'; button.id ||= action === 'openPackage' ? 'quick-import-open-package' : action === 'uninstallMelonLoader' ? 'quick-import-uninstall-melonloader' : 'quick-import-' + action;
       const listener = () => { void this.openHelp(action); }; button.addEventListener('click', listener); this.listeners.push([button, listener]);
       (action.endsWith('Console') ? consoleActions : helpActions).append(button);
     }
     const installExample = make('p', 'helper-text'), installCommand = make('pre', 'quick-import-install-command');
     const installShared = make('p', 'helper-text'), installRemoval = make('p', 'helper-text'), installFeedback = make('p', 'quick-import-feedback');
+    const removalCommand = make('pre', 'quick-import-install-command'), removalReview = make('p', 'helper-text');
     const installNotice = make('p', 'helper-text');
     installFeedback.setAttribute('role', 'alert'); installFeedback.hidden = true;
     installNotice.setAttribute('role', 'status'); installNotice.hidden = true;
-    installation.append(installTitle, detected, guideLabel, guideSystem, guideOnly, installIntro, helpActions, installSteps, installExample, installCommand, installShared, installRemoval, consoleActions, installFeedback, installNotice);
+    installation.append(installTitle, detected, guideLabel, guideSystem, guideOnly, installIntro, helpActions, uninstallMelonLoaderHelp, installSteps, installExample, installCommand, installShared, installRemoval, removalCommand, removalReview, consoleActions, installFeedback, installNotice);
     const status = make('p', 'quick-import-status'); status.id = 'quick-import-status'; status.setAttribute('role', 'status');
     const feedback = make('p', 'quick-import-feedback'); feedback.id = 'quick-import-feedback'; feedback.setAttribute('role', 'alert'); feedback.hidden = true;
     const actions = make('div', 'quick-import-actions'), jobs = make('ul', 'quick-import-jobs');
     const empty = make('p', 'helper-text'), scope = make('p', 'helper-text');
-    this.nodes = { title, compatibility, optional, intro, installation, installTitle, installIntro, installSteps, installExample, installCommand, installShared, installRemoval, installFeedback, installNotice, setup, openPackage, prerequisites, release, consoleActions, hideConsole, showConsole, guideLabel, guideSystem, detected, guideOnly, steps, status, feedback, actions, jobs, empty, scope };
+    this.nodes = { title, compatibility, optional, intro, installation, installTitle, installIntro, installSteps, installExample, installCommand, installShared, installRemoval, removalCommand, removalReview, installFeedback, installNotice, setup, runtimeDownload, openPackage, prerequisites, release, consoleActions, hideConsole, showConsole, uninstallMelonLoader, uninstallMelonLoaderHelp, guideLabel, guideSystem, detected, guideOnly, steps, status, feedback, actions, jobs, empty, scope };
     for (const action of ACTIONS) {
       const button = make('button', 'button secondary'); button.type = 'button';
       button.id = 'quick-import-' + (action === 'chooseGame' ? 'choose-game' : action);
@@ -228,20 +272,26 @@ export class QuickImportControls {
     if (this.helpLanguage !== guideSignature) {
       this.helpLanguage = guideSignature;
       const guide = guidePlatform === 'win32' ? { intro: t.installIntro, steps: t.installSteps } : PLATFORM_GUIDES[language][guidePlatform];
-      for (const name of ['installTitle', 'installExample', 'installShared', 'installRemoval', 'setup', 'openPackage', 'prerequisites', 'release', 'hideConsole', 'showConsole', 'guideLabel', 'guideOnly']) n[name].textContent = t[name];
+      for (const name of ['installTitle', 'installExample', 'installShared', 'installRemoval', 'removalReview', 'setup', 'runtimeDownload', 'openPackage', 'prerequisites', 'release', 'hideConsole', 'showConsole', 'uninstallMelonLoader', 'uninstallMelonLoaderHelp', 'guideLabel', 'guideOnly']) n[name].textContent = t[name];
       n.guideLabel.textContent = t.guideLabel; n.detected.textContent = t.detected + t.systems[detectedPlatform];
       n.prerequisites.textContent = t.prerequisites + ' · ' + t.systems[detectedPlatform];
       for (const option of n.guideSystem.children) option.textContent = t.systems[option.value];
       n.guideSystem.value = guidePlatform; n.installIntro.textContent = guide.intro;
       n.installCommand.textContent = windows && guidePlatform === 'win32' ? GUIDED_INSTALL + language : '';
+      n.removalCommand.textContent = windows && guidePlatform === 'win32' ? PREVIEW_REMOVAL : '';
       n.installSteps.replaceChildren(...guide.steps.map(([label, detail]) => {
         const row = this.root.ownerDocument.createElement('li'), heading = this.root.ownerDocument.createElement('strong'), description = this.root.ownerDocument.createElement('p');
         heading.textContent = label; description.textContent = detail; row.append(heading, description); return row;
       }));
     }
     const windowsGuide = guidePlatform === 'win32';
-    for (const name of ['installExample', 'installCommand', 'installShared', 'installRemoval']) n[name].hidden = !windows || !windowsGuide;
+    for (const name of ['installExample', 'installCommand', 'installShared', 'installRemoval', 'removalCommand', 'removalReview']) n[name].hidden = !windows || !windowsGuide;
     n.setup.hidden = n.openPackage.hidden = n.consoleActions.hidden = !windows || !windowsGuide;
+    n.runtimeDownload.hidden = !windows || !windowsGuide;
+    n.runtimeDownload.disabled = n.runtimeDownload.hidden || this.helpPending.has('runtimeDownload');
+    const uninstallAvailable = ['linux', 'darwin'].includes(detectedPlatform) && guidePlatform === detectedPlatform;
+    n.uninstallMelonLoader.hidden = n.uninstallMelonLoaderHelp.hidden = !uninstallAvailable;
+    n.uninstallMelonLoader.disabled = !uninstallAvailable || busy || this.helpPending.has('uninstallMelonLoader');
     const consoleBusy = this.helpPending.has('hideConsole') || this.helpPending.has('showConsole');
     n.setup.disabled = !windows || !windowsGuide || busy || consoleBusy || this.helpPending.has('setup');
     n.hideConsole.disabled = n.showConsole.disabled = !windows || !windowsGuide || !state.selected || busy || consoleBusy || this.helpPending.has('setup');
@@ -299,13 +349,21 @@ export class QuickImportControls {
   async openHelp(action) {
     if (this.disposed || !Object.hasOwn(HELP_ACTIONS, action) || this.helpPending.has(action) || this.nodes[action].disabled) return;
     const consoleAction = action.endsWith('Console');
-    const errorKey = consoleAction ? 'consoleError' : action === 'setup' ? 'setupError' : 'installError';
+    const uninstallAction = action === 'uninstallMelonLoader';
+    const errorKey = consoleAction ? 'consoleError' : ({ setup: 'setupError', runtimeDownload: 'runtimeDownloadError', uninstallMelonLoader: 'uninstallMelonLoaderError' }[action] ?? 'installError');
     this.helpPending.add(action); this.helpError = false; this.helpNotice = null; this.signature = null; this.update(this.snapshot);
     try {
       const result = await this.command(HELP_ACTIONS[action], consoleAction ? { hidden: action === 'hideConsole' } : {});
       if (!this.disposed) {
         this.helpError = result?.ok === true ? false : errorKey;
-        if (result?.ok === true && consoleAction) this.helpNotice = action + 'Done';
+        if (uninstallAction && (result?.cancelled === true || result?.code === 'MELON_UNINSTALL_CANCELLED')) {
+          this.helpError = false;
+          this.helpNotice = 'uninstallMelonLoaderCancelled';
+        } else if (uninstallAction && MELON_UNINSTALL_ERRORS.has(result?.code)) {
+          this.helpError = MELON_UNINSTALL_ERRORS.get(result.code);
+        } else if (result?.ok === true && (consoleAction || uninstallAction)) {
+          this.helpNotice = action + 'Done';
+        }
       }
     } catch { if (!this.disposed) this.helpError = errorKey; }
     finally {

@@ -70,6 +70,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   // host capability or change the fixed destinations of the help buttons.
   const quickImportPlatform = ['win32', 'linux', 'darwin'].includes(quickImportRuntimePlatform) ? quickImportRuntimePlatform : 'unknown';
   let quickImportSetupRunning = false;
+  let melonUninstallRunning = false;
   let melonConsole;
   const quickImportView = () => {
     if (!quickImport) return null;
@@ -1122,6 +1123,52 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       }
       if (command.startsWith('quickImport.')) {
         if (!trustedPanel(event)) return { ok: false, error: 'Commande non autorisée.' };
+        if (command === 'quickImport.runtimeDownload') {
+          if (!hostActive) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
+          await shell.openExternal('https://dotnet.microsoft.com/en-us/download/dotnet/thank-you/runtime-desktop-6.0.36-windows-x64-installer');
+          return { ok: true };
+        }
+        if (command === 'quickImport.uninstallMelonLoader') {
+          const owner = panel, contents = panelContents, revision = lifecycleRevision;
+          const current = () => hostActive && !disposing && !stopTask && !maintenanceLocked &&
+            panel === owner && panelContents === contents && revision === lifecycleRevision && trustedPanel(event);
+          const cancelled = { ok: true, cancelled: true };
+          if (!['linux', 'darwin'].includes(process.platform) || melonUninstallRunning || !current()) return cancelled;
+          melonUninstallRunning = true;
+          try {
+            const choice = await dialog.showOpenDialog(owner, {
+              title: tr('Choisir le jeu Clone Hero', 'Choose the Clone Hero game'),
+              properties: process.platform === 'darwin' ? ['openFile', 'openDirectory'] : ['openFile'],
+            });
+            if (!current() || choice.canceled || choice.filePaths.length !== 1) return cancelled;
+            const game = choice.filePaths[0];
+            const uninstaller = require('./melon-uninstall.cjs').createMelonUninstaller();
+            const plan = await uninstaller.inspect(game);
+            if (!current()) return cancelled;
+            if (plan.status !== 'ready') return { ok: false, code: 'MELON_UNINSTALL_UNRECOGNIZED' };
+            const approval = await dialog.showMessageBox(owner, {
+              type: 'warning', noLink: true,
+              title: tr('Retirer MelonLoader', 'Remove MelonLoader'),
+              message: tr('Déplacer les fichiers MelonLoader dans un dossier de sauvegarde ?', 'Move the MelonLoader files into a backup folder?'),
+              detail: tr('Fermez Clone Hero et son lanceur. Les fichiers ci-dessous seront déplacés. Les chansons, profils et autres mods sont conservés. Si vous avez ajouté une commande de lancement personnalisée, retirez-la dans votre lanceur après le retrait.',
+                'Close Clone Hero and its launcher. The files below will be moved. Songs, profiles and other mods are kept. If you added a custom launch command, remove it in your launcher afterward.') + '\n\n' + plan.paths.join('\n'),
+              buttons: [tr('Annuler', 'Cancel'), tr('Retirer MelonLoader', 'Remove MelonLoader')],
+              defaultId: 0, cancelId: 0,
+            });
+            if (!current() || approval.response !== 1) return cancelled;
+            const result = await uninstaller.quarantine(game, plan.planId, { assertCurrent: () => {
+              if (!current()) throw Error('MelonLoader removal cancelled');
+            } });
+            if (result.status === 'quarantined') return { ok: true };
+            if (result.reason === 'game_running') return { ok: false, code: 'MELON_UNINSTALL_GAME_RUNNING' };
+            if (result.reason === 'process_unknown') return { ok: false, code: 'MELON_UNINSTALL_PROCESS_UNKNOWN' };
+            return { ok: false, code: 'MELON_UNINSTALL_FAILED' };
+          } catch {
+            return { ok: false, code: 'MELON_UNINSTALL_FAILED' };
+          } finally {
+            melonUninstallRunning = false;
+          }
+        }
         if (command === 'quickImport.prerequisites' || command === 'quickImport.release') {
           if (!hostActive) return { ok: false, code: 'QUICK_IMPORT_CANCELLED' };
           const url = command === 'quickImport.release' ? 'https://github.com/LavaGang/MelonLoader/releases/tag/v0.7.3'
@@ -1803,7 +1850,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (state?.status === 'scanning') reasons.push('library_scanning');
     if (cleanupTask || cleanupDialogOpen || state?.duplicateVerification?.running || state?.bulkCleanup || state?.badSongsBusy) reasons.push('library_cleanup');
     if (downloads?.status()?.items?.some(item => ['Queued','Downloading'].includes(item.state))) reasons.push('chart_downloads');
-    if (filters?.status()?.busy || reshade?.status()?.busy || ['preparing','installing'].includes(reshadeSetup?.status()?.state)) reasons.push('game_setup');
+    if (melonUninstallRunning || filters?.status()?.busy || reshade?.status()?.busy || ['preparing','installing'].includes(reshadeSetup?.status()?.state)) reasons.push('game_setup');
     if (player?.playing || player?.loading || drums.status().phase === 'running' || drums.status().busy) reasons.push('player_active');
     if (streamStatus().enabled || gameCaptureStatus().phase !== 'stopped' || inputViewerStatus().phase === 'running') reasons.push('stream_active');
     if (songRequests?.snapshot().enabled || songRequestBusy) reasons.push('requests_active');
