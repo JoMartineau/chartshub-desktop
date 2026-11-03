@@ -193,7 +193,7 @@ function createQuickImportService({ dataDirectory, getContext = () => ({ active:
     if (candidates.length !== 1) throw error(candidates.length ? 'TOO_MANY_CHART_FILES' : 'CHART_MISSING_OR_TOO_LARGE');
     return { id: item.id, folder, chartFile: candidates[0] };
   }
-  async function choose() {
+  async function choose(executableHint) {
     const captured = requireActive();
     if (!supported) throw error('QUICK_IMPORT_WINDOWS_REQUIRED');
     if (prefs.status().canWrite !== true) throw error('QUICK_IMPORT_PREFERENCES');
@@ -202,7 +202,8 @@ function createQuickImportService({ dataDirectory, getContext = () => ({ active:
     const lease = begin();
     try {
       guard(lease.ticket, captured);
-      const executable = await chooseGame(); guard(lease.ticket, captured);
+      const executable = executableHint === undefined ? await chooseGame() : executableHint;
+      guard(lease.ticket, captured);
       if (executable === null || executable === undefined) return status();
       const selected = await game(executable); guard(lease.ticket, captured);
       await prefs.save({ version: 1, gameRoot: selected }, () => guard(lease.ticket, captured));
@@ -358,7 +359,11 @@ function createQuickImportService({ dataDirectory, getContext = () => ({ active:
   }
   // Trusted main-only getter. Paths never enter status(), command() or IPC.
   function selectedGameRoot() { return disposed ? null : gameRoot; }
-  return Object.freeze({ load, status, command, observeDownloads, observeCompletedDownload, update, stop, dispose, selectedGameRoot });
+  async function rememberInstalledGame(executable) {
+    await load();
+    return choose(executable);
+  }
+  return Object.freeze({ load, status, command, observeDownloads, observeCompletedDownload, update, stop, dispose, selectedGameRoot, rememberInstalledGame });
 }
 
 module.exports = { createQuickImportService, validQuickImportCommand, PUBLIC_QUICK_IMPORT_CODES: Object.freeze([...CODES]) };

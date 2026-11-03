@@ -236,4 +236,4 @@ function createGameModPreflight({ getGameRoot, getContext, moduleDirectory = pat
   function dispose() { if (disposed) return; stop(); disposed = true; }
   return Object.freeze({ status, refresh, stop, dispose });
 }
-module.exports = { createGameModPreflight, REVIEWED_GAME_MOD_PINS: REVIEWED_PINS };
+module.exports = { createGameModPreflight, defaultProcessProbe, REVIEWED_GAME_MOD_PINS: REVIEWED_PINS };

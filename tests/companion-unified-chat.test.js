@@ -14,7 +14,7 @@ function fixture() {
 test('chat is initially off and its construction does not call trusted context or providers', () => {
   const f = fixture(); assert.equal(f.reads(), 0); assert.equal(f.changes(), 0);
   f.connected('twitch'); assert.equal(f.emit(), false); assert.deepEqual(f.service.status().messages, []);
-  assert.deepEqual(f.service.status().connections.kick, { state: 'not_configured', displayName: null, error: null });
+  assert.deepEqual(Object.keys(f.service.status().connections), ['twitch', 'tiktok']);
 });
 test('ordinary messages require explicit enable and a connected matching native provider', () => {
   const f = fixture(); assert.deepEqual(f.service.configure({ enabled: true }), { ok: true });

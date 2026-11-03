@@ -8,6 +8,22 @@ Cette extension facultative prend en charge uniquement **Clone Hero 1.1.0.6142-f
 
 ### Installation facultative — Windows x64 uniquement
 
+Pour Clone Hero, MelonLoader 0.7.3 indique le [.NET 6 Desktop Runtime](https://github.com/LavaGang/MelonLoader/blob/v0.7.3/README.md#requirements) comme prérequis IL2CPP. Dans la [page Microsoft .NET 6](https://dotnet.microsoft.com/fr-fr/download/dotnet/6.0), choisissez **Desktop Runtime → Windows → x64**, puis lancez l’installateur.
+
+Pour installer aussi le **SDK .NET 9.0**, ouvrez la [page Microsoft .NET 9](https://dotnet.microsoft.com/fr-fr/download/dotnet/9.0), choisissez **SDK → Windows → x64** et lancez l’installateur. Dans une nouvelle fenêtre PowerShell, `dotnet --list-sdks` doit afficher une version `9.0.x`. Le SDK est facultatif pour utiliser Quick Import.
+
+**Installation guidée.** Fermez Clone Hero et son lanceur. Dans ChartsHub → Tableau de bord → Catalogue → Quick Import BÊTA, cliquez sur **Installer Quick Import** et sélectionnez `Clone Hero.exe`. Vérifiez le dossier Songs proposé. Choisissez **Non** pour le changer ou **Oui** pour télécharger et vérifier MelonLoader 0.7.3, installer le module et l’activer. Ensuite, ouvrez cette même copie du jeu et connectez-la dans ChartsHub.
+
+Vous pouvez aussi ouvrir les fichiers d’installation depuis ChartsHub et lancer cette commande dans PowerShell depuis ce dossier.
+
+```powershell
+powershell.exe -NoProfile -STA -File .\Install-QuickImport.ps1 -Guided -Language fr
+```
+
+Si la console affiche `0 Mods loaded`, vérifiez la présence de `Mods\ChartsHub.QuickImport.dll` dans le dossier contenant l’exécutable que vous ouvrez. Les boutons **Masquer le terminal MelonLoader** et **Afficher le terminal MelonLoader** s’appliquent au prochain lancement du jeu. Fermez le jeu et son lanceur avant de modifier ce réglage.
+
+**Installation manuelle.** Pour voir le plan complet ou laisser le module désactivé après l’installation, utilisez les paramètres suivants.
+
 1. Gardez une copie de sécurité de votre jeu et fermez Clone Hero ainsi que son lanceur.
 2. Téléchargez séparément l’archive officielle **MelonLoader 0.7.3 Windows x64** depuis la [release officielle](https://github.com/LavaGang/MelonLoader/releases/tag/v0.7.3). Elle n’est pas incluse dans ce paquet. Le script exige son SHA256 exact : `5b2b2f3d1cd42b59ec886c5bdc2663edae87a0097a4f4a8f58c0965a99dda416`.
 3. Dans PowerShell, affichez d’abord le plan avec les chemins de **votre** jeu, de son dossier Songs déjà configuré dans Clone Hero et de l’archive téléchargée :
@@ -58,6 +74,10 @@ La construction extrait uniquement trois références de compilation de l’arch
 
 ## English
 
+For Clone Hero, MelonLoader 0.7.3 lists the [.NET 6 Desktop Runtime](https://github.com/LavaGang/MelonLoader/blob/v0.7.3/README.md#requirements) as its IL2CPP prerequisite. On the [Microsoft .NET 6 page](https://dotnet.microsoft.com/en-us/download/dotnet/6.0), select **Desktop Runtime → Windows → x64** and run the installer.
+
+To also install the **.NET 9.0 SDK**, open the [Microsoft .NET 9 page](https://dotnet.microsoft.com/en-us/download/dotnet/9.0), select **SDK → Windows → x64** and run the installer. In a new PowerShell window, `dotnet --list-sdks` should list a `9.0.x` version. The SDK is optional for using Quick Import.
+
 Quick Import adds a completed chart download to Clone Hero’s song menu without running a full library scan. Requests made during gameplay wait for the song menu. Songs are not launched automatically.
 
 This optional BETA supports only **Clone Hero 1.1.0.6142-final for Windows x64**, with `song.ini` and `notes.chart` or `notes.mid`. Exact program hashes are checked. Other builds keep normal downloading and manual scanning; automatic import is unavailable. New SNG/ENC imports are not validated.
@@ -65,6 +85,16 @@ This optional BETA supports only **Clone Hero 1.1.0.6142-final for Windows x64**
 ### Windows x64 setup
 
 Close the game and launcher. Obtain the separate official **MelonLoader 0.7.3 Windows x64** archive from the [official release](https://github.com/LavaGang/MelonLoader/releases/tag/v0.7.3). Its exact SHA256 is listed above. Run `Install-QuickImport.ps1` with your own `-GameRoot`, existing configured `-SongsRoot` and `-LoaderZip`. It shows a read-only plan by default. Add `-Apply` to install; the BETA remains **disabled unless `-EnableBeta` is explicitly supplied**. Nothing is launched automatically, existing unknown files are never overwritten, game program files and profiles remain untouched, and existing loader settings are preserved.
+
+For guided setup, close Clone Hero and its launcher. In ChartsHub → Dashboard → Catalogue → Quick Import BETA, click **Install Quick Import** and select `Clone Hero.exe`. Check the suggested Songs folder. Choose **No** to change it or **Yes** to download and verify MelonLoader 0.7.3, install the module, and enable it. Open that copy of the game and connect it in ChartsHub.
+
+You can also open the setup files from ChartsHub and run this command in PowerShell from that folder.
+
+```powershell
+powershell.exe -NoProfile -STA -File .\Install-QuickImport.ps1 -Guided -Language en
+```
+
+If the console reports `0 Mods loaded`, check for `Mods\ChartsHub.QuickImport.dll` in the folder of the game executable you started. **Hide the MelonLoader console** and **Show the MelonLoader console** take effect the next time the game opens. Close the game and its launcher before changing that setting.
 
 Launch the game normally, then enable Quick Import BETA in ChartsHub and select that same game folder. An initial normal game cache and the matching Songs setting are required. The console is hidden only when this installer creates new loader settings; file logs remain available. Never share `config.json` or `connection.json`, which contain your private local key. To enable an existing disabled setup later, close the game and change only `enabled` to `true` in `UserData/ChartsHubQuickImport/config.json`, preserving its key and Songs root.
 

@@ -41,6 +41,10 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.41
+
+Quick Import propose un assistant Windows pour choisir le jeu et son dossier Songs, vérifier MelonLoader et installer le module facultatif. Le tableau de bord permet aussi de masquer ou d’afficher le terminal de MelonLoader au prochain lancement du jeu. [Notes 0.14.41](docs/RELEASE-0.14.41.md).
+
 ### Version 0.14.40
 
 Le panneau Batterie / VST conserve une marge intérieure autour des textes et des commandes, y compris dans une petite fenêtre. Quick Import affiche les étapes de première installation de MelonLoader et ouvre directement ses fichiers d’installation sur demande. Aucune installation ni connexion ne démarre depuis ce guide. [Notes 0.14.40](docs/RELEASE-0.14.40.md).

@@ -54,9 +54,16 @@ function createUnifiedChat({ getContext = () => ({ active: false, lifecycle: nul
   function status() {
     context(); prune(now());
     return { enabled, revision, messages: messages.map(message => ({ ...message })), connections: {
-      twitch: { ...connections.twitch }, tiktok: { ...connections.tiktok },
-      kick: { state: 'not_configured', displayName: null, error: null }
+      twitch: { ...connections.twitch }, tiktok: { ...connections.tiktok }
     } };
+  }
+  function getRevision() {
+    context();
+    if (messages.length) {
+      const time = now();
+      if (messages[0].at <= time - LIMITS.ttlMs || messages.at(-1).at > time) prune(time);
+    }
+    return revision;
   }
   function configure(value) {
     if (!plainObject(value) || Object.keys(value).length !== 1 || typeof value.enabled !== 'boolean') return { ok: false, code: 'CHAT_INVALID_SETTINGS' };
@@ -106,7 +113,7 @@ function createUnifiedChat({ getContext = () => ({ active: false, lifecycle: nul
     disconnectAll();
     changed();
   }
-  return Object.freeze({ status, configure, capture, connection, clear, stop });
+  return Object.freeze({ status, getRevision, configure, capture, connection, clear, stop });
 }
 
 module.exports = { createUnifiedChat, LIMITS };

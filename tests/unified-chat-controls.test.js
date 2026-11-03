@@ -4,6 +4,17 @@ const message=(id,platform='twitch')=>({id:String(id),platform,name:'Viewer '+id
 const snap=(messages=[],patch={},language='fr')=>({language,chat:{enabled:true,revision:1,messages,connections:{twitch:{state:'connected'},tiktok:{state:'connected'},kick:{state:'not_configured'}},...patch}});
 async function fixture(command=async()=>({ok:true})){const document={createElement:tag=>new Element(tag,document)},root=document.createElement('section');const{UnifiedChatControls}=await import('../companion/ui/unified-chat-controls.js');return new UnifiedChatControls({root,command,onAccounts:()=>{}});}
 test('mount and incoming snapshots never connect or enable chat',async()=>{const calls=[],c=await fixture((...args)=>calls.push(args));c.update(snap([message(1)]));assert.deepEqual(calls,[]);assert.equal(c.rows.size,1);});
+test('floating capture is explicit and legacy Kick content is absent',async()=>{
+ const calls=[],c=await fixture(async(...args)=>{calls.push(args);return{ok:true};});
+ c.openCapture.click();assert.deepEqual(calls,[]);
+ c.update(snap([message(1),message(2,'kick')],{captureWindow:{title:'ChartsHub — Multistream Chat',backgroundColor:'#123456'}}));
+ assert.equal(c.rows.size,1);assert.equal(c.platformNodes.kick,undefined);
+ assert.deepEqual(c.source.children.map(option=>option.value),['all','twitch','tiktok']);
+ assert.match(c.guideSteps[1].textContent,/ChartsHub — Multistream Chat/);
+ c.openCapture.click();assert.deepEqual(calls,[['chat.openCaptureWindow',{}]]);
+ c.badges.value='stripe';c.badges.dispatchEvent(new Event('change'));
+ assert.deepEqual(calls[1],['chat.captureWindowBadgeStyle',{style:'stripe'}]);
+});
 test('only the explicit checkbox sends the bounded configuration command and clearing stays local',async()=>{const calls=[],c=await fixture(async(...args)=>{calls.push(args);return{ok:true};});c.update(snap([],{enabled:false}));await c.run('configure',{enabled:true});await c.run('clear',{});assert.deepEqual(calls,[['chat.configure',{enabled:true}],['chat.clear',{}]]);});
 test('unrelated game ticks preserve chat rows without rebuilding or writing message text',async()=>{const c=await fixture();c.update(snap([message(1)]));const row=c.rows.get('1');let writes=0;const replace=c.list.replaceChildren;c.list.replaceChildren=function(...args){writes++;return replace.apply(this,args);};for(let n=0;n<1000;n++)c.update({...snap([message(1)]),state:{performance:{hits:n}}});assert.equal(c.rows.get('1'),row);assert.equal(writes,0);});
 test('paused display hides messages purged by disconnection while retaining the other connected platform',async()=>{const c=await fixture();c.update(snap([message(1),message(2,'tiktok')]));c.pause.click();assert.equal(c.paused,true);c.update(snap([message(2,'tiktok')],{revision:2,connections:{twitch:{state:'disconnected'},tiktok:{state:'connected'},kick:{state:'not_configured'}}}));assert.equal(c.rows.has('1'),false);assert.equal(c.rows.has('2'),true);});

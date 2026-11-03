@@ -3,14 +3,15 @@ const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  const tabbed=process.argv.includes('--chartshub-tabbed');
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
- version:'0.14.40',
+ version:'0.14.41',
   layout:tabbed?'tabbed':'legacy',
   saveCheckerReport:payload=>ipcRenderer.invoke('chartshub:save-checker-report',payload),
   downloadState:()=>ipcRenderer.invoke('chartshub:download-state'),
   onDownloadState:callback=>{if(typeof callback!=='function')return ()=>{};const listener=(_event,data)=>callback(data);ipcRenderer.on('chartshub:download-state',listener);return ()=>ipcRenderer.removeListener('chartshub:download-state',listener);},
-  downloadBatch:endpoints=>ipcRenderer.invoke('chartshub:download-batch',endpoints),
+  nativeDownloadVideoPreference:true,
+  downloadBatch:(endpoints,includeVideo)=>ipcRenderer.invoke('chartshub:download-batch',endpoints,includeVideo),
   downloadFolder:change=>ipcRenderer.invoke('chartshub:folder',change===true),
-  download:endpoint=>ipcRenderer.invoke('chartshub:download',endpoint),
+  download:(endpoint,includeVideo)=>ipcRenderer.invoke('chartshub:download',endpoint,includeVideo),
   downloadEnchor:request=>ipcRenderer.invoke('chartshub:download-enchor',request),
   enchorDownloadFormats:['folder','zip','sng'],
   cancel:()=>ipcRenderer.invoke('chartshub:cancel'),

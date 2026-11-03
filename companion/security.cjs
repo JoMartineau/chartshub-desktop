@@ -45,7 +45,8 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
 function validCommand(command, payload, widgetIds) {
   if (command === 'gameWidgets.check') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && Number.isSafeInteger(payload.revision) && payload.revision >= 0;
   if (command === 'gameWidgets.configure') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 3 && Object.keys(payload).every(key => ['revision','accuracy','lyrics'].includes(key)) && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && typeof payload.accuracy === 'boolean' && typeof payload.lyrics === 'boolean';
-  if (command === 'gameWidgets.openPackage' || command === 'gameWidgets.prerequisites' || command === 'quickImport.openPackage' || command === 'quickImport.prerequisites' || command === 'quickImport.release') return payload == null || typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
+  if (command === 'gameWidgets.openPackage' || command === 'gameWidgets.prerequisites' || command === 'quickImport.openPackage' || command === 'quickImport.setup' || command === 'quickImport.prerequisites' || command === 'quickImport.release') return payload == null || typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
+  if (command === 'quickImport.console') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && typeof payload.hidden === 'boolean';
   if (typeof command === 'string' && command.startsWith('quickImport.')) return require('./quick-import-service.cjs').validQuickImportCommand(command, payload);
   if (typeof command === 'string' && command.startsWith('drums.')) return require('./drum-vst-service.cjs').validDrumCommand(command, payload);
   if (command === 'telemetry.connectorChoose' || command === 'telemetry.connectorCancel') return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
@@ -118,7 +119,11 @@ function validCommand(command, payload, widgetIds) {
   if (command === 'player.spectrum') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && Object.keys(payload).length === 2 && Number.isSafeInteger(payload.revision) && payload.revision >= 0
     && Array.isArray(payload.bands) && payload.bands.length === 32 && payload.bands.every(n => Number.isFinite(n) && n >= 0 && n <= 1);
-  if (['songRequests.copyBridgeConfiguration', 'songRequests.copyOverlayUrl', 'songRequests.resetOrder', 'songRequests.publishLibrary', 'songRequests.removeLibrary', 'songRequests.copyLibraryUrl'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (['songRequests.copyBridgeConfiguration', 'songRequests.copyOverlayUrl', 'songRequests.openQueueWindow', 'songRequests.resetOrder', 'songRequests.publishLibrary', 'songRequests.removeLibrary', 'songRequests.copyLibraryUrl'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
+  if (['songRequests.queueWindowBackground', 'chat.captureWindowBackground'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === 1 && Object.hasOwn(payload, 'color') && typeof payload.color === 'string' && /^#[a-f0-9]{6}$/i.test(payload.color);
+  if (['songRequests.queueWindowBadgeStyle', 'chat.captureWindowBadgeStyle'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === 1 && Object.hasOwn(payload, 'style') && ['outline', 'solid', 'stripe'].includes(payload.style);
   if (['songRequests.connect', 'songRequests.disconnect', 'songRequests.cancelAuth'].includes(command)) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !['twitch', 'tiktok'].includes(payload.platform)) return false;
     const username = command === 'songRequests.connect' && payload.platform === 'tiktok';
@@ -141,6 +146,7 @@ function validCommand(command, payload, widgetIds) {
     try { require('./song-request-widget.cjs').validateWidget(payload.settings); return true; } catch { return false; }
   }
   if (command === 'chat.configure') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && typeof payload.enabled === 'boolean';
+  if (command === 'chat.openCaptureWindow') return payload == null || typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
   if (command === 'chat.clear') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
   if (typeof command === 'string' && command.startsWith('sessionWidgets.')) return require('./session-widget-model.cjs').validSessionWidgetCommand(command,payload);
   if (['songRequests.discoverySearch','songRequests.discoveryMatches','songRequests.discoveryDismiss','songRequests.discoveryConfirm'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)

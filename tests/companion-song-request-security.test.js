@@ -22,3 +22,11 @@ test('Catalogue and filter mini windows cannot administer, publish or obtain Son
     for (const action of ['configure', 'accept', 'move', 'copyBridgeConfiguration', 'copyOverlayUrl', 'publishLibrary', 'removeLibrary', 'copyLibraryUrl']) assert.equal(authorize({ sender: contents, senderFrame: frame }, window, 'songRequests.' + action, {}), false);
   }
 });
+test('floating capture badge commands accept only one supported style', () => {
+  for (const command of ['songRequests.queueWindowBadgeStyle', 'chat.captureWindowBadgeStyle']) {
+    for (const style of ['outline', 'solid', 'stripe']) assert.equal(validCommand(command, { style }, []), true);
+    for (const payload of [null, [], {}, { style: 'url(https://example.invalid)' }, { style: ['solid'] }, { style: 'solid', color: '#101827' }]) {
+      assert.equal(validCommand(command, payload, []), false);
+    }
+  }
+});

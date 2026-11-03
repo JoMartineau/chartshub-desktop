@@ -27,6 +27,37 @@ async function fixture(t) {
   return { document, root, controls, calls, snapshot, get, set, submit, toggle };
 }
 const request = (id, status = 'pending') => ({ id, songId: 'a'.repeat(64), platform: 'twitch', viewerName: 'A viewer', title: 'Installed song', artist: 'Local artist', status, votes: 2 });
+
+test('The floating request widget works without the browser bridge and shows its capture title', async t => {
+  const ui = await fixture(t);
+  const open = ui.get('#song-requests-open-queue-window');
+  const background = ui.get('#song-requests-queue-window-background');
+  ui.controls.update(ui.snapshot);
+  assert.equal(open.disabled, true);
+  ui.snapshot.songRequests.queueWindow = { backgroundColor: '#223344', title: 'ChartsHub — Song Request Queue' };
+  ui.controls.update(ui.snapshot);
+  assert.equal(open.disabled, false);
+  assert.equal(background.value, '#223344');
+  assert.equal(ui.get('#song-requests-copy-overlay').disabled, true);
+  assert.match(ui.get('#song-requests-capture-select').textContent, /ChartsHub — Song Request Queue/);
+  open.click();
+  assert.equal(ui.calls[0].name, 'songRequests.openQueueWindow');
+  ui.calls[0].resolve({ ok: true });
+  await tick();
+  background.value = '#123456';
+  background.dispatchEvent(new Event('change'));
+  assert.deepEqual(ui.calls[1].payload, { color: '#123456' });
+  assert.equal(ui.calls[1].name, 'songRequests.queueWindowBackground');
+  ui.calls[1].resolve({ ok: true });
+  await tick();
+  const badges = ui.get('#song-requests-queue-window-badges');
+  badges.value = 'solid';
+  badges.dispatchEvent(new Event('change'));
+  assert.equal(ui.calls[2].name, 'songRequests.queueWindowBadgeStyle');
+  assert.deepEqual(ui.calls[2].payload, { style: 'solid' });
+  ui.calls[2].resolve({ ok: true });
+});
+
 const connections = changes => ({ receiving: false, persistent: true, storageError: null, lastResponse: null,
   twitch: { state: 'disconnected', displayName: null, error: null, canReply: true },
   tiktok: { state: 'disconnected', displayName: null, error: null, canReply: false }, ...changes });

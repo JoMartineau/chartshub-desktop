@@ -25,6 +25,7 @@ const configure = section('  async function configureSongRequests(', '  songRequ
 const nowPlaying = section('  const requestNowPlaying = () => {', '  songRequests = createSongRequests(');
 const libraryChanged = section('    musicPlayer?.libraryChanged();', '  } });\n  await library.load();');
 const commands = section("  ipcMain.handle('companion:command',", '  function stop()');
+const destroyCaptures = section('  function destroyStreamCaptures()', '  function canRead(');
 const stopping = section('  function stop()', '  function open()');
 const panelAlive = section('  function panelAlive()', '  function catalogueAllowed()');
 const rules = { maxDurationMinutes: null, instrument: 'all', difficulty: 'all' };
@@ -118,6 +119,8 @@ function fixture({ save, start, consent = false, receive } = {}) {
   const create = new vm.Script(`(function(adapters) {
     const {songRequests,library,songRequestAccounts,songRequestPreferences,songRequestConnectionOptions,createSongRequestServer,telemetry,songVisuals,gameCapture,inputViewer,updateVisuals,drums,quickImport,gameWidgetIntegrations,gameModPreflight}=adapters;
     let disposing=false,stopTask=null,hostActive=true,lifecycleRevision=0,songRequestBusy=false,maintenanceLocked=false;
+    let requestWidgetRevision=0;
+    const streamCaptures={requests:{window:null},chat:{window:null}};
     let songRequestServer=null,songRequestConnections=null,songRequestShareBroker=null,songRequestDiscovery=null,unifiedChat=null;
     let sessionActivity=null,sessionWidgetSettings={},sessionWidgetRevision=0;
     const activityDownloadScopes=new Map();
@@ -142,6 +145,7 @@ function fixture({ save, start, consent = false, receive } = {}) {
     ${configure}
     function libraryChange(){ ${libraryChanged} }
     ${commands}
+    ${destroyCaptures}
     ${stopping}
     return {configure:configureSongRequests,stop,libraryChange,connections:()=>songRequestConnections.status(),
       invoke:(command,payload,event={sender:panelContents,senderFrame:panelFrame})=>commandHandler(event,command,payload),

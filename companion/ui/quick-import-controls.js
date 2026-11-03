@@ -4,18 +4,24 @@ const TEXT = {
     compatibility: 'Compatible et testé avec Clone Hero 1.1.0.6142-final Stable · Windows x64. Autres versions, Linux, macOS, Wine et Proton non validés.',
     optional: 'Facultatif · désactivé à chaque démarrage de ChartsHub. Sans cette option, téléchargez normalement puis utilisez Scan Songs dans Clone Hero.',
     intro: 'Ajoutez les nouvelles charts téléchargées à Clone Hero, sans lancer un scan complet.',
-    installTitle: 'Première installation : MelonLoader et le module',
-    installIntro: 'Ce guide est facultatif. Le bouton ci-dessous ouvre le dossier qui contient le README ; il ne lance aucun script et n’installe rien.',
+    installTitle: 'Installation guidée de MelonLoader et Quick Import',
+    installIntro: 'MelonLoader charge les extensions du jeu. Le module Quick Import est fourni avec ChartsHub et doit être installé dans la copie de Clone Hero que vous ouvrez.',
     installSteps: [
       ['Fermer le jeu', 'Gardez une copie de sécurité de Clone Hero, puis fermez le jeu et son lanceur. Vérifiez la version 1.1.0.6142-final Stable · Windows x64.'],
-      ['Récupérer les prérequis', 'Depuis le lien officiel du README, téléchargez séparément MelonLoader 0.7.3 Windows x64. Il n’est pas inclus dans ChartsHub. Vérifiez aussi les prérequis officiels, dont .NET 6 Desktop Runtime pour ce jeu IL2CPP.'],
-      ['Afficher le plan', 'Ouvrez les fichiers d’installation ci-dessous et lisez README.md. Dans PowerShell, depuis ce dossier, adaptez l’exemple aux chemins de votre jeu, de son dossier Songs déjà configuré et de l’archive MelonLoader téléchargée. Sans -Apply, le script affiche seulement le plan.'],
-      ['Appliquer et ouvrir le jeu', 'Après lecture du plan, reprenez la commande avec -Apply -EnableBeta pour installer et activer explicitement le module. Avec -Apply seul, il reste désactivé. Ouvrez ensuite le jeu vous-même et laissez son premier démarrage préparer ses composants, puis suivez les étapes de connexion ci-dessous.'],
+      ['Choisir le jeu', 'Cliquez sur Installer Quick Import et sélectionnez Clone Hero.exe. L’assistant propose le dossier Songs trouvé dans les réglages du jeu. Choisissez Non pour en sélectionner un autre.'],
+      ['Confirmer l’installation', 'Cliquez sur Oui. L’assistant télécharge et vérifie MelonLoader 0.7.3, puis installe et active Quick Import. Le README donne les liens Microsoft pour le .NET 6 Desktop Runtime requis et le SDK .NET 9.0 facultatif.'],
+      ['Ouvrir Clone Hero', 'Ouvrez cette copie du jeu, puis connectez-la dans ChartsHub. Si MelonLoader affiche « 0 Mods loaded », vérifiez que Mods/ChartsHub.QuickImport.dll se trouve dans le dossier de ce Clone Hero.exe.'],
     ],
-    installExample: 'Exemple à adapter · aperçu sans installation',
+    installExample: 'Autre façon d’ouvrir l’assistant depuis le dossier d’installation. Collez cette commande dans PowerShell.',
     installShared: 'Une installation MelonLoader compatible déjà présente est conservée. Quick Import, Accuracy et les paroles utilisent le même chargeur, avec des modules et des activations séparés.',
     installRemoval: 'Pour retirer Quick Import, Uninstall-QuickImport.ps1 affiche d’abord le plan ; -Apply retire seulement les fichiers créés par cette installation et restés inchangés. Les chansons et profils sont conservés, ainsi que le chargeur si d’autres modules en dépendent.',
     openPackage: 'Ouvrir les fichiers d’installation', prerequisites: 'Prérequis officiels MelonLoader',
+    setup: 'Installer Quick Import',
+    hideConsole: 'Masquer le terminal MelonLoader', showConsole: 'Afficher le terminal MelonLoader',
+    hideConsoleDone: 'Le terminal MelonLoader sera masqué au prochain lancement du jeu.',
+    showConsoleDone: 'Le terminal MelonLoader sera visible au prochain lancement du jeu.',
+    consoleError: 'Le réglage du terminal n’a pas été enregistré. Fermez Clone Hero et son lanceur, puis vérifiez que MelonLoader est installé dans le jeu choisi.',
+    setupError: 'L’assistant n’a pas terminé. Consultez le message de l’assistant ou ouvrez les fichiers d’installation.',
     installError: 'Le guide n’a pas pu être ouvert. Réessayez ; les fichiers d’installation Quick Import sont réservés au paquet Windows x64 complet.',
     guideLabel: 'Guide pour le système', detected: 'Système de ChartsHub : ',
     systems: { win32: 'Windows', linux: 'Linux', darwin: 'macOS', unknown: 'Autre / non reconnu' },
@@ -37,7 +43,7 @@ const TEXT = {
     empty: 'Aucun nouvel import pendant cette session.',
     scope: 'Les anciennes charts ne sont pas réimportées. Déconnecter arrête les prochains envois ; un import déjà reçu par le jeu peut encore se terminer.',
     failure: 'Quick Import n’a pas pu terminer cette action. Vérifiez le module, le jeu et le dossier Songs.',
-    moduleMissing: 'Ouvrez Clone Hero avec le module Quick Import compatible, puis reconnectez-le.',
+    moduleMissing: 'Vérifiez que Mods/ChartsHub.QuickImport.dll est présent dans le dossier du jeu choisi. Ouvrez cette copie de Clone Hero, puis reconnectez-la.',
     timeout: 'Le jeu ne répond pas. Réessayez une fois revenu au menu.',
     full: 'La file d’import est pleine. Revenez au menu du jeu pour terminer les ajouts en attente.',
     unknown: 'À vérifier', waiting: 'En attente du menu', preparing: 'Préparation', submitted: 'Transmis au jeu',
@@ -49,18 +55,24 @@ const TEXT = {
     compatibility: 'Compatible and tested with Clone Hero 1.1.0.6142-final Stable · Windows x64. Other versions, Linux, macOS, Wine and Proton are not validated.',
     optional: 'Optional · off every time ChartsHub starts. Without this option, download normally and use Scan Songs in Clone Hero.',
     intro: 'Add newly downloaded charts to Clone Hero without starting a full scan.',
-    installTitle: 'First setup: MelonLoader and the module',
-    installIntro: 'This guide is optional. The button below opens the folder containing the README; it does not run a script or install anything.',
+    installTitle: 'Guided setup for MelonLoader and Quick Import',
+    installIntro: 'MelonLoader loads game extensions. The Quick Import module comes with ChartsHub and must be installed into the copy of Clone Hero you open.',
     installSteps: [
       ['Close the game', 'Keep a backup of Clone Hero, then close the game and its launcher. Check for version 1.1.0.6142-final Stable · Windows x64.'],
-      ['Obtain the prerequisites', 'Use the official link in the README to download MelonLoader 0.7.3 Windows x64 separately. It is not bundled with ChartsHub. Check the official prerequisites, including .NET 6 Desktop Runtime for this IL2CPP game.'],
-      ['Preview the plan', 'Open the setup files below and read README.md. In PowerShell, from that folder, adapt the example to your game, its already configured Songs folder and the downloaded MelonLoader archive. Without -Apply, the script only shows a plan.'],
-      ['Apply and open the game', 'After reviewing the plan, repeat the command with -Apply -EnableBeta to explicitly install and enable the module. With -Apply alone it stays disabled. Open the game yourself and let its first launch prepare the components, then follow the connection steps below.'],
+      ['Select the game', 'Click Install Quick Import and select Clone Hero.exe. The wizard suggests the Songs folder from the game settings. Choose No to select another folder.'],
+      ['Confirm setup', 'Choose Yes. The wizard downloads and verifies MelonLoader 0.7.3, then installs and enables Quick Import. The README links to the required Microsoft .NET 6 Desktop Runtime and the optional .NET 9.0 SDK.'],
+      ['Open Clone Hero', 'Open that copy of the game and connect it in ChartsHub. If MelonLoader shows “0 Mods loaded”, check for Mods/ChartsHub.QuickImport.dll in the folder containing that Clone Hero.exe.'],
     ],
-    installExample: 'Adapt this example · preview without installation',
+    installExample: 'Another way to open the wizard from the setup folder. Paste this command into PowerShell.',
     installShared: 'An existing compatible MelonLoader installation is preserved. Quick Import, Accuracy and lyrics share the loader, with separate modules and activation choices.',
     installRemoval: 'To remove Quick Import, Uninstall-QuickImport.ps1 first previews a plan; -Apply removes only unchanged files created by that setup. Songs and profiles are preserved, together with the loader when other modules depend on it.',
     openPackage: 'Open setup files', prerequisites: 'Official MelonLoader prerequisites',
+    setup: 'Install Quick Import',
+    hideConsole: 'Hide the MelonLoader console', showConsole: 'Show the MelonLoader console',
+    hideConsoleDone: 'The MelonLoader console will be hidden the next time the game opens.',
+    showConsoleDone: 'The MelonLoader console will be visible the next time the game opens.',
+    consoleError: 'The console setting could not be saved. Close Clone Hero and its launcher, then check that MelonLoader is installed in the selected game.',
+    setupError: 'The wizard did not finish. Check its message or open the setup files.',
     installError: 'The guide could not be opened. Try again; Quick Import setup files require the complete Windows x64 ChartsHub download.',
     guideLabel: 'System guide', detected: 'ChartsHub system: ',
     systems: { win32: 'Windows', linux: 'Linux', darwin: 'macOS', unknown: 'Other / unrecognised' },
@@ -82,7 +94,7 @@ const TEXT = {
     empty: 'No new imports in this session.',
     scope: 'Old charts are not imported again. Disconnect stops new sends; an import already received by the game may still finish.',
     failure: 'Quick Import could not complete this action. Check the module, game and Songs folder.',
-    moduleMissing: 'Open Clone Hero with its compatible Quick Import module, then reconnect it.',
+    moduleMissing: 'Check for Mods/ChartsHub.QuickImport.dll in the selected game folder. Open that copy of Clone Hero, then reconnect it.',
     timeout: 'The game is not responding. Try again after returning to its menu.',
     full: 'The import queue is full. Return to the game menu to finish the pending additions.',
     unknown: 'Check result', waiting: 'Waiting for a menu', preparing: 'Preparing', submitted: 'Sent to the game',
@@ -135,9 +147,12 @@ const PLATFORM_GUIDES = {
   },
 };
 const platformName = value => ['win32', 'linux', 'darwin'].includes(value) ? value : 'unknown';
-const INSTALL_PREVIEW = ".\\Install-QuickImport.ps1 -GameRoot 'C:\\Games\\Clone Hero' -SongsRoot 'D:\\Songs' -LoaderZip 'C:\\Downloads\\MelonLoader.x64.zip'";
+const GUIDED_INSTALL = 'powershell.exe -NoProfile -STA -File .\\Install-QuickImport.ps1 -Guided -Language ';
 const ACTIONS = ['chooseGame', 'connect', 'disable', 'refresh'];
-const HELP_ACTIONS = Object.freeze({ openPackage: 'quickImport.openPackage', prerequisites: 'quickImport.prerequisites', release: 'quickImport.release' });
+const HELP_ACTIONS = Object.freeze({
+  setup: 'quickImport.setup', openPackage: 'quickImport.openPackage', prerequisites: 'quickImport.prerequisites', release: 'quickImport.release',
+  hideConsole: 'quickImport.console', showConsole: 'quickImport.console',
+});
 function errorText(code, t) {
   if (['QUICK_IMPORT_NOT_VALIDATED', 'UNVERIFIED_BUILD', 'IMPORT_NOT_VALIDATED'].includes(code)) return t.unavailable;
   if (['CONNECTION_UNAVAILABLE', 'INVALID_DESCRIPTOR', 'CONNECTION_CHANGED'].includes(code)) return t.moduleMissing;
@@ -153,7 +168,7 @@ export class QuickImportControls {
   constructor({ root, command }) {
     this.root = root; this.command = command; this.snapshot = null; this.signature = null;
     this.pending = false; this.localError = false; this.disposed = false; this.listeners = []; this.commandEpoch = 0;
-    this.helpPending = new Set(); this.helpError = false; this.helpLanguage = null; this.guideSelection = null;
+    this.helpPending = new Set(); this.helpError = false; this.helpNotice = null; this.helpLanguage = null; this.guideSelection = null;
     const document = root.ownerDocument;
     const make = (tag, className = '') => { const node = document.createElement(tag); node.className = className; return node; };
     const title = make('h3'), compatibility = make('p', 'quick-import-compatibility'), optional = make('p', 'helper-text');
@@ -166,20 +181,24 @@ export class QuickImportControls {
     for (const value of ['win32', 'linux', 'darwin', 'unknown']) { const option = make('option'); option.value = value; guideSystem.append(option); }
     const guideListener = () => { this.guideSelection = platformName(guideSystem.value); this.signature = null; this.update(this.snapshot); };
     guideSystem.addEventListener('change', guideListener); this.listeners.push([guideSystem, guideListener, 'change']);
-    const helpActions = make('div', 'quick-import-actions'), openPackage = make('button', 'button secondary'), prerequisites = make('button', 'button secondary'), release = make('button', 'button secondary');
-    for (const [button, action] of [[openPackage, 'openPackage'], [prerequisites, 'prerequisites'], [release, 'release']]) {
+    const helpActions = make('div', 'quick-import-actions'), setup = make('button', 'button primary'), openPackage = make('button', 'button secondary'), prerequisites = make('button', 'button secondary'), release = make('button', 'button secondary');
+    const consoleActions = make('div', 'quick-import-actions'), hideConsole = make('button', 'button secondary'), showConsole = make('button', 'button secondary');
+    for (const [button, action] of [[setup, 'setup'], [openPackage, 'openPackage'], [prerequisites, 'prerequisites'], [release, 'release'], [hideConsole, 'hideConsole'], [showConsole, 'showConsole']]) {
       button.type = 'button'; button.id = action === 'openPackage' ? 'quick-import-open-package' : 'quick-import-' + action;
-      const listener = () => { void this.openHelp(action); }; button.addEventListener('click', listener); this.listeners.push([button, listener]); helpActions.append(button);
+      const listener = () => { void this.openHelp(action); }; button.addEventListener('click', listener); this.listeners.push([button, listener]);
+      (action.endsWith('Console') ? consoleActions : helpActions).append(button);
     }
     const installExample = make('p', 'helper-text'), installCommand = make('pre', 'quick-import-install-command');
     const installShared = make('p', 'helper-text'), installRemoval = make('p', 'helper-text'), installFeedback = make('p', 'quick-import-feedback');
+    const installNotice = make('p', 'helper-text');
     installFeedback.setAttribute('role', 'alert'); installFeedback.hidden = true;
-    installation.append(installTitle, detected, guideLabel, guideSystem, guideOnly, installIntro, helpActions, installSteps, installExample, installCommand, installShared, installRemoval, installFeedback);
+    installNotice.setAttribute('role', 'status'); installNotice.hidden = true;
+    installation.append(installTitle, detected, guideLabel, guideSystem, guideOnly, installIntro, helpActions, installSteps, installExample, installCommand, installShared, installRemoval, consoleActions, installFeedback, installNotice);
     const status = make('p', 'quick-import-status'); status.id = 'quick-import-status'; status.setAttribute('role', 'status');
     const feedback = make('p', 'quick-import-feedback'); feedback.id = 'quick-import-feedback'; feedback.setAttribute('role', 'alert'); feedback.hidden = true;
     const actions = make('div', 'quick-import-actions'), jobs = make('ul', 'quick-import-jobs');
     const empty = make('p', 'helper-text'), scope = make('p', 'helper-text');
-    this.nodes = { title, compatibility, optional, intro, installation, installTitle, installIntro, installSteps, installExample, installCommand, installShared, installRemoval, installFeedback, openPackage, prerequisites, release, guideLabel, guideSystem, detected, guideOnly, steps, status, feedback, actions, jobs, empty, scope };
+    this.nodes = { title, compatibility, optional, intro, installation, installTitle, installIntro, installSteps, installExample, installCommand, installShared, installRemoval, installFeedback, installNotice, setup, openPackage, prerequisites, release, consoleActions, hideConsole, showConsole, guideLabel, guideSystem, detected, guideOnly, steps, status, feedback, actions, jobs, empty, scope };
     for (const action of ACTIONS) {
       const button = make('button', 'button secondary'); button.type = 'button';
       button.id = 'quick-import-' + (action === 'chooseGame' ? 'choose-game' : action);
@@ -199,7 +218,7 @@ export class QuickImportControls {
     const detectedPlatform = platformName(state.platform), guidePlatform = this.guideSelection ?? detectedPlatform;
     const windows = detectedPlatform === 'win32';
     const hasRoot = typeof snapshot?.library?.settings?.rootPath === 'string' && snapshot.library.settings.rootPath.length > 0;
-    const signature = JSON.stringify([state, language, guidePlatform, hasRoot, this.pending, this.localError, [...this.helpPending].sort(), this.helpError]);
+    const signature = JSON.stringify([state, language, guidePlatform, hasRoot, this.pending, this.localError, [...this.helpPending].sort(), this.helpError, this.helpNotice]);
     if (signature === this.signature) return;
     this.signature = signature;
     const t = TEXT[language], n = this.nodes, busy = this.pending || state.busy === true;
@@ -209,12 +228,12 @@ export class QuickImportControls {
     if (this.helpLanguage !== guideSignature) {
       this.helpLanguage = guideSignature;
       const guide = guidePlatform === 'win32' ? { intro: t.installIntro, steps: t.installSteps } : PLATFORM_GUIDES[language][guidePlatform];
-      for (const name of ['installTitle', 'installExample', 'installShared', 'installRemoval', 'openPackage', 'prerequisites', 'release', 'guideLabel', 'guideOnly']) n[name].textContent = t[name];
+      for (const name of ['installTitle', 'installExample', 'installShared', 'installRemoval', 'setup', 'openPackage', 'prerequisites', 'release', 'hideConsole', 'showConsole', 'guideLabel', 'guideOnly']) n[name].textContent = t[name];
       n.guideLabel.textContent = t.guideLabel; n.detected.textContent = t.detected + t.systems[detectedPlatform];
       n.prerequisites.textContent = t.prerequisites + ' · ' + t.systems[detectedPlatform];
       for (const option of n.guideSystem.children) option.textContent = t.systems[option.value];
       n.guideSystem.value = guidePlatform; n.installIntro.textContent = guide.intro;
-      n.installCommand.textContent = windows && guidePlatform === 'win32' ? INSTALL_PREVIEW : '';
+      n.installCommand.textContent = windows && guidePlatform === 'win32' ? GUIDED_INSTALL + language : '';
       n.installSteps.replaceChildren(...guide.steps.map(([label, detail]) => {
         const row = this.root.ownerDocument.createElement('li'), heading = this.root.ownerDocument.createElement('strong'), description = this.root.ownerDocument.createElement('p');
         heading.textContent = label; description.textContent = detail; row.append(heading, description); return row;
@@ -222,10 +241,14 @@ export class QuickImportControls {
     }
     const windowsGuide = guidePlatform === 'win32';
     for (const name of ['installExample', 'installCommand', 'installShared', 'installRemoval']) n[name].hidden = !windows || !windowsGuide;
-    n.openPackage.hidden = !windows || !windowsGuide;
+    n.setup.hidden = n.openPackage.hidden = n.consoleActions.hidden = !windows || !windowsGuide;
+    const consoleBusy = this.helpPending.has('hideConsole') || this.helpPending.has('showConsole');
+    n.setup.disabled = !windows || !windowsGuide || busy || consoleBusy || this.helpPending.has('setup');
+    n.hideConsole.disabled = n.showConsole.disabled = !windows || !windowsGuide || !state.selected || busy || consoleBusy || this.helpPending.has('setup');
     n.openPackage.disabled = !windows || !windowsGuide || this.helpPending.has('openPackage');
     n.prerequisites.disabled = this.helpPending.has('prerequisites'); n.release.disabled = this.helpPending.has('release');
-    n.installFeedback.hidden = !this.helpError; n.installFeedback.textContent = this.helpError ? t.installError : '';
+    n.installFeedback.hidden = !this.helpError; n.installFeedback.textContent = this.helpError ? t[this.helpError] : '';
+    n.installNotice.hidden = !this.helpNotice; n.installNotice.textContent = this.helpNotice ? t[this.helpNotice] : '';
     const steps = t.steps.map(([label, description]) => {
       const row = this.root.ownerDocument.createElement('li');
       const heading = this.root.ownerDocument.createElement('strong'), detail = this.root.ownerDocument.createElement('p');
@@ -275,11 +298,16 @@ export class QuickImportControls {
 
   async openHelp(action) {
     if (this.disposed || !Object.hasOwn(HELP_ACTIONS, action) || this.helpPending.has(action) || this.nodes[action].disabled) return;
-    this.helpPending.add(action); this.helpError = false; this.signature = null; this.update(this.snapshot);
+    const consoleAction = action.endsWith('Console');
+    const errorKey = consoleAction ? 'consoleError' : action === 'setup' ? 'setupError' : 'installError';
+    this.helpPending.add(action); this.helpError = false; this.helpNotice = null; this.signature = null; this.update(this.snapshot);
     try {
-      const result = await this.command(HELP_ACTIONS[action], {});
-      if (!this.disposed) this.helpError = result?.ok !== true;
-    } catch { if (!this.disposed) this.helpError = true; }
+      const result = await this.command(HELP_ACTIONS[action], consoleAction ? { hidden: action === 'hideConsole' } : {});
+      if (!this.disposed) {
+        this.helpError = result?.ok === true ? false : errorKey;
+        if (result?.ok === true && consoleAction) this.helpNotice = action + 'Done';
+      }
+    } catch { if (!this.disposed) this.helpError = errorKey; }
     finally {
       if (!this.disposed) { this.helpPending.delete(action); this.signature = null; this.update(this.snapshot); }
     }
