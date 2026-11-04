@@ -41,7 +41,22 @@ app.whenReady().then(async()=>{
  await check('All three owned output windows receive real synthetic video over local WebRTC',async()=>{
   await run('document.getElementById("open-highway").click();document.getElementById("open-score").click();document.getElementById("open-lyrics").click();',true);await until(()=>BrowserWindow.getAllWindows().length===4,'three outputs');outputs=BrowserWindow.getAllWindows().filter(w=>w!==controller);await until(()=>outputs.every(w=>Object.values(TITLES).includes(w.getTitle())),'output titles');
   assert.deepEqual(outputs.map(w=>w.getTitle()).sort(),Object.values(TITLES).sort());
-  for(const output of outputs){await until(()=>output.webContents.executeJavaScript('document.getElementById("output").videoWidth>0'),'video '+output.getTitle());const image=await output.webContents.capturePage();assert(image.toBitmap().some((value,index)=>index%4!==3&&value>80),'Visible synthetic video pixels');const kind=Object.keys(TITLES).find(k=>TITLES[k]===output.getTitle());await fsp.writeFile(path.join(directory,kind+'.png'),image.toPNG());}
+  for (const output of outputs) {
+   const title = output.getTitle();
+   let image;
+   // Video metadata can arrive before Chromium paints the first WebRTC frame.
+   await until(async () => {
+    const hasFrame = await output.webContents.executeJavaScript(`(() => {
+     const video = document.getElementById('output');
+     return video.videoWidth > 0 && video.readyState >= video.HAVE_CURRENT_DATA;
+    })()`);
+    if (!hasFrame) return false;
+    image = await output.webContents.capturePage();
+    return image.toBitmap().some((value, index) => index % 4 !== 3 && value > 80);
+   }, 'visible synthetic video pixels in ' + title);
+   const kind = Object.keys(TITLES).find(key => TITLES[key] === title);
+   await fsp.writeFile(path.join(directory, kind + '.png'), image.toPNG());
+  }
   await fsp.writeFile(path.join(directory,'preview-fr.png'),(await controller.webContents.capturePage()).toPNG());
  });
  await check('Editing only lyrics leaves highway and score unchanged and resizes only the lyrics output',async()=>{
