@@ -24,7 +24,7 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
-          - os: macos-26
+          - os: macos-15
             platform: darwin
             arch: arm64
           - os: macos-26-intel
