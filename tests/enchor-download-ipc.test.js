@@ -3,8 +3,11 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const ORIGIN='https://chartshub.ca',md5='0123456789abcdef0123456789abcdef',payload={md5,title:'Song',artist:'Band'};
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 async function desktop({saveDialog,quickImport=false}={}){
- const ipc=new Map(),events=[],shown=[],saved=[],imports=[];let win,web,user={id:'member-a',emailVerified:true,staffRole:null},transfer,resolveDownload,calls=0,shellOptions,accountFails=false;
- const session=Object.assign(new EventEmitter(),{setPermissionRequestHandler(){},setPermissionCheckHandler(){},cookies:new EventEmitter(),fetch:async()=>{if(accountFails)throw Error('account unavailable');return Response.json({user});}});
+ const ipc=new Map(),events=[],shown=[],saved=[],imports=[],completions=[];let win,web,user={id:'member-a',emailVerified:true,staffRole:null},transfer,resolveDownload,calls=0,shellOptions,accountFails=false;
+ const session=Object.assign(new EventEmitter(),{setPermissionRequestHandler(){},setPermissionCheckHandler(){},cookies:new EventEmitter(),fetch:async url=>{
+  if(url.endsWith('/download-complete')){completions.push(url);return new Response(null,{status:204});}
+  if(accountFails)throw Error('account unavailable');return Response.json({user});
+ }});
  const contents=()=>Object.assign(new EventEmitter(),{mainFrame:{url:ORIGIN+'/'},getURL:()=>ORIGIN+'/',isDestroyed:()=>false,setWindowOpenHandler(){},send:(name,data)=>events.push({name,data}),loadURL:()=>Promise.resolve()});
  class Window extends EventEmitter{constructor(){super();win=this;this.webContents=contents();}setMenuBarVisibility(){}isDestroyed(){return false;}loadURL(){return Promise.resolve();}setProgressBar(){}isMinimized(){return false;}restore(){}show(){}focus(){} }
  const createDesktopShell=options=>{shellOptions=options;return{window:new Window(),catalogueView:{webContents:web=contents()},ready:Promise.resolve(),showTab(){},setCompanionAvailable(){},setTheme(){},dispose(){}};};
@@ -14,9 +17,12 @@ async function desktop({saveDialog,quickImport=false}={}){
  const localRequire=name=>name==='electron'?electron:name==='./desktop/controller.cjs'?{createDesktopShell}:name==='./desktop/config-backup-ipc.cjs'?backupStub:name==='./companion/host.cjs'?{registerCompanionScheme(){},createCompanionHost(){if(quickImport)return Promise.resolve(host);throw Error('Companion remains lazy');}}:name==='./enchor-download'?{...require('../enchor-download'),downloadEnchor:options=>{transfer=options;calls++;return new Promise(resolve=>{resolveDownload=resolve;});}}:name==='./batch-download'?{...require('../batch-download'),downloadBatch:options=>{transfer=options;calls++;return new Promise(resolve=>{resolveDownload=resolve;});}}:name==='./download-folder'?{folderPreferences:()=>({get:async()=>'/exports'})}:require(name.startsWith('./')?path.join(__dirname,'..',name):name);
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../main.js'),'utf8'),{require:localRequire,process,URL,AbortController,AbortSignal,__dirname:path.join(__dirname,'..'),setInterval,clearInterval});await settle();
  const event=()=>({sender:web,senderFrame:web.mainFrame});
- return {ipc,events,session,shown,saved,imports,win,web,get calls(){return calls;},get transfer(){return transfer;},setUser:next=>{user=next;},failAccount:()=>{accountFails=true;},openCompanion:()=>shellOptions.onSelectTab('companion'),invoke:(name,...args)=>ipc.get('chartshub:'+name)(event(),...args),finish:()=>resolveDownload({destination:transfer.outputPath||'/exports/Band - Song/Band - Song.sng',folderName:'Band - Song',fileName:transfer.outputPath?'chosen.'+transfer.format:'Band - Song.sng',files:3,format:transfer.format==='zip'?'zip':'sng'}),finishBatch:()=>{
+ return {ipc,events,session,shown,saved,imports,completions,win,web,get calls(){return calls;},get transfer(){return transfer;},setUser:next=>{user=next;},failAccount:()=>{accountFails=true;},openCompanion:()=>shellOptions.onSelectTab('companion'),invoke:(name,...args)=>ipc.get('chartshub:'+name)(event(),...args),finish:()=>resolveDownload({destination:transfer.outputPath||'/exports/Band - Song/Band - Song.sng',folderName:'Band - Song',fileName:transfer.outputPath?'chosen.'+transfer.format:'Band - Song.sng',files:3,format:transfer.format==='zip'?'zip':'sng'}),finishBatch:()=>{
   const items=require('../batch-download').normalizeBatch(transfer.endpoints);
-  for(const item of items)transfer.onDownloaded?.({endpoint:item.endpoint,result:{destination:'/exports/Saved',folderName:'Saved',files:3,...(item.request?{format:'folder'}:{})}});
+  for(const item of items){
+   if(!item.request)transfer.reportDownloadCompletion?.(item.endpoint);
+   transfer.onDownloaded?.({endpoint:item.endpoint,result:{destination:'/exports/Saved',folderName:'Saved',files:3,...(item.request?{format:'folder'}:{})}});
+  }
   resolveDownload({ok:true,cancelled:transfer.signal.aborted,results:items.map(item=>({endpoint:item.endpoint,ok:true,folderName:'Saved',files:3}))});
  }};
 }
@@ -50,7 +56,9 @@ test('the existing batch IPC accepts native and external entries while its state
  const state=await d.invoke('download-state');assert.deepEqual(Array.from(state.operation.endpoints),[endpoint,'enchor:'+md5]);
  d.transfer.progress({endpoint:'enchor:'+md5,itemPercent:50,percent:75,message:'External'});assert.equal((await d.invoke('download-state')).items.find(item=>item.endpoint==='enchor:'+md5).percent,50);
  assert.equal((await d.invoke('download-enchor',payload)).ok,false);
+ assert.deepEqual(d.completions,[]);
  d.finishBatch();assert.equal((await pending).ok,true);assert.equal((await d.invoke('download-state')).items.every(item=>item.status==='complete'),true);
+ assert.deepEqual(d.completions,[ORIGIN+endpoint.replace('download-manifest','download-complete')]);
 });
 
 test('ZIP and SNG archive intents choose a native save destination before any provider transfer',async()=>{

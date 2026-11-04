@@ -3,8 +3,11 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const ORIGIN='https://chartshub.ca',endpoint='/api/admin/charts/12345678-1234-1234-1234-123456789012/privatechart12/download-manifest';
 const settle=()=>new Promise(r=>setImmediate(r));
 async function desktop(){
- const ipc=new Map(),events=[];let win,web,user={id:'staff-a',emailVerified:true,staffRole:'moderator'},transfer,resolveDownload,shown=0;
- const session=new EventEmitter();Object.assign(session,{setPermissionRequestHandler(){},setPermissionCheckHandler(){},cookies:new EventEmitter(),fetch:async()=>Response.json({user})});
+ const ipc=new Map(),events=[],completions=[];let win,web,user={id:'staff-a',emailVerified:true,staffRole:'moderator'},transfer,resolveDownload,shown=0;
+ const session=new EventEmitter();Object.assign(session,{setPermissionRequestHandler(){},setPermissionCheckHandler(){},cookies:new EventEmitter(),fetch:async(url,options)=>{
+  if(url.endsWith('/download-complete')){completions.push({url,options});return new Response(null,{status:204});}
+  return Response.json({user});
+ }});
  const contents=()=>Object.assign(new EventEmitter(),{mainFrame:{url:ORIGIN+'/'},getURL:()=>ORIGIN+'/',isDestroyed:()=>false,setWindowOpenHandler(){},send:(name,data)=>events.push({name,data}),loadURL:()=>Promise.resolve()});
  class Window extends EventEmitter{constructor(){super();win=this;this.webContents=contents();}setMenuBarVisibility(){}isDestroyed(){return false;}loadURL(){return Promise.resolve();}setProgressBar(){}isMinimized(){return false;}restore(){}show(){}focus(){} }
  const createDesktopShell=()=>({window:new Window(),catalogueView:{webContents:web=contents()},ready:Promise.resolve(),showTab(){},setCompanionAvailable(){},setTheme(){},dispose(){}});
@@ -12,7 +15,7 @@ async function desktop(){
  const localRequire=name=>name==='electron'?electron:name==='./desktop/controller.cjs'?{createDesktopShell}:name==='./companion/host.cjs'?{registerCompanionScheme(){},createCompanionHost(){throw Error('Companion should remain lazy in catalogue mode');}}:name==='./download'?{ORIGIN,endpointValid:()=>true,downloadChart:options=>{transfer=options;return new Promise(r=>{resolveDownload=r;});}}:name==='./download-folder'?{folderPreferences:()=>({get:async()=>'/exports'})}:require(name.startsWith('./')?path.join(__dirname,'..',name):name);
  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../main.js'),'utf8'),{require:localRequire,process,URL,AbortController,AbortSignal,__dirname:path.join(__dirname,'..'),setInterval,clearInterval});await settle();
  const event=()=>({sender:web,senderFrame:web.mainFrame});
- return {ipc,events,session,get transfer(){return transfer;},get shown(){return shown;},win,web,setUser:next=>{user=next;},invoke:(name,...args)=>ipc.get('chartshub:'+name)(event(),...args),finish:()=>resolveDownload({destination:'/exports/private',folderName:'Private chart',files:4})};
+ return {ipc,events,completions,session,get transfer(){return transfer;},get shown(){return shown;},win,web,setUser:next=>{user=next;},invoke:(name,...args)=>ipc.get('chartshub:'+name)(event(),...args),finish:()=>resolveDownload({destination:'/exports/private',folderName:'Private chart',files:4})};
 }
 test('Electron clears private history on session-cookie changes and suppresses late progress/results',async()=>{
  const d=await desktop(),pending=d.invoke('download',endpoint);await settle();assert.ok(d.transfer);d.transfer.progress({percent:20,message:'Private chart'});
@@ -40,6 +43,13 @@ test('Electron honors an explicit video choice for published charts and keeps co
   assert.equal(d.transfer,undefined);
   const pending=d.invoke('download',target,choice);await settle();
   assert.equal(d.transfer.includeVideo,expected);
+  assert.equal(d.completions.length,0,'starting a download is not completion');
   d.finish();assert.equal((await pending).ok,true);
+  assert.deepEqual(d.completions.map(({url})=>url),target===published?[ORIGIN+published.replace('download-manifest','download-complete')]:[]);
+  if(target===published){
+   const {options}=d.completions[0];
+   assert.equal(options.method,'POST');assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
+   assert.deepEqual(options.headers,{Origin:ORIGIN});assert.equal(options.body,undefined);
+  }
  }
 });

@@ -60,7 +60,7 @@ const QUICK_IMPORT_CODES = new Set(PUBLIC_QUICK_IMPORT_CODES);
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, quickImportService, quickImportRuntimePlatform = process.platform, gameWidgetTelemetrySource, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, sharingClient, songRequestConnectionOptions = {} } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, quickImportService, quickImportRuntimePlatform = process.platform, gameWidgetTelemetrySource, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, reportDownloadCompletion, sharingClient, songRequestConnectionOptions = {} } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
   const measurementFactories = loadMeasurementFactories(gameplayMeasurements);
@@ -662,7 +662,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       ready: state.status === 'ready', scanning: state.status === 'scanning', revision: state.revision,
       busy: !!state.cleanupRefreshPending || !!state.badSongsBusy || !!state.bulkCleanup };
   }, scan: () => library.requestScan('quick') });
-  downloads = createDownloadService({ dataDirectory, worker: downloadWorker ?? createCatalogueDownloadWorker({ fetcher: (url, options) => net.fetch(url, options) }), onChange: value => {
+  downloads = createDownloadService({ dataDirectory, worker: downloadWorker ?? createCatalogueDownloadWorker({ fetcher: (url, options) => net.fetch(url, options) }), onCompleted: reportDownloadCompletion, onChange: value => {
     downloadNotice('observe', value);
     libraryDownloadRefresh.observe(value);
     quickImport.observeDownloads(value);
