@@ -4,7 +4,7 @@ const fs = require('node:fs/promises');
 const constants = require('node:fs').constants;
 const path = require('node:path');
 const crypto = require('node:crypto');
-const { ORIGIN, endpointValid, safePart, validateManifest, validateDestination, songFolderName } = require('../download.js');
+const { ORIGIN, DOWNLOAD_FILE_HEADERS, endpointValid, safePart, validateManifest, validateDestination, songFolderName } = require('../download.js');
 
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const PUBLIC_ENDPOINT = /^\/api\/charts\/[a-f0-9-]{36}\/[A-Za-z0-9_-]{10,200}\/download-manifest$/;
@@ -159,8 +159,9 @@ function createDownloadWorker({ fetcher = globalThis.fetch, idleTimeoutMs = 6000
     try {
       touch(size === undefined ? manifestTimeoutMs : headerTimeoutMs);
       const url = ORIGIN + endpoint;
+      const headers = size === undefined ? { Accept: 'application/json' } : { Accept: 'application/octet-stream', ...DOWNLOAD_FILE_HEADERS };
       const pending = Promise.resolve().then(() => fetcher(url, { method: 'GET', credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer',
-        headers: { Accept: size === undefined ? 'application/json' : 'application/octet-stream' }, signal: controller.signal }));
+        headers, signal: controller.signal }));
       void pending.then(value => { if (closed && value?.body) void value.body.cancel().catch(() => {}); }, () => {});
       try { response = await wait(pending); } catch (error) { if (controller.signal.aborted) throw timeout ? failure('DOWNLOAD_TIMEOUT') : cancelled(); throw failure('DOWNLOAD_NETWORK'); }
       if (!response || response.status !== 200 || response.redirected || (response.url && response.url !== url)) throw failure('DOWNLOAD_HTTP');
