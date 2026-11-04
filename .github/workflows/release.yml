@@ -24,10 +24,10 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
-          - os: macos-15
+          - os: macos-26
             platform: darwin
             arch: arm64
-          - os: macos-15-intel
+          - os: macos-26-intel
             platform: darwin
             arch: x64
     runs-on: ${{ matrix.os }}
