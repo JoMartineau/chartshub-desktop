@@ -39,7 +39,7 @@ test('native manifests distinguish the 4 GB chart limit from individual file lim
 });
 test('native download writes song.ini and publishes the directory only after hash validation',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'chartshub-native-test-'));const progress=[];const data='[Song]\nname=Test';
- try{const result=await downloadChart({endpoint,directory:root,signal:new AbortController().signal,progress:p=>progress.push(p),fetcher:async(url,options)=>{assert.ok(url.startsWith(ORIGIN+'/api/admin/charts/'));assert.equal(options.redirect,'error');return url.endsWith('download-manifest')?Response.json({title:'Test song',files:[entry()]}):new Response(data);}});
+ try{const result=await downloadChart({endpoint,directory:root,signal:new AbortController().signal,progress:p=>progress.push(p),fetcher:async(url,options)=>{assert.ok(url.startsWith(ORIGIN+'/api/admin/charts/'));assert.equal(options.redirect,'error');assert.equal(options.headers?.['X-ChartsHub-Download'],undefined);return url.endsWith('download-manifest')?Response.json({title:'Test song',files:[entry()]}):new Response(data);}});
  assert.equal(fs.readFileSync(path.join(result.destination,'song.ini'),'utf8'),data);assert.equal(result.files,1);assert.equal(progress.at(-1).percent,100);assert.deepEqual(fs.readdirSync(root),[result.folderName]);
  }finally{fs.rmSync(root,{recursive:true,force:true});}
 });
@@ -53,8 +53,10 @@ test('published folder downloads skip video requests only when the user excludes
  try{
   for(const includeVideo of [undefined,false,true]){
    const requested=[];
-   const result=await downloadChart({endpoint:published,directory:root,includeVideo,signal:new AbortController().signal,fetcher:async url=>{
-    if(url.endsWith('download-manifest'))return Response.json({title:'Demo',files});
+   const result=await downloadChart({endpoint:published,directory:root,includeVideo,signal:new AbortController().signal,fetcher:async(url,options)=>{
+    const manifest=url.endsWith('download-manifest');
+    assert.equal(options.headers?.['X-ChartsHub-Download'],manifest?undefined:'1');
+    if(manifest)return Response.json({title:'Demo',files});
     const index=files.findIndex(file=>url===ORIGIN+file.url);
     assert.ok(index>=0);requested.push(index);return new Response(bodies[index]);
    }});

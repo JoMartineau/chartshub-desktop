@@ -43,7 +43,7 @@ async function fixture(t, options = {}) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'chartshub-download-')), root = path.join(directory, 'songs'), data = path.join(directory, 'profile');
   await fs.mkdir(root); await fs.mkdir(data); const services = [], revisions = [], worker = options.worker ?? controlledWorker();
   const f = { directory, root, data, file: path.join(data, 'download-state.json'), worker, revisions };
-  f.create = () => { const service = (options.factory ?? createDownloadService)({ dataDirectory: data, worker, onChange: snapshot => revisions.push(snapshot.revision) }); services.push(service); return service; };
+  f.create = () => { const service = (options.factory ?? createDownloadService)({ dataDirectory: data, worker, onCompleted: options.onCompleted, onChange: snapshot => revisions.push(snapshot.revision) }); services.push(service); return service; };
   f.service = f.create(); f.initialize = async () => { await f.service.start(); await f.service.selectRoot(root); };
   t.after(async () => { worker.holdAbort = false; for (const run of worker.runs) if (!run.settled) run.reject(abortError()); for (const service of services) await service.stop(); if (path.dirname(directory) !== path.resolve(os.tmpdir()) || !path.basename(directory).startsWith('chartshub-download-')) throw Error('Unexpected temporary download folder'); await fs.rm(directory, { recursive: true, force: true }); });
   return f;
@@ -145,6 +145,28 @@ test('completed history removal cleans only the worker receipt and never the ins
   await assert.rejects(f.service.cancel(id), { code: 'DOWNLOAD_SAFE' }); await assert.rejects(f.service.pause(id), { code: 'DOWNLOAD_SAFE' }); await f.service.remove(id);
   assert.equal(f.service.status().items.length, 0); assert.deepEqual(f.worker.discarded, [{ id, rootPath: f.root }]); assert.equal(await fs.readFile(path.join(destination, 'notes.chart'), 'utf8'), 'retained final chart');
   await assert.rejects(f.service.resolveFolder(id), { code: 'DOWNLOAD_SAFE' });
+});
+
+test('reports only a newly verified ChartsHub completion without blocking the queue or replaying history', async t => {
+  const reports = [], pendingReport = deferred();
+  const f = await fixture(t, { onCompleted: endpoint => { reports.push(endpoint); return pendingReport.promise; } });
+  await f.initialize();
+  const first = await f.service.enqueue(descriptor()), second = await f.service.enqueue(descriptor(2));
+  const external = 'enchor:' + 'a'.repeat(32);
+  const third = await f.service.enqueue({ ...descriptor(3), endpoint: external, chartId: external });
+  await until(() => f.worker.runs.length === 1);
+  f.worker.runs[0].resolve({ destination: f.directory, folderName: path.basename(f.directory), files: 1, totalBytes: 1 });
+  await until(() => state(f.service, first.id).state === 'Failed' && f.worker.runs.length === 2);
+  assert.deepEqual(reports, []);
+  await f.worker.complete(f.worker.runs[1]);
+  await until(() => state(f.service, second.id).state === 'Completed' && f.worker.runs.length === 3);
+  await f.worker.complete(f.worker.runs[2]);
+  await until(() => state(f.service, third.id).state === 'Completed');
+  pendingReport.resolve();
+  await f.service.stop();
+  const reopened = f.create(); await reopened.start();
+  assert.equal(state(reopened, second.id).state, 'Completed');
+  assert.deepEqual(reports, [descriptor(2).endpoint]);
 });
 
 test('remove Paused discards partials and failed cleanup retains recoverable history', async t => {

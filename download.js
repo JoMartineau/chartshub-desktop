@@ -5,6 +5,7 @@ const {pipeline}=require('node:stream/promises');
 const {idleTransfer}=require('./transfer-timeout');
 const {MAX_BYTES,MAX_FILE_BYTES}=require('./enchor-sng');
 const ORIGIN='https://chartshub.ca';
+const DOWNLOAD_FILE_HEADERS=Object.freeze({'X-ChartsHub-Download':'1'});
 const CHART_VIDEO=/^(?:video|background)\.(?:mp4|webm|avi|vp8|ogv|mpeg|mpg|mov|m4v|mkv)$/i;
 function endpointValid(endpoint){return typeof endpoint==='string'&&/^\/api\/(?:admin\/)?charts\/[a-f0-9-]{36}\/[A-Za-z0-9_-]{10,200}\/download-manifest$/.test(endpoint);}
 // Manifest contract: up to six components, each <=180 UTF-16 units /255 UTF-8 bytes.
@@ -83,6 +84,7 @@ async function downloadChart(options){const activity=idleTransfer(options.signal
 async function transferChart({endpoint,directory,includeVideo=true,fetcher,signal,wait,touch,progress=()=>{},idleTimeoutMs,headerTimeoutMs=idleTimeoutMs??1800000}){
  if(!endpointValid(endpoint))throw Error('Lien ChartsHub invalide.');
  const options={credentials:'include',redirect:'error',cache:'no-store',signal};
+ const fileOptions=endpoint.startsWith('/api/charts/')?{...options,headers:DOWNLOAD_FILE_HEADERS}:options;
  progress({message:'Préparation du téléchargement…',percent:0});
  const manifest=await readJson(await wait(fetcher(ORIGIN+endpoint,options)),{wait,touch,signal});
  validateManifest(manifest,endpoint);
@@ -101,7 +103,7 @@ async function transferChart({endpoint,directory,includeVideo=true,fetcher,signa
   for(const file of files){
    signal?.throwIfAborted();const name=file.parts.join('/');progress({message:'Vérification et téléchargement : '+name,percent:total?Math.floor(saved/total*100):0});
    // The server prepares the whole file before releasing headers; allow its bounded transfer window.
-   touch(headerTimeoutMs);const response=await wait(fetcher(ORIGIN+file.url,options));touch();
+   touch(headerTimeoutMs);const response=await wait(fetcher(ORIGIN+file.url,fileOptions));touch();
    if(!response.ok)throw await downloadFailure(response,{wait,touch,signal},name);
    if(!response.body)throw Error('Réponse du serveur vide : '+name);
    const target=path.resolve(staging,...file.parts);if(!target.startsWith(staging+path.sep))throw Error('Chemin interdit.');
@@ -128,4 +130,4 @@ async function transferChart({endpoint,directory,includeVideo=true,fetcher,signa
   if(!committed&&reserved&&path.dirname(reserved)===root)await fsp.rm(reserved,{recursive:true,force:true});
  }
 }
-module.exports={ORIGIN,endpointValid,safePart,validateManifest,validateDestination,downloadChart,songFolderName};
+module.exports={ORIGIN,DOWNLOAD_FILE_HEADERS,endpointValid,safePart,validateManifest,validateDestination,downloadChart,songFolderName};

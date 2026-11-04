@@ -5,6 +5,7 @@ const {registerCompanionScheme,createCompanionHost}=require('./companion/host.cj
 const {createDesktopShell}=require('./desktop/controller.cjs');
 const {attachEditContextMenu}=require('./desktop/edit-context-menu.cjs');
 const {createDownloadNotifications}=require('./desktop/download-notifications.cjs');
+const {createDownloadCompletion}=require('./desktop/download-completion.cjs');
 const {createCloneHeroProcessProbe}=require('./companion/clonehero-process.cjs');
 registerCompanionScheme();
 const profileIndex=process.argv.indexOf('--companion-profile');
@@ -12,6 +13,7 @@ if(profileIndex>=0&&process.argv[profileIndex+1])app.setPath('userData',path.res
 let desktop,web,companionHostPromise,closing=false,allowClose=false,companionAvailable=false,companionLanguage='en';
 let loadCatalogue=()=>{},canOpenCompanion=async()=>false;
 let notificationBroker=null;
+let reportDownloadCompletion;
 let songRequestSharing=null;
 let activeCompanionHost=null,maintenance=null,updater=null,maintenanceLocked=false,pendingUpdate=false;
 let backupModule=null,backupEngine=null,backupReady=Promise.resolve(),pendingBackupId=null;
@@ -29,7 +31,7 @@ const openCompanion=async()=>{
  loadCatalogue();
  if(!await canOpenCompanion()){if(!closing&&requestedTab==='companion')await selectTab('catalogue');return;}
  if(closing||requestedTab!=='companion')return;
- if(!companionHostPromise)companionHostPromise=createCompanionHost({sharingClient:songRequestSharing,isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
+ if(!companionHostPromise)companionHostPromise=createCompanionHost({sharingClient:songRequestSharing,isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),reportDownloadCompletion,downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
  const host=await companionHostPromise;
  activeCompanionHost=host;
  desktop.setLanguage?.(companionLanguage);
@@ -70,6 +72,7 @@ else{
  app.on('second-instance',(_event,argv)=>{requestedTab=argv.includes('--companion')?'companion':'catalogue';if(desktop)void selectTab(requestedTab).catch(()=>dialog.showErrorBox('ChartsHub','Cet onglet ne peut pas être ouvert.'));});
  app.whenReady().then(()=>{
   const ses=session.fromPartition('persist:chartshub');
+  reportDownloadCompletion=createDownloadCompletion((url,options)=>ses.fetch(url,options));
   ses.setPermissionRequestHandler((_web,permission,callback)=>callback(false));
   ses.setPermissionCheckHandler(()=>false);
   ses.on('will-download',(event)=>event.preventDefault());
@@ -310,7 +313,7 @@ else{
     const directory=await chooseFolder('catalogue');
     if(!directory)return result={ok:false,cancelled:true,results:[]};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    result=await downloadBatch({endpoints:requests,directory,includeVideo,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data),onDownloaded:value=>completedFolders.push(value)});
+    result=await downloadBatch({endpoints:requests,directory,includeVideo,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data),onDownloaded:value=>completedFolders.push(value),reportDownloadCompletion});
     await refreshAccount();
     if(!downloads.current(token))return {ok:false,cancelled:true,results:[]};
     for(const value of completedFolders)noteCompletedDownload(value.endpoint,value.result,event,token,controller.signal);
@@ -332,6 +335,7 @@ else{
     if(!directory)return outcome={ok:false,cancelled:true};
     if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
     const result=await downloadChart({endpoint,directory,includeVideo:endpoint.includes('/admin/')||includeVideo,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,{...data,endpoint,itemPercent:data.percent})});
+    void reportDownloadCompletion(endpoint);
     await refreshAccount();if(!downloads.current(token))return outcome={ok:false,cancelled:true};
     noteCompletedDownload(endpoint,result,event,token,controller.signal);
     // Only a path produced by this download operation is passed to the OS.

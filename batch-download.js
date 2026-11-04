@@ -10,7 +10,7 @@ function normalizeBatch(endpoints){
  });
 }
 function batchValid(endpoints){try{normalizeBatch(endpoints);return true;}catch{return false;}}
-async function downloadBatch({endpoints,directory,includeVideo=true,fetcher,signal,progress=()=>{},onDownloaded=()=>{},download=downloadChart,downloadExternal=downloadEnchor,idleTimeoutMs}){
+async function downloadBatch({endpoints,directory,includeVideo=true,fetcher,signal,progress=()=>{},onDownloaded=()=>{},reportDownloadCompletion,download=downloadChart,downloadExternal=downloadEnchor,idleTimeoutMs}){
  const items=normalizeBatch(endpoints);
  const results=[];let stopped;
  for(let i=0;i<items.length;i++){
@@ -21,6 +21,10 @@ async function downloadBatch({endpoints,directory,includeVideo=true,fetcher,sign
    const options={directory,includeVideo,fetcher,signal,idleTimeoutMs,progress:p=>progress({...p,endpoint:item.endpoint,state:'downloading',itemPercent:p.percent,itemMessage:p.message,percent:Math.floor((i+p.percent/100)/items.length*100),message:`${i+1}/${items.length} · ${p.message}`})};
    const result=await(item.request?downloadExternal({...options,request:item.request}):download({...options,endpoint:item.endpoint}));
    results.push({endpoint:item.endpoint,ok:true,folderName:result.folderName,files:result.files,...(item.request?{fileName:result.fileName,format:result.format||(result.fileName?'sng':'folder')}:{})});
+   // A cancelled batch can still contain a chart already saved to disk.
+   if(!item.request&&reportDownloadCompletion){
+    void Promise.resolve().then(()=>reportDownloadCompletion(item.endpoint)).catch(()=>{});
+   }
    // Trusted main-process completion only. The private destination never enters
    // results/progress sent to the catalogue, and optional import cannot turn a
    // successfully saved chart into a failed download or hold up the batch.

@@ -54,7 +54,7 @@ function validateDocument(value) {
 }
 
 /** One transfer at a time. Only explicit queue/resume/retry actions may cause traffic. */
-function createDownloadService({ dataDirectory, worker, onChange } = {}) {
+function createDownloadService({ dataDirectory, worker, onChange, onCompleted } = {}) {
   if (!absolute(dataDirectory) || ['run', 'discard', 'resolveCompleted'].some(key => typeof worker?.[key] !== 'function')) throw safe('Configuration des téléchargements invalide.');
   const filename = path.join(dataDirectory, 'download-state.json');
   let document = { version: 1, rootPath: null, items: [], revision: 0 }, loaded = false, loadTask = null, protectedFile = null;
@@ -144,6 +144,9 @@ function createDownloadService({ dataDirectory, worker, onChange } = {}) {
       if (!object(result) || !absolute(result.destination) || !samePath(path.dirname(result.destination), run.rootPath) || typeof result.folderName !== 'string' || path.basename(result.destination) !== result.folderName || !nonnegative(result.files) || result.files < 1 || !nonnegative(result.totalBytes)) throw Object.assign(Error('Invalid completion'), { code: 'DOWNLOAD_PATH' });
       const canonical = await worker.resolveCompleted({ rootPath: run.rootPath, destination: result.destination });
       if (!absolute(canonical) || !samePath(canonical, result.destination)) throw Object.assign(Error('Missing completed folder'), { code: 'DOWNLOAD_PATH' });
+      if (onCompleted && MANIFEST.test(run.endpoint)) {
+        void Promise.resolve().then(() => onCompleted(run.endpoint)).catch(() => {});
+      }
       // The worker's final promotion is not cancellable. An actual published
       // directory wins over a pause/cancel that arrived after that boundary.
       await queue(async () => {

@@ -37,7 +37,7 @@ const PUBLIC_MEMBERS = Object.freeze([
   'companion/ui/session-widget-controls.js', 'companion/ui/session-widget-controls.css',
   'companion/ui/session-feed.html', 'companion/ui/session-feed.js', 'companion/ui/session-feed.css',
   'companion/ui/home-controls.js', 'companion/ui/home-controls.css',
-  'desktop/quick-import-download-completion.cjs', 'companion/quick-import-service.cjs',
+  'desktop/download-completion.cjs', 'desktop/quick-import-download-completion.cjs', 'companion/quick-import-service.cjs',
   'companion/quick-import-preferences.cjs', 'companion/quick-import-client.cjs',
   'companion/quick-import-download-observer.cjs', 'companion/quick-import-build.cjs',
   'companion/melon-console.cjs', 'companion/ui/ui-bloom.css',

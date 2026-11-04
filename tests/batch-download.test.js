@@ -2,7 +2,16 @@ const {test}=require('node:test'),assert=require('node:assert/strict');const {ba
 const endpoint=n=>'/api/charts/12345678-1234-1234-1234-123456789012/chartabcdef'+n+'/download-manifest';
 test('batch permits more than 100 charts but rejects duplicate, external and admin endpoints',()=>{assert.equal(batchValid(Array.from({length:150},(_,i)=>endpoint(i))),true);for(const value of [[],[endpoint(1),endpoint(1)],['https://evil.test'],[endpoint(1).replace('/charts/','/admin/charts/')]])assert.equal(batchValid(value),false);});
 test('charts run sequentially in the same directory and failures do not discard successes',async()=>{let active=0,max=0;const result=await downloadBatch({endpoints:[endpoint(1),endpoint(2),endpoint(3)],directory:'chosen-folder',signal:new AbortController().signal,download:async options=>{assert.equal(options.directory,'chosen-folder');active++;max=Math.max(max,active);await Promise.resolve();active--;if(options.endpoint===endpoint(2))throw Error('Unavailable');return {folderName:'saved',files:2};}});assert.equal(max,1);assert.deepEqual(result.results.map(r=>r.ok),[true,false,true]);assert.equal(result.ok,false);});
-test('cancellation stops before the next chart and reports already completed charts',async()=>{const controller=new AbortController();let calls=0;const result=await downloadBatch({endpoints:[endpoint(1),endpoint(2)],signal:controller.signal,download:async()=>{calls++;controller.abort();return {folderName:'saved',files:1};}});assert.equal(calls,1);assert.equal(result.cancelled,true);assert.equal(result.results.length,1);});
+test('cancellation stops before the next chart and reports already completed charts',async()=>{
+ const controller=new AbortController(),completed=[];let calls=0;
+ const result=await downloadBatch({
+  endpoints:[endpoint(1),endpoint(2)],signal:controller.signal,
+  download:async()=>{calls++;controller.abort();return {folderName:'saved',files:1};},
+  reportDownloadCompletion:endpoint=>completed.push(endpoint)
+ });
+ assert.equal(calls,1);assert.equal(result.cancelled,true);assert.equal(result.results.length,1);
+ assert.deepEqual(completed,[endpoint(1)]);
+});
 
 test('batch events retain chart endpoint and individual percentage beside total progress',async()=>{
  const events=[];await downloadBatch({endpoints:[endpoint(1),endpoint(2)],signal:new AbortController().signal,progress:event=>events.push(event),download:async options=>{options.progress({percent:50,message:'Audio'});return {folderName:'Saved',files:1};}});

@@ -67,6 +67,7 @@ test('Companion download worker installs checked synthetic files, sends no crede
     assert.ok(url.startsWith(ORIGIN + '/api/charts/')); assert.equal(options.credentials, 'omit'); assert.equal(options.redirect, 'error');
     assert.equal(options.method, 'GET'); assert.equal(options.referrerPolicy, 'no-referrer'); assert.equal(options.cache, 'no-store');
     assert.equal(Object.keys(options.headers).some(key => /range|cookie|authorization/i.test(key)), false);
+    assert.equal(options.headers['X-ChartsHub-Download'], url.endsWith('/download-manifest') ? undefined : '1');
   }
 });
 

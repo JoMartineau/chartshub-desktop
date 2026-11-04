@@ -41,6 +41,10 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.43
+
+Le classement de ChartsHub peut comptabiliser les téléchargements terminés depuis l’application. [Notes 0.14.43](docs/RELEASE-0.14.43.md).
+
 ### Version 0.14.42
 
 Quick Import permet de retirer MelonLoader d’une installation reconnue de Clone Hero sur Linux ou macOS en déplaçant le chargeur dans un dossier de sauvegarde. [Notes 0.14.42](docs/RELEASE-0.14.42.md).

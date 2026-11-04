@@ -27,6 +27,7 @@ test('Companion external folder imports reuse the SNG validator and preserve UUI
   const worker = createCatalogueDownloadWorker({ fetcher: async (url, options) => { calls.push({ url, options }); return new Response(bytes, { headers: { 'content-type': 'application/octet-stream', 'content-length': String(bytes.length) } }); } });
   const result = await worker.run(f.args); assert.equal(result.folderName, 'Band - Song (2)'); assert.equal(result.files, 3); assert.ok(result.totalBytes > 0); assert.equal(await fs.readFile(path.join(result.destination, 'song.ogg'), 'utf8'), 'synthetic audio'); assert.equal(await fs.readFile(path.join(f.rootPath, 'Band - Song', 'keep.txt'), 'utf8'), 'keep');
   assert.equal(calls[0].url, 'https://files.enchor.us/' + md5 + '.sng'); assert.equal(calls[0].options.credentials, 'omit'); assert.equal(calls[0].options.redirect, 'error'); assert.equal(calls[0].options.headers.Authorization, undefined);
+  assert.equal(calls[0].options.headers['X-ChartsHub-Download'], undefined);
   const recovered = await worker.run(f.args); assert.equal(recovered.destination, result.destination); assert.equal(calls.length, 1, 'an existing UUID receipt recovers without another transfer');
   assert.equal(await worker.resolveCompleted({ rootPath: f.rootPath, destination: result.destination }), result.destination);
   await assert.rejects(createDownloadWorker().discard({ id, rootPath: f.rootPath }), { code: 'DOWNLOAD_PATH' });
