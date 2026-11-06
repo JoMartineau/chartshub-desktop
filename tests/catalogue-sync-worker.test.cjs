@@ -422,21 +422,31 @@ test('restart reads its valid deep1000-file journal above the old3MB limit witho
   const { identity } = require('../companion/download-worker.cjs');
   const f = await fixture(t), job = id(), first = await f.worker.run({ ...f.args, id: job }), directory = path.join(f.rootPath, '.chartshub-companion-' + job), backup = path.join(directory, 'backup');
   await fs.rename(first.destination, backup); await fs.mkdir(first.destination);
-  const files = [], stats = stat => Object.fromEntries(['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs', 'mode', 'nlink'].map(key => [key, String(stat[key])]));
+  const files = [], previousFiles = [], stats = stat => Object.fromEntries(['dev', 'ino', 'size', 'mtimeNs', 'ctimeNs', 'mode', 'nlink'].map(key => [key, String(stat[key])]));
   for (const file of first.record.files) {
     const target = path.join(first.destination, ...file.parts); await fs.copyFile(path.join(backup, ...file.parts), target);
     files.push({ ...file, stamp: stats(await fs.lstat(target, { bigint: true })) });
+    previousFiles.push({ ...file, stamp: stats(await fs.lstat(path.join(backup, ...file.parts), { bigint: true })) });
   }
-  const parents = Array.from({ length: 5 }, (_, index) => '節'.repeat(80) + index), deep = path.join(first.destination, ...parents); await fs.mkdir(deep, { recursive: true });
+  // macOS PATH_MAX is 1024 bytes, including the temporary root. Use ASCII paths
+  // well below that bound and real previous/next 1000-file receipts to exercise
+  // the large checkpoint, rather than exceeding native filesystem limits.
+  const parents = Array.from({ length: 5 }, (_, index) => 'p'.repeat(109) + index), filename = index => 'f'.repeat(170) + String(index).padStart(4, '0') + '.txt';
+  const longestPaths = [first.destination, backup].map(folder => Buffer.byteLength(path.join(folder, ...parents, filename(996))));
+  if (process.platform === 'darwin') assert.ok(longestPaths.every(length => length < 1024), 'the actual disposable fixture paths must fit macOS PATH_MAX');
+  await fs.mkdir(path.join(first.destination, ...parents), { recursive: true }); await fs.mkdir(path.join(backup, ...parents), { recursive: true });
   for (let index = 0; index < 997; index++) {
-    const parts = [...parents, '譜'.repeat(78) + String(index).padStart(4, '0') + '.txt'], target = path.join(first.destination, ...parts);
-    await fs.writeFile(target, '');
-    files.push({ parts, size: 0, sha256: hash(''), remoteSignature: hash('deep' + index), stamp: stats(await fs.lstat(target, { bigint: true })) });
+    const parts = [...parents, filename(index)], target = path.join(first.destination, ...parts), oldTarget = path.join(backup, ...parts);
+    await fs.writeFile(target, ''); await fs.writeFile(oldTarget, '');
+    const descriptor = { parts, size: 0, sha256: hash(''), remoteSignature: hash('deep' + index) };
+    files.push({ ...descriptor, stamp: stats(await fs.lstat(target, { bigint: true })) });
+    previousFiles.push({ ...descriptor, stamp: stats(await fs.lstat(oldTarget, { bigint: true })) });
   }
+  const previousRecord = validateSyncRecord({ ...first.record, revision: hash('previous deep revision'), files: previousFiles });
   const record = validateSyncRecord({ ...first.record, folderIdentity: identity(await fs.lstat(first.destination, { bigint: true })), revision: hash('deep revision'), files });
   const statePath = path.join(directory, 'checkpoint.json'), state = JSON.parse(await fs.readFile(statePath, 'utf8'));
   state.files = Object.fromEntries(files.map(file => [hash(JSON.stringify(file.parts)), { parts: file.parts, size: file.size, sha256: file.sha256, remoteSignature: file.remoteSignature }]));
-  state.transaction = { phase: 'complete', folderName: first.folderName, previousIdentity: first.record.folderIdentity, nextIdentity: record.folderIdentity, previousRecord: first.record, record };
+  state.transaction = { phase: 'complete', folderName: first.folderName, previousIdentity: previousRecord.folderIdentity, nextIdentity: record.folderIdentity, previousRecord, record };
   const checkpoint = JSON.stringify(state); assert.ok(Buffer.byteLength(checkpoint) > 3000000); assert.ok(Buffer.byteLength(checkpoint) < 16 * 1024 * 1024);
   await fs.writeFile(statePath, checkpoint); const before = f.calls.length; f.setHook(() => { throw Error('recovery must not access network'); });
   const recovered = await f.worker.run({ ...f.args, id: job, record });
