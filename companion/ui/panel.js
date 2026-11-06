@@ -27,6 +27,8 @@ import { GameCaptureControls } from './game-capture-controls.js';
 import { InputViewerControls } from './input-viewer-controls.js';
 import { DrumVstControls } from './drum-vst-controls.js';
 import { QuickImportControls } from './quick-import-controls.js';
+import { CatalogueSyncControls } from './catalogue-sync-controls.js';
+import { LibraryRemovalControls } from './library-removal-controls.js';
 import { GameWidgetControls } from './game-widget-controls.js';
 import { RequestDiscoveryControls } from './request-discovery-controls.js';
 import { UnifiedChatControls } from './unified-chat-controls.js';
@@ -93,6 +95,8 @@ const songVisualControls = new SongVisualControls({ root: query('#song-visuals-c
 const gameCaptureControls = new GameCaptureControls({ root: query('#game-capture-controls'), command: (name, payload) => command(name, payload) });
 const drumVstControls = new DrumVstControls({ root: query('#drum-vst-panel'), command: (name, payload) => command(name, payload) });
 const quickImportControls = new QuickImportControls({ root: query('#quick-import-panel'), command: (name, payload) => command(name, payload) });
+const catalogueSyncControls = new CatalogueSyncControls({ root: query('#catalogue-sync-controls'), command: (name, payload) => command(name, payload) });
+const libraryRemovalControls = new LibraryRemovalControls({ root: query('#library-removal-controls'), command: (name, payload) => command(name, payload) });
 const gameWidgetControls = new GameWidgetControls({ root: query('#game-widget-integrations'), command: (name, payload) => command(name, payload), navigate: () => { workspaceNavigation.select('stream', { scroll: true }); const target=query('#widget-settings'); target?.scrollIntoView({block:'start',behavior:'instant'}); } });
 const inputViewerControls = new InputViewerControls({ root: query('#input-viewer-controls'), command: (name, payload) => command(name, payload) });
 const library = new LibraryControls({ root: query('#companion-app'), command: (name, payload) => command(name, payload) });
@@ -200,6 +204,8 @@ async function changeSource(name, payload) {
 function applySnapshot(snapshot) {
   drumVstControls.update(snapshot);
   quickImportControls.update(snapshot);
+  catalogueSyncControls.update(snapshot);
+  libraryRemovalControls.update(snapshot);
   gameWidgetControls.update(snapshot);
   requestDiscoveryControls.update(snapshot);
   unifiedChatControls.update(snapshot);
@@ -423,6 +429,8 @@ window.addEventListener('beforeunload', () => {
   disposed = true;
   workspaceNavigation.dispose();
   homeControls.dispose();
+  catalogueSyncControls.dispose();
+  libraryRemovalControls.dispose();
   statusControls.dispose();
   updates?.dispose(); configurationBackup?.dispose();
   unsubscribe();

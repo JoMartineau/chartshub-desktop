@@ -8,10 +8,11 @@ const FAILED = 'Le service de bibliothèque est indisponible. Rouvrez le Compani
 const STOPPED = 'Le service de bibliothèque est arrêté.';
 const initialStatus = () => ({ settings: { rootPath: null, watch: false, refreshOnStart: true }, status: 'idle', mode: null,
   progress: emptyScanProgress(), count: 0, lastScanAt: null, changes: { added: 0, removed: 0, modified: 0 },
-  warningCount: 0, skippedCount: 0, error: null, watcher: 'off', revision: 0, cleanupRefreshPending: false, bulkCleanup: null });
+  warningCount: 0, skippedCount: 0, error: null, watcher: 'off', revision: 0, cleanupRefreshPending: false, downloadBatchActive: false, selectedRemoval: { phase: 'idle', processed: 0, total: 0 }, bulkCleanup: null });
 const copyStatus = value => ({ ...value, settings: { ...value.settings }, progress: { ...value.progress }, changes: { ...value.changes },
   sharingPreparation: value.sharingPreparation ? { ...value.sharingPreparation } : null,
-  bulkCleanup: value.bulkCleanup ? { ...value.bulkCleanup } : null });
+  bulkCleanup: value.bulkCleanup ? { ...value.bulkCleanup } : null,
+  selectedRemoval: value.selectedRemoval ? { ...value.selectedRemoval } : { phase: 'idle', processed: 0, total: 0 } });
 function freezeMatching(value) {
   for (const item of value.items) Object.freeze(item);
   Object.freeze(value.items);
@@ -53,7 +54,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
         if (current !== connection) return;
         if (message.type === 'recycle') {
           const parent = connection.pending.get(message.requestId);
-          const allowed = !connection.stopping && !connection.recycling && ['recycleDuplicates', 'forceRecycleDuplicate', 'recycleBulkDifferences', 'recycleBadSongs'].includes(parent?.method)
+          const allowed = !connection.stopping && !connection.recycling && ['recycleDuplicates', 'forceRecycleDuplicate', 'recycleBulkDifferences', 'recycleBadSongs', 'recycleSelectedRemoval'].includes(parent?.method)
             && Number.isSafeInteger(message.id) && message.id > 0 && !connection.recycleIds.has(message.id)
             && typeof recycle === 'function' && typeof message.target === 'string' && path.isAbsolute(message.target) && !message.target.includes('\0');
           const reply = ok => { try { worker.postMessage({ type: 'recycle-result', id: message.id, ok }); } catch {} };
@@ -74,7 +75,7 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
         connection.pending.delete(message.id);
         if (!connection.pending.size && !connection.stopping) worker.unref();
         if (message.ok) pending.resolve(message.result);
-        else pending.reject(Object.assign(Error(message.error), ['LIBRARY_COMPARISON_SAFE', 'LIBRARY_BAD_SONGS_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED', ...SHARE_ERRORS].includes(message.code) ? { code: message.code } : {}));
+        else pending.reject(Object.assign(Error(message.error), ['LIBRARY_COMPARISON_SAFE', 'LIBRARY_BAD_SONGS_SAFE', 'LIBRARY_SELECTED_REMOVAL_SAFE', 'LIBRARY_CLEANUP_SAFE', 'LIBRARY_CLEANUP_HISTORY', 'LIBRARY_MEDIA_SAFE', 'LIBRARY_MEDIA_UNSUPPORTED', ...SHARE_ERRORS].includes(message.code) ? { code: message.code } : {}));
       });
       worker.on('error', () => fail(connection));
       worker.on('exit', () => { if (current === connection) fail(connection); });
@@ -138,12 +139,17 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
     load: () => call('load', [], true), start: () => call('start', [], true),
     selectRoot: root => call('selectRoot', [root]), configure: options => call('configure', [options]),
     requestScan: mode => call('requestScan', [mode]), cancel: () => call('cancel', []),
+    beginDownloadBatch: rootPath => call('beginDownloadBatch', [rootPath]),
+    endDownloadBatch: (token, options = {}) => call('endDownloadBatch', [token, options]),
     verifyAllDuplicates: () => call('verifyAllDuplicates', []),
     cancelDuplicateVerification: () => call('cancelDuplicateVerification', []),
     cleanupHistory: options => call('cleanupHistory', [options]),
     compareDuplicates: options => call('compareDuplicates', [options]), chooseDuplicate: options => call('chooseDuplicate', [options]),
     keepDuplicateVersions: options => call('keepDuplicateVersions', [options]),
     prepareBadSongs: filename => call('prepareBadSongs', [filename]), badSongsReview: options => call('badSongsReview', [options]), recycleBadSongs: options => call('recycleBadSongs', [options]), cancelBadSongs: () => call('cancelBadSongs', []),
+    selectedRemovalQuery: (options = {}) => call('selectedRemovalQuery', [options]), selectedRemovalIds: (options = {}) => call('selectedRemovalIds', [options]),
+    prepareSelectedRemoval: options => call('prepareSelectedRemoval', [options]), selectedRemovalReview: options => call('selectedRemovalReview', [options]),
+    recycleSelectedRemoval: options => call('recycleSelectedRemoval', [options]), cancelSelectedRemoval: () => call('cancelSelectedRemoval', []),
     prepareCleanup: options => call('prepareCleanup', [options]), cleanupReview: options => call('cleanupReview', [options]), cleanupForceReview: options => call('cleanupForceReview', [options]),
     recycleDuplicates: options => call('recycleDuplicates', [options]), forceRecycleDuplicate: options => call('forceRecycleDuplicate', [options]),
     prepareBulkCleanup: options => call('prepareBulkCleanup', [options]), bulkCleanupReview: options => call('bulkCleanupReview', [options]),

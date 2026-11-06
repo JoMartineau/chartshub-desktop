@@ -43,6 +43,24 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (command === 'library.cancelSelectedRemoval') return payload != null && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
+  if (['library.selectedRemovalQuery', 'library.selectedRemovalIds'].includes(command)) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Object.keys(payload).every(key => ['query', 'artist', 'album', ...(command.endsWith('Query') ? ['offset', 'limit'] : [])].includes(key))) return false;
+    return ['query', 'artist', 'album'].every(key => payload[key] === undefined || typeof payload[key] === 'string' && payload[key].length <= 512 && !/[\u0000-\u001f\u007f]/.test(payload[key]))
+      && (payload.offset === undefined || Number.isSafeInteger(payload.offset) && payload.offset >= 0)
+      && (payload.limit === undefined || Number.isInteger(payload.limit) && payload.limit >= 1 && payload.limit <= 50);
+  }
+  if (['library.prepareSelectedRemoval', 'library.recycleSelectedRemoval'].includes(command)) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload) || Object.keys(payload).length !== 3 || !/^[a-f0-9]{64}$/.test(payload.rootKey)
+      || !Number.isSafeInteger(payload.revision) || payload.revision < 0) return false;
+    if (command === 'library.prepareSelectedRemoval') return Object.keys(payload).every(key => ['ids', 'revision', 'rootKey'].includes(key))
+      && Array.isArray(payload.ids) && payload.ids.length > 0 && payload.ids.length <= 1000 && payload.ids.every(id => typeof id === 'string' && /^[a-f0-9]{64}$/.test(id)) && new Set(payload.ids).size === payload.ids.length;
+    return Object.keys(payload).every(key => ['planId', 'revision', 'rootKey'].includes(key)) && typeof payload.planId === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(payload.planId);
+  }
+  if (['catalogueSync.start', 'catalogueSync.pause', 'catalogueSync.resume', 'catalogueSync.retry'].includes(command)) return payload != null && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
+  if (command === 'catalogueSync.analyze') return payload != null && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === 3 && Object.keys(payload).every(key => ['mode', 'concurrency', 'includeVideo'].includes(key))
+    && ['all', 'installed'].includes(payload.mode) && Number.isInteger(payload.concurrency) && payload.concurrency >= 1 && payload.concurrency <= 4 && typeof payload.includeVideo === 'boolean';
   if (command === 'gameWidgets.check') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && Number.isSafeInteger(payload.revision) && payload.revision >= 0;
   if (command === 'gameWidgets.configure') return !!payload && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 3 && Object.keys(payload).every(key => ['revision','accuracy','lyrics'].includes(key)) && Number.isSafeInteger(payload.revision) && payload.revision >= 0 && typeof payload.accuracy === 'boolean' && typeof payload.lyrics === 'boolean';
   if (command === 'gameWidgets.openPackage' || command === 'gameWidgets.prerequisites' || command === 'quickImport.openPackage' || command === 'quickImport.setup' || command === 'quickImport.prerequisites' || command === 'quickImport.release') return payload == null || typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;

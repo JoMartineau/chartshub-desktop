@@ -1,0 +1,25 @@
+.library-removal-controls { margin: 16px 0; border: 1px solid var(--border, #31465f); border-radius: 9px; }
+.library-removal-controls > summary { cursor: pointer; padding: 14px; font-weight: 650; }
+.library-removal-body { padding: 0 14px 14px; min-width: 0; }
+.library-removal-controls .helper-text { margin: 8px 0; line-height: 1.5; }
+.library-removal-history { color: var(--muted, #b3c8df); font-size: 11px; line-height: 1.5; }
+.library-removal-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; margin: 14px 0; }
+.library-removal-filters label { flex: 1 1 200px; min-width: 0; display: grid; gap: 6px; }
+.library-removal-filters label span { font-size: 11px; color: var(--muted, #b3c8df); }
+.library-removal-filters input { min-width: 0; width: 100%; box-sizing: border-box; min-height: 35px; padding: 8px 10px; border: 1px solid var(--border, #31465f); border-radius: 6px; color: var(--text, #eff7ff); background: var(--surface, #101d2c); }
+.library-removal-actions, .library-removal-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.library-removal-status, .library-removal-selected { font-weight: 600; line-height: 1.5; }
+.library-removal-list { max-height: 370px; overflow: auto; }
+.library-removal-row { display: flex; align-items: start; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--border, #31465f); cursor: pointer; }
+.library-removal-row > input { margin-top: 4px; flex: 0 0 auto; }
+.library-removal-row > span { min-width: 0; display: grid; gap: 2px; }
+.library-removal-row .helper-text { margin: 0; }
+.library-removal-row code { overflow-wrap: anywhere; color: var(--muted, #b3c8df); font-size: 10px; }
+.library-removal-preview { padding: 12px; border: 1px solid var(--border, #31465f); border-radius: 8px; margin: 14px 0; }
+.library-removal-preview h4 { margin: 0 0 10px; }
+.library-removal-preview ul { padding: 0; list-style: none; max-height: 240px; overflow: auto; }
+.library-removal-preview li { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--border, #31465f); }
+.library-removal-preview code { min-width: 0; overflow-wrap: anywhere; }
+.library-removal-preview li strong { flex: 0 0 auto; font-size: 11px; }
+.library-removal-actions .button.danger { border-color: var(--warning, #ffbd84); color: var(--text, #eff7ff); background: var(--surface, #101d2c); }
+@media (max-width: 640px) { .library-removal-actions .button { flex: 1 1 160px; } .library-removal-filters label { flex-basis: 100%; } }

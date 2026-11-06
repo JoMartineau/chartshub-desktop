@@ -1888,13 +1888,15 @@ test('host shutdown drains an in-flight recycle and prevents recycling the next 
 });
 
 
-async function badSongsHostFixture(t) {
-  const f = await hostFixture(t), fs = require('node:fs/promises'), os = require('node:os');
+async function badSongsHostFixture(t, hostOptions = {}) {
+  const f = await hostFixture(t, hostOptions), fs = require('node:fs/promises'), os = require('node:os');
   const base = await fs.mkdtemp(path.join(os.tmpdir(), 'chartshub-bad-host-')), songs = path.join(base, 'Songs'), filename = path.join(base, 'badsongs.txt');
   await fs.mkdir(songs);
   for (const name of ['A','B']) { const folder = path.join(songs, name); await fs.mkdir(folder); await fs.writeFile(path.join(folder, 'notes.chart'), '[Song]\n{}\n[ExpertSingle]\n{\n0 = N 0 0\n}'); await fs.writeFile(path.join(folder, 'song.ini'), '[song]\nname=Example\nartist=Band\ncharter=Creator\n'); }
   await fs.writeFile(filename, 'ERROR: These folders have corrupt (or broken) notes.mid or notes.chart files!\n' + ['A','B'].map(name => path.join(songs,name)).join('\n') + '\n');
-  t.after(async () => { await f.host.stop(); assert.equal(path.dirname(base), await fs.realpath(os.tmpdir())); assert.match(path.basename(base), /^chartshub-bad-host-/); await fs.rm(base, {recursive:true,force:true}); });
+  // hostFixture's earlier after hook already drains and disposes the host before
+  // removing its profile. Do not stop it again after that profile is deleted.
+  t.after(async () => { assert.equal(path.dirname(base), await fs.realpath(os.tmpdir())); assert.match(path.basename(base), /^chartshub-bad-host-/); await fs.rm(base, {recursive:true,force:true}); });
   const panel = await f.host.open(), command = (name, payload) => f.handlers.get('companion:command')(f.eventFor(panel), name, payload);
   await f.host.library.selectRoot(songs);
   for (let attempt = 0; attempt < 300 && f.host.library.status().status === 'scanning'; attempt++) await new Promise(resolve => setTimeout(resolve,10));
@@ -1928,4 +1930,76 @@ test('bad songs batch stops on a changed second chart and keeps its current inde
   const f = await badSongsHostFixture(t), recycled=[];const before=f.host.library.status().lastScanAt;
   f.dialog.showMessageBox=async()=>({response:1});f.shell.trashItem=async target=>{recycled.push(target);await f.fs.rename(target,path.join(f.base,'fake-bin-'+path.basename(target)));await f.fs.writeFile(path.join(f.songs,'B','notes.chart'),'edited after confirmation');};
   const response=await f.command('library.recycleBadSongs',f.payload);assert.equal(response.ok,true,response.error);assert.equal(response.result.recycledIds.length,1);assert.equal(response.result.failed.length,1);assert.deepEqual(recycled,[path.join(f.songs,'A')]);assert.equal(f.host.library.status().count,1);assert.equal(f.host.library.status().lastScanAt,before);assert.equal(f.host.library.status().cleanupRefreshPending,true);
+});
+
+async function selectedRemovalHostFixture(t, options) {
+  const f = await badSongsHostFixture(t, options);
+  const queried = await f.command('library.selectedRemovalQuery', { offset: 0, limit: 50 });
+  assert.equal(queried.ok, true, queried.error); assert.equal(queried.result.total, 2);
+  const first = queried.result.items.find(item => item.relativePath === 'A/notes.chart');
+  const other = queried.result.items.find(item => item.relativePath === 'B/notes.chart');
+  assert.ok(first); assert.ok(other);
+  const selection = { rootKey: queried.result.rootKey, revision: queried.result.revision, ids: [first.id] };
+  const prepared = await f.command('library.prepareSelectedRemoval', selection);
+  assert.equal(prepared.ok, true, prepared.error); assert.equal(prepared.result.eligibleCount, 1); assert.equal(prepared.result.blockedCount, 0);
+  const request = { planId: prepared.result.planId, rootKey: selection.rootKey, revision: selection.revision };
+  return { ...f, selection, request, first, other };
+}
+
+test('selected chart removal defaults to native Cancel and only the exact approved IDs can reach trash', async t => {
+  const f = await selectedRemovalHostFixture(t), recycled = []; let accepted = false, confirmations = 0;
+  f.shell.trashItem = async target => { recycled.push(target); await f.fs.rename(target, path.join(f.base, 'fake-selected-bin-' + path.basename(target))); };
+  f.dialog.showMessageBox = async (owner, options) => {
+    confirmations++; assert.equal(owner, f.panel); assert.equal(options.defaultId, 0); assert.equal(options.cancelId, 0); assert.equal(options.noLink, true);
+    assert.ok(options.detail.includes(f.songs)); assert.ok(options.detail.includes(path.join(f.songs, 'A'))); assert.equal(options.detail.includes(path.join(f.songs, 'B')), false);
+    assert.match(options.buttons[0], /Annuler|Cancel/); return { response: accepted ? 1 : 0 };
+  };
+  assert.deepEqual(await f.command('library.recycleSelectedRemoval', f.request), { ok: true, cancelled: true }); assert.deepEqual(recycled, []);
+  for (const request of [{ ...f.request, ids: [f.other.id] }, { ...f.request, target: path.join(f.songs, 'B') }, { ...f.request, rootPath: f.songs }]) assert.equal((await f.command('library.recycleSelectedRemoval', request)).ok, false);
+  assert.equal((await f.command('library.prepareSelectedRemoval', { ...f.selection, ids: [f.first.id, f.first.id] })).ok, false);
+  const forged = { sender: {}, senderFrame: { url: 'chartshub-companion://app/ui/overlay.html' } };
+  assert.equal((await f.handlers.get('companion:command')(forged, 'library.recycleSelectedRemoval', f.request)).ok, false); assert.equal(confirmations, 1);
+  accepted = true; const result = await f.command('library.recycleSelectedRemoval', f.request);
+  assert.equal(result.ok, true, result.error); assert.deepEqual(result.result.recycledIds, [f.first.id]); assert.deepEqual(result.result.failed, []);
+  assert.deepEqual(recycled, [path.join(f.songs, 'A')]); assert.ok(await f.fs.stat(path.join(f.songs, 'B'))); assert.equal(f.host.library.status().count, 1); assert.equal(confirmations, 2);
+  assert.equal((await f.command('library.recycleSelectedRemoval', f.request)).ok, false, 'consumed approval cannot be replayed');
+});
+
+test('selected chart removal rechecks file identities after native confirmation before any trash operation', async t => {
+  const f = await selectedRemovalHostFixture(t), recycled = [];
+  f.shell.trashItem = async target => { recycled.push(target); };
+  f.dialog.showMessageBox = async () => { await f.fs.writeFile(path.join(f.songs, 'A', 'notes.chart'), 'local edit while the native confirmation is open'); return { response: 1 }; };
+  const result = await f.command('library.recycleSelectedRemoval', f.request);
+  assert.equal(result.ok, true, result.error); assert.deepEqual(result.result.recycledIds, []); assert.equal(result.result.failed.length, 1); assert.deepEqual(recycled, []);
+  assert.equal(f.host.library.status().count, 2); assert.equal(await f.fs.readFile(path.join(f.songs, 'A', 'notes.chart'), 'utf8'), 'local edit while the native confirmation is open'); assert.ok(await f.fs.stat(path.join(f.songs, 'B')));
+});
+
+test('selected chart removal rejects a replaced Songs root even when replacement names and bytes match', async t => {
+  const f = await selectedRemovalHostFixture(t), recycled = [], originalRoot = path.join(f.base, 'OriginalSongs');
+  f.shell.trashItem = async target => { recycled.push(target); };
+  f.dialog.showMessageBox = async () => {
+    await f.fs.rename(f.songs, originalRoot); await f.fs.cp(originalRoot, f.songs, { recursive: true, errorOnExist: true, force: false }); return { response: 1 };
+  };
+  const result = await f.command('library.recycleSelectedRemoval', f.request);
+  assert.equal(result.ok, true, result.error); assert.deepEqual(result.result.recycledIds, []); assert.equal(result.result.failed.length, 1); assert.deepEqual(recycled, []);
+  for (const root of [f.songs, originalRoot]) for (const name of ['A', 'B']) assert.ok(await f.fs.stat(path.join(root, name, 'notes.chart')));
+  assert.equal(f.host.library.status().count, 2);
+});
+
+test('an in-flight catalogue synchronization blocks selected removal before native confirmation', async t => {
+  let entered; const pageEntered = new Promise(resolve => { entered = resolve; });
+  const f = await selectedRemovalHostFixture(t, { measurementOptions: { catalogueSyncClient: { page({ signal }) {
+    entered(); return new Promise((resolve, reject) => { const abort = () => reject(Object.assign(Error('Synthetic paused inventory'), { name: 'AbortError', code: 'ABORT_ERR' })); if (signal.aborted) abort(); else signal.addEventListener('abort', abort, { once: true }); });
+  } } } });
+  const recycled = []; let confirmations = 0; f.shell.trashItem = async target => { recycled.push(target); };
+  f.dialog.showMessageBox = async () => { confirmations++; return { response: 1 }; };
+  await f.host.downloads.selectRoot(f.songs);
+  try {
+    const started = await f.command('catalogueSync.analyze', { mode: 'all', concurrency: 1, includeVideo: false }); assert.equal(started.ok, true, started.error); await pageEntered;
+    assert.equal(f.host.snapshot().catalogueSync.phase, 'analyzing');
+    const preparation = await f.command('library.prepareSelectedRemoval', f.selection); assert.equal(preparation.ok, false); assert.equal(preparation.code, 'SYNC_BUSY');
+    const result = await f.command('library.recycleSelectedRemoval', f.request); assert.ok(result.ok === false || result.cancelled === true);
+    assert.equal(confirmations, 0); assert.deepEqual(recycled, []); assert.equal(f.host.library.status().count, 2);
+  } finally { assert.equal((await f.command('catalogueSync.pause', {})).ok, true); }
+  assert.equal(f.host.snapshot().catalogueSync.phase, 'paused');
 });
