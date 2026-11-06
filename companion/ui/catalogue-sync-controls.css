@@ -1,0 +1,24 @@
+.catalogue-sync-controls { margin: 16px 0; padding: 16px; min-width: 0; border: 1px solid var(--border, #31465f); border-radius: 10px; background: var(--surface, #101d2c); }
+.catalogue-sync-controls h3 { margin: 0 0 8px; }
+.catalogue-sync-controls .helper-text { margin: 8px 0; line-height: 1.5; }
+.catalogue-sync-fields, .catalogue-sync-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0; }
+.catalogue-sync-fields label { display: grid; flex: 1 1 220px; gap: 6px; min-width: 0; max-width: 400px; }
+.catalogue-sync-fields select { width: 100%; min-width: 0; }
+.catalogue-sync-video { display: flex; align-items: center; gap: 8px; }
+.catalogue-sync-folder { overflow-wrap: anywhere; }
+.catalogue-sync-status { font-weight: 650; }
+.catalogue-sync-counts { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; margin: 14px 0; }
+.catalogue-sync-counts div { padding: 10px; min-width: 0; border: 1px solid var(--border, #31465f); border-radius: 7px; }
+.catalogue-sync-counts dd { margin: 0; font-size: 20px; font-variant-numeric: tabular-nums; font-weight: 700; }
+.catalogue-sync-counts dt { margin-top: 4px; overflow-wrap: anywhere; font-size: 12px; }
+.catalogue-sync-progress { display: block; width: 100%; accent-color: var(--accent, #45c6ff); }
+.catalogue-sync-progress[hidden] { display: none; }
+.catalogue-sync-feedback { color: var(--warning, #ffbd84); line-height: 1.5; }
+.catalogue-sync-details { margin: 12px 0; }
+.catalogue-sync-details summary { cursor: pointer; padding: 6px 0; }
+.catalogue-sync-items { max-height: 240px; overflow: auto; padding: 0; margin: 8px 0; list-style: none; }
+.catalogue-sync-items li { display: flex; gap: 12px; justify-content: space-between; padding: 7px 0; border-bottom: 1px solid var(--border, #31465f); }
+.catalogue-sync-items li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.catalogue-sync-items li strong { flex: 0 0 auto; font-size: 12px; }
+@media (max-width: 900px) { .catalogue-sync-counts { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 540px) { .catalogue-sync-controls { padding: 12px; } .catalogue-sync-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .catalogue-sync-actions .button { flex: 1 1 150px; } }

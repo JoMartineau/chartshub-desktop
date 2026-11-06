@@ -4,6 +4,7 @@ const { watch, constants } = require('node:fs');
 const path = require('node:path');
 const { createHash, randomUUID } = require('node:crypto');
 const { createBadSongsCleanup } = require('./library-bad-songs.cjs');
+const { createSelectedLibraryRemoval } = require('./library-selected-removal.cjs');
 const { scanLibrary } = require('./library-scanner.cjs');
 const { emptyScanProgress } = require('./library-scan-progress.cjs');
 const { createLibraryQuery } = require('./library-query.cjs');
@@ -71,6 +72,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   let loaded = false, loadTask, blocked = null, active = false, epoch = 0, rootTicket = 0;
   let run = null, queuedMode = null, serial = Promise.resolve(), startTask = null, stopTask = null;
   let watcher = null, watcherState = 'off', debounce = null;
+  const downloadBatches = new Map(); let downloadBatchDirty = false;
   let duplicateVerification = null, verifiedDuplicateGroups = null;
   let matchingCache = null, matchingRoot = null;
   let requestItemsSource = null, requestItemsById = null, sharingPreparation = null;
@@ -88,12 +90,22 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     onCompleted: event => history.append(event), onCleaned: commitCleanup });
   const badSongs = createBadSongsCleanup({ getDocument: () => document, protectedDirectory: dataDirectory,
     recycle: recycle ?? (async () => { throw Error('Corbeille indisponible.'); }), onCleaned: commitBadSongsCleanup });
+  const selectedRemoval = createSelectedLibraryRemoval({ getDocument: () => document, protectedDirectory: dataDirectory,
+    recycle: recycle ?? (async () => { throw Error('Corbeille indisponible.'); }), onCleaned: commitBadSongsCleanup, onChange: notify });
   async function commitBadSongsCleanup(event) {
     return enqueue(async () => {
       if (document.settings.rootPath !== event.rootPath || document.revision !== event.revision || document.items !== event.items) throw safeError('La bibliothèque a changé pendant le nettoyage.');
-      const targets = event.recycledTargets;
       const canonical = value => process.platform === 'win32' ? value.toLowerCase() : value;
-      const items = document.items.filter(item => !targets.some(target => canonical(item.relativePath) === canonical(target) || canonical(item.relativePath).startsWith(canonical(target) + '/')));
+      const targets = new Set(event.recycledTargets.map(canonical));
+      const items = document.items.filter(item => {
+        let relative = canonical(item.relativePath);
+        while (relative) {
+          if (targets.has(relative)) return false;
+          const slash = relative.lastIndexOf('/'); if (slash < 0) break;
+          relative = relative.slice(0, slash);
+        }
+        return true;
+      });
       const removed = document.items.length - items.length;
       const next = { ...document, items, revision: document.revision + 1, cleanupRefreshPending: true, changes: { added: 0, removed, modified: 0 } };
       document = next; duplicates.invalidate(); verifiedDuplicateGroups = null; deferredCleanupScan = false;
@@ -103,14 +115,14 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     });
   }
   function requireCleanupIdle() {
-    if (cleanup.busy() || bulkCleanup.busy() || badSongs.busy() || duplicateVerification) throw Object.assign(Error('Attendez la fin de la vérification ou du nettoyage des copies.'), { code: 'LIBRARY_CLEANUP_SAFE' });
+    if (cleanup.busy() || bulkCleanup.busy() || badSongs.busy() || selectedRemoval.busy() || duplicateVerification) throw Object.assign(Error('Attendez la fin de la vérification ou du nettoyage des copies.'), { code: 'LIBRARY_CLEANUP_SAFE' });
   }
   function status() {
     return { settings: { ...document.settings }, status: phase, mode, progress: { ...progress }, count: document.items.length,
       lastScanAt: document.lastScanAt, changes: { ...document.changes }, warningCount: document.warningCount, skippedCount: document.skippedCount,
-      error, watcher: watcherState, revision: document.revision, cleanupRefreshPending: document.cleanupRefreshPending === true,
+      error, watcher: watcherState, revision: document.revision, cleanupRefreshPending: document.cleanupRefreshPending === true, downloadBatchActive: downloadBatches.size > 0,
       sharingPreparation: sharingPreparation ? { ...sharingPreparation.progress } : null,
-      badSongsBusy: badSongs.busy(), bulkCleanup: bulkCleanup.status(),
+      badSongsBusy: badSongs.busy(), selectedRemoval: selectedRemoval.status(), bulkCleanup: bulkCleanup.status(),
       duplicateVerification: duplicateVerification ? { running: true, stopping: duplicateVerification.controller.signal.aborted, processed: duplicateVerification.processed, total: duplicateVerification.total } : null };
   }
   function notify() { try { onChange?.(status()); } catch { console.warn('La notification de bibliothèque a échoué.'); } }
@@ -179,6 +191,39 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     if (debounce) clearTimeout(debounce); debounce = null;
     watcher?.close(); watcher = null; watcherState = 'off';
   }
+  function batchActive() { return downloadBatches.size > 0; }
+  function automaticScan() {
+    if (batchActive()) { downloadBatchDirty = true; return; }
+    if (cleanup.busy() || bulkCleanup.busy() || badSongs.busy() || selectedRemoval.busy() || document.cleanupRefreshPending) { deferredCleanupScan = true; return; }
+    requestScan('quick');
+  }
+  async function beginDownloadBatch(rootPath) {
+    const requestedEpoch = epoch; await load();
+    if (!active || requestedEpoch !== epoch || !document.settings.rootPath || typeof rootPath !== 'string' || !path.isAbsolute(rootPath) || rootPath.includes('\0')) return null;
+    ensureMutable();
+    let root;
+    try { root = await fs.realpath(rootPath); } catch { return null; }
+    if (!active || requestedEpoch !== epoch || !document.settings.rootPath || !samePath(root, document.settings.rootPath)) return null;
+    if (downloadBatches.size >= 64) throw safeError('Trop de synchronisations de bibliothèque sont déjà en cours.');
+    const token = randomUUID(); downloadBatches.set(token, { root, epoch });
+    // A pending watch refresh is folded into the one refresh at the end.
+    // Keep the native watcher attached so unrelated edits are not lost.
+    if (debounce) { clearTimeout(debounce); debounce = null; downloadBatchDirty = true; }
+    notify(); return token;
+  }
+  function endDownloadBatch(token, options = {}) {
+    if (!object(options) || Object.keys(options).some(key => key !== 'changed') || (options.changed !== undefined && typeof options.changed !== 'boolean')) throw safeError('Résultat de synchronisation de bibliothèque invalide.');
+    const batch = downloadBatches.get(token);
+    if (!batch) return status();
+    downloadBatches.delete(token);
+    if (batch.epoch !== epoch || !active || !document.settings.rootPath || !samePath(batch.root, document.settings.rootPath)) { if (!batchActive()) downloadBatchDirty = false; return status(); }
+    downloadBatchDirty ||= options.changed === true;
+    if (!batchActive()) {
+      const refresh = downloadBatchDirty; downloadBatchDirty = false;
+      if (refresh) automaticScan();
+    }
+    notify(); return status();
+  }
   function updateWatcher() {
     closeWatcher();
     if (!active || blocked || !document.settings.watch || !document.settings.rootPath) return;
@@ -192,13 +237,13 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
           if (within(root, dataDirectory) && !samePath(root, dataDirectory) && within(dataDirectory, changed)) return;
           if (samePath(path.dirname(changed), dataDirectory) && /^library\.json(?:$|\.bak$|\.[a-f0-9-]+\.tmp$|\.corrupt-[a-f0-9-]+\.bak$)/i.test(path.basename(changed))) return;
         }
+        if (batchActive()) { downloadBatchDirty = true; return; }
         if (document.cleanupRefreshPending) { deferredCleanupScan = true; return; }
         if (debounce) clearTimeout(debounce);
         debounce = setTimeout(() => {
           debounce = null;
           if (!active || blocked) return;
-          if (cleanup.busy() || bulkCleanup.busy() || badSongs.busy() || document.cleanupRefreshPending) { deferredCleanupScan = true; return; }
-          try { requestScan('quick'); } catch { watcherState = 'unavailable'; notify(); }
+          try { automaticScan(); } catch { watcherState = 'unavailable'; notify(); }
         }, 750);
         debounce.unref?.();
       });
@@ -213,7 +258,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     return { added, removed: old.size, modified };
   }
   function beginScan(nextMode) {
-    cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); duplicates.invalidate(); verifiedDuplicateGroups = null;
+    cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); selectedRemoval.invalidate(); duplicates.invalidate(); verifiedDuplicateGroups = null;
     const current = { controller: new AbortController(), epoch, root: document.settings.rootPath, committing: false, promise: null };
     run = current; phase = 'scanning'; mode = nextMode; error = null; progress = emptyScanProgress(); notify();
     current.promise = (async () => {
@@ -274,15 +319,27 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   }
   async function stop() {
     if (stopTask) return stopTask;
-    active = false; epoch++; rootTicket++; closeWatcher(); cancel();
-    const verification = duplicateVerification; verification?.controller.abort();
-    deferredCleanupScan = false;
-    const cleanupStopped = cleanup.stop();
-    const bulkStopped = bulkCleanup.stop();
-    const badSongsStopped = badSongs.stop();
-    const comparisonsStopped = duplicates.stop();
-    stopTask = (async () => { if (run) await run.promise; await serial; await verification?.promise?.catch(() => {}); await cleanupStopped; await bulkStopped; await badSongsStopped; await comparisonsStopped; notify(); return status(); })();
-    try { return await stopTask; } finally { stopTask = null; }
+    // Reserve before child services notify, while still aborting synchronously.
+    let resolveStop, rejectStop;
+    const reserved = new Promise((resolve, reject) => { resolveStop = resolve; rejectStop = reject; });
+    stopTask = reserved;
+    try {
+      active = false; epoch++; rootTicket++; closeWatcher(); cancel(); downloadBatches.clear(); downloadBatchDirty = false;
+      const verification = duplicateVerification; verification?.controller.abort();
+      deferredCleanupScan = false;
+      const cleanupStopped = cleanup.stop();
+      const bulkStopped = bulkCleanup.stop();
+      const badSongsStopped = badSongs.stop();
+      const selectedRemovalStopped = selectedRemoval.stop();
+      const comparisonsStopped = duplicates.stop();
+      void (async () => {
+        if (run) await run.promise;
+        await serial; await verification?.promise?.catch(() => {});
+        await cleanupStopped; await bulkStopped; await badSongsStopped; await selectedRemovalStopped; await comparisonsStopped;
+        notify(); return status();
+      })().then(resolveStop, rejectStop);
+    } catch (problem) { rejectStop(problem); }
+    try { return await reserved; } finally { if (stopTask === reserved) stopTask = null; }
   }
   async function selectRoot(selected) {
     requireCleanupIdle();
@@ -298,7 +355,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     cancel(); if (run) await run.promise;
     await enqueue(async () => {
       if (requestedEpoch !== epoch || ticket !== rootTicket) return;
-      requireCleanupIdle(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate();
+      requireCleanupIdle(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); selectedRemoval.invalidate();
       // Picking the same folder refreshes its last committed index.
       if (!blocked && document.settings.rootPath && samePath(document.settings.rootPath, root)) return;
       const next = { ...document, settings: { ...document.settings, rootPath: root }, items: [], lastScanAt: null, revision: document.revision + 1, changes: { added: 0, removed: 0, modified: 0 }, warningCount: 0, skippedCount: 0 };
@@ -312,6 +369,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
         await write(next);
       } catch { throw safeError('Impossible d’enregistrer le dossier de bibliothèque.'); }
       document = next; duplicates.invalidate(); verifiedDuplicateGroups = null; blocked = null; phase = 'idle'; error = null; progress = emptyScanProgress(); mode = null;
+      downloadBatches.clear(); downloadBatchDirty = false;
     });
     if (requestedEpoch === epoch && ticket === rootTicket) { updateWatcher(); requestScan('full'); }
     notify(); return status();
@@ -322,7 +380,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     if (!object(options) || Object.keys(options).some(key => !['watch', 'refreshOnStart'].includes(key) || typeof options[key] !== 'boolean')) throw safeError('Options de bibliothèque invalides.');
     await enqueue(async () => {
       if (requestedEpoch !== epoch) return;
-      requireCleanupIdle(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate();
+      requireCleanupIdle(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); selectedRemoval.invalidate();
       const nextSettings = { ...document.settings, ...options };
       if (nextSettings.watch === document.settings.watch && nextSettings.refreshOnStart === document.settings.refreshOnStart) return;
       const next = { ...document, settings: nextSettings };
@@ -345,38 +403,46 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     requireCleanupIdle();
     if (run || stopTask) throw Object.assign(Error('Attendez la fin de l’analyse puis relancez la comparaison.'), { code: 'LIBRARY_COMPARISON_SAFE' });
   }
-  async function compareDuplicates(options) { requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); return duplicates.compare(options); }
-  async function chooseDuplicate(options) { requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); verifiedDuplicateGroups = null; return duplicates.choose(options); }
+  async function compareDuplicates(options) { requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); selectedRemoval.invalidate(); return duplicates.compare(options); }
+  async function chooseDuplicate(options) { requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); selectedRemoval.invalidate(); verifiedDuplicateGroups = null; return duplicates.choose(options); }
   async function keepDuplicateVersions(options) {
-    requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); verifiedDuplicateGroups = null;
+    requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate(); selectedRemoval.invalidate(); verifiedDuplicateGroups = null;
     const result = await duplicates.keepAll(options); notify(); return result;
   }
   async function cleanupOperation(method, options) {
-    requireComparisonReady(); bulkCleanup.invalidate(); badSongs.invalidate();
+    requireComparisonReady(); bulkCleanup.invalidate(); badSongs.invalidate(); selectedRemoval.invalidate();
     try { return await cleanup[method](options); }
     finally {
-      if (deferredCleanupScan && !document.cleanupRefreshPending && !cleanup.busy() && !bulkCleanup.busy() && !badSongs.busy() && !stopTask) {
-        deferredCleanupScan = false; requestScan('quick');
+      if (deferredCleanupScan && !document.cleanupRefreshPending && !cleanup.busy() && !bulkCleanup.busy() && !badSongs.busy() && !selectedRemoval.busy() && !stopTask) {
+        deferredCleanupScan = false; automaticScan();
       }
     }
   }
   async function badSongsOperation(method, options) {
-    requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate();
+    requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); selectedRemoval.invalidate();
     const operation = badSongs[method](options); notify();
     try { return await operation; } finally { notify(); }
   }
   async function bulkCleanupOperation(method, options) {
-    requireComparisonReady(); cleanup.invalidate();
+    requireComparisonReady(); cleanup.invalidate(); selectedRemoval.invalidate();
     try { return await bulkCleanup[method](options); }
     finally {
-      if (deferredCleanupScan && !document.cleanupRefreshPending && !cleanup.busy() && !bulkCleanup.busy() && !badSongs.busy() && !stopTask) {
-        deferredCleanupScan = false; requestScan('quick');
+      if (deferredCleanupScan && !document.cleanupRefreshPending && !cleanup.busy() && !bulkCleanup.busy() && !badSongs.busy() && !selectedRemoval.busy() && !stopTask) {
+        deferredCleanupScan = false; automaticScan();
       }
+    }
+  }
+  async function selectedRemovalOperation(method, options) {
+    requireComparisonReady(); cleanup.invalidate(); bulkCleanup.invalidate(); badSongs.invalidate();
+    const operation = selectedRemoval[method](options); notify();
+    try { return await operation; } finally {
+      if (deferredCleanupScan && !document.cleanupRefreshPending && !cleanup.busy() && !bulkCleanup.busy() && !badSongs.busy() && !selectedRemoval.busy() && !stopTask) { deferredCleanupScan = false; automaticScan(); }
+      notify();
     }
   }
   async function verifyAllDuplicates() {
     ensureMutable(); requireCleanupIdle();
-    bulkCleanup.invalidate(); badSongs.invalidate();
+    bulkCleanup.invalidate(); badSongs.invalidate(); selectedRemoval.invalidate();
     if (run || stopTask) throw Object.assign(Error('Attendez la fin de l’analyse puis relancez la vérification.'), { code: 'LIBRARY_COMPARISON_SAFE' });
     const rootPath = document.settings.rootPath, revision = document.revision, items = document.items;
     if (!rootPath) throw safeError('Sélectionnez d’abord un dossier de chansons.');
@@ -452,7 +518,8 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
   }
   async function resolveSongFolder(id) {
     if (typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id)) throw safeError('Chanson de bibliothèque invalide.');
-    const item = document.items.find(value => value.id === id), root = document.settings.rootPath;
+    if (requestItemsSource !== document.items) { requestItemsSource = document.items; requestItemsById = new Map(document.items.map(item => [item.id, item])); }
+    const item = requestItemsById.get(id), root = document.settings.rootPath;
     if (!item || !root) throw safeError('Cette chanson n’est plus disponible dans la bibliothèque.');
     try {
       if (!samePath(root, await fs.realpath(root)) || (await fs.lstat(root)).isSymbolicLink()) throw Error();
@@ -569,7 +636,7 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
       throw Object.assign(safeError('Les médias ont changé. Actualisez la bibliothèque.'), { code: 'LIBRARY_MEDIA_SAFE' });
     return { ...media, rootKey: index.rootKey, revision: index.revision };
   }
-  return { load, start, stop, status, selectRoot, requestScan, cancel, configure, query, compareDuplicates, chooseDuplicate, keepDuplicateVersions, verifyAllDuplicates, cancelDuplicateVerification, resolveSongFolder, matchingSnapshot,
+  return { load, start, stop, status, selectRoot, requestScan, cancel, configure, beginDownloadBatch, endDownloadBatch, query, compareDuplicates, chooseDuplicate, keepDuplicateVersions, verifyAllDuplicates, cancelDuplicateVerification, resolveSongFolder, matchingSnapshot,
     resolveRequestSong,
     resolvePlaybackSong,
     resolveVisualSong,
@@ -581,6 +648,12 @@ function createInstalledLibraryService({ dataDirectory, onChange, recycle } = {}
     badSongsReview: options => badSongsOperation('review', options),
     recycleBadSongs: options => badSongsOperation('execute', options),
     cancelBadSongs: () => { badSongs.invalidate(); return null; },
+    selectedRemovalQuery: (options = {}) => { ensureMutable(); return selectedRemoval.query(options); },
+    selectedRemovalIds: (options = {}) => { ensureMutable(); return selectedRemoval.ids(options); },
+    prepareSelectedRemoval: options => selectedRemovalOperation('prepare', options),
+    selectedRemovalReview: options => selectedRemovalOperation('review', options),
+    recycleSelectedRemoval: options => selectedRemovalOperation('execute', options),
+    cancelSelectedRemoval: async () => { await selectedRemoval.stop(); return selectedRemoval.status(); },
     prepareBulkCleanup: (options = {}) => bulkCleanupOperation('prepare', options),
     bulkCleanupReview: options => bulkCleanupOperation('review', options),
     recycleBulkDifferences: options => bulkCleanupOperation('execute', options),

@@ -290,6 +290,11 @@ function createDownloadService({ dataDirectory, worker, onChange, onCompleted } 
     try { const canonical = await worker.resolveCompleted({ rootPath: target.rootPath, destination: target.destination }); if (!absolute(canonical) || !samePath(path.dirname(canonical), target.rootPath) || !samePath(canonical, target.destination)) throw Error(); return canonical; }
     catch { throw safe('Le dossier téléchargé est indisponible ou a changé.'); }
   }
-  return { load, start, stop, status, selectRoot, enqueue, pause, resume: id => schedule(id, false), cancel: id => clean(id, false), retry: id => schedule(id, true), remove: id => clean(id, true), resolveFolder };
+  // Main-process provenance only. The public queue snapshot deliberately omits
+  // endpoints; synchronization may adopt these destinations only after hashes
+  // prove they still match the published source.
+  const installedSources = () => document.items.filter(entry => entry.state === 'Completed').map(entry => ({ endpoint: entry.endpoint, rootPath: entry.rootPath, destination: entry.destination }));
+  const syncContext = () => ({ rootPath: document.rootPath, busy: document.items.some(entry => ['Queued', 'Downloading'].includes(entry.state)) });
+  return { load, start, stop, status, selectRoot, enqueue, pause, resume: id => schedule(id, false), cancel: id => clean(id, false), retry: id => schedule(id, true), remove: id => clean(id, true), resolveFolder, installedSources, syncContext };
 }
 module.exports = { createDownloadService };

@@ -9,6 +9,8 @@
   <link rel="stylesheet" href="./floating-panels-controls.css">
   <link rel="stylesheet" href="./music-player.css">
   <link rel="stylesheet" href="./quick-import-controls.css">
+  <link rel="stylesheet" href="./catalogue-sync-controls.css">
+  <link rel="stylesheet" href="./library-removal-controls.css">
   <link rel="stylesheet" href="./game-widget-controls.css">
   <link rel="stylesheet" href="./request-discovery-controls.css">
   <link rel="stylesheet" href="./unified-chat-controls.css">
@@ -200,6 +202,7 @@
           </div>
         </div>
         <p id="library-cleanup-result" class="library-feedback library-cleanup-result" role="status" aria-live="polite" tabindex="-1" hidden></p>
+        <details id="library-removal-controls" class="library-removal-controls" translate="no"></details>
         <details id="library-bad-songs" class="library-bad-songs" aria-busy="false">
           <summary>Charts signalées par Clone Hero</summary>
           <p class="helper-text">Importez badsongs.txt après Scan Songs dans Clone Hero. Les erreurs et leur motif s’affichent ici ; les avertissements restent conservés.</p>
@@ -242,6 +245,7 @@
       <div class="card-heading"><div><p class="eyebrow">FILE DE TÉLÉCHARGEMENTS</p><h2 id="downloads-title">Téléchargements</h2><span class="helper-text">Préparez les dossiers de charts depuis le catalogue ChartsHub.</span></div><span id="downloads-count" class="status-pill">0 téléchargement</span></div>
       <div class="downloads-content">
         <div class="downloads-folder-row"><div><span>Dossier des prochains téléchargements</span><code id="downloads-root">Aucun dossier sélectionné</code></div><button id="downloads-choose-root" class="button secondary" type="button" disabled>Choisir un dossier</button></div>
+        <section id="catalogue-sync-controls" class="catalogue-sync-controls" translate="no"></section>
         <section id="game-integrations-panel" class="game-integrations-panel" aria-labelledby="game-integrations-title" translate="no">
           <h3 id="game-integrations-title">Intégrations Clone Hero · BÊTA</h3>
           <section id="quick-import-panel" class="quick-import-panel" aria-label="Quick Import BETA"></section>

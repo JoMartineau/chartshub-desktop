@@ -14,10 +14,15 @@ const { createLocalOverlayServer } = require('./stream-server.cjs');
 const { createBackgroundLibraryService } = require('./library-background.cjs');
 const { verifyNativeCleanup } = require('./native-cleanup.cjs');
 const { verifyNativeBadSongCleanup } = require('./library-bad-songs.cjs');
+const { verifyNativeSelectedRemoval } = require('./library-selected-removal.cjs');
 const { createChartsHubClient } = require('./catalogue-client.cjs');
 const { createCatalogueDownloadWorker } = require('./catalogue-download-worker.cjs');
 const { createCatalogueService } = require('./catalogue-service.cjs');
 const { createDownloadService } = require('./download-service.cjs');
+const { createCatalogueSyncClient } = require('./catalogue-sync-client.cjs');
+const { createCatalogueSyncWorker } = require('./catalogue-sync-worker.cjs');
+const { createCatalogueSyncService } = require('./catalogue-sync-service.cjs');
+const { createSyncCandidateResolver } = require('./catalogue-sync-candidates.cjs');
 const { createLibraryDownloadRefresh } = require('./library-download-refresh.cjs');
 const { createCloneHeroSource } = require('./clonehero-source.cjs');
 const { loadMeasurementFactories, loadGameWidgetFactories } = require('./gameplay-measurements.cjs');
@@ -60,7 +65,7 @@ const QUICK_IMPORT_CODES = new Set(PUBLIC_QUICK_IMPORT_CODES);
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, quickImportService, quickImportRuntimePlatform = process.platform, gameWidgetTelemetrySource, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, reportDownloadCompletion, sharingClient, songRequestConnectionOptions = {} } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, catalogueSyncClient, catalogueSyncWorker, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, quickImportService, quickImportRuntimePlatform = process.platform, gameWidgetTelemetrySource, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, reportDownloadCompletion, sharingClient, songRequestConnectionOptions = {} } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
   const measurementFactories = loadMeasurementFactories(gameplayMeasurements);
@@ -159,7 +164,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let cleanupDialogOpen = false, cleanupTask = null, cleanupApproval = null;
   let catalogue = null, libraryIndexRevision = -1;
   let libraryRequestRoot = null;
-  let downloads = null, downloadPickerOpen = false;
+  let downloads = null, downloadPickerOpen = false, catalogueSync = null, syncLibraryToken = null;
   let libraryDownloadRefresh = null;
   let catalogueWidget = null, catalogueWidgetLoad = null, catalogueWidgetEnabled = false, catalogueWidgetTicket = 0;
   let catalogueAccess = true, hostActive = false, shortcutRegistered = false, shortcutError = null, shortcutPending = false;
@@ -315,7 +320,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     return { ...(measurementsEnabled || editor ? view : publicWidgetState(view, flags)), lyrics: measurementsEnabled || flags?.lyrics === true ? songVisuals?.lyricsSnapshot() ?? null : null };
   };
   const telemetryPanel = () => { const value = measurementsEnabled ? telemetry?.snapshot() : null; return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, hardware: calibrationHardware.snapshot(), connectorSetup: connectorSetup.snapshot(), reason: value.reason } : null; };
-  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true, gameWidgets: !measurementsEnabled }, gameWidgets: gameWidgetIntegrations?.status() ?? null, gameModPreflight: gameModPreflight?.status() ?? null, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView({ editor: true }), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), drums: drums.status(), quickImport: quickImportView(), requestDiscovery: songRequestDiscovery?.status() ?? null, chat: chatSnapshot(), sessionActivity: sessionActivity?.snapshot() ?? null, sessionWidgets: { revision: sessionWidgetRevision, settings: { ...sessionWidgetSettings } }, profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
+  const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true, gameWidgets: !measurementsEnabled }, gameWidgets: gameWidgetIntegrations?.status() ?? null, gameModPreflight: gameModPreflight?.status() ?? null, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView({ editor: true }), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), drums: drums.status(), quickImport: quickImportView(), requestDiscovery: songRequestDiscovery?.status() ?? null, chat: chatSnapshot(), sessionActivity: sessionActivity?.snapshot() ?? null, sessionWidgets: { revision: sessionWidgetRevision, settings: { ...sessionWidgetSettings } }, profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), catalogueSync: catalogueSync?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
   // Installation destinations belong only to the private Companion panel.
   const overlaySnapshot = value => ({ ...value, state: stateView(), uiPalette: undefined, drums: undefined, quickImport: undefined, gameWidgets: undefined, gameModPreflight: undefined, requestDiscovery: undefined, chat: undefined, sessionActivity: undefined, sessionWidgets: undefined, telemetry: value.telemetry ? { ...value.telemetry, connectorSetup: undefined } : null, songRequests: undefined, player: undefined });
   const floatingPanelSnapshot = name => {
@@ -414,7 +419,11 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!relative || path.isAbsolute(relative) || relative === '..' || relative.startsWith('..' + path.sep)) throw Error('Copie invalide.');
     // Bind the final check to the identities hashed by the worker, including
     // the keeper: a replacement during the IPC hop cannot reuse this approval.
-    if (approval.kind === 'bad-songs') await verifyNativeBadSongCleanup({ root: approval.root, target, proof });
+    if (approval.kind === 'selected-removal') {
+      if (proof?.type !== 'selected-removal' || proof.planId !== approval.planId || proof.rootKey !== approval.rootKey || !approval.ids.has(proof.id) || catalogueSync?.isBusy()) throw Error('Nettoyage non autorisé.');
+      await verifyNativeSelectedRemoval({ root: approval.root, target, proof });
+    }
+    else if (approval.kind === 'bad-songs') await verifyNativeBadSongCleanup({ root: approval.root, target, proof });
     else {
       const keep = approval.keeps ? approval.keeps.get(target) : approval.keep;
       if (!keep || approval.targets.has(keep)) throw Error('Version conservée invalide.');
@@ -670,6 +679,26 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (!disposing) publishPanel();
   } });
   await downloads.load();
+  const findSyncCandidate = createSyncCandidateResolver({ getSnapshot: () => library.matchingSnapshot(), getRoot: () => library.status().settings.rootPath, resolveFolder: id => library.resolveSongFolder(id) });
+  catalogueSync = createCatalogueSyncService({ dataDirectory,
+    catalogue: catalogueSyncClient ?? createCatalogueSyncClient({ fetcher: (url, options) => net.fetch(url, options) }),
+    worker: catalogueSyncWorker ?? createCatalogueSyncWorker({ fetcher: (url, options) => net.fetch(url, options) }),
+    getContext: () => { const current = downloads.syncContext(); return {
+      active: hostActive && !disposing && !stopTask && !maintenanceLocked && catalogueAllowed(), rootPath: current.rootPath,
+      busy: downloadPickerOpen || !!cleanupTask || cleanupDialogOpen || ['preparing', 'executing'].includes(library.status().selectedRemoval?.phase) || current.busy,
+      completedDownloads: downloads.installedSources, findCandidate: findSyncCandidate }; },
+    onChange: () => { if (!disposing) publishPanel(); },
+    onStarting: async ({ rootPath }) => { syncLibraryToken = await library.beginDownloadBatch(rootPath); },
+    onSettled: async ({ changed }) => {
+      const token = syncLibraryToken; syncLibraryToken = null;
+      if (token) await library.endDownloadBatch(token, { changed });
+    },
+    onInstalled: async item => {
+      quickImport.observeCompletedDownload({ id: item.id, destination: item.destination });
+      if (reportDownloadCompletion) void Promise.resolve().then(() => reportDownloadCompletion(item.endpoint)).catch(() => {});
+    }
+  });
+  await catalogueSync.load();
   filters = filtersService ?? createFiltersService({ dataDirectory, onChange: () => { if (!disposing) publish(); } });
   try { await filters.load(); } catch { logger.warn('Game filter settings could not be loaded; the original file is preserved'); }
   reshade = reshadeService ?? createReShadeService({ dataDirectory, filtersService: filters, initialRoot: filters.status().rootPath, onChange: () => { if (!disposing) publish(); } });
@@ -783,6 +812,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       const choice = await dialog.showOpenDialog(owner, { title: tr('Choisir le dossier de téléchargements ChartsHub', 'Choose ChartsHub download folder'), properties: ['openDirectory', 'createDirectory'], ...(downloads.status().rootPath ? { defaultPath: downloads.status().rootPath } : {}) });
       if (!downloadOwnerValid(owner, revision)) throw Object.assign(Error('Le panneau a été fermé.'), { code: 'DOWNLOAD_SAFE' });
       if (choice.canceled || choice.filePaths.length !== 1) return false;
+      if (catalogueSync?.isBusy()) throw Object.assign(Error('Mettez la synchronisation en pause avant de changer de dossier.'), { code: 'DOWNLOAD_SAFE' });
       await downloads.selectRoot(choice.filePaths[0]);
       return true;
     } finally { downloadPickerOpen = false; }
@@ -1101,6 +1131,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (disposing || stopTask || maintenanceLocked || !(trustedPanel(event) || trustedFiltersWidgetCommand(event, filtersWidget, command, payload) || mini || playerSender)) return { ok: false, error: 'Commande non autorisée.' };
     if (!measurementsEnabled && typeof command === 'string' && command.startsWith('telemetry.')) return { ok: false, code: 'GAMEPLAY_MEASUREMENTS_UNAVAILABLE', error: tr('Les mesures de jeu et leur connecteur ne sont pas proposés dans cette version.', 'Gameplay measurements and their connector are not offered in this version.') };
     if (!validCommand(command, payload, services.store.getState().widgets.instances.map(w => w.id))) return { ok: false, error: 'Commande non autorisée.' };
+    if (catalogueSync?.isBusy() && ['library.recycleDuplicates', 'library.forceRecycleDuplicate', 'library.recycleBulkDifferences', 'library.recycleBadSongs', 'library.prepareSelectedRemoval', 'library.recycleSelectedRemoval'].includes(command)) return { ok: false, code: 'SYNC_BUSY', error: tr('Mettez la synchronisation en pause avant de nettoyer la bibliothèque.', 'Pause synchronization before cleaning the library.') };
     if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.accuracy', 'widget.lyrics', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
       if (command.startsWith('gameWidgets.')) {
@@ -1503,7 +1534,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         const status = streamStatus();
         if (!status.enabled || !status.url) return { ok: false, error: 'Activez le serveur OBS avant de copier son adresse.' };
         clipboard.writeText(status.url);
-      } else if (command.startsWith('library.') && !['library.query', 'library.openFolder', 'library.cleanupHistory', 'library.cancelBulkCleanup'].includes(command) && (cleanupDialogOpen || cleanupTask)) {
+      } else if (command.startsWith('library.') && !['library.query', 'library.openFolder', 'library.cleanupHistory', 'library.cancelBulkCleanup', 'library.cancelSelectedRemoval'].includes(command) && (cleanupDialogOpen || cleanupTask)) {
         return { ok: false, error: 'Terminez ou annulez le nettoyage des copies avant cette action.' };
       } else if (command === 'library.query') {
         return { ok: true, result: await library.query(payload) };
@@ -1576,6 +1607,35 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
           cleanupTask = library.recycleDuplicates(request);
           return { ok: true, result: await cleanupTask };
         } finally { cleanupApproval = null; cleanupTask = null; cleanupDialogOpen = false; }
+      } else if (command === 'library.selectedRemovalQuery') {
+        return { ok: true, result: await library.selectedRemovalQuery(payload) };
+      } else if (command === 'library.selectedRemovalIds') {
+        return { ok: true, result: await library.selectedRemovalIds(payload) };
+      } else if (command === 'library.prepareSelectedRemoval') {
+        return { ok: true, result: await library.prepareSelectedRemoval(payload) };
+      } else if (command === 'library.cancelSelectedRemoval') {
+        return { ok: true, result: await library.cancelSelectedRemoval() };
+      } else if (command === 'library.recycleSelectedRemoval') {
+        const owner = panel, lifecycle = lifecycleRevision, request = { planId: payload.planId, rootKey: payload.rootKey, revision: payload.revision };
+        cleanupDialogOpen = true;
+        try {
+          const review = await library.selectedRemovalReview(request), root = library.status().settings.rootPath;
+          if (disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed() || review.rootPath !== root || catalogueSync?.isBusy()) return { ok: true, cancelled: true };
+          const paths = review.entries.map(entry => path.resolve(root, ...entry.targetRelativePath.split('/')));
+          if (!paths.length) return { ok: false, error: tr('Aucune chart ne peut être déplacée en toute sécurité.', 'No chart can be safely moved.') };
+          const size = new Intl.NumberFormat(language === 'fr' ? 'fr-CA' : 'en-US', { maximumFractionDigits: 2 }).format(review.totalBytes / (1024 ** 3));
+          const choice = await dialog.showMessageBox(owner, { type: 'warning', noLink: true,
+            title: tr('Mettre les charts sélectionnées à la corbeille ?', 'Move the selected charts to the trash?'),
+            message: tr(`${paths.length} chart(s) sélectionnée(s) · ${size} Gio`, `${paths.length} selected chart(s) · ${size} GiB`),
+            detail: tr('Dossier Songs : ', 'Songs folder: ') + root + '\n\n' + paths.slice(0, 30).join('\n')
+              + (paths.length > 30 ? '\n\n' + tr(`Aperçu de 30 dossiers sur ${paths.length}.`, `Showing 30 of ${paths.length} folders.`) : '')
+              + '\n\n' + tr('Les dossiers sélectionnés et tout leur contenu seront mis à la corbeille du système. Pour libérer effectivement l’espace disque, videz ensuite cette corbeille après vérification.', 'Selected folders and all their contents will be moved to the system trash. To actually free disk space, empty that trash after checking its contents.'),
+            buttons: [tr('Annuler', 'Cancel'), tr('Mettre la sélection à la corbeille', 'Move selection to trash')], defaultId: 0, cancelId: 0 });
+          if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed() || catalogueSync?.isBusy()) return { ok: true, cancelled: true };
+          cleanupApproval = { owner, lifecycle, root, kind: 'selected-removal', planId: review.planId, rootKey: review.rootKey, ids: new Set(review.entries.map(entry => entry.id)), targets: new Set(paths) };
+          cleanupTask = library.recycleSelectedRemoval(request);
+          return { ok: true, result: await cleanupTask };
+        } finally { cleanupApproval = null; cleanupTask = null; cleanupDialogOpen = false; }
       } else if (command === 'library.chooseBadSongs') {
         if (rootPickerOpen) return { ok: false, error: 'Le choix du fichier est déjà ouvert.' };
         const owner = panel, lifecycle = lifecycleRevision;
@@ -1644,10 +1704,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       } else if (command === 'catalogue.open') {
         await shell.openExternal(await catalogue.openUrl(payload.chartId));
       } else if (command === 'downloads.chooseRoot') {
+        if (catalogueSync.isBusy()) return { ok: false, code: 'SYNC_BUSY', error: tr('Mettez la synchronisation en pause avant de changer de dossier.', 'Pause synchronization before changing folders.') };
         const owner = mini ? catalogueWidget : panel;
         if (mini) await requireCatalogueAuthorization(owner);
         if (!await chooseDownloadRoot(owner)) return { ok: true, cancelled: true };
       } else if (command === 'downloads.enqueue') {
+        if (catalogueSync.isBusy()) return { ok: false, code: 'SYNC_BUSY', error: tr('Mettez la synchronisation en pause avant de démarrer un autre téléchargement.', 'Pause synchronization before starting another download.') };
         const owner = mini ? catalogueWidget : panel, revision = lifecycleRevision;
         const activityScope = sessionActivity?.captureScope();
         const notificationScope = downloadNotice('capture');
@@ -1657,15 +1719,22 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         if (!downloads.status().rootPath && !await chooseDownloadRoot(owner)) return { ok: true, cancelled: true };
         if (mini) await requireCatalogueAuthorization(owner, revision);
         const before = downloads.status(), existing = before.items.some(item => item.chartId === payload.chartId && item.rootPath === before.rootPath && item.state !== 'Cancelled');
+        if (catalogueSync.isBusy()) return { ok: false, code: 'SYNC_BUSY' };
         const result = await downloads.enqueue(catalogue.downloadDescriptor(payload.chartId));
         if (!existing) bindActivityDownload(result.id, activityScope, downloads.status());
         if (!existing) downloadNotice('track', notificationScope, result.id, downloads.status());
+        return { ok: true, result };
+      } else if (command.startsWith('catalogueSync.')) {
+        if (command !== 'catalogueSync.pause') await requireCatalogueAuthorization(null, lifecycleRevision);
+        const action = command.slice('catalogueSync.'.length);
+        const result = await catalogueSync[action](command === 'catalogueSync.analyze' ? payload : undefined);
         return { ok: true, result };
       } else if (command === 'downloads.openFolder') {
         const owner = panel, revision = lifecycleRevision;
         const folder = await downloads.resolveFolder(payload.id);
         if (disposing || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed() || !folder || await shell.openPath(folder)) return { ok: false, error: 'Le dossier de ce téléchargement n’est plus accessible.' };
       } else if (['downloads.pause', 'downloads.resume', 'downloads.cancel', 'downloads.retry', 'downloads.remove'].includes(command)) {
+        if (['downloads.resume', 'downloads.retry'].includes(command) && catalogueSync.isBusy()) return { ok: false, code: 'SYNC_BUSY', error: tr('Mettez la synchronisation en pause avant de reprendre ce téléchargement.', 'Pause synchronization before resuming this download.') };
         const activityScope = sessionActivity?.captureScope();
         const notificationScope = ['downloads.resume', 'downloads.retry'].includes(command) ? downloadNotice('capture') : null;
         await downloads[command.slice('downloads.'.length)](payload.id);
@@ -1744,6 +1813,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const libraryStop = library.stop();
     const catalogueStop = catalogue.stop();
     const downloadsStop = downloads.stop();
+    const catalogueSyncStop = catalogueSync?.stop();
     const setupState = reshadeSetup.status().state;
     const setupStop = ['preparing', 'ready'].includes(setupState)
       ? Promise.resolve().then(() => reshadeSetup.cancel()).catch(() => { logger.warn('ReShade preparation could not be cancelled'); })
@@ -1751,7 +1821,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         ? Promise.resolve().then(() => reshadeSetup.whenIdle()).catch(() => { logger.warn('ReShade installation ended with an error'); })
       : Promise.resolve();
     if (saveTimer) void saveSettings();
-    const task = (async () => { await drumsStop; await quickImportStop; await songRequestPublicStop; await songRequestSharingStop; await songRequestStop; await songRequestConnectionsStop; await songRequestPreferences.flush(); await playerPreferencesTask; await playerPreferences.flush(); await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
+    const task = (async () => { await drumsStop; await quickImportStop; await songRequestPublicStop; await songRequestSharingStop; await songRequestStop; await songRequestConnectionsStop; await songRequestPreferences.flush(); await playerPreferencesTask; await playerPreferences.flush(); await pendingSave; await floatingPanels.flush(); await Promise.allSettled([...profileWrites, ...(cleanupTask ? [cleanupTask] : [])]); await serviceStop; await streamStop; await libraryStop; await catalogueStop; await downloadsStop; await catalogueSyncStop; await setupStop; await filtersRefresh; await reshadeRefresh; await logTail; })();
     const done = task.finally(() => { if (stopTask === done) stopTask = null; });
     stopTask = done;
     return done;
@@ -1848,8 +1918,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const reasons = [], state = library?.status(), player = musicPlayer?.snapshot();
     if (disposing || stopTask || openTask) reasons.push('companion_busy');
     if (state?.status === 'scanning') reasons.push('library_scanning');
-    if (cleanupTask || cleanupDialogOpen || state?.duplicateVerification?.running || state?.bulkCleanup || state?.badSongsBusy) reasons.push('library_cleanup');
-    if (downloads?.status()?.items?.some(item => ['Queued','Downloading'].includes(item.state))) reasons.push('chart_downloads');
+    if (cleanupTask || cleanupDialogOpen || state?.duplicateVerification?.running || state?.bulkCleanup || state?.badSongsBusy || ['preparing','executing'].includes(state?.selectedRemoval?.phase)) reasons.push('library_cleanup');
+    if (catalogueSync?.isBusy() || downloads?.status()?.items?.some(item => ['Queued','Downloading'].includes(item.state))) reasons.push('chart_downloads');
     if (melonUninstallRunning || filters?.status()?.busy || reshade?.status()?.busy || ['preparing','installing'].includes(reshadeSetup?.status()?.state)) reasons.push('game_setup');
     if (player?.playing || player?.loading || drums.status().phase === 'running' || drums.status().busy) reasons.push('player_active');
     if (streamStatus().enabled || gameCaptureStatus().phase !== 'stopped' || inputViewerStatus().phase === 'running') reasons.push('stream_active');
@@ -1863,7 +1933,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if(persistenceError||profiles.status().error||floatingPanels.status().error||songRequestPreferences.status().error)throw Object.assign(Error('Visual settings could not be saved'),{code:'BACKUP_WRITE_FAILED'});
   }
   return { open, stop, snapshot, services, integration, registry, setLanguage, setButtonMotion, setUIPalette, setOverlay, setStream, setFiltersWidget, setCatalogueWidget, setCatalogueAvailable, saveSettings, library, catalogue, downloads, filters, reshade, reshadeSetup,
-    maintenanceStatus, flushPortableConfiguration, acceptDownloadedChart, setMaintenanceLocked: value => { maintenanceLocked = value === true; gameWidgetIntegrations?.update(); if (maintenanceLocked) gameModPreflight?.stop(); if (maintenanceLocked) { destroyStreamCaptures(); void drums.stop(); void quickImport?.stop(); unifiedChat?.stop(); void songRequestConnections?.setChatEnabled(false); songRequestDiscovery?.clear(); sessionActivity?.clear(); activityDownloadScopes.clear(); sessionWidgetSettings = { ...sessionWidgetSettings, shareChat: false, shareActivity: false }; sessionWidgetRevision++; } else { quickImport?.update(); sessionActivity?.update(); if (songRequests) sessionActivity?.observeRequests(songRequests.snapshot()); } if (!disposing) publishPanel(); },
+    maintenanceStatus, flushPortableConfiguration, acceptDownloadedChart, setMaintenanceLocked: value => { maintenanceLocked = value === true; gameWidgetIntegrations?.update(); if (maintenanceLocked) gameModPreflight?.stop(); if (maintenanceLocked) { void catalogueSync?.pause(); destroyStreamCaptures(); void drums.stop(); void quickImport?.stop(); unifiedChat?.stop(); void songRequestConnections?.setChatEnabled(false); songRequestDiscovery?.clear(); sessionActivity?.clear(); activityDownloadScopes.clear(); sessionWidgetSettings = { ...sessionWidgetSettings, shareChat: false, shareActivity: false }; sessionWidgetRevision++; } else { quickImport?.update(); sessionActivity?.update(); if (songRequests) sessionActivity?.observeRequests(songRequests.snapshot()); } if (!disposing) publishPanel(); },
     getPanel: () => panel, getPanelContents: () => panelContents, getPanelView: () => panelView, getOverlay: () => overlay, getFiltersWidget: () => filtersWidget, getCatalogueWidget: () => catalogueWidget, getPlayerWidget: () => playerWindow, dispose
   };
 }
