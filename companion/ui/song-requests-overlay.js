@@ -160,7 +160,9 @@ if (queueWindowBridge) {
   const show = state => {
     try {
       document.documentElement.dataset.badgeStyle = ['solid', 'stripe'].includes(state?.badgeStyle) ? state.badgeStyle : 'outline';
-      if (typeof state?.backgroundColor === 'string' && /^#[a-f0-9]{6}$/i.test(state.backgroundColor)) {
+      const transparent = state?.backgroundColor === 'transparent';
+      document.documentElement.classList.toggle('request-capture-transparent', transparent);
+      if (transparent || typeof state?.backgroundColor === 'string' && /^#[a-f0-9]{6}$/i.test(state.backgroundColor)) {
         document.documentElement.style.setProperty('--request-capture-background', state.backgroundColor);
       }
       render(state);

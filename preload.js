@@ -5,7 +5,7 @@ if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  const supportedLanguages=['fr','en','es-MX','zh-Hans','ja','pt-BR','hi','ar','bn','ru','ur','id'];
  const initialLanguage=process.argv.find(value=>value.startsWith('--chartshub-desktop-language='))?.split('=')[1];
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
-  version:'0.14.46',
+  version:'0.14.47',
   initialLanguage:supportedLanguages.includes(initialLanguage)?initialLanguage:'en',
   initialLanguageSaved:process.argv.includes('--chartshub-desktop-language-saved'),
   layout:tabbed?'tabbed':'legacy',

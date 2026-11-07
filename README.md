@@ -41,6 +41,10 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.47
+
+Le widget flottant des demandes peut afficher un fond transparent. Le fond uni reste disponible pour l’incrustation couleur. [Notes 0.14.47](docs/RELEASE-0.14.47.md).
+
 ### Version 0.14.46
 
 ChartsHub retrouve la langue choisie à chaque ouverture. Le Catalogue et le Tableau de bord partagent ce réglage. L’espagnol du Mexique, le chinois simplifié et le japonais sont disponibles en aperçu de traduction. [Notes 0.14.46](docs/RELEASE-0.14.46.md).

@@ -144,6 +144,8 @@ function validCommand(command, payload, widgetIds) {
   if (['songRequests.copyBridgeConfiguration', 'songRequests.copyOverlayUrl', 'songRequests.openQueueWindow', 'songRequests.resetOrder', 'songRequests.publishLibrary', 'songRequests.removeLibrary', 'songRequests.copyLibraryUrl'].includes(command)) return payload == null || (typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0);
   if (['songRequests.queueWindowBackground', 'chat.captureWindowBackground'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && Object.keys(payload).length === 1 && Object.hasOwn(payload, 'color') && typeof payload.color === 'string' && /^#[a-f0-9]{6}$/i.test(payload.color);
+  if (command === 'songRequests.queueWindowTransparency') return !!payload && typeof payload === 'object' && !Array.isArray(payload)
+    && Object.keys(payload).length === 1 && Object.hasOwn(payload, 'enabled') && typeof payload.enabled === 'boolean';
   if (['songRequests.queueWindowBadgeStyle', 'chat.captureWindowBadgeStyle'].includes(command)) return !!payload && typeof payload === 'object' && !Array.isArray(payload)
     && Object.keys(payload).length === 1 && Object.hasOwn(payload, 'style') && ['outline', 'solid', 'stripe'].includes(payload.style);
   if (['songRequests.connect', 'songRequests.disconnect', 'songRequests.cancelAuth'].includes(command)) {

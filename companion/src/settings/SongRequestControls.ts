@@ -20,7 +20,7 @@ interface Snapshot {
   songRequests?: {
     enabled: boolean; revision: number; order?: 'votes' | 'manual'; rules: SongRequestRules; requests: SongRequest[];
     widget?: WidgetSettings;
-    queueWindow?: { backgroundColor: string; title: string; badgeStyle?: string };
+    queueWindow?: { backgroundColor: string; title: string; badgeStyle?: string; transparent?: boolean };
     publicRequests?: { supported: boolean; active: boolean; connected: boolean; error: string | null; pendingAcknowledgements: number };
     bridge: { enabled: boolean; port?: number; url: string | null; overlayUrl: string | null; error: string | null; platforms: string[] };
     sharing?: { supported: boolean; url: string | null; count: number; updatedAt: string | null; busy: boolean; error: string | null; unavailableCount?: number;
@@ -79,6 +79,11 @@ export class SongRequestControls {
     this.element<HTMLInputElement>('#song-requests-queue-window-background').addEventListener('change', event => {
       if (this.snapshot?.songRequests?.queueWindow && !this.busy) {
         void this.send('songRequests.queueWindowBackground', { color: (event.target as HTMLInputElement).value });
+      }
+    }, { signal });
+    this.element<HTMLInputElement>('#song-requests-queue-window-transparent').addEventListener('change', event => {
+      if (this.snapshot?.songRequests?.queueWindow && !this.busy) {
+        void this.send('songRequests.queueWindowTransparency', { enabled: (event.target as HTMLInputElement).checked });
       }
     }, { signal });
     this.element<HTMLSelectElement>('#song-requests-queue-window-badges').addEventListener('change', event => {
@@ -243,7 +248,8 @@ export class SongRequestControls {
     this.element<HTMLButtonElement>('#song-requests-copy-bridge').disabled = unavailable || !current?.bridge.enabled || !current.bridge.url;
     this.element<HTMLButtonElement>('#song-requests-copy-overlay').disabled = unavailable || !current?.bridge.enabled || !current.bridge.overlayUrl;
     this.element<HTMLButtonElement>('#song-requests-open-queue-window').disabled = unavailable || !current?.queueWindow;
-    this.element<HTMLInputElement>('#song-requests-queue-window-background').disabled = unavailable || !current?.queueWindow;
+    this.element<HTMLInputElement>('#song-requests-queue-window-background').disabled = unavailable || !current?.queueWindow || current.queueWindow.transparent === true;
+    this.element<HTMLInputElement>('#song-requests-queue-window-transparent').disabled = unavailable || !current?.queueWindow;
     this.element<HTMLSelectElement>('#song-requests-queue-window-badges').disabled = unavailable || !current?.queueWindow;
     this.element<HTMLButtonElement>('#song-requests-reset-order').disabled = unavailable || current?.order !== 'manual';
     this.element('#song-requests-reset-order').hidden = current?.order !== 'manual';
@@ -282,6 +288,7 @@ export class SongRequestControls {
     const captureTitle = queueWindow?.title ?? 'ChartsHub — Song Request Queue';
     const background = this.element<HTMLInputElement>('#song-requests-queue-window-background');
     if (queueWindow && this.options.root.ownerDocument.activeElement !== background) background.value = queueWindow.backgroundColor;
+    this.element<HTMLInputElement>('#song-requests-queue-window-transparent').checked = queueWindow?.transparent === true;
     const badges = this.element<HTMLSelectElement>('#song-requests-queue-window-badges');
     if (queueWindow) badges.value = queueWindow.badgeStyle ?? 'outline';
     const badgeLabels = this.tr('Contour|Fond plein|Barre latérale', 'Outline|Solid|Side stripe').split('|');
@@ -307,11 +314,12 @@ export class SongRequestControls {
       'copy-overlay': this.tr('Copier le lien du widget OBS', 'Copy OBS widget link'),
       'open-queue-window': this.tr('Ouvrir le widget flottant', 'Open floating widget'),
       'queue-window-background-label': this.tr('Fond du widget flottant', 'Floating widget background'),
+      'queue-window-transparent-label': this.tr('Fond transparent', 'Transparent background'),
       'queue-window-badges-label': this.tr('Style des badges', 'Badge style'),
       'capture-summary': this.tr('Afficher la file dans OBS ou TikTok LIVE Studio', 'Show the queue in OBS or TikTok LIVE Studio'),
-      'capture-open': this.tr('Cliquez sur « Ouvrir le widget flottant ». Choisissez un fond uni avec le sélecteur de couleur.', 'Click “Open floating widget”. Choose a solid background using the color picker.'),
+      'capture-open': this.tr('Ouvrez le widget flottant. Redimensionnez-le en mode fond uni, puis activez « Fond transparent » si désiré. Déplacez la fenêtre transparente par son en-tête et fermez-la avec Échap.', 'Open the floating widget. Resize it in solid background mode, then enable “Transparent background” if desired. Drag the transparent window by its header and press Esc to close it.'),
       'capture-select': this.tr("Dans OBS ou TikTok LIVE Studio, ajoutez une source « Capture de fenêtre » et sélectionnez « {windowTitle} ». Dans LIVE Studio, cherchez « Window Capture » si l’interface est en anglais.", "In OBS or TikTok LIVE Studio, add a Window Capture source and select “{windowTitle}”.", { windowTitle: captureTitle }),
-      'capture-place': this.tr('Placez la source dans votre scène. Gardez ChartsHub et le widget ouverts sur le même PC pendant le live.', 'Position the source in your scene. Keep ChartsHub and the widget open on the same PC while streaming.'),
+      'capture-place': this.tr('Si la capture remplit les zones transparentes, choisissez un fond uni et utilisez l’incrustation couleur dans votre logiciel de diffusion. Gardez ChartsHub et le widget ouverts sur le même PC.', 'If window capture fills the transparent areas, choose a solid background and use chroma key in your streaming software. Keep ChartsHub and the widget open on the same PC.'),
       'connections-title': this.tr('Connecter le chat', 'Connect chat'),
       'connections-help': this.tr('Les commandes !sr, !vote, !queue et !song sont prêtes. Connecter un compte ne démarre pas la réception.', 'The !sr, !vote, !queue and !song commands are ready. Connecting an account does not start reception.'),
       'twitch-connect': this.tr('Connecter Twitch', 'Connect Twitch'), 'twitch-disconnect': this.tr('Déconnecter', 'Disconnect'),
@@ -325,7 +333,7 @@ export class SongRequestControls {
       'advanced-summary': this.tr('Options avancées · pont local', 'Advanced options · local bridge'),
       'setup-help': this.tr('Compatibilité avec une configuration Streamer.bot existante, notamment YouTube. Copiez cette configuration uniquement dans votre pont local. Évitez de relayer un même chat déjà connecté directement.', 'Compatibility with an existing Streamer.bot setup, including YouTube. Copy this configuration only into your local bridge. Avoid relaying a chat already connected directly.'),
       'commands-help': this.tr('Chat : !sr artiste titre · !vote artiste titre · !queue · !song. Une demande pour un morceau déjà en attente ajoute un vote, une seule fois par spectateur. Les flèches choisissent l’ordre manuel.', 'Chat: !sr artist title · !vote artist title · !queue · !song. Requesting a song already waiting adds a vote, once per viewer. The arrows switch to manual order.'),
-      'overlay-help': this.tr('Dans OBS, ajoutez une source Navigateur et collez le lien du widget. Il affiche les prochaines demandes sans permettre de gérer la file. Les demandes ne téléchargent aucun fichier et ne lancent pas le jeu.', 'In OBS, add a Browser Source and paste the widget link. It shows upcoming requests without queue management. Requests never download files or launch the game.'),
+      'overlay-help': this.tr('Pour un fond transparent dans OBS, ajoutez une source Navigateur et collez le lien du widget. La source affiche les prochaines demandes. Gérez la file depuis ChartsHub.', 'For a transparent background in OBS, add a Browser Source and paste the widget link. The source shows upcoming requests. Manage the queue from ChartsHub.'),
       'sharing-title': this.tr('Liste publique pour les spectateurs', 'Public song list for viewers'),
       'sharing-help': this.tr('Publier envoie uniquement les informations des morceaux disponibles et les règles sur ChartsHub : aucun audio, aucune note ni aucun chemin local. Après publication, chaque changement détecté dans Songs ou dans les règles actualise automatiquement le même lien. La publication active la détection du dossier ; gardez ChartsHub ouvert. Pour les ajouts hors de l’application, conservez « Détecter les changements du dossier » activé. Les spectateurs consultent la liste sans compte et copient une commande !sr dans le chat. La file et les pseudos ne sont pas publiés.', 'Publishing uploads only available song metadata and rules to ChartsHub: no audio, notes or local paths. After publication, detected Songs changes and rule changes update the same link automatically. Publishing enables folder detection; keep ChartsHub open. For additions outside the app, keep “Detect folder changes” enabled. Viewers browse without an account and copy an !sr command into chat. The queue and viewer names are not published.'),
       'publish-library': this.snapshot?.songRequests?.sharing?.url ? this.tr('Actualiser la liste', 'Update song list') : this.tr('Publier la liste', 'Publish song list'),
