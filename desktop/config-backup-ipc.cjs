@@ -1,4 +1,5 @@
 'use strict';
+const { pair: localePair } = require('./language.cjs');
 const fs=require('node:fs'),path=require('node:path');
 const {MAX_BYTES,checkedPath}=require('./config-backup.cjs');
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -9,7 +10,7 @@ function plainPayload(value,idRequired){if(!idRequired)return value===undefined|
 function createConfigBackupIpc({engine,getPanel=()=>null,dialog,protectedDirectories,beforeExport=async()=>null,beginApply,publish=()=>{},language=()=> 'en',now=()=>new Date()}={}){
  if(!engine||!dialog||typeof dialog.showSaveDialog!=='function'||typeof dialog.showOpenDialog!=='function'||typeof dialog.showMessageBox!=='function'||typeof beginApply!=='function'||!Array.isArray(protectedDirectories)||protectedDirectories.length<1||protectedDirectories.some(item=>typeof item!=='string'||!path.isAbsolute(item)))throw TypeError('Explicit backup dependencies and protected directories required');
  const protectedRoots=protectedDirectories.map(item=>path.resolve(item));let busy=false,error=null,disposed=false,generation=0;
- const tr=(fr,en)=>language()==='fr'?fr:en;
+ const tr=(fr,en)=>localePair(language(),fr,en);
  function state(){let preview=null;try{const value=engine.status();preview=value.preview?summary(value.preview):null;}catch{error='BACKUP_UNAVAILABLE';}return {busy,preview,error};}
  function notify(){if(!disposed)try{publish(state());}catch{}}
  function current(ticket,guard){let permitted=false;try{permitted=guard()===true;}catch{}if(disposed||ticket!==generation||!permitted)throw failure('BACKUP_CANCELLED');}

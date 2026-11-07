@@ -1,3 +1,4 @@
+import { languageCode, languageKey, wordsFor, localizedPair } from './locale-text.js';
 const PLATFORMS=['twitch','tiktok'];
 const TEXT={
  fr:{title:'Chat multistream',help:'Connectez vos comptes, puis activez la lecture du chat. Les messages restent dans cette session. L’affichage dans OBS se choisit séparément dans Stream / OBS.',enabled:'Afficher le chat ici',accounts:'Configurer les comptes',clear:'Effacer les messages locaux',pause:'Mettre l’affichage en pause',resume:'Reprendre l’affichage',all:'Toutes les plateformes',empty:'Aucun message reçu.',off:'Lecture du chat arrêtée',failure:'Le chat n’a pas pu appliquer cette action.',states:{connected:'Connecté',connecting:'Connexion…',disconnected:'Non connecté',authorizing:'Autorisation en cours',awaiting_authorization:'Autorisation en cours',error:'Connexion à vérifier'}},
@@ -36,16 +37,16 @@ export class UnifiedChatControls{
   this.source.addEventListener('change',()=>{this.filter=PLATFORMS.includes(this.source.value)?this.source.value:'all';this.signature=null;this.update(this.snapshot);});this.update({});
  }
  update(snapshot){
-  if(this.disposed)return;this.snapshot=snapshot;const state=snapshot?.chat??{},language=snapshot?.language==='en'?'en':'fr';
-  const signature=JSON.stringify([state,language,this.paused,this.filter,this.error]);if(signature===this.signature)return;this.signature=signature;this.language=language;
-  const t=TEXT[language];this.title.textContent=t.title;this.help.textContent=t.help;this.caption.textContent=t.enabled;this.enabled.checked=state.enabled===true;
+  if(this.disposed)return;this.snapshot=snapshot;const state=snapshot?.chat??{},language=languageCode(snapshot?.language);
+  const signature=JSON.stringify([state,languageKey(language),this.paused,this.filter,this.error]);if(signature===this.signature)return;this.signature=signature;this.language=language;
+  const t=wordsFor(TEXT,language);this.title.textContent=t.title;this.help.textContent=t.help;this.caption.textContent=t.enabled;this.enabled.checked=state.enabled===true;
   this.accounts.textContent=t.accounts;this.clear.textContent=t.clear;this.pause.textContent=this.paused?t.resume:t.pause;this.source.children[0].textContent=t.all;
   this.feedback.textContent=this.error?t.failure:'';
-  const capture=CAPTURE[language],windowSettings=state.captureWindow;
+  const capture=wordsFor(CAPTURE,language),windowSettings=state.captureWindow;
   this.openCapture.textContent=capture.open;this.backgroundCaption.textContent=capture.background;
-  this.widgetSettings.textContent=language==='fr'?'Personnaliser le widget':'Customize widget';
-  this.badgeCaption.textContent=language==='fr'?'Style des badges':'Badge style';
-  const badgeLabels=language==='fr'?['Contour','Fond plein','Barre latérale']:['Outline','Solid','Side stripe'];
+  this.widgetSettings.textContent=localizedPair(language,'Personnaliser le widget','Customize widget');
+  this.badgeCaption.textContent=localizedPair(language,'Style des badges','Badge style');
+  const badgeLabels=[localizedPair(language,'Contour','Outline'),localizedPair(language,'Fond plein','Solid'),localizedPair(language,'Barre latérale','Side stripe')];
   Array.from(this.badges.children).forEach((option,index)=>{option.textContent=badgeLabels[index];});
   this.openCapture.disabled=this.background.disabled=this.badges.disabled=!windowSettings;
   this.badges.value=windowSettings?.badgeStyle??'outline';
@@ -63,7 +64,7 @@ export class UnifiedChatControls{
   for(const m of messages){let row=this.rows.get(m.id);if(!row){const node=this.make('article','unified-chat-message'),header=this.make('div','unified-chat-message-heading'),platform=this.make('span','unified-chat-badge'),name=this.make('strong'),time=this.make('time'),text=this.make('p');header.append(platform,name,time);node.append(header,text);row={node,platform,name,time,text};this.rows.set(m.id,row);this.list.append(node);}
    const contentSignature=JSON.stringify([m.platform,m.name,m.text,m.at,language]);if(row.signature!==contentSignature){row.signature=contentSignature;
     row.platform.textContent=m.platform==='tiktok'?'TikTok':'Twitch';row.platform.dataset.platform=m.platform;row.name.textContent=String(m.name??'');row.text.textContent=String(m.text??'');
-    row.time.textContent=Number.isSafeInteger(m.at)?new Date(m.at).toLocaleTimeString(language==='fr'?'fr-CA':'en-CA',{hour:'2-digit',minute:'2-digit'}):'';
+    row.time.textContent=Number.isSafeInteger(m.at)?new Date(m.at).toLocaleTimeString(language,{hour:'2-digit',minute:'2-digit'}):'';
    }
   }
   this.empty.hidden=messages.length>0;this.empty.textContent=t.empty;if(nearBottom)this.list.scrollTop=this.list.scrollHeight;

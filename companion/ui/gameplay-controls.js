@@ -1,3 +1,4 @@
+import { localizedPair } from '../dist/localization/locale-pair.js';
 /** Measurements come from the local connector, never from a percentage or a screenshot. */
 class ConnectorSetupControls {
     constructor(owner, parent) {
@@ -335,7 +336,7 @@ export class GameplayControls {
         if (dedicatedCalibration) { this.summaryFeedback = this.node('p', root, 'performance-summary-feedback'); this.summaryFeedback.hidden = true; this.summaryFeedback.setAttribute('role', 'status'); }
         this.render();
     }
-    tr(fr, en) { return this.language === 'en' ? en : fr; }
+    tr(fr, en, values) { return localizedPair(this.language, fr, en, values); }
     feedbackNodes() { return [this.feedback, this.summaryFeedback].filter(Boolean); }
     showFeedback(fr, en) { this.feedbackMessage = [fr, en]; for (const node of this.feedbackNodes()) { node.textContent = this.tr(fr, en); node.classList.remove('is-error'); node.hidden = false; } }
     format(value, decimals = 1) { return typeof value === 'number' && Number.isFinite(value) ? new Intl.NumberFormat(this.language, { minimumFractionDigits: decimals, maximumFractionDigits: decimals }).format(value) : '—'; }
@@ -445,7 +446,7 @@ export class GameplayControls {
         }
     }
     update(snapshot) { if (this.disposed)
-        return; this.snapshot = snapshot?.telemetry || null; this.language = snapshot?.language === 'en' ? 'en' : 'fr'; this.render(); }
+        return; this.snapshot = snapshot?.telemetry || null; this.language = globalThis.ChartshubDesktopLocale?.runtime.canonicalize(snapshot?.language) ?? (snapshot?.language === 'en' ? 'en' : 'fr'); this.render(); }
     render() {
         if (this.gameplayMeasurements === false) return;
         for (const [node, fr, en] of this.labels)
@@ -500,14 +501,14 @@ export class GameplayControls {
         const instructions = native ? [
             this.tr('Dans Clone Hero : Réglages → Gameplay → Calibration.', 'In Clone Hero: Settings → Gameplay → Calibration.'),
             this.tr('Lancez l’outil natif et suivez ses indications jusqu’au résultat. Vérifiez les deux délais qu’il a retenus dans le jeu.', 'Start the native tool and follow its instructions through to the result. Check both delays it retained in the game.'),
-            this.tr('Revenez à l’étape 4 : le résultat ' + settingName + ' reçu apparaît automatiquement. Vous pourrez le reprendre dans votre saisie locale.', 'Return to step 4: the received ' + settingName + ' result appears automatically. You can reuse it in your local input.')
+            this.tr("Revenez à l’étape 4 : le résultat {setting} reçu apparaît automatiquement. Vous pourrez le reprendre dans votre saisie locale.", "Return to step 4: the received {setting} result appears automatically. You can reuse it in your local input.", { setting: settingName })
         ] : gameplay ? [
-            this.tr('Utilisez une chart de calibration connue, avec le même passage et la même vitesse à chaque essai. Notez le réglage ' + settingName + ' actuel et gardez l’autre réglage inchangé.', 'Use a known calibration chart, with the same passage and speed for every trial. Note the current ' + settingName + ' setting and leave the other setting unchanged.'),
+            this.tr("Utilisez une chart de calibration connue, avec le même passage et la même vitesse à chaque essai. Notez le réglage {setting} actuel et gardez l’autre réglage inchangé.", "Use a known calibration chart, with the same passage and speed for every trial. Note the current {setting} setting and leave the other setting unchanged.", { setting: settingName }),
             this.tr('Recopiez la valeur ci-dessous et démarrez l’essai ChartsHub, puis lancez la chart. Les mesures commencent à la première frappe reçue. Vous pouvez aussi démarrer avant les frappes d’un passage déjà lancé.', 'Enter the value below and start the ChartsHub trial, then start the chart. Measurements begin with the first received hit. You can also start before the hits of a passage already running.'),
-            this.tr('Jouez au moins 30 frappes continues, sans redémarrer ni déplacer la lecture, puis terminez l’essai. Pour comparer, changez seulement le réglage ' + settingName + ' dans le jeu et rejouez le même passage à la même vitesse.', 'Play at least 30 continuous hits without restarting or seeking, then finish the trial. To compare, change only the ' + settingName + ' setting in the game and replay the same passage at the same speed.')
+            this.tr("Jouez au moins 30 frappes continues, sans redémarrer ni déplacer la lecture, puis terminez l’essai. Pour comparer, changez seulement le réglage {setting} dans le jeu et rejouez le même passage à la même vitesse.", "Play at least 30 continuous hits without restarting or seeking, then finish the trial. To compare, change only the {setting} setting in the game and replay the same passage at the same speed.", { setting: settingName })
         ] : [
-            this.tr('Dans Clone Hero, relevez le réglage ' + settingName + ' actuel. Recopiez-le ci-dessous et démarrez l’essai ChartsHub.', 'In Clone Hero, read the current ' + settingName + ' setting. Enter it below and start the ChartsHub trial.'),
-            this.tr('Ouvrez Réglages → Gameplay → Calibration, puis utilisez l’outil natif. Seules les mesures ' + settingName + ' reçues de cet outil sont comptées.', 'Open Settings → Gameplay → Calibration, then use the native tool. Only ' + settingName + ' measurements received from that tool are counted.'),
+            this.tr("Dans Clone Hero, relevez le réglage {setting} actuel. Recopiez-le ci-dessous et démarrez l’essai ChartsHub.", "In Clone Hero, read the current {setting} setting. Enter it below and start the ChartsHub trial.", { setting: settingName }),
+            this.tr("Ouvrez Réglages → Gameplay → Calibration, puis utilisez l’outil natif. Seules les mesures {setting} reçues de cet outil sont comptées.", "Open Settings → Gameplay → Calibration, then use the native tool. Only {setting} measurements received from that tool are counted.", { setting: settingName }),
             this.tr('Après au moins 30 mesures continues du même essai natif, terminez ici pour conserver les mesures. Un nouvel essai ou un changement audio/vidéo impose de recommencer le compteur.', 'After at least 30 continuous measurements from the same native trial, finish here to keep the measurements. A new native trial or an audio/video change requires a fresh counter.')
         ];
         const setup = this.hardwareContext();
@@ -531,7 +532,7 @@ export class GameplayControls {
         this.trial.textContent = trial ? this.tr(trial.stage === 'audio' ? 'Essai audio' : 'Essai vidéo', trial.stage === 'audio' ? 'Audio trial' : 'Video trial') + ' · ' + this.tr(trial.source === 'gameplay' ? 'frappes en jeu' : 'outil du jeu', trial.source === 'gameplay' ? 'chart hits' : 'game tool') + ' · ' + this.format(trial.settingMs) + ' ms · ' + this.format(trial.sampleCount, 0) + '/30 ' + this.tr('mesures', 'measurements') + (trialStatus ? ' · ' + trialStatus : '') : !connected ? this.tr('Connectez les mesures réelles pour démarrer un essai.', 'Connect real measurements to start a trial.') : !(gameplay ? c.hitTiming : c.calibrationTiming) ? this.tr('Cette méthode nécessite des mesures compatibles avec le connecteur.', 'This method requires compatible connector measurements.') : this.tr('Aucun essai en cours. Terminer devient disponible à partir de 30 mesures continues.', 'No trial running. Finish becomes available after 30 continuous measurements.');
         this.liveTrial.hidden = !connected || !matchingTrial || trial?.incomplete || !trial?.sampleCount;
         this.liveTrial.textContent = this.liveTrial.hidden ? '' : this.trialMetrics(trial);
-        this.historyTitle.textContent = this.tr('Historique ' + settingName + ' · ' + (gameplay ? 'analyse en jeu' : 'outil du jeu'), (audio ? 'Audio' : 'Video') + ' history · ' + (gameplay ? 'in-game analysis' : 'game tool'));
+        this.historyTitle.textContent = this.tr('Historique {setting} · {method}', '{setting} history · {method}', { setting: audio ? this.tr('Audio', 'Audio') : this.tr('Vidéo', 'Video'), method: gameplay ? this.tr('analyse en jeu', 'in-game analysis') : this.tr('outil du jeu', 'game tool') });
         const results = (p?.calibration?.trials || []).filter(result => result.stage === this.stage.value && result.source === source);
         this.trials.replaceChildren();
         for (const result of results) {

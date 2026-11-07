@@ -41,6 +41,31 @@ import { controlSnapshotSignature } from './panel-snapshot.js';
 import { gameplayFeatureFlags, visibleWidgetSnapshot } from './gameplay-features.js';
 
 const api = window.ChartsHubCompanion;
+const locale = globalThis.ChartshubDesktopLocale;
+const languageSelect = document.getElementById('desktop-language');
+const languageStatus = document.getElementById('language-status');
+if (locale && languageSelect) {
+  for (const definition of locale.runtime.locales) {
+    const option = document.createElement('option');
+    option.value = option.lang = definition.code; option.dir = definition.dir; option.textContent = definition.label;
+    option.translate = false; languageSelect.append(option);
+  }
+  languageSelect.value = locale.get(); languageSelect.disabled = !api;
+  languageSelect.addEventListener('change', async () => {
+    const language = locale.runtime.canonicalize(languageSelect.value);
+    if (!api || !language) return;
+    languageSelect.disabled = true; languageStatus.hidden = true;
+    try {
+      const result = await api.command('language.set', { language });
+      if (!result?.ok) throw Error('Language update unavailable');
+      window.ChartshubCompanionLanguage?.apply(result.language);
+    } catch {
+      const tr = (fr, en) => locale.pair(fr, en);
+      languageStatus.textContent = tr('La langue n’a pas pu être changée. Réessayez.', 'The language could not be changed. Try again.');
+      languageStatus.hidden = false;
+    } finally { languageSelect.value = locale.get(); languageSelect.disabled = false; }
+  });
+}
 const { gameplayMeasurements, calibrationBeta } = gameplayFeatureFlags(api?.features);
 const query = selector => document.querySelector(selector);
 const workspaceNavigation = new WorkspaceNavigation(query('#companion-app'), { language: document.documentElement.lang, gameplayMeasurements, calibrationBeta });
@@ -62,6 +87,9 @@ const controls = {
 const names = { idle: 'Inactif', menu: 'Menu', loading: 'Chargement', playing: 'En jeu', paused: 'En pause', results: 'Résultats' };
 let currentSnapshot;
 let lastControlSnapshotSignature;
+window.addEventListener('chartshub:locale-ready', () => {
+  if (currentSnapshot) { lastControlSnapshotSignature = undefined; applySnapshot(currentSnapshot); }
+});
 let receivedSnapshot = false;
 let unsubscribe = () => {};
 let disposed = false;
@@ -224,7 +252,11 @@ function applySnapshot(snapshot) {
     return;
   }
   setCataloguePalette(snapshot.uiPalette);
-  if (snapshot.language === 'fr' || snapshot.language === 'en') { window.ChartshubCompanionLanguage?.apply(snapshot.language); workspaceNavigation.update(snapshot.language); updates?.update({language:snapshot.language}); configurationBackup?.update({language:snapshot.language}); }
+  if (locale?.runtime.canonicalize(snapshot.language) || ['fr', 'en'].includes(snapshot.language)) {
+    window.ChartshubCompanionLanguage?.apply(snapshot.language);
+    if (languageSelect && !languageSelect.disabled) languageSelect.value = snapshot.language;
+    workspaceNavigation.update(snapshot.language); updates?.update({ language: snapshot.language }); configurationBackup?.update({ language: snapshot.language });
+  }
   statusControls.update(snapshot);
   const { state } = snapshot;
   const gameplay = state.gameplay.state;

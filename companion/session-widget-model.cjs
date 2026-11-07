@@ -1,4 +1,5 @@
 'use strict';
+const { runtime: localeRuntime } = require('../desktop/language.cjs');
 const DEFAULT_SESSION_WIDGET_SETTINGS = Object.freeze({ shareChat: false, shareActivity: false, showViewerNames: false, fontSize: 18, maxItems: 6, accent: '#49bbff' });
 const KEYS = Object.keys(DEFAULT_SESSION_WIDGET_SETTINGS).sort(), KINDS = new Set(['chat', 'activity']);
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value) && Object.getPrototypeOf(value) === Object.prototype;
@@ -16,7 +17,7 @@ function validSessionWidgetCommand(name, payload) {
   try { validateSessionWidgetSettings(payload.settings); return true; } catch { return false; }
 }
 function projectSessionFeed(kind, value) {
-  const defaults = defaultSessionWidgetSettings(), language = value?.language === 'fr' ? 'fr' : 'en';
+  const defaults = defaultSessionWidgetSettings(), language = localeRuntime.canonicalize(value?.language) || 'en';
   let settings = defaults;
   try { settings = validateSessionWidgetSettings(value?.settings); } catch {}
   const enabled = KINDS.has(kind) && value?.enabled === true && settings[kind === 'chat' ? 'shareChat' : 'shareActivity'] === true;

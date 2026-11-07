@@ -1,4 +1,5 @@
 'use strict';
+const { runtime: localeRuntime } = require('../desktop/language.cjs');
 const { CAPABILITIES, PHASES } = require('./clonehero-telemetry-contract.cjs');
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const number = (value, min, max) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null;
@@ -51,7 +52,7 @@ function publicTelemetrySnapshot(value, language = 'fr') {
     const goal = value.goal;
     return {
         connected, status: ['disabled', 'waiting', 'connecting', 'connected', 'unsupported', 'stale', 'error'].includes(value.status) ? value.status : 'error',
-        language: language === 'en' ? 'en' : 'fr', gameVersion: text(value.gameVersion), capabilities,
+        language: localeRuntime.canonicalize(language) || 'fr', gameVersion: text(value.gameVersion), capabilities,
         phase: connected && PHASES.includes(value.phase) ? value.phase : 'idle', active,
         hasChartIdentity: !!(active && capabilities.songIdentity && (value.hasChartIdentity === true || (value.active.metadata?.chartId && value.active.metadata?.instrument && value.active.metadata?.difficulty))),
         timing: timing(connected && capabilities.hitTiming ? value.timing : null), comparison, session,

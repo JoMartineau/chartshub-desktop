@@ -7,6 +7,7 @@ import type { StreamSettings } from '../../overlay/stream/StreamConfig.js';
 import type { GameplayTelemetry } from '../types/GameplayTelemetry.js';
 
 export interface AppState {
+  language?: string;
   gameplay: GameplaySessionState;
   nowPlaying: NowPlayingState | null;
   serviceHealth: Record<string, ServiceHealth>;

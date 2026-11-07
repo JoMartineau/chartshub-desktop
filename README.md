@@ -41,6 +41,10 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.46
+
+ChartsHub retrouve la langue choisie à chaque ouverture. Le Catalogue et le Tableau de bord partagent ce réglage. L’espagnol du Mexique, le chinois simplifié et le japonais sont disponibles en aperçu de traduction. [Notes 0.14.46](docs/RELEASE-0.14.46.md).
+
 ### Version 0.14.45
 
 La synchronisation compare les fichiers de Songs pour reconnaître les copies identiques et traiter les mises à jour. Le nettoyage de la bibliothèque charge les résultats au défilement. Le rapport Clone Hero permet de sélectionner toutes les erreurs admissibles par lot. [Notes 0.14.45](docs/RELEASE-0.14.45.md).

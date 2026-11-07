@@ -12,7 +12,8 @@ const css = fs.readFileSync(sheet, 'utf8');
 test('all five native button surfaces load the same packaged stylesheet after local styles', () => {
   for (const file of ['desktop/index.html', ...['index', 'catalogue-widget', 'filters-widget', 'music-player'].map(name => `companion/ui/${name}.html`)]) {
     const links = [...fs.readFileSync(path.join(repo, file), 'utf8').matchAll(/<link\s+rel="stylesheet"\s+href="([^"]+)"/g)].map(match => match[1]);
-    assert.equal(path.resolve(repo, path.dirname(file), links.at(-1)), sheet, file);
+    const buttonLinks = links.filter(link => !link.endsWith('/locale-layout.css'));
+    assert.equal(path.resolve(repo, path.dirname(file), buttonLinks.at(-1)), sheet, file);
     assert.equal(links.filter(link => link.endsWith('/button-motion.css')).length, 1, file);
   }
   for (const name of ['overlay', 'stream', 'song-requests']) assert.ok(!fs.readFileSync(path.join(repo, 'companion/ui', name + '.html'), 'utf8').includes('button-motion.css'), 'display-only documents stay untouched');

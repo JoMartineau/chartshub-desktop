@@ -1,7 +1,8 @@
 'use strict';
+const { pair: localePair } = require('./desktop/language.cjs');
 function canPreviewVisitor(user){return user?.emailVerified===true&&user.staffRole==='administrator';}
 function applicationMenu({language,load,web,close,cancel,downloading,toggleFullscreen,visitorPreview,companion,manualUpdate}){
- const fr=language==='fr',t=(a,b)=>fr?a:b;
+ const t=(fr,en)=>localePair(language,fr,en);
  return [
   {label:t('Catalogue','Catalogue'),click:()=>load('/')},
   {label:t('Mon compte','My account'),click:()=>load('/account.html')},

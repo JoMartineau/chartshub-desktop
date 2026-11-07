@@ -1,3 +1,4 @@
+import { languageCode, localizedPair } from './locale-text.js';
 const PADS = [
   ['kick', 'Grosse caisse', 'Kick'], ['snare', 'Caisse claire', 'Snare'],
   ['hat', 'Charleston fermé', 'Closed hi-hat'], ['hat-open', 'Charleston ouvert', 'Open hi-hat'],
@@ -111,7 +112,7 @@ export class DrumVstControls {
   }
   make(tag, parent = this.root) { const node = this.root.ownerDocument.createElement(tag); parent.append(node); return node; }
   text(node, fr, en) { this.labels.push({ node, fr, en }); node.textContent = this.tr(fr, en); }
-  tr(fr, en) { return this.snapshot?.language === 'en' ? en : fr; }
+  tr(fr, en) { return localizedPair(languageCode(this.snapshot?.language), fr, en); }
   button(parent, id, fr, en, action) {
     const node = this.make('button', parent); node.id = id; node.type = 'button'; node.className = 'button secondary'; this.text(node, fr, en);
     node.addEventListener('click', () => { if (!node.disabled) void action(); }, { signal: this.abort.signal }); this.buttons.push(node); return node;

@@ -1721,7 +1721,7 @@ test('native cleanup defaults to cancel and recycles only the explicitly selecte
   let confirmations = 0;
   f.dialog.showMessageBox = async (owner, options) => {
     confirmations++; assert.equal(owner, f.panel); assert.equal(options.defaultId, 0); assert.equal(options.cancelId, 0);
-    assert.ok(options.detail.includes('A')); assert.ok(options.detail.includes('Dossier entier')); return { response: 0 };
+    assert.ok(options.detail.includes('A')); assert.match(options.detail, /Dossier complet|Entire folder/); return { response: 0 };
   };
   const selection = { ...f.payload, ids: [f.payload.ids[0]] };
   assert.deepEqual(await f.command('library.recycleDuplicates', selection), { ok: true, cancelled: true });

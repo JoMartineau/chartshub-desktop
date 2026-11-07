@@ -1,3 +1,4 @@
+import { languageCode, languageKey, wordsFor, localizedPair } from './locale-text.js';
 // Read-only summary. Navigation is the only capability supplied to this view.
 const clean = (value, limit = 180) => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, limit) : '';
 const count = value => Number.isSafeInteger(value) && value >= 0 ? Math.min(value, 1e9) : 0;
@@ -10,7 +11,7 @@ export function projectHomeSnapshot(snapshot = {}) {
   const requests = jobs(snapshot.songRequests?.requests).filter(item => ['pending', 'accepted'].includes(item?.status));
   const downloads = jobs(snapshot.downloads?.items), song = snapshot.state?.nowPlaying;
   return {
-    language: snapshot.language === 'fr' ? 'fr' : 'en',
+    language: languageCode(snapshot.language, 'en'),
     song: { title: clean(song?.title), artist: clean(song?.artist), charter: clean(song?.charter), demonstration: snapshot.cloneHero?.mode !== 'live' },
     requests: { enabled: snapshot.songRequests?.enabled === true, total: requests.length, rows: requests.slice(0, 3).map(item => ({ title: clean(item.title ?? item.song?.title), artist: clean(item.artist ?? item.song?.artist), status: item.status })) },
     downloads: { total: downloads.filter(item => activeDownload(item?.state)).length, rows: downloads.slice(-3).reverse().map(item => ({ title: clean(item?.title), state: downloadState(item?.state), percent: Number.isFinite(item?.totalBytes) && item.totalBytes > 0 && Number.isFinite(item?.receivedBytes) ? Math.max(0, Math.min(100, Math.floor(item.receivedBytes / item.totalBytes * 100))) : null })) },
@@ -44,10 +45,11 @@ export class HomeControls {
   node(tag, className = '', text = '') { const node = this.document.createElement(tag); if (className) node.className = className; if (text) node.textContent = text; return node; }
   update(snapshot) {
     if (this.disposed) return;
-    const model = projectHomeSnapshot(snapshot), text = words[model.language];
-    if (this.language !== model.language) { this.language = model.language; this.root.setAttribute('aria-label', model.language === 'fr' ? 'Accueil' : 'Overview'); }
+    const model = projectHomeSnapshot(snapshot), text = wordsFor(words, model.language);
+    const localeKey = languageKey(model.language);
+    if (this.language !== localeKey) { this.language = localeKey; this.root.setAttribute('aria-label', localizedPair(model.language, 'Accueil', 'Overview')); }
     for (const kind of Object.keys(this.cards)) {
-      const value = model[kind] ?? null, signature = JSON.stringify([model.language, value]);
+      const value = model[kind] ?? null, signature = JSON.stringify([localeKey, value]);
       if (signature === this.signatures.get(kind)) continue;
       this.signatures.set(kind, signature); this.cards[kind].title.textContent = text[kind];
       if (kind === 'song') { this.nodes.songTitle.textContent = value.title || text.noSong; this.nodes.songArtist.textContent = [value.artist, value.charter].filter(Boolean).join(' · '); this.nodes.songSource.textContent = value.demonstration ? text.demonstration : text.exported; }

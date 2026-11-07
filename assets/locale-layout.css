@@ -1,0 +1,14 @@
+/* Local fonts avoid loading large font families for scripts a player does not use. */
+html:lang(zh-Hans){--font:system-ui,"Microsoft YaHei UI","PingFang SC","Noto Sans CJK SC",sans-serif;--display:var(--font)}
+html:lang(ja){--font:system-ui,"Yu Gothic UI","Hiragino Kaku Gothic ProN","Noto Sans CJK JP",sans-serif;--display:var(--font)}
+html:lang(hi){--font:system-ui,"Nirmala UI","Noto Sans Devanagari",sans-serif;--display:var(--font)}
+html:lang(bn){--font:system-ui,"Nirmala UI","Noto Sans Bengali",sans-serif;--display:var(--font)}
+html:lang(ar),html:lang(ur){--font:system-ui,"Segoe UI","Noto Sans Arabic",sans-serif;--display:var(--font)}
+html:is(:lang(ar),:lang(ur),:lang(hi),:lang(bn)) :is(h1,h2,h3,.section-kicker,.eyebrow,.nav-link,.button,.staff-badge){letter-spacing:normal;text-transform:none}
+html:is(:lang(zh-Hans),:lang(ja),:lang(hi),:lang(bn),:lang(ar),:lang(ur)) :is(p,label,.button,.staff-badge){line-height:1.65}
+html[dir=rtl] body{text-align:start}
+html[dir=rtl] :is(input[type=url],input[type=email],input[type=password],code,pre,[data-local-path],[data-ltr]){direction:ltr;text-align:start}
+html[dir=rtl] :is([data-user-content],.charter-name,.card-title,.card-artist,.creator-chart-title,.message-text){unicode-bidi:plaintext;text-align:start}
+html[dir=rtl] .topnav,html[dir=rtl] .top-actions{direction:rtl}
+html[dir=rtl] :is(ol,ul){padding-inline-start:1.5em;padding-inline-end:0}
+.language-select{max-inline-size:min(230px,40vw);font-family:system-ui,sans-serif}

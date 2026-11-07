@@ -1,4 +1,5 @@
 import type { AppState } from '../../core/state/AppState.js';
+import { localizedPair } from '../../localization/locale-pair.js';
 
 export type WidgetTextSelector = (state: AppState) => string | null;
 
@@ -29,9 +30,10 @@ const difficulties: readonly (readonly [string, string])[] = [
   ['Easy', 'Facile'], ['Medium', 'Moyen'], ['Hard', 'Difficile'], ['Expert', 'Expert'],
 ];
 function localized(value: string | null, state: AppState, vocabulary: readonly (readonly [string, string])[]): string | null {
-  if (value === null || !state.performance?.language) return value;
+  const language = state.language || state.performance?.language;
+  if (value === null || !language) return value;
   const match = vocabulary.find(([en, fr]) => en.toLowerCase() === value.toLowerCase() || fr.toLowerCase() === value.toLowerCase());
-  return match ? match[state.performance.language === 'fr' ? 1 : 0] : value;
+  return match ? localizedPair(language, match[1], match[0]) : value;
 }
 export const selectLocalizedInstrument: WidgetTextSelector = state => localized(selectInstrument(state), state, instruments);
 export const selectLocalizedDifficulty: WidgetTextSelector = state => localized(selectDifficulty(state), state, difficulties);

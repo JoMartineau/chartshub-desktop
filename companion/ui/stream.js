@@ -6,7 +6,9 @@ const root = document.querySelector('#stream-overlay');
 const renderer = new StreamRenderer(root, new WidgetRenderer(createDefaultRegistry()));
 const token = new URL(location.href).searchParams.get('token');
 let socket = null, reconnect = null, delay = 1000, lastContact = 0, disposed = false;
-const clear = () => renderer.clear();
+let latestState = null;
+const clear = () => { latestState = null; renderer.clear(); };
+window.addEventListener('chartshub:locale-ready', () => { if (latestState) renderer.render(latestState); });
 
 function scheduleReconnect() {
   if (disposed || reconnect) return;
@@ -26,7 +28,8 @@ function connect() {
       const message = JSON.parse(event.data);
       if (message.type === 'heartbeat') { lastContact = Date.now(); return; }
       if (message.type !== 'snapshot' || !message.state || !Array.isArray(message.state.widgets?.instances)) return;
-      renderer.render(message.state);
+      globalThis.ChartshubDesktopLocale?.set(message.state.language);
+      latestState = message.state; renderer.render(latestState);
       lastContact = Date.now(); delay = 1000;
     } catch { clear(); }
   });

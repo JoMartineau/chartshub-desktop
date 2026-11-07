@@ -1,7 +1,9 @@
 'use strict';
 (() => {
-  const initial = window.ChartsHubCompanion?.initialLanguage === 'fr' ? 'fr' : 'en';
-  let language = initial;
+  const locale = globalThis.ChartshubDesktopLocale;
+  let language = locale?.get() ?? (window.ChartsHubCompanion?.initialLanguage === 'fr' ? 'fr' : 'en');
+  const tr = (fr, en, values) => locale?.pair(fr, en, values, language) ?? (language === 'fr' ? fr : en)
+    .replace(/\{([A-Za-z][A-Za-z0-9_]*)\}/g, (slot, name) => values?.[name] ?? slot);
   let writing = false;
   const exact = new Map([
     ['Rubriques du Tableau de bord','Dashboard workspaces'],
@@ -264,98 +266,127 @@
   ]);
 
   const rules = [
-    [/^(Taille du texte|Réduire le texte|Agrandir le texte) · (.+)$/, m => `${({ 'Taille du texte': 'Text size', 'Réduire le texte': 'Decrease text size', 'Agrandir le texte': 'Increase text size' })[m[1]]} · ${english(m[2])}`],
-    [/^Redimensionner : (haut droite|bas droite|bas gauche|haut gauche|haut|droite|bas|gauche)$/, m => `Resize: ${({ 'haut droite': 'top right', 'bas droite': 'bottom right', 'bas gauche': 'bottom left', 'haut gauche': 'top left', haut: 'top', droite: 'right', bas: 'bottom', gauche: 'left' })[m[1]]}`],
-    [/^(\d+) connexion(?:s)? aux widgets$/, m => `${m[1]} widget connection${m[1] === '1' ? '' : 's'}`],
-    [/^(\d+) widget(s?) sélectionné(?:s)?( · déplacement et alignement groupés)?$/, m => `${m[1]} widget${m[2]} selected${m[3] ? ' · move and align together' : ''}`],
-    [/^(.+) · (verrouillé|masqué)$/, m => `${english(m[1])} · ${m[2] === 'verrouillé' ? 'locked' : 'hidden'}`],
-    [/^\+(.+) nouveau\(x\) · (.+) ignoré\(s\)$/, m => `+${m[1]} new · ${m[2]} skipped`],
-    [/^Écoulé : (.+) · Temps restant indéterminé$/, m => `Elapsed: ${m[1]} · Remaining time unknown`],
-    [/^Écoulé : (.+) · Restant estimé : environ (.+)$/, m => `Elapsed: ${m[1]} · Estimated remaining: about ${m[2]}`],
-    [/^(.+) sur (.+) résultat(?:s)? affiché(?:s)?(?: · (Chargement de la suite…|Suite indisponible))?$/, m => `${m[1]} of ${m[2]} results displayed${m[3] ? m[3] === 'Suite indisponible' ? ' · More results unavailable' : ' · Loading more…' : ''}`],
-    [/^Arrêt de la vérification en cours : (.+) \/ (.+) groupes\. Les résultats terminés seront conservés\.$/, m => `Stopping verification: ${m[1]} / ${m[2]} groups. Completed results will be kept.`],
-    [/^Vérification interrompue : (.+) \/ (.+) groupe\(s\) vérifié\(s\)\. (.+) Aucun fichier n’a été supprimé\.$/, m => `Verification interrupted: ${m[1]} / ${m[2]} group(s) checked. ${english(m[3])} No files were deleted.`],
-    [/^Comparer les fichiers · (\d+) différence\(s\)$/, m => `Compare files · ${m[1]} difference(s)`],
-    [/^(\d+) identique\(s\) · (\d+) modifié\(s\) · (\d+) uniquement dans la version conservée · (\d+) uniquement dans cette copie · (\d+) non vérifié\(s\)$/, m => `${m[1]} identical · ${m[2]} changed · ${m[3]} only in the kept version · ${m[4]} only in this copy · ${m[5]} unverified`],
-    [/^Choisissez le dossier de destination, puis utilisez .*Ajouter à la file.* sur une chart téléchargeable\.$/, () => 'Choose a destination folder, then use “Add to queue” on a downloadable chart.'],
-    [/^\+(.+) ajouté(?:s)? · −(.+) supprimé(?:s)? · (.+) modifié(?:s)?$/, m => `+${m[1]} added · −${m[2]} removed · ${m[3]} modified`],
-    [/^(.+) avertissement(?:s)? · (.+) élément(?:s)? ignoré(?:s)? lors de la dernière analyse\.$/, m => `${m[1]} warning(s) · ${m[2]} item(s) skipped during the last scan.`],
-    [/^(.+) source(?:s)? connectée(?:s)?$/, m => `${m[1]} connected source(s)`],
-    [/^(.+) résultat(?:s)?$/, m => `${m[1]} result(s)`],
-    [/^(\d[\d\s.,]*) morceau(x?)$/, m => `${m[1]} ${m[2] ? 'songs' : 'song'}`],
-    [/^(\d[\d\s.,]*) téléchargement(s?)$/, m => `${m[1]} download${m[2] ? 's' : ''}`],
-    [/^Doublon possible \((.+)\)$/, m => `Possible duplicate (${m[1]})`],
-    [/^Prêt à nettoyer · (.+) copie\(s\) vérifiée\(s\)$/, m => `Ready to clean · ${m[1]} verified cop${m[1] === '1' ? 'y' : 'ies'}`],
-    [/^Vérification (.+) \/ (.+)…$/, m => `Checking ${m[1]} / ${m[2]}…`],
-    [/^Vérification des notes, de l’audio et des fichiers : (.+) \/ (.+) groupes\.$/, m => `Checking notes, audio and files: ${m[1]} / ${m[2]} groups.`],
-    [/^(\d[\d\s.,]*) groupe\(s\) prêt\(s\) · (\d[\d\s.,]*) choix de version requis · (\d[\d\s.,]*) bloqué\(s\) · (\d[\d\s.,]*) copie\(s\) identique\(s\) prête\(s\) à sélectionner\. Ouvrez « Comparer » pour connaître les raisons précises\.$/, m => `${m[1]} ready group(s) · ${m[2]} keeper choice(s) required · ${m[3]} blocked · ${m[4]} identical copy/copies ready to select. Open “Compare” to see the exact reasons.`],
-    [/^Comparer les versions · (.+)$/, m => `Compare versions · ${m[1]}`],
-    [/^Créateur : (.+)$/, m => `Charter: ${m[1]}`],
-    [/^Chart : (.+)$/, m => `Chart: ${m[1]}`],
-    [/^Instruments : (.+)$/, m => `Instruments: ${m[1]}`],
-    [/^Difficultés : (.+)$/, m => `Difficulties: ${m[1]}`],
-    [/^Ouvrir le dossier (.+)$/, m => `Open folder ${m[1]}`],
-    [/^Conserver cette version : (.+)$/, m => `Keep this version: ${m[1]}`],
-    [/^Sélectionner cette copie : (.+)$/, m => `Select this copy: ${m[1]}`],
-    [/^Supprimer cette copie : (.+)$/, m => `Delete this copy: ${m[1]}`],
-    [/^Suppression manuelle uniquement : (.+)$/, m => `Manual deletion only: ${m[1]}`],
-    [/^Suppression bloquée : (.+)$/, m => `Deletion blocked: ${m[1]}`],
-    [/^Supprimer quand même cette copie : (.+)$/, m => `Delete this copy anyway: ${m[1]}`],
-    [/^(.+) autre\(s\) version\(s\) sont entièrement vérifiées, mais leurs notes, leur audio ou certains fichiers diffèrent\. Utilisez « Supprimer quand même » uniquement si vous acceptez de perdre ces différences\.$/, m => `${m[1]} other version(s) are fully verified, but their notes, audio or some files differ. Use “Delete anyway” only if you accept losing those differences.`],
-    [/^1 copie vérifiée mais différente envoyée à la Corbeille Windows\. Version conservée : (.+)\.$/, m => `1 verified but different copy sent to the Windows Recycle Bin. Kept version: ${m[1]}.`],
-    [/^Envoyer les (.+) copies sélectionnées à la Corbeille…$/, m => `Send the ${m[1]} selected copies to the Recycle Bin…`],
-    [/^(.+) copie\(s\) sélectionnée\(s\) · (.+) octets\. (.+) autre\(s\) copie\(s\) non cochée\(s\) restent en place\. La version conservée est protégée\.$/, m => `${m[1]} selected copy/copies · ${m[2]} bytes. ${m[3]} other unchecked copy/copies stay in place. The kept version is protected.`],
-    [/^(.+) copie\(s\) vérifiée\(s\) disponible\(s\)\. Cochez individuellement les copies à envoyer à la Corbeille\.(?: (.+) version\(s\) vérifiée\(s\) mais différente\(s\) peuvent être supprimées manuellement\.)?(?: (.+) version\(s\) restent protégées\.)? Aucune copie n’est sélectionnée automatiquement\.$/, m => `${m[1]} verified copy/copies available. Select each copy to send to the Recycle Bin individually.${m[2] ? ` ${m[2]} verified but different version(s) can be deleted manually.` : ''}${m[3] ? ` ${m[3]} version(s) remain protected.` : ''} No copy is selected automatically.`],
-    [/^Appliquer le profil (.+)$/, m => `Apply profile ${m[1]}`],
-    [/^Gérer le profil (.+)$/, m => `Manage profile ${m[1]}`],
-    [/^Profil actif : (.+)$/, m => `Active profile: ${m[1]}`],
-    [/^Profil à mettre à jour : (.+)$/, m => `Profile to update: ${m[1]}`],
-    [/^Fichier : (.+)$/, m => `File: ${m[1]}`],
-    [/^Dernière analyse : (.+)$/, m => `Last scan: ${m[1]}`],
-    [/^Catalogue chargé le (.+)$/, m => `Catalogue loaded ${m[1]}`],
-    [/^Enregistré le (.+) à (.+)$/, m => `Saved on ${m[1]} at ${m[2]}`],
-    [/^Envoyer (.+) copies à la Corbeille$/, m => `Send ${m[1]} copies to Recycle Bin`],
-    [/^(.+) copie\(s\) sélectionnée\(s\)\. La version conservée est exclue\.$/, m => `${m[1]} selected copy/copies. The kept version is excluded.`],
-    [/^(.+) versions · (.+) fichiers de notes lisibles · (.+) groupes de notes · (.+) groupes identiques · (.+) non vérifiées$/, m => `${m[1]} versions · ${m[2]} readable note files · ${m[3]} note groups · ${m[4]} identical groups · ${m[5]} unverified`],
-    [/^Notes identiques · groupe (.+) \((.+) versions\)$/, m => `Identical notes · group ${m[1]} (${m[2]} versions)`],
-    [/^Notes vérifiées · groupe (.+)$/, m => `Verified notes · group ${m[1]}`],
-    [/^Audio vérifié · (.+) fichier\(s\) · (.+) octets$/, m => `Audio verified · ${m[1]} file(s) · ${m[2]} bytes`]
+    [/^(Taille du texte|Réduire le texte|Agrandir le texte) · (.+)$/, m => {
+      const label = m[1] === 'Taille du texte' ? tr('Taille du texte', 'Text size')
+        : m[1] === 'Réduire le texte' ? tr('Réduire le texte', 'Decrease text size') : tr('Agrandir le texte', 'Increase text size');
+      return tr('{action} · {widget}', '{action} · {widget}', { action: label, widget: translate(m[2]) });
+    }],
+    [/^Redimensionner : (haut droite|bas droite|bas gauche|haut gauche|haut|droite|bas|gauche)$/, m => {
+      const positions = { 'haut droite': tr('haut droite', 'top right'), 'bas droite': tr('bas droite', 'bottom right'),
+        'bas gauche': tr('bas gauche', 'bottom left'), 'haut gauche': tr('haut gauche', 'top left'),
+        haut: tr('haut', 'top'), droite: tr('droite', 'right'), bas: tr('bas', 'bottom'), gauche: tr('gauche', 'left') };
+      return tr('Redimensionner : {position}', 'Resize: {position}', { position: positions[m[1]] });
+    }],
+    [/^(\d+) connexion(?:s)? aux widgets$/, m => m[1] === '1' ? tr('{count} connexion aux widgets', '{count} widget connection', { count: m[1] })
+      : tr('{count} connexions aux widgets', '{count} widget connections', { count: m[1] })],
+    [/^(\d+) widget(s?) sélectionné(?:s)?( · déplacement et alignement groupés)?$/, m => {
+      const count = m[1];
+      if (m[3]) return tr('{count} widgets sélectionnés · déplacement et alignement groupés', '{count} widgets selected · move and align together', { count });
+      return m[2] ? tr('{count} widgets sélectionnés', '{count} widgets selected', { count }) : tr('{count} widget sélectionné', '{count} widget selected', { count });
+    }],
+    [/^(.+) · (verrouillé|masqué)$/, m => m[2] === 'verrouillé' ? tr('{widget} · verrouillé', '{widget} · locked', { widget: translate(m[1]) })
+      : tr('{widget} · masqué', '{widget} · hidden', { widget: translate(m[1]) })],
+    [/^\+(.+) nouveau\(x\) · (.+) ignoré\(s\)$/, m => tr('+{added} nouveau(x) · {skipped} ignoré(s)', '+{added} new · {skipped} skipped', { added: m[1], skipped: m[2] })],
+    [/^Écoulé : (.+) · Temps restant indéterminé$/, m => tr('Écoulé : {elapsed} · Temps restant indéterminé', 'Elapsed: {elapsed} · Remaining time unknown', { elapsed: m[1] })],
+    [/^Écoulé : (.+) · Restant estimé : environ (.+)$/, m => tr('Écoulé : {elapsed} · Restant estimé : environ {remaining}', 'Elapsed: {elapsed} · Estimated remaining: about {remaining}', { elapsed: m[1], remaining: m[2] })],
+    [/^(.+) sur (.+) résultat(?:s)? affiché(?:s)?(?: · (Chargement de la suite…|Suite indisponible))?$/, m => {
+      const values = { shown: m[1], total: m[2] };
+      if (m[3] === 'Suite indisponible') return tr('{shown} sur {total} résultats affichés · Suite indisponible', '{shown} of {total} results displayed · More results unavailable', values);
+      if (m[3]) return tr('{shown} sur {total} résultats affichés · Chargement de la suite…', '{shown} of {total} results displayed · Loading more…', values);
+      return tr('{shown} sur {total} résultats affichés', '{shown} of {total} results displayed', values);
+    }],
+    [/^Arrêt de la vérification en cours : (.+) \/ (.+) groupes\. Les résultats terminés seront conservés\.$/, m => tr('Arrêt de la vérification en cours : {done} / {total} groupes. Les résultats terminés seront conservés.', 'Stopping verification: {done} / {total} groups. Completed results will be kept.', { done: m[1], total: m[2] })],
+    [/^Vérification interrompue : (.+) \/ (.+) groupe\(s\) vérifié\(s\)\. (.+) Aucun fichier n’a été supprimé\.$/, m => tr('Vérification interrompue : {done} / {total} groupe(s) vérifié(s). {details} Aucun fichier n’a été supprimé.', 'Verification interrupted: {done} / {total} group(s) checked. {details} No files were deleted.', { done: m[1], total: m[2], details: translate(m[3]) })],
+    [/^Comparer les fichiers · (\d+) différence\(s\)$/, m => tr('Comparer les fichiers · {count} différence(s)', 'Compare files · {count} difference(s)', { count: m[1] })],
+    [/^(\d+) identique\(s\) · (\d+) modifié\(s\) · (\d+) uniquement dans la version conservée · (\d+) uniquement dans cette copie · (\d+) non vérifié\(s\)$/, m => tr('{identical} identique(s) · {changed} modifié(s) · {kept} uniquement dans la version conservée · {copy} uniquement dans cette copie · {unverified} non vérifié(s)', '{identical} identical · {changed} changed · {kept} only in the kept version · {copy} only in this copy · {unverified} unverified', { identical: m[1], changed: m[2], kept: m[3], copy: m[4], unverified: m[5] })],
+    [/^Choisissez le dossier de destination, puis utilisez .*Ajouter à la file.* sur une chart téléchargeable\.$/, () => tr('Choisissez le dossier de destination, puis utilisez « Ajouter à la file » sur une chart téléchargeable.', 'Choose a destination folder, then use “Add to queue” on a downloadable chart.')],
+    [/^\+(.+) ajouté(?:s)? · −(.+) supprimé(?:s)? · (.+) modifié(?:s)?$/, m => tr('+{added} ajouté(s) · −{removed} supprimé(s) · {changed} modifié(s)', '+{added} added · −{removed} removed · {changed} modified', { added: m[1], removed: m[2], changed: m[3] })],
+    [/^(.+) avertissement(?:s)? · (.+) élément(?:s)? ignoré(?:s)? lors de la dernière analyse\.$/, m => tr('{warnings} avertissement(s) · {skipped} élément(s) ignoré(s) lors de la dernière analyse.', '{warnings} warning(s) · {skipped} item(s) skipped during the last scan.', { warnings: m[1], skipped: m[2] })],
+    [/^(.+) source(?:s)? connectée(?:s)?$/, m => tr('{count} source(s) connectée(s)', '{count} connected source(s)', { count: m[1] })],
+    [/^(.+) résultat(?:s)?$/, m => tr('{count} résultat(s)', '{count} result(s)', { count: m[1] })],
+    [/^(\d[\d\s.,]*) morceau(x?)$/, m => m[2] ? tr('{count} morceaux', '{count} songs', { count: m[1] }) : tr('{count} morceau', '{count} song', { count: m[1] })],
+    [/^(\d[\d\s.,]*) téléchargement(s?)$/, m => m[2] ? tr('{count} téléchargements', '{count} downloads', { count: m[1] }) : tr('{count} téléchargement', '{count} download', { count: m[1] })],
+    [/^Doublon possible \((.+)\)$/, m => tr('Doublon possible ({reason})', 'Possible duplicate ({reason})', { reason: m[1] })],
+    [/^Prêt à nettoyer · (.+) copie\(s\) vérifiée\(s\)$/, m => m[1] === '1' ? tr('Prêt à nettoyer · {count} copie vérifiée', 'Ready to clean · {count} verified copy', { count: m[1] })
+      : tr('Prêt à nettoyer · {count} copies vérifiées', 'Ready to clean · {count} verified copies', { count: m[1] })],
+    [/^Vérification (.+) \/ (.+)…$/, m => tr('Vérification {done} / {total}…', 'Checking {done} / {total}…', { done: m[1], total: m[2] })],
+    [/^Vérification des notes, de l’audio et des fichiers : (.+) \/ (.+) groupes\.$/, m => tr('Vérification des notes, de l’audio et des fichiers : {done} / {total} groupes.', 'Checking notes, audio and files: {done} / {total} groups.', { done: m[1], total: m[2] })],
+    [/^(\d[\d\s.,]*) groupe\(s\) prêt\(s\) · (\d[\d\s.,]*) choix de version requis · (\d[\d\s.,]*) bloqué\(s\) · (\d[\d\s.,]*) copie\(s\) identique\(s\) prête\(s\) à sélectionner\. Ouvrez « Comparer » pour connaître les raisons précises\.$/, m => tr('{ready} groupe(s) prêt(s) · {choices} choix de version requis · {blocked} bloqué(s) · {identical} copie(s) identique(s) prête(s) à sélectionner. Ouvrez « Comparer » pour connaître les raisons précises.', '{ready} ready group(s) · {choices} keeper choice(s) required · {blocked} blocked · {identical} identical copy/copies ready to select. Open “Compare” to see the exact reasons.', { ready: m[1], choices: m[2], blocked: m[3], identical: m[4] })],
+    [/^Comparer les versions · (.+)$/, m => tr("Comparer les versions · {song}", "Compare versions · {song}", { song: m[1] })],
+    [/^Créateur : (.+)$/, m => tr("Créateur : {name}", "Charter: {name}", { name: m[1] })],
+    [/^Chart : (.+)$/, m => tr("Chart : {title}", "Chart: {title}", { title: m[1] })],
+    [/^Instruments : (.+)$/, m => tr("Instruments : {instruments}", "Instruments: {instruments}", { instruments: m[1] })],
+    [/^Difficultés : (.+)$/, m => tr("Difficultés : {difficulties}", "Difficulties: {difficulties}", { difficulties: m[1] })],
+    [/^Ouvrir le dossier (.+)$/, m => tr("Ouvrir le dossier {folder}", "Open folder {folder}", { folder: m[1] })],
+    [/^Conserver cette version : (.+)$/, m => tr("Conserver cette version : {version}", "Keep this version: {version}", { version: m[1] })],
+    [/^Sélectionner cette copie : (.+)$/, m => tr("Sélectionner cette copie : {copy}", "Select this copy: {copy}", { copy: m[1] })],
+    [/^Supprimer cette copie : (.+)$/, m => tr("Supprimer cette copie : {copy}", "Delete this copy: {copy}", { copy: m[1] })],
+    [/^Suppression manuelle uniquement : (.+)$/, m => tr("Suppression manuelle uniquement : {reason}", "Manual deletion only: {reason}", { reason: m[1] })],
+    [/^Suppression bloquée : (.+)$/, m => tr("Suppression bloquée : {reason}", "Deletion blocked: {reason}", { reason: m[1] })],
+    [/^Supprimer quand même cette copie : (.+)$/, m => tr("Supprimer quand même cette copie : {copy}", "Delete this copy anyway: {copy}", { copy: m[1] })],
+    [/^(.+) autre\(s\) version\(s\) sont entièrement vérifiées, mais leurs notes, leur audio ou certains fichiers diffèrent\. Utilisez « Supprimer quand même » uniquement si vous acceptez de perdre ces différences\.$/, m => tr("{count} autre(s) version(s) sont entièrement vérifiées, mais leurs notes, leur audio ou certains fichiers diffèrent. Utilisez « Supprimer quand même » uniquement si vous acceptez de perdre ces différences.", "{count} other version(s) are fully verified, but their notes, audio or some files differ. Use “Delete anyway” only if you accept losing those differences.", { count: m[1] })],
+    [/^1 copie vérifiée mais différente envoyée à la Corbeille Windows\. Version conservée : (.+)\.$/, m => tr("1 copie vérifiée mais différente envoyée à la Corbeille Windows. Version conservée : {version}.", "1 verified but different copy sent to the Windows Recycle Bin. Kept version: {version}.", { version: m[1] })],
+    [/^Envoyer les (.+) copies sélectionnées à la Corbeille…$/, m => tr("Envoyer les {count} copies sélectionnées à la Corbeille…", "Send the {count} selected copies to the Recycle Bin…", { count: m[1] })],
+    [/^(.+) copie\(s\) sélectionnée\(s\) · (.+) octets\. (.+) autre\(s\) copie\(s\) non cochée\(s\) restent en place\. La version conservée est protégée\.$/, m => tr('{selected} copie(s) sélectionnée(s) · {bytes} octets. {unchecked} autre(s) copie(s) non cochée(s) restent en place. La version conservée est protégée.', '{selected} selected copy/copies · {bytes} bytes. {unchecked} other unchecked copy/copies stay in place. The kept version is protected.', { selected: m[1], bytes: m[2], unchecked: m[3] })],
+    [/^(.+) copie\(s\) vérifiée\(s\) disponible\(s\)\. Cochez individuellement les copies à envoyer à la Corbeille\.(?: (.+) version\(s\) vérifiée\(s\) mais différente\(s\) peuvent être supprimées manuellement\.)?(?: (.+) version\(s\) restent protégées\.)? Aucune copie n’est sélectionnée automatiquement\.$/, m => [
+      tr('{available} copie(s) vérifiée(s) disponible(s). Cochez individuellement les copies à envoyer à la Corbeille.', '{available} verified copy/copies available. Select each copy to send to the Recycle Bin individually.', { available: m[1] }),
+      m[2] && tr('{different} version(s) vérifiée(s) mais différente(s) peuvent être supprimées manuellement.', '{different} verified but different version(s) can be deleted manually.', { different: m[2] }),
+      m[3] && tr('{protected} version(s) restent protégées.', '{protected} version(s) remain protected.', { protected: m[3] }),
+      tr('Aucune copie n’est sélectionnée automatiquement.', 'No copy is selected automatically.')
+    ].filter(Boolean).join(' ')],
+    [/^Appliquer le profil (.+)$/, m => tr("Appliquer le profil {name}", "Apply profile {name}", { name: m[1] })],
+    [/^Gérer le profil (.+)$/, m => tr("Gérer le profil {name}", "Manage profile {name}", { name: m[1] })],
+    [/^Profil actif : (.+)$/, m => tr("Profil actif : {name}", "Active profile: {name}", { name: m[1] })],
+    [/^Profil à mettre à jour : (.+)$/, m => tr("Profil à mettre à jour : {name}", "Profile to update: {name}", { name: m[1] })],
+    [/^Fichier : (.+)$/, m => tr("Fichier : {file}", "File: {file}", { file: m[1] })],
+    [/^Dernière analyse : (.+)$/, m => tr("Dernière analyse : {date}", "Last scan: {date}", { date: m[1] })],
+    [/^Catalogue chargé le (.+)$/, m => tr("Catalogue chargé le {date}", "Catalogue loaded {date}", { date: m[1] })],
+    [/^Enregistré le (.+) à (.+)$/, m => tr('Enregistré le {date} à {time}', 'Saved on {date} at {time}', { date: m[1], time: m[2] })],
+    [/^Envoyer (.+) copies à la Corbeille$/, m => tr('Envoyer {count} copies à la Corbeille', 'Send {count} copies to Recycle Bin', { count: m[1] })],
+    [/^(.+) copie\(s\) sélectionnée\(s\)\. La version conservée est exclue\.$/, m => tr('{count} copie(s) sélectionnée(s). La version conservée est exclue.', '{count} selected copy/copies. The kept version is excluded.', { count: m[1] })],
+    [/^(.+) versions · (.+) fichiers de notes lisibles · (.+) groupes de notes · (.+) groupes identiques · (.+) non vérifiées$/, m => tr('{versions} versions · {files} fichiers de notes lisibles · {noteGroups} groupes de notes · {identicalGroups} groupes identiques · {unverified} non vérifiées', '{versions} versions · {files} readable note files · {noteGroups} note groups · {identicalGroups} identical groups · {unverified} unverified', { versions: m[1], files: m[2], noteGroups: m[3], identicalGroups: m[4], unverified: m[5] })],
+    [/^Notes identiques · groupe (.+) \((.+) versions\)$/, m => tr('Notes identiques · groupe {group} ({versions} versions)', 'Identical notes · group {group} ({versions} versions)', { group: m[1], versions: m[2] })],
+    [/^Notes vérifiées · groupe (.+)$/, m => tr('Notes vérifiées · groupe {group}', 'Verified notes · group {group}', { group: m[1] })],
+    [/^Audio vérifié · (.+) fichier\(s\) · (.+) octets$/, m => tr('Audio vérifié · {files} fichier(s) · {bytes} octets', 'Audio verified · {files} file(s) · {bytes} bytes', { files: m[1], bytes: m[2] })]
   ];
 
-  const blocked = '#local-music-player-panel,#song-requests-panel,code,pre,.companion-widget,.library-relative-path,.library-variant-path,.library-variant h4,.library-variant-metadata,.library-bulk-cleanup-song,.catalogue-item h3,.catalogue-item-artist,.catalogue-item-details,.download-item h3,.download-destination,.profile-item-name,#clonehero-file-path,#library-root,#downloads-root,#reshade-root,#filters-root,#reshade-preset';
+  const blocked = '[translate=no],[data-user-content],.feed-name,.feed-message,.feed-title,.unified-chat-message,.song-request-viewer,.song-request-title,#local-music-player-panel,#song-requests-panel,code,pre,.companion-widget,.library-relative-path,.library-variant-path,.library-variant h4,.library-variant-metadata,.library-bulk-cleanup-song,.catalogue-item h3,.catalogue-item-artist,.catalogue-item-details,.download-item h3,.download-destination,.profile-item-name,#clonehero-file-path,#library-root,#downloads-root,#reshade-root,#filters-root,#reshade-preset';
   const records = new WeakMap();
   const attrRecords = new WeakMap();
   const attrs = ['placeholder','title','aria-label'];
 
-  const normalizedExact = new Map([...exact].map(([fr,en]) => [fr.normalize('NFC').replace(/\s+/g,' ').trim(), en]));
-  function english(source) {
+  const normalizedExact = new Map([...exact].map(pair => [pair[0].normalize('NFC').replace(/\s+/g,' ').trim(), pair]));
+  function messageFor(source) {
     const normalized = source.normalize('NFC').replace(/\s+/g,' ').trim();
-    if (normalizedExact.has(normalized)) return normalizedExact.get(normalized);
-    for (const [pattern, replace] of rules) {
+    const pair = normalizedExact.get(normalized);
+    if (pair) return { pair };
+    for (const [pattern, render] of rules) {
       const match = normalized.match(pattern);
-      if (match) return replace(match);
+      if (match) return { render, match };
     }
-    return source;
+    return null;
   }
   function blockedElement(element) { return !element || !!element.closest?.(blocked); }
+  function translate(source, message = messageFor(source)) {
+    if (!message || language === 'fr') return source;
+    return message.pair ? tr(...message.pair) : message.render(message.match);
+  }
   function textRecord(node) {
     const raw = node.nodeValue ?? '', trimmed = raw.trim();
     if (!trimmed || blockedElement(node.parentElement)) return null;
     let record = records.get(node);
-    if (record && trimmed !== record.fr && trimmed !== record.en) {
-      const en = english(trimmed);
-      if (en === trimmed) { records.delete(node); return null; }
-      record = { fr: trimmed, en, leading: raw.match(/^\s*/)?.[0] ?? '', trailing: raw.match(/\s*$/)?.[0] ?? '' }; records.set(node, record);
-    } else if (!record) {
-      const en = english(trimmed);
-      if (en === trimmed) return null;
-      record = { fr: trimmed, en, leading: raw.match(/^\s*/)?.[0] ?? '', trailing: raw.match(/\s*$/)?.[0] ?? '' }; records.set(node, record);
+    if (!record || raw !== record.rendered) {
+      const message = messageFor(trimmed);
+      if (!message) { records.delete(node); return null; }
+      record = { source: trimmed, message, leading: raw.match(/^\s*/)?.[0] ?? '', trailing: raw.match(/\s*$/)?.[0] ?? '', rendered: raw };
+      records.set(node, record);
     }
     return record;
   }
   function translateText(node) {
     const record = textRecord(node); if (!record) return;
-    const value = record.leading + (language === 'fr' ? record.fr : record.en) + record.trailing;
+    const value = record.leading + translate(record.source, record.message) + record.trailing;
+    record.rendered = value;
     if (node.nodeValue !== value) node.nodeValue = value;
   }
   function translateAttr(element, attr) {
@@ -363,16 +394,12 @@
     const raw = element.getAttribute(attr); if (!raw) return;
     let all = attrRecords.get(element); if (!all) { all = new Map(); attrRecords.set(element, all); }
     let record = all.get(attr);
-    if (record && raw !== record.fr && raw !== record.en) {
-      const en = english(raw);
-      if (en === raw) { all.delete(attr); return; }
-      record = { fr: raw, en }; all.set(attr, record);
-    } else if (!record) {
-      const en = english(raw);
-      if (en === raw) return;
-      record = { fr: raw, en }; all.set(attr, record);
+    if (!record || raw !== record.rendered) {
+      const message = messageFor(raw);
+      if (!message) { all.delete(attr); return; }
+      record = { source: raw, message, rendered: raw }; all.set(attr, record);
     }
-    const value = language === 'fr' ? record.fr : record.en;
+    const value = translate(record.source, record.message); record.rendered = value;
     if (raw !== value) element.setAttribute(attr, value);
   }
   function scan(root = document.body) {
@@ -389,21 +416,21 @@
     } finally { writing = false; }
   }
   function refresh() { scan(document.body); }
-  function updateTitle() {
-    if (document.title === 'ChartsHub · Tableau de bord' || document.title === 'ChartsHub · Dashboard') {
-      const title = language === 'fr' ? 'ChartsHub · Tableau de bord' : 'ChartsHub · Dashboard';
-      if (document.title !== title) document.title = title;
-    }
-  }
+  const dashboardTitle = ['ChartsHub · Tableau de bord', 'ChartsHub · Dashboard'];
+  const updateDashboardTitle = dashboardTitle.includes(document.title);
+  function updateTitle() { if (updateDashboardTitle) document.title = tr(...dashboardTitle); }
+  function announce() { window.dispatchEvent(new CustomEvent('chartshub:languagechange', { detail: { language } })); }
   function apply(value) {
-    const next = value === 'fr' ? 'fr' : 'en';
-    const changed = next !== language;
-    language = next; document.documentElement.lang = next; updateTitle(); refresh();
-    // State snapshots repeat the current language. Rebuilding localized controls
-    // for those snapshots would replace focused or hovered buttons on each tick.
-    if (changed) window.dispatchEvent(new CustomEvent('chartshub:languagechange', { detail: { language: next } }));
+    const next = locale?.runtime.canonicalize(value) ?? (value === 'fr' || value === 'en' ? value : null);
+    if (!next || next === language) return language;
+    language = next;
+    if (locale) locale.set(next); else document.documentElement.lang = next;
+    updateTitle(); refresh(); announce();
     return language;
   }
+  if (locale) window.addEventListener('chartshub:locale-ready', event => {
+    if (event.detail?.language === language) { updateTitle(); refresh(); announce(); }
+  });
   function mount() {
     document.documentElement.lang = language; updateTitle(); refresh();
     const observer = new MutationObserver(recordsList => {
@@ -416,7 +443,7 @@
     });
     observer.observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: attrs });
   }
-  window.ChartshubCompanionLanguage = Object.freeze({ get: () => language, apply, refresh, translate: source => language === 'fr' ? String(source ?? '') : english(String(source ?? '')), t: (fr, en) => language === 'fr' ? fr : en });
+  window.ChartshubCompanionLanguage = Object.freeze({ get: () => language, apply, refresh, translate: source => translate(String(source ?? '')), t: tr });
   document.documentElement.lang = language;
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount, { once: true }); else mount();
 })();

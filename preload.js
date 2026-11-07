@@ -2,8 +2,12 @@
 const {contextBridge,ipcRenderer}=require('electron');
 if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
  const tabbed=process.argv.includes('--chartshub-tabbed');
+ const supportedLanguages=['fr','en','es-MX','zh-Hans','ja','pt-BR','hi','ar','bn','ru','ur','id'];
+ const initialLanguage=process.argv.find(value=>value.startsWith('--chartshub-desktop-language='))?.split('=')[1];
  contextBridge.exposeInMainWorld('ChartsHubDesktop',{
- version:'0.14.45',
+  version:'0.14.46',
+  initialLanguage:supportedLanguages.includes(initialLanguage)?initialLanguage:'en',
+  initialLanguageSaved:process.argv.includes('--chartshub-desktop-language-saved'),
   layout:tabbed?'tabbed':'legacy',
   saveCheckerReport:payload=>ipcRenderer.invoke('chartshub:save-checker-report',payload),
   downloadState:()=>ipcRenderer.invoke('chartshub:download-state'),
@@ -16,16 +20,19 @@ if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
   enchorDownloadFormats:['folder','zip','sng'],
   cancel:()=>ipcRenderer.invoke('chartshub:cancel'),
   language:value=>ipcRenderer.invoke('chartshub:language',value),
+  languageCurrent:()=>ipcRenderer.invoke('chartshub:language-current'),
   onProgress:callback=>{if(typeof callback!=='function')return ()=>{};const listener=(_event,data)=>callback(data);ipcRenderer.on('chartshub:progress',listener);return ()=>ipcRenderer.removeListener('chartshub:progress',listener);}
  });
  // Mount in the site's utility bar; retain the focused text field for Edit actions.
  window.addEventListener('DOMContentLoaded',()=>{
   window.addEventListener('chartshub:accountchange',()=>ipcRenderer.invoke('chartshub:account-changed'));
-  let lastLanguage='';
-  const syncLanguage=()=>{const value=document.documentElement.lang.startsWith('fr')?'fr':'en';if(value===lastLanguage)return;lastLanguage=value;void ipcRenderer.invoke('chartshub:language',value);};
-  window.addEventListener('chartshub:languagechange',syncLanguage);
-  new MutationObserver(syncLanguage).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});
-  syncLanguage();
+  // Keep explicit choices working while a catalogue page still uses the older site script.
+  document.addEventListener('change',event=>{
+   const select=event.target;
+   if(!event.isTrusted||document.documentElement.hasAttribute('data-chartshub-language-bridge')||select?.tagName!=='SELECT'||select.id!=='global-language'||!supportedLanguages.includes(select.value))return;
+   void ipcRenderer.invoke('chartshub:language',select.value).catch(()=>{});
+  });
+  ipcRenderer.on('chartshub:language-state',(_event,language)=>{if(supportedLanguages.includes(language))window.dispatchEvent(new CustomEvent('chartshub:desktoplanguagechange',{detail:{language}}));});
   let caption;
   if(!tabbed){
    caption=document.createElement('div');caption.textContent='ChartsHub';
@@ -97,14 +104,22 @@ if(process.isMainFrame&&location.origin==='https://chartshub.ca'){
   button.type='button';button.className='button button-ghost';button.textContent='Application ▾';
   button.setAttribute('aria-haspopup','menu');
   button.addEventListener('mousedown',event=>event.preventDefault());
-  button.addEventListener('click',()=>ipcRenderer.invoke('chartshub:menu',document.documentElement.lang.startsWith('fr')?'fr':'en'));
+  button.addEventListener('click',()=>ipcRenderer.invoke('chartshub:menu'));
   const fullscreen=document.createElement('button');fullscreen.type='button';fullscreen.className='button button-ghost';
-  let isFullscreen=false;
-  const labelFullscreen=()=>{const fr=document.documentElement.lang.startsWith('fr');fullscreen.textContent=isFullscreen?(fr?'Quitter le plein écran':'Exit full screen'):(fr?'Plein écran':'Full screen');fullscreen.setAttribute('aria-pressed',String(isFullscreen));fullscreen.title='F11 · Esc';};
+  let isFullscreen=false,labelRevision=0;
+  const french=initialLanguage==='fr';
+  let labels={application:'Application',enterFullscreen:french?'Plein écran':'Full screen',exitFullscreen:french?'Quitter le plein écran':'Exit full screen'};
+  const labelFullscreen=()=>{fullscreen.textContent=isFullscreen?labels.exitFullscreen:labels.enterFullscreen;fullscreen.setAttribute('aria-pressed',String(isFullscreen));fullscreen.title='F11 · Esc';};
+  const refreshLabels=async()=>{
+   const revision=++labelRevision;
+   const translated=await ipcRenderer.invoke('chartshub:toolbar-labels').catch(()=>null);
+   if(!translated||revision!==labelRevision)return;
+   labels=translated;button.textContent=labels.application+' ▾';labelFullscreen();
+  };
   fullscreen.onclick=()=>ipcRenderer.invoke('chartshub:fullscreen',true);
   ipcRenderer.on('chartshub:fullscreen-state',(_event,state)=>{isFullscreen=state;labelFullscreen();});
   ipcRenderer.invoke('chartshub:fullscreen',false).then(state=>{isFullscreen=!!state;labelFullscreen();});
-  new MutationObserver(labelFullscreen).observe(document.documentElement,{attributes:true,attributeFilter:['lang']});labelFullscreen();
+  ipcRenderer.on('chartshub:language-state',refreshLabels);labelFullscreen();void refreshLabels();
   const fallback=document.createElement('div');fallback.className='theme-topbar';fallback.append(button,fullscreen);
   if(caption)caption.after(fallback);else document.body.prepend(fallback);
   const observer=new MutationObserver(()=>{

@@ -6,12 +6,14 @@ const api = window.ChartsHubCompanion;
 const overlay = new GameOverlay(document.querySelector('#game-overlay'), new WidgetRenderer(createDefaultRegistry()));
 let receivedSnapshot = false;
 let disposed = false;
-let unsubscribe = () => {};
+let unsubscribe = () => {}, currentSnapshot = null;
+window.addEventListener('chartshub:locale-ready', () => { if (currentSnapshot) render(currentSnapshot); });
 
 function render(snapshot) {
   if (disposed || !snapshot?.state) return;
   receivedSnapshot = true;
-  overlay.render(snapshot.state);
+  globalThis.ChartshubDesktopLocale?.set(snapshot.language || snapshot.state.language);
+  currentSnapshot = snapshot; overlay.render(snapshot.state);
   document.body.dataset.gameplayState = snapshot.state.gameplay.state;
 }
 

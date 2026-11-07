@@ -1,5 +1,6 @@
 'use strict';
 const { randomUUID } = require('node:crypto');
+const { pair: localePair } = require('./language.cjs');
 const ORIGIN = 'https://chartshub.ca';
 const ENDPOINT = ORIGIN + '/api/account/notifications/downloads';
 const UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i;
@@ -51,13 +52,14 @@ function createDownloadNotifications({ fetcher, showNative = () => {}, probeGame
         if (game?.running !== false) return;
       }
       if (!current(scope) || controller.signal.aborted) return;
-      const french = language() === 'fr';
-      const title = french ? 'ChartsHub · Téléchargements' : 'ChartsHub · Downloads';
+      const locale = language(), tr = (fr, en, values) => localePair(locale, fr, en, values);
+      const title = tr('ChartsHub · Téléchargements', 'ChartsHub · Downloads');
+      const values = { completed: event.completed, total: event.total };
       const bodyText = event.outcome === 'complete'
-        ? french ? `${event.completed} chart(s) téléchargée(s).` : `${event.completed} chart(s) downloaded.`
+        ? tr('Charts téléchargées : {completed}.', 'Charts downloaded: {completed}.', values)
         : event.outcome === 'cancelled'
-          ? french ? `Téléchargement annulé · ${event.completed}/${event.total} chart(s) terminée(s).` : `Download cancelled · ${event.completed}/${event.total} chart(s) completed.`
-          : french ? `Téléchargement incomplet · ${event.completed}/${event.total} chart(s) terminée(s).` : `Download incomplete · ${event.completed}/${event.total} chart(s) completed.`;
+          ? tr('Téléchargement annulé · Charts terminées : {completed}/{total}.', 'Download cancelled · Charts completed: {completed}/{total}.', values)
+          : tr('Téléchargement incomplet · Charts terminées : {completed}/{total}.', 'Download incomplete · Charts completed: {completed}/{total}.', values);
       showNative({ title, body: bodyText, silent: true }, () => {
         if (current(scope)) void Promise.resolve(openCentre(() => current(scope))).catch(() => {});
       });

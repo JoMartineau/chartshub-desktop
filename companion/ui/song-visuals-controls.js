@@ -1,3 +1,4 @@
+import { languageCode, localizedPair } from './locale-text.js';
 export class SongVisualControls {
   constructor({ root, command }) {
     this.root = root; this.command = command; this.snapshot = null; this.busy = false; this.disposed = false; this.abort = new AbortController();
@@ -19,7 +20,7 @@ export class SongVisualControls {
     this.help = node('p', root, 'helper-text'); this.feedback = node('p', root, 'helper-text'); this.feedback.hidden = true; this.feedback.setAttribute('role', 'status');
     this.update(null);
   }
-  tr(fr, en) { return this.snapshot?.language === 'en' ? en : fr; }
+  tr(fr, en) { return localizedPair(languageCode(this.snapshot?.language), fr, en); }
   async run(name, payload) {
     if (this.disposed || this.busy) return;
     this.busy = true; this.feedback.hidden = true; this.update(this.snapshot);

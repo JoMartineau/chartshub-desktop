@@ -216,6 +216,6 @@ async function createGameCapture({ root, onChange = () => {}, active = () => tru
     disposed = true; stop(null, true); ipcMain.removeHandler(CHANNEL);
     ses.setDisplayMediaRequestHandler(null); await ses.protocol.unhandle('chartshub-companion');
   }
-  return { open, stop: () => stop(null, true), dispose, snapshot: () => ({ available: alive(), phase, title: 'ChartsHub — Capture Clone Hero' }) };
+  return { open, stop: () => stop(null, true), dispose, refreshLanguage: notify, snapshot: () => ({ available: alive(), phase, title: 'ChartsHub — Capture Clone Hero' }) };
 }
 module.exports = { createGameCapture, validCrop, validSignal, candidates, trusted, captureRequestAllowed, PAGES, TITLES };

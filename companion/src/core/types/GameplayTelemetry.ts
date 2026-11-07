@@ -11,7 +11,7 @@ export interface TimingMetrics {
 export interface GameplayTelemetry {
   connected: boolean;
   status: 'disabled' | 'waiting' | 'connecting' | 'connected' | 'unsupported' | 'stale' | 'error';
-  language?: 'fr' | 'en';
+  language?: string;
   gameVersion: string | null;
   capabilities: Record<'hitTiming' | 'combo' | 'clock' | 'score' | 'misses' | 'overstrums' | 'attemptResults' | 'songIdentity' | 'songMetadata' | 'calibrationTiming' | 'calibrationResults', boolean>;
   phase: 'idle' | 'menu' | 'loading' | 'playing' | 'paused' | 'results';

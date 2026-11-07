@@ -1,3 +1,4 @@
+import { localizedPair } from '../localization/locale-pair.js';
 export interface SongRequestRules {
   maxDurationMinutes: number | null;
   instrument: 'all' | 'guitar' | 'bass' | 'drums' | 'pro-drums' | 'keys' | 'vocals' | 'rhythm' | 'guitar-coop' | 'guitar-6fret' | 'bass-6fret' | 'rhythm-6fret' | 'guitar-coop-6fret';
@@ -125,7 +126,7 @@ export class SongRequestControls {
   update(snapshot: Snapshot): void { if (!this.disposed) { this.snapshot = snapshot; this.render(); } }
   dispose(): void { this.disposed = true; this.abort.abort(); this.cardsAbort.abort(); }
   private get libraryReady(): boolean { return this.snapshot?.library?.status === 'ready' && this.snapshot.library.count > 0; }
-  private tr(fr: string, en: string): string { return this.options.root.ownerDocument.documentElement.lang.startsWith('fr') ? fr : en; }
+  private tr(fr: string, en: string, values?: Record<string, unknown>): string { return localizedPair(this.options.root.ownerDocument.documentElement.lang, fr, en, values); }
   private element<T extends HTMLElement = HTMLElement>(selector: string): T {
     const element = this.options.root.querySelector<T>(selector);
     if (!element) throw new Error('Missing Song Request control: ' + selector);
@@ -309,7 +310,7 @@ export class SongRequestControls {
       'queue-window-badges-label': this.tr('Style des badges', 'Badge style'),
       'capture-summary': this.tr('Afficher la file dans OBS ou TikTok LIVE Studio', 'Show the queue in OBS or TikTok LIVE Studio'),
       'capture-open': this.tr('Cliquez sur « Ouvrir le widget flottant ». Choisissez un fond uni avec le sélecteur de couleur.', 'Click “Open floating widget”. Choose a solid background using the color picker.'),
-      'capture-select': this.tr('Dans OBS ou TikTok LIVE Studio, ajoutez une source « Capture de fenêtre » et sélectionnez « ' + captureTitle + ' ». Dans LIVE Studio, cherchez « Window Capture » si l’interface est en anglais.', 'In OBS or TikTok LIVE Studio, add a Window Capture source and select “' + captureTitle + '”.'),
+      'capture-select': this.tr("Dans OBS ou TikTok LIVE Studio, ajoutez une source « Capture de fenêtre » et sélectionnez « {windowTitle} ». Dans LIVE Studio, cherchez « Window Capture » si l’interface est en anglais.", "In OBS or TikTok LIVE Studio, add a Window Capture source and select “{windowTitle}”.", { windowTitle: captureTitle }),
       'capture-place': this.tr('Placez la source dans votre scène. Gardez ChartsHub et le widget ouverts sur le même PC pendant le live.', 'Position the source in your scene. Keep ChartsHub and the widget open on the same PC while streaming.'),
       'connections-title': this.tr('Connecter le chat', 'Connect chat'),
       'connections-help': this.tr('Les commandes !sr, !vote, !queue et !song sont prêtes. Connecter un compte ne démarre pas la réception.', 'The !sr, !vote, !queue and !song commands are ready. Connecting an account does not start reception.'),
@@ -355,7 +356,7 @@ export class SongRequestControls {
     this.element('#song-requests-sharing-status').textContent = !sharing?.supported
       ? this.tr('Connectez votre compte ChartsHub pour partager la liste.', 'Connect your ChartsHub account to share the list.')
       : sharing.busy ? this.sharingProgress(sharing.progress)
-      : sharing.url ? this.tr(`Liste publiée : ${count} morceau${count === 1 ? '' : 'x'}.`, `Published list: ${count} song${count === 1 ? '' : 's'}.`) + (updatedAt ? ` · ${updatedAt}` : '') + (omitted ? this.tr(` ${omitted} morceau${omitted === 1 ? '' : 'x'} indisponible${omitted === 1 ? '' : 's'} exclu${omitted === 1 ? '' : 's'}.`, ` ${omitted} unavailable song${omitted === 1 ? '' : 's'} excluded.`) : '') + this.sharingSyncStatus(sharing.autoSync)
+      : sharing.url ? this.tr('Morceaux publiés : {count}.', 'Published songs: {count}.', { count }) + (updatedAt ? ` · ${updatedAt}` : '') + (omitted ? this.tr(' Morceaux indisponibles écartés : {count}.', ' Unavailable songs excluded: {count}.', { count: omitted }) : '') + this.sharingSyncStatus(sharing.autoSync)
       : this.tr('Aucune liste publiée. La publication démarre uniquement avec votre bouton.', 'No list published. Publishing starts only when you press the button.');
     const sharingError = this.element('#song-requests-sharing-error'); sharingError.hidden = !sharing?.error;
     sharingError.textContent = sharing?.error ? this.sharingError(sharing.error) + (sharing.url ? this.tr(' La liste publiée précédemment reste disponible.', ' Your previously published list remains available.') : '') : '';
@@ -389,7 +390,7 @@ export class SongRequestControls {
     const reconnecting = ['twitch', 'tiktok'].some(platform => ['connecting', 'reconnecting', 'authorizing'].includes(connections?.[platform as ChatPlatform]?.state ?? ''));
     this.element('#song-requests-health-chat').textContent = connected ? this.tr('Chat connecté', 'Chat connected') : reconnecting ? this.tr('Connexion en cours…', 'Connecting…') : current?.bridge.enabled ? this.tr('Pont local actif', 'Local bridge active') : this.tr('Chat à connecter', 'Connect chat');
     this.element('#song-requests-health-chat-help').textContent = connected ? current?.enabled ? this.libraryReady ? this.tr('Les demandes du chat sont reçues.', 'Chat requests are being received.') : this.tr('Réception en attente de la bibliothèque Songs.', 'Reception is waiting for the Songs library.') : this.tr('Activez « Recevoir les demandes du chat » quand vous êtes prêt.', 'Enable “Receive chat requests” when you are ready.') : this.tr('Twitch et TikTok se règlent dans Connexions du chat.', 'Set up Twitch and TikTok under Chat connections.');
-    this.element('#song-requests-health-library').textContent = this.libraryReady ? this.tr(library!.count.toLocaleString('fr-CA') + ' morceaux prêts', library!.count.toLocaleString('en-CA') + ' songs ready') : library?.status === 'scanning' ? this.tr('Analyse en cours…', 'Scan in progress…') : this.tr('Bibliothèque à préparer', 'Prepare library');
+    this.element('#song-requests-health-library').textContent = this.libraryReady ? this.tr('Morceaux prêts : {count}', 'Songs ready: {count}', { count: library!.count.toLocaleString(this.options.root.ownerDocument.documentElement.lang) }) : library?.status === 'scanning' ? this.tr('Analyse en cours…', 'Scan in progress…') : this.tr('Bibliothèque à préparer', 'Prepare library');
     this.element('#song-requests-health-library-help').textContent = this.libraryReady ? this.tr('Votre dossier Songs est disponible.', 'Your Songs folder is available.') : library?.status === 'scanning' ? this.tr('Attendez la fin de l’analyse avant d’accepter une demande.', 'Wait for the scan to finish before accepting a request.') : this.tr('Choisissez Songs puis lancez un scan ou une actualisation.', 'Choose Songs, then scan or refresh the library.');
     this.element('#song-requests-health-sharing').textContent = sharing?.busy ? this.tr('Liste en cours de mise à jour…', 'Updating list…') : sharing?.error ? this.tr('Partage à vérifier', 'Check sharing') : sharing?.url ? sharing.autoSync?.retrying ? this.tr('Nouvelle tentative prévue', 'Retry scheduled') : sharing.autoSync?.pending ? this.tr('Actualisation en attente', 'Update pending') : this.tr('Liste publiée', 'List published') : this.tr('Liste à publier', 'Publish list');
     this.element('#song-requests-health-sharing-help').textContent = !sharing?.supported ? this.tr('Connectez votre compte ChartsHub avant de publier.', 'Sign in to ChartsHub before publishing.') : sharing?.error ? this.sharingError(sharing.error) : sharing?.url ? this.tr('Le lien des spectateurs reste le même.', 'The viewer link stays the same.') + this.sharingSyncStatus(sharing.autoSync) : this.tr('Publiez une première fois pour obtenir le lien des spectateurs.', 'Publish once to get your viewer link.');
@@ -410,8 +411,8 @@ export class SongRequestControls {
     if (!progress || !Number.isSafeInteger(progress.total) || progress.total < 0 || progress.total > 200000
       || !Number.isSafeInteger(progress.processed) || progress.processed < 0 || progress.processed > progress.total) return this.tr('Mise à jour du partage…', 'Updating sharing…');
     const counters = `${progress.processed.toLocaleString(this.tr('fr-CA', 'en-CA'))} / ${progress.total.toLocaleString(this.tr('fr-CA', 'en-CA'))}`;
-    if (progress.phase === 'preparing') return this.tr(`Vérification des morceaux : ${counters}…`, `Checking songs: ${counters}…`);
-    if (progress.phase === 'uploading') return this.tr(`Envoi de la liste : ${counters} morceaux…`, `Uploading list: ${counters} songs…`);
+    if (progress.phase === 'preparing') return this.tr("Vérification des morceaux : {progress}…", "Checking songs: {progress}…", { progress: counters });
+    if (progress.phase === 'uploading') return this.tr("Envoi de la liste : {progress} morceaux…", "Uploading list: {progress} songs…", { progress: counters });
     if (progress.phase === 'committing') return this.tr('Publication de la liste complète…', 'Publishing the complete list…');
     if (progress.phase === 'removing') return this.tr('Retrait du partage…', 'Removing sharing…');
     return this.tr('Mise à jour du partage…', 'Updating sharing…');

@@ -1,3 +1,4 @@
+import { localizedPair } from '../localization/locale-pair.js';
 export interface LocalPlayerSelection {
   id: string; title: string; artist: string; charter?: string; album?: string; year?: string | number; genre?: string;
   durationMs?: number; artworkUrl?: string | null; mediaUrls?: Array<{ name: string; url: string }>;
@@ -217,7 +218,7 @@ export class LocalMusicPlayerControls {
   private button(id: string): HTMLButtonElement { const node = this.make('button', id, 'button secondary'); node.type = 'button'; return node; }
   private range(id: string, min: number, max: number, step: number): HTMLInputElement { const node = this.make('input', id); node.type = 'range'; node.min = String(min); node.max = String(max); node.step = String(step); return node; }
   private get<T extends HTMLElement = HTMLElement>(id: string): T { return this.nodes.get(id) as T; }
-  private tr(fr: string, en: string): string { return this.options.root.ownerDocument.documentElement.lang.startsWith('fr') ? fr : en; }
+  private tr(fr: string, en: string, values?: Record<string, unknown>): string { return localizedPair(this.options.root.ownerDocument.documentElement.lang, fr, en, values); }
   private instrumentName(value: string): string {
     const names = this.tr('Tous|Guitare|Basse|Batterie|Pro Drums|Clavier|Voix|Rythmique|Guitare coop|Guitare 6 frettes|Basse 6 frettes|Rythmique 6 frettes|Guitare coop 6 frettes', 'All|Guitar|Bass|Drums|Pro Drums|Keys|Vocals|Rhythm|Guitar Co-op|Guitar 6-fret|Bass 6-fret|Rhythm 6-fret|Guitar Co-op 6-fret').split('|');
     return names[instruments.indexOf(value)] ?? '';
@@ -428,7 +429,7 @@ export class LocalMusicPlayerControls {
       const playlist = this.selectedPlaylist;
       if (playlist) {
         const add = document.createElement('button'); add.type = 'button'; add.className = 'button secondary local-player-add-playlist'; add.textContent = playlist.songIds.includes(item.id) ? this.tr('Dans la playlist', 'In playlist') : this.tr('Ajouter', 'Add'); add.dataset.unavailable = String(playlist.songIds.includes(item.id));
-        add.setAttribute('aria-label', this.tr(`Ajouter ${item.title} à ${playlist.name}`, `Add ${item.title} to ${playlist.name}`));
+        add.setAttribute('aria-label', this.tr("Ajouter {title} à {playlist}", "Add {title} to {playlist}", { title: item.title, playlist: playlist.name }));
         add.addEventListener('click', () => { const current = this.selectedPlaylist; if (!add.disabled && current && !current.songIds.includes(item.id)) void this.send('player.playlistAdd', { id: current.id, songId: item.id }); }, { signal: this.listAbort.signal }); actions.append(add);
       }
       card.append(text, actions); results.append(card);
@@ -526,7 +527,7 @@ export class LocalMusicPlayerControls {
     this.get<HTMLInputElement>('query').disabled = !state?.available;
     this.get<HTMLButtonElement>('more').disabled = !state?.available || this.loading;
     this.get('more').hidden = !this.queryError;
-    this.get('count').textContent = this.queryError ? this.tr('Chargement interrompu. Réessayez pour continuer.', 'Loading interrupted. Retry to continue.') : this.loading ? this.tr('Chargement…', 'Loading…') : this.items.length ? this.tr(`${this.items.length} / ${this.total} morceaux`, `${this.items.length} / ${this.total} songs`) : this.tr('Aucun morceau affiché.', 'No songs displayed.');
+    this.get('count').textContent = this.queryError ? this.tr('Chargement interrompu. Réessayez pour continuer.', 'Loading interrupted. Retry to continue.') : this.loading ? this.tr('Chargement…', 'Loading…') : this.items.length ? this.tr("{shown} / {total} morceaux", "{shown} / {total} songs", { shown: this.items.length, total: this.total }) : this.tr('Aucun morceau affiché.', 'No songs displayed.');
     this.get('results').setAttribute('aria-busy', String(this.loading));
     this.get<HTMLInputElement>('video-enabled').checked = state?.videoEnabled !== false;
     this.get<HTMLInputElement>('video-enabled').disabled = unavailable;

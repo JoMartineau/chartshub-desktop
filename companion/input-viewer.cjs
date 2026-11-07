@@ -1,6 +1,7 @@
 'use strict';
 const path = require('node:path'), { pathToFileURL } = require('node:url');
 const { assetPath } = require('./security.cjs');
+const { runtime: localeRuntime } = require('../desktop/language.cjs');
 const { createXInputSource } = require('./input-viewer-xinput.cjs');
 const { createInputViewerOutputState } = require('./input-viewer-output-state.cjs');
 const CHANNEL = 'companion:input-viewer', PAGE = 'chartshub-companion://app/ui/input-viewer.html', TITLE = 'ChartsHub — Input Viewer';
@@ -31,7 +32,7 @@ async function createInputViewer({ root, active = () => true, language = () => '
   return { showOnChart, resetOnEnd, requested, connected: requested && current?.connected === true,
    status: !requested ? 'disabled' : trackingFailed ? 'error' : ['disabled','waiting','connecting','connected','unsupported','stale','error'].includes(current?.status) ? current.status : 'unavailable' };
  };
- const status = () => ({ available: alive(), open: !!window && !window.isDestroyed() && window.isVisible(), phase, title: TITLE, language: language() === 'en' ? 'en' : 'fr', windowsControllers, sourceError, windowsPending, revision,
+ const status = () => ({ available: alive(), open: !!window && !window.isDestroyed() && window.isVisible(), phase, title: TITLE, language: localeRuntime.canonicalize(language()) || 'fr', windowsControllers, sourceError, windowsPending, revision,
   outputOpen: !!outputWindow && !outputWindow.isDestroyed() && outputWindow.isVisible(), outputEditing, outputAlwaysOnTop, chartAutomation: chartAutomation() });
  const snapshotOutput = () => { if (!alive()) { outputState.setRunning(false); hideOutput(); } return outputState.snapshot(); };
  const send = (suffix, value) => { if (window && !window.isDestroyed()) window.webContents.send(CHANNEL + suffix, value); };
@@ -78,7 +79,7 @@ async function createInputViewer({ root, active = () => true, language = () => '
  }
  ipcMain.handle(OUTPUT_CHANNEL, (event, payload) => {
   if (!alive() || !outputWindow || outputWindow.isDestroyed() || event.sender !== outputWindow.webContents || event.senderFrame !== outputWindow.webContents.mainFrame || event.senderFrame.url !== OUTPUT_PAGE || !empty(payload)) return { ok: false };
-  return { ok: true, state: { ...snapshotOutput(), positioning: outputEditing } };
+  return { ok: true, state: { ...snapshotOutput(), language: status().language, positioning: outputEditing } };
  });
  ipcMain.handle(CHANNEL, async (event, command, payload) => {
   if (!alive() || !trusted(event, window)) return { ok: false };
@@ -186,6 +187,6 @@ async function createInputViewer({ root, active = () => true, language = () => '
   return reset || hide;
  }
  async function dispose() { if (disposed) return; disposed = true; stop(true); source.dispose(); await opening?.catch(() => {}); await outputOpening?.catch(() => {}); if (outputWindow && !outputWindow.isDestroyed()) outputWindow.destroy(); ipcMain.removeHandler(CHANNEL); ipcMain.removeHandler(OUTPUT_CHANNEL); await ses.protocol.unhandle('chartshub-companion'); await outputSession.protocol.unhandle('chartshub-companion'); }
- return { open, stop, dispose, status, snapshotOutput, showOutput, hideOutput, confirmChartStart, confirmChartEnd, getWindow: () => window, getOutputWindow: () => outputWindow };
+ return { open, stop, dispose, status, refreshLanguage: sendState, snapshotOutput, showOutput, hideOutput, confirmChartStart, confirmChartEnd, getWindow: () => window, getOutputWindow: () => outputWindow };
 }
 module.exports = { createInputViewer, trusted, validSelection, PAGE, TITLE, CHANNEL, OUTPUT_PAGE, OUTPUT_CHANNEL };

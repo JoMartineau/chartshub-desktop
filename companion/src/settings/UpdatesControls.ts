@@ -1,3 +1,4 @@
+import { localizedPair } from '../localization/locale-pair.js';
 export interface UpdaterSnapshot {
   status: 'idle'|'cached'|'checking'|'available'|'current'|'downloading'|'ready'|'staging'|'error';
   cachedVersion?: string|null;
@@ -57,12 +58,12 @@ export class UpdatesControls {
   }
   update(value: {language?: string}): void {
     if (this.disposed) return;
-    this.language = value.language === 'fr' ? 'fr' : 'en'; this.render();
+    this.language = globalThis.ChartshubDesktopLocale?.runtime.canonicalize(value.language) ?? (value.language === 'fr' ? 'fr' : 'en'); this.render();
     // Local IPC only, so install readiness follows ongoing downloads/scans.
     if (Date.now()-this.lastRead > 1000) void this.read();
   }
   dispose(): void { this.disposed = true; this.abort.abort(); this.unsubscribe(); }
-  private tr(fr: string,en: string): string { return this.language === 'fr' ? fr : en; }
+  private tr(fr: string, en: string, values?: Record<string, unknown>): string { return localizedPair(this.language, fr, en, values); }
   private async read(): Promise<void> {
     if (this.disposed || this.readPending) return;
     this.readPending = true; this.lastRead = Date.now();
@@ -94,7 +95,7 @@ export class UpdatesControls {
     const phrase = titles[status || 'idle'] || titles.idle!;
     this.heading.textContent = this.tr('Mises à jour','Updates');
     this.status.textContent = this.tr(...phrase);
-    this.details.textContent = current ? this.tr(`Version installée : ${current.currentVersion}${current.latestVersion ? ` · Version officielle : ${current.latestVersion}` : ''}`,`Installed version: ${current.currentVersion}${current.latestVersion ? ` · Official release: ${current.latestVersion}` : ''}`) : this.tr('Connexion à l’application…','Connecting to the application…');
+    this.details.textContent = current ? this.tr('Version installée : {version}', 'Installed version: {version}', { version: current.currentVersion }) + (current.latestVersion ? this.tr(' · Version officielle : {version}', ' · Official release: {version}', { version: current.latestVersion }) : '') : this.tr('Connexion à l’application…','Connecting to the application…');
     const labels: Record<string,string> = {
       check:status === 'cached' ? this.tr('Vérifier et reprendre','Verify and resume') : this.tr('Rechercher une mise à jour','Check for updates'),
       download:current?.installSupported ? this.tr('Télécharger la mise à jour','Download update') : this.tr('Téléchargement officiel','Official download'),

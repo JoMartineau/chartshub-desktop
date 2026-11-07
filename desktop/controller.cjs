@@ -6,11 +6,13 @@ const { randomUUID } = require('node:crypto');
 const { windowTheme } = require('../window-theme');
 const { createUIBloomIpc, createUIBloomStore } = require('./ui-bloom.cjs');
 const { validateUIPalette } = require('./ui-palette.cjs');
+const { runtime: localeRuntime, loadLanguage, readPack, pair: localePair } = require('./language.cjs');
 
 const HEADER_HEIGHT = 108;
 const STATE_CHANNEL = 'chartshub-shell:state';
 const SELECT_CHANNEL = 'chartshub-shell:select-tab';
 const CHANGED_CHANNEL = 'chartshub-shell:changed';
+const LOCALE_CHANNEL = 'chartshub-shell:locale-pack';
 const validTab = name => name === 'catalogue' || name === 'companion';
 const messages = {
   fr: { catalogue: 'Le catalogue est indisponible. Vérifiez votre connexion, puis réessayez.', companion: 'Le Tableau de bord ne peut pas démarrer. Réessayez dans un instant.' },
@@ -31,6 +33,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     companion: { ready: false, loading: false, error: null }
   };
   const pending = new Map(), listeners = [], contentsByView = new WeakMap(), deadViews = new WeakSet();
+  const message = name => localePair(language, messages.fr[name], messages.en[name]);
   const window = new BrowserWindow({
     width: 1400, height: 950, minWidth: 720, minHeight: 560, title: 'ChartsHub.ca',
     backgroundColor: '#090e19', icon: path.join(__dirname, '..', process.platform === 'win32' ? 'icon.ico' : 'icon.png'),
@@ -97,7 +100,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
         view.setVisible(activeTab === name && state[name].ready && !state[name].error);
       } catch {
         deadViews.add(view);
-        state[name].ready = false; state[name].loading = false; state[name].error = messages[language][name];
+        state[name].ready = false; state[name].loading = false; state[name].error = message(name);
       }
     }
   }
@@ -133,7 +136,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
       if (!disposed) { if (!selected.ready && !selected.error) selected.loading = true; publish(); }
       return disposed ? null : snapshot();
     }, () => {
-      if (!disposed) { selected.loading = false; selected.error = messages[language][name]; publish(); }
+      if (!disposed) { selected.loading = false; selected.error = message(name); publish(); }
       return disposed ? null : snapshot();
     }).finally(() => pending.delete(name));
     pending.set(name, task);
@@ -168,10 +171,10 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     });
     on(contents, 'did-fail-load', (_event, code, _description, _url, mainFrame) => {
       if (!current() || mainFrame === false || code === -3) return;
-      selected.ready = false; selected.loading = false; selected.error = messages[language][name]; publish();
+      selected.ready = false; selected.loading = false; selected.error = message(name); publish();
     });
     const failed = () => {
-      if (!current()) return; selected.ready = false; selected.loading = false; selected.error = messages[language][name]; publish();
+      if (!current()) return; selected.ready = false; selected.loading = false; selected.error = message(name); publish();
     };
     on(contents, 'render-process-gone', failed);
     on(contents, 'destroyed', () => { deadViews.add(view); failed(); });
@@ -213,10 +216,11 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     return snapshot();
   }
   function setLanguage(value) {
-    if (!['fr', 'en'].includes(value) || disposed) return false;
+    value = localeRuntime.canonicalize(value);
+    if (!value || disposed) return false;
     if (language === value) return true;
-    language = value;
-    for (const name of ['catalogue', 'companion']) if (state[name].error) state[name].error = messages[language][name];
+    language = value; loadLanguage(value);
+    for (const name of ['catalogue', 'companion']) if (state[name].error) state[name].error = message(name);
     publish(); return true;
   }
   function setUIPalette(value) {
@@ -229,7 +233,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
     if (disposed) return bloomDisposed;
     disposed = true;
     bloomDisposed = bloom?.dispose();
-    ipcMain.removeHandler(STATE_CHANNEL); ipcMain.removeHandler(SELECT_CHANNEL);
+    ipcMain.removeHandler(STATE_CHANNEL); ipcMain.removeHandler(SELECT_CHANNEL); ipcMain.removeHandler(LOCALE_CHANNEL);
     for (const remove of listeners.splice(0)) {
       try { remove(); } catch { /* Native emitter may already be gone. */ }
     }
@@ -257,6 +261,7 @@ function createDesktopShell({ cataloguePreferences = {}, onSelectTab = async () 
   observeView('catalogue', catalogueView);
   ipcMain.handle(STATE_CHANNEL, (event, payload) => trusted(event) && payload === undefined ? snapshot() : null);
   ipcMain.handle(SELECT_CHANNEL, (event, name) => trusted(event) && validTab(name) ? selectTab(name) : null);
+  ipcMain.handle(LOCALE_CHANNEL, (event, code) => trusted(event) && localeRuntime.canonicalize(code) ? readPack(code) : null);
   layout();
   // Read-only restoration also covers startup on the Catalogue tab. A newer
   // native read/save must win if it completes before this initial read.

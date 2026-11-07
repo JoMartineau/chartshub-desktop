@@ -1,9 +1,10 @@
+import { localizedPair } from '../localization/locale-pair.js';
 interface BadEntry { id: string; targetRelativePath: string | null; reportedPath: string; severity: 'error' | 'warning' | 'unknown'; reasons: string[]; eligible: boolean; blocked: string | null; bytes: number | null; kind: 'folder' | 'sng'; }
 interface BadPlan { planId: string; revision: number; modifiedAt: string; unsupportedLines: number; entries: BadEntry[]; }
 interface BadResult { recycledIds: string[]; failed: { id: string; reason: 'changed' | 'trash-refused' }[]; cancelled: boolean; reportInvalidated?: boolean; plan?: BadPlan; }
 interface LibraryState { settings: { rootPath: string | null }; revision: number; status: string; badSongsBusy?: boolean; bulkCleanup?: unknown; duplicateVerification?: { running: boolean } | null; }
 interface Options { root: HTMLElement; command: (name: string, payload?: unknown) => Promise<unknown>; }
-const tr = (fr: string, en: string): string => typeof document === 'undefined' || document.documentElement.lang.startsWith('fr') ? fr : en;
+const tr = (fr: string, en: string, values?: Record<string, unknown>): string => localizedPair(typeof document === 'undefined' ? 'fr' : document.documentElement.lang, fr, en, values);
 const token = (value: unknown, length: number): value is string => typeof value === 'string' && new RegExp(`^[a-f0-9]{${length}}$`).test(value);
 const BATCH_LIMIT = 200;
 const reasons: Record<string, [string, string]> = {
@@ -24,7 +25,7 @@ export class BadSongsCleanupControls {
   private serial = 0;
   private disposed = false;
   private visible = 50;
-  private message: [string, string] | null = null;
+  private message: (() => string) | null = null;
   constructor(private readonly options: Options) {
     const signal = this.abort.signal;
     this.element('#library-bad-songs-import').addEventListener('click', () => { void this.importReport(); }, { signal });
@@ -64,14 +65,14 @@ export class BadSongsCleanupControls {
   private async importReport(): Promise<void> {
     if (this.blocked) return;
     this.invalidate(); const request = ++this.serial, root = this.state?.settings.rootPath, revision = this.state?.revision;
-    this.busy = true; this.message = ["Lecture du rapport et vérification des fichiers…", 'Reading the report and verifying files…']; this.refresh();
+    this.busy = true; this.message = () => tr('Lecture du rapport et vérification des fichiers…', 'Reading the report and verifying files…'); this.refresh();
     try {
       const response = await this.options.command('library.chooseBadSongs', {}) as { ok?: boolean; cancelled?: boolean; result?: unknown };
       if (this.disposed || request !== this.serial || root !== this.state?.settings.rootPath || revision !== this.state?.revision) return;
-      if (response?.cancelled) { this.message = ['Import annulé.', 'Import cancelled.']; return; }
+      if (response?.cancelled) { this.message = () => tr('Import annulé.', 'Import cancelled.'); return; }
       if (!response?.ok || !this.validPlan(response.result) || response.result.revision !== revision) throw Error();
       this.plan = response.result; this.visible = 50; this.message = null; this.renderEntries();
-    } catch { this.message = ['Le rapport est illisible ou son format n’est pas reconnu. Aucun fichier supprimé.', 'The report is unreadable or its format is unrecognized. No files deleted.']; }
+    } catch { this.message = () => tr('Le rapport est illisible ou son format n’est pas reconnu. Aucun fichier supprimé.', 'The report is unreadable or its format is unrecognized. No files deleted.'); }
     finally { if (!this.disposed && request === this.serial) { this.busy = false; this.refresh(); } }
   }
   private renderEntries(): void {
@@ -87,7 +88,7 @@ export class BadSongsCleanupControls {
       label.append(check, heading); card.append(label);
       const target = owner.createElement('code'); target.textContent = entry.targetRelativePath ?? entry.reportedPath; card.append(target);
       for (const reason of entry.reasons) { const detail = owner.createElement('p'); detail.textContent = reason; card.append(detail); }
-      if (entry.eligible) { const detail = owner.createElement('p'); detail.textContent = tr(`${entry.kind === 'folder' ? 'Dossier complet' : 'Fichier .sng'} · ${entry.bytes} octets`, `${entry.kind === 'folder' ? 'Entire folder' : '.sng file'} · ${entry.bytes} bytes`); card.append(detail); }
+      if (entry.eligible) { const detail = owner.createElement('p'); detail.textContent = tr('{kind} · {bytes} octets', '{kind} · {bytes} bytes', { kind: entry.kind === 'folder' ? tr('Dossier complet', 'Entire folder') : tr('Fichier .sng', '.sng file'), bytes: entry.bytes }); card.append(detail); }
       check.addEventListener('change', () => { if (this.blocked || !entry.eligible || !this.plan) { check.checked = this.selected.has(entry.id); return; }
         if (check.checked && this.selected.size < BATCH_LIMIT) this.selected.add(entry.id); else this.selected.delete(entry.id); this.refresh(); }, { signal: this.cardsAbort.signal });
       this.checks.set(entry.id, check); list.append(card);
@@ -98,11 +99,11 @@ export class BadSongsCleanupControls {
     if (this.blocked || !this.plan || !this.selected.size) return;
     const plan = this.plan, root = this.state?.settings.rootPath, ids = plan.entries.filter(entry => entry.eligible && this.selected.has(entry.id)).map(entry => entry.id), request = ++this.serial;
     if (!ids.length) return;
-    this.busy = true; this.message = ['Confirmation Windows en attente…', 'Waiting for Windows confirmation…']; this.refresh();
+    this.busy = true; this.message = () => tr('Confirmation Windows en attente…', 'Waiting for Windows confirmation…'); this.refresh();
     try {
       const response = await this.options.command('library.recycleBadSongs', { planId: plan.planId, revision: plan.revision, ids }) as { ok?: boolean; cancelled?: boolean; result?: BadResult };
       if (this.disposed || request !== this.serial || root !== this.state?.settings.rootPath) return;
-      if (response?.cancelled) { this.message = ['Suppression annulée. Aucun fichier supprimé.', 'Deletion cancelled. No files deleted.']; return; }
+      if (response?.cancelled) { this.message = () => tr('Suppression annulée. Aucun fichier supprimé.', 'Deletion cancelled. No files deleted.'); return; }
       if (!response?.ok || !response.result || !Array.isArray(response.result.recycledIds) || !Array.isArray(response.result.failed)
         || response.result.recycledIds.some(id => !token(id, 64) || !ids.includes(id))
         || new Set(response.result.recycledIds).size !== response.result.recycledIds.length
@@ -113,14 +114,16 @@ export class BadSongsCleanupControls {
         && result.plan.entries.every(entry => { const old = oldEntries.get(entry.id); return !removed.has(entry.id) && old && old.targetRelativePath === entry.targetRelativePath && (!entry.eligible || old.eligible); }) ? result.plan : null;
       this.selected.clear(); this.renderEntries();
       const changed = result.failed.filter(entry => entry.reason === 'changed').length, refused = result.failed.length - changed;
-      const messages: [string, string][] = [[`${removed.size} chart(s) envoyée(s) à la Corbeille.`, `${removed.size} chart(s) sent to the Recycle Bin.`]];
-      if (changed) messages.push([`Dossiers modifiés et conservés : ${changed}.`, `Changed folders kept: ${changed}.`]);
-      if (refused) messages.push([`Dossiers refusés par la Corbeille et conservés : ${refused}.`, `Folders refused by the Recycle Bin and kept: ${refused}.`]);
-      if (result.reportInvalidated) messages.push(['Le rapport ou la bibliothèque a changé. Importez à nouveau le rapport.', 'The report or library changed. Import the report again.']);
-      if (result.cancelled) messages.push(['Le nettoyage a été interrompu.', 'Cleanup was stopped.']);
-      if (removed.size) messages.push(['Continuez le nettoyage, puis cliquez sur « Actualiser à la fin ».', 'Continue cleanup, then click “Refresh when finished”.']);
-      this.message = [messages.map(pair => pair[0]).join(' '), messages.map(pair => pair[1]).join(' ')];
-    } catch { this.plan = null; this.selected.clear(); this.message = ['Les fichiers ont changé ou le nettoyage est indisponible. Importez à nouveau le rapport.', 'The files changed or cleanup is unavailable. Import the report again.']; }
+      this.message = () => {
+        const messages = [tr('{count} chart(s) envoyée(s) à la Corbeille.', '{count} chart(s) sent to the Recycle Bin.', { count: removed.size })];
+        if (changed) messages.push(tr('Dossiers modifiés et conservés : {count}.', 'Changed folders kept: {count}.', { count: changed }));
+        if (refused) messages.push(tr('Dossiers refusés par la Corbeille et conservés : {count}.', 'Folders refused by the Recycle Bin and kept: {count}.', { count: refused }));
+        if (result.reportInvalidated) messages.push(tr('Le rapport ou la bibliothèque a changé. Importez à nouveau le rapport.', 'The report or library changed. Import the report again.'));
+        if (result.cancelled) messages.push(tr('Le nettoyage a été interrompu.', 'Cleanup was stopped.'));
+        if (removed.size) messages.push(tr('Continuez le nettoyage, puis cliquez sur « Actualiser à la fin ».', 'Continue cleanup, then click “Refresh when finished”.'));
+        return messages.join(' ');
+      };
+    } catch { this.plan = null; this.selected.clear(); this.message = () => tr('Les fichiers ont changé ou le nettoyage est indisponible. Importez à nouveau le rapport.', 'The files changed or cleanup is unavailable. Import the report again.'); }
     finally { if (!this.disposed && request === this.serial) { this.busy = false; this.refresh(); } }
   }
   private refresh(): void {
@@ -129,8 +132,8 @@ export class BadSongsCleanupControls {
     this.element('#library-bad-songs').setAttribute('aria-busy', String(this.busy));
     this.element<HTMLButtonElement>('#library-bad-songs-import').disabled = this.blocked;
     this.element('#library-bad-songs-plan').hidden = !this.plan;
-    this.element('#library-bad-songs-status').textContent = this.message ? tr(...this.message) : this.plan ? tr(`Rapport du ${this.plan.modifiedAt} · ${eligible} erreur(s) supprimable(s).`, `Report from ${this.plan.modifiedAt} · ${eligible} removable error(s).`) : tr('Importez le rapport créé par Scan Songs dans Clone Hero.', 'Import the report created by Scan Songs in Clone Hero.');
-    this.element('#library-bad-songs-selection').textContent = tr(`${this.selected.size} chart(s) cochée(s) · ${BATCH_LIMIT} maximum par lot.`, `${this.selected.size} selected chart(s) · maximum ${BATCH_LIMIT} per batch.`);
+    this.element('#library-bad-songs-status').textContent = this.message ? this.message() : this.plan ? tr('Rapport du {date} · Erreurs pouvant être supprimées : {count}.', 'Report from {date} · Removable errors: {count}.', { date: this.plan.modifiedAt, count: eligible }) : tr('Importez le rapport créé par Scan Songs dans Clone Hero.', 'Import the report created by Scan Songs in Clone Hero.');
+    this.element('#library-bad-songs-selection').textContent = tr('{count} chart(s) cochée(s) · {limit} maximum par lot.', '{count} selected chart(s) · maximum {limit} per batch.', { count: this.selected.size, limit: BATCH_LIMIT });
     const selectAll = this.element<HTMLButtonElement>('#library-bad-songs-select-all');
     selectAll.textContent = tr('Sélectionner tout', 'Select all');
     selectAll.disabled = blocked || this.selected.size >= Math.min(eligible, BATCH_LIMIT);

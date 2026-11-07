@@ -1,3 +1,4 @@
+import { localizedPair } from '../localization/locale-pair.js';
 interface CleanupTarget {
   id: string; relativePath: string; targetRelativePath: string | null; kind: 'folder' | 'sng' | null; bytes: number | null;
   audio: { status: 'verified' | 'missing' | 'unavailable'; count: number; bytes: number };
@@ -25,9 +26,9 @@ interface BulkOptions {
   root: HTMLElement; command: (name: string, payload?: unknown) => Promise<unknown>;
   refreshIndex: () => void; availabilityChanged: () => void;
 }
-const language = (): 'fr' | 'en' => typeof document === 'undefined' || document.documentElement.lang.startsWith('fr') ? 'fr' : 'en';
-const tr = (fr: string, en: string): string => language() === 'fr' ? fr : en;
-const number = (value: number): string => value.toLocaleString(language() === 'fr' ? 'fr-FR' : 'en-US');
+const language = (): string => typeof document === 'undefined' ? 'fr' : document.documentElement.lang || 'en';
+const tr = (fr: string, en: string, values?: Record<string, unknown>): string => localizedPair(language(), fr, en, values);
+const number = (value: number): string => value.toLocaleString(language());
 const safeCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 const token = (value: unknown, length: number): value is string => typeof value === 'string' && new RegExp(`^[a-f0-9]{${length}}$`).test(value);
 const categories = { notes: ['Notes', 'Notes'], audio: ['Audio', 'Audio'], artwork: ['Illustration', 'Artwork'], metadata: ['Métadonnées', 'Metadata'], other: ['Autre', 'Other'] } as const;
@@ -48,7 +49,7 @@ export class BulkDifferentCleanupControls {
   private cancelling = false;
   private disposed = false;
   private message: { fr: string; en: string; error: boolean } | null = null;
-  private outcome: { fr: string; en: string; error: boolean } | null = null;
+  private outcome: { fr: string; en: string; error: boolean; result?: { copies: number; failed: number; untreated: number; cancelled: boolean; historyError: boolean } } | null = null;
 
   constructor(private readonly options: BulkOptions) {
     const signal = this.abort.signal;
@@ -197,23 +198,14 @@ export class BulkDifferentCleanupControls {
       } else {
         const result = response?.result;
         if (!response?.ok || !this.validResult(result, ids)) throw new Error('Invalid bulk cleanup result');
-        const copies = number(result!.recycledIds.length), failed = number(result!.failed.length);
-        const untreated = ids.length - result!.recycledIds.length - result!.failed.length;
-        const cancelledFr = result!.cancelled ? ' Opération interrompue.' : '';
-        const cancelledEn = result!.cancelled ? ' Operation stopped.' : '';
-        const untouchedFr = untreated ? ` ${number(untreated)} copie(s) non traitée(s) restent en place.` : '';
-        const untouchedEn = untreated ? ` ${number(untreated)} unprocessed copy/copies stay in place.` : '';
-        const errorsFr = result!.failed.length ? ` ${failed} échec(s) ; ces copies restent en place.` : '';
-        const errorsEn = result!.failed.length ? ` ${failed} failure(s); those copies stay in place.` : '';
         this.outcome = {
-          fr: `${copies} copie(s) différente(s) envoyée(s) à la Corbeille Windows. Les versions conservées sont protégées.${errorsFr}${cancelledFr}${untouchedFr} Continuez le nettoyage, puis cliquez sur « Actualiser à la fin ».`,
-          en: `${copies} different copy/copies sent to the Windows Recycle Bin. Kept versions are protected.${errorsEn}${cancelledEn}${untouchedEn} Continue cleanup, then click “Refresh when finished”.`,
+          fr: 'Copies différentes envoyées à la Corbeille Windows : {copies}. Les versions conservées sont protégées.',
+          en: 'Different copies sent to the Windows Recycle Bin: {copies}. Kept versions are protected.',
           error: result!.failed.length > 0 || !!result!.historyError,
+          result: { copies: result!.recycledIds.length, failed: result!.failed.length,
+            untreated: ids.length - result!.recycledIds.length - result!.failed.length,
+            cancelled: result!.cancelled, historyError: !!result!.historyError },
         };
-        if (result!.historyError) {
-          this.outcome.fr += ' L’historique n’a pas pu être enregistré ; le résultat ci-dessus reste valide.';
-          this.outcome.en += ' History could not be saved; the result above remains valid.';
-        }
         if (result!.recycledIds.length) this.options.refreshIndex();
       }
     } catch {
@@ -254,11 +246,19 @@ export class BulkDifferentCleanupControls {
     if (this.busy) {
       const progress = this.state?.progress, processed = number(progress?.processed ?? 0), total = number(progress?.total ?? 0);
       status.textContent = this.cancelling ? tr('Arrêt demandé ; attendez la fin de la copie en cours.', 'Stop requested; wait for the current copy to finish.')
-        : this.executing ? tr(`Confirmation Windows, puis nettoyage des copies sélectionnées · ${processed} / ${total}.`, `Windows confirmation, then cleanup of selected copies · ${processed} / ${total}.`)
-          : tr(`Vérification des groupes · ${processed} / ${total}. Aucun fichier supprimé.`, `Checking groups · ${processed} / ${total}. No files deleted.`);
+        : this.executing ? tr("Confirmation Windows, puis nettoyage des copies sélectionnées · {processed} / {total}.", "Windows confirmation, then cleanup of selected copies · {processed} / {total}.", { processed, total })
+          : tr("Vérification des groupes · {processed} / {total}. Aucun fichier supprimé.", "Checking groups · {processed} / {total}. No files deleted.", { processed, total });
     } else status.textContent = this.message ? tr(this.message.fr, this.message.en) : tr('Prépare les copies vérifiées qui diffèrent. Aucune copie n’est cochée automatiquement.', 'Prepares verified copies that differ. No copy is selected automatically.');
     const result = this.element('#library-bulk-cleanup-result'); result.hidden = !this.outcome;
-    result.textContent = this.outcome ? tr(this.outcome.fr, this.outcome.en) : '';
+    const outcome = this.outcome, summary = outcome?.result;
+    result.textContent = outcome ? tr(outcome.fr, outcome.en, summary && { copies: number(summary.copies) }) : '';
+    if (summary) {
+      if (summary.failed) result.textContent += ' ' + tr('Échecs : {count}. Ces copies restent en place.', 'Failures: {count}. Those copies stay in place.', { count: number(summary.failed) });
+      if (summary.cancelled) result.textContent += ' ' + tr('Opération interrompue.', 'Operation stopped.');
+      if (summary.untreated) result.textContent += ' ' + tr('Copies non traitées conservées : {count}.', 'Unprocessed copies left in place: {count}.', { count: number(summary.untreated) });
+      result.textContent += ' ' + tr('Continuez le nettoyage, puis cliquez sur « Actualiser à la fin ».', 'Continue cleanup, then click “Refresh when finished”.');
+      if (summary.historyError) result.textContent += ' ' + tr('L’historique n’a pas pu être enregistré. Le résultat ci-dessus reste valide.', 'History could not be saved. The result above remains valid.');
+    }
     result.classList.toggle('is-error', !!this.outcome?.error);
     const cancel = this.element<HTMLButtonElement>('#library-bulk-cleanup-cancel');
     cancel.hidden = !this.busy; cancel.disabled = !this.busy || this.cancelling;
@@ -272,8 +272,7 @@ export class BulkDifferentCleanupControls {
     candidates.textContent = ''; this.element('#library-bulk-cleanup-plan').hidden = false;
     const summary = plan.summary;
     this.element('#library-bulk-cleanup-summary').textContent = tr(
-      `${number(summary.candidateCount)} copie(s) différente(s) vérifiée(s) · ${number(summary.readyGroups)} groupe(s) prêt(s) · ${number(summary.needsKeeperGroups)} choix de version requis · ${number(summary.blockedGroups)} groupe(s) bloqué(s) · ${number(summary.identicalGroups)} groupe(s) identique(s). Utilisez « Comparer » dans la liste pour les choix requis.`,
-      `${number(summary.candidateCount)} verified different copy/copies · ${number(summary.readyGroups)} ready group(s) · ${number(summary.needsKeeperGroups)} keeper choice(s) required · ${number(summary.blockedGroups)} blocked group(s) · ${number(summary.identicalGroups)} identical group(s). Use “Compare” in the list for required choices.`,
+      "Copies différentes vérifiées : {copies} · Groupes prêts : {ready} · Choix de version requis : {choices} · Groupes bloqués : {blocked} · Groupes identiques : {identical}. Utilisez « Comparer » pour choisir les versions à garder.", "Verified different copies: {copies} · Groups ready: {ready} · Keeper choices required: {choices} · Groups blocked: {blocked} · Identical groups: {identical}. Use “Compare” to choose the versions to keep.", { copies: number(summary.candidateCount), ready: number(summary.readyGroups), choices: number(summary.needsKeeperGroups), blocked: number(summary.blockedGroups), identical: number(summary.identicalGroups) },
     );
     const grouped = new Map<string, BulkCandidate[]>();
     for (const candidate of plan.candidates) {
@@ -298,7 +297,7 @@ export class BulkDifferentCleanupControls {
         }, { signal: this.cardsAbort.signal });
         choice.append(check, label);
         const path = document.createElement('code'); path.className = 'library-cleanup-path'; path.textContent = candidate.targetRelativePath;
-        const target = document.createElement('p'); target.textContent = tr(`${candidate.kind === 'sng' ? 'Fichier .sng uniquement' : 'Dossier entier, avec tout son contenu'} · ${number(candidate.bytes!)} octets`, `${candidate.kind === 'sng' ? '.sng file only' : 'Entire folder, including all contents'} · ${number(candidate.bytes!)} bytes`);
+        const target = document.createElement('p'); target.textContent = tr('{kind} · {bytes} octets', '{kind} · {bytes} bytes', { kind: candidate.kind === 'sng' ? tr('Fichier .sng uniquement', '.sng file only') : tr('Dossier entier, avec tout son contenu', 'Entire folder, including all contents'), bytes: number(candidate.bytes!) });
         const warning = document.createElement('p'); warning.className = 'library-cleanup-reason';
         warning.textContent = tr('Les notes, l’audio ou les autres fichiers diffèrent. Consultez les différences avant de sélectionner.', 'Notes, audio or other files differ. Review differences before selecting.');
         card.append(choice, path, target, warning); this.renderDifferences(candidate, card); group.append(card);
@@ -311,7 +310,7 @@ export class BulkDifferentCleanupControls {
   private renderDifferences(candidate: BulkCandidate, card: HTMLElement): void {
     const document = this.options.root.ownerDocument, details = document.createElement('details'); details.className = 'library-file-differences'; details.open = true;
     const files = candidate.differences.files;
-    const summary = document.createElement('summary'); summary.textContent = tr(`Comparer les fichiers · ${number(files.filter(file => file.status !== 'identical').length)} différence(s)`, `Compare files · ${number(files.filter(file => file.status !== 'identical').length)} difference(s)`);
+    const summary = document.createElement('summary'); summary.textContent = tr("Comparer les fichiers · Différences : {count}", "Compare files · Differences: {count}", { count: number(files.filter(file => file.status !== 'identical').length) });
     const table = document.createElement('table'); table.className = 'library-file-differences-table';
     const caption = document.createElement('caption'); caption.textContent = tr('Comparaison du contenu des fichiers avec la version conservée', 'File contents compared with the kept version');
     const head = document.createElement('thead'), heading = document.createElement('tr');
@@ -334,9 +333,9 @@ export class BulkDifferentCleanupControls {
     const selected = this.plan?.candidates.filter(item => this.selected.has(item.id)) ?? [];
     for (const [id, check] of this.checks) check.checked = this.selected.has(id);
     const count = number(selected.length), bytes = number(selected.reduce((total, item) => total + item.bytes!, 0));
-    this.element('#library-bulk-cleanup-selection').textContent = tr(`${count} copie(s) sélectionnée(s) · ${bytes} octets. Les versions conservées et les copies non cochées restent en place.`, `${count} selected copy/copies · ${bytes} bytes. Kept versions and unchecked copies stay in place.`);
+    this.element('#library-bulk-cleanup-selection').textContent = tr("Copies sélectionnées : {count} · {bytes} octets. Les versions conservées et les copies non cochées restent en place.", "Selected copies: {count} · {bytes} bytes. Kept versions and unchecked copies stay in place.", { count, bytes });
     this.element('#library-bulk-cleanup-recycle').textContent = selected.length
-      ? tr(`Supprimer quand même ${count} copie(s) sélectionnée(s)…`, `Delete ${count} selected copy/copies anyway…`)
+      ? tr("Supprimer les copies sélectionnées ({count})…", "Delete selected copies ({count})…", { count })
       : tr('Cochez les copies à supprimer quand même', 'Select the copies to delete anyway');
     this.refreshAvailability();
   }

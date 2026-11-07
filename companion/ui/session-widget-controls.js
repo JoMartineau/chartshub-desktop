@@ -1,3 +1,4 @@
+import { languageCode, languageKey, wordsFor } from './locale-text.js';
 // Main-panel controls only. OBS sharing never connects a chat provider or
 // starts the listener until the user explicitly copies one of its URLs.
 const DEFAULTS = Object.freeze({ shareChat: false, shareActivity: false, showViewerNames: false, fontSize: 18, maxItems: 6, accent: '#49bbff' });
@@ -59,10 +60,10 @@ export class SessionWidgetControls {
   draft() { const n = this.nodes; return settings({ shareChat: n.shareChat.checked, shareActivity: n.shareActivity.checked, showViewerNames: n.showViewerNames.checked, fontSize: Number(n.fontSize.value), maxItems: Number(n.maxItems.value), accent: n.accent.value }); }
   update(snapshot) {
     if (this.disposed) return;
-    this.snapshot = snapshot; const language = snapshot?.language === 'en' ? 'en' : 'fr', state = snapshot?.sessionWidgets ?? {}, applied = settings(state.settings) ?? { ...DEFAULTS }, revision = this.currentRevision();
-    const signature = JSON.stringify([language, applied, revision, state.error ?? null, this.pending, this.dirty, this.baseRevision, this.message]);
+    this.snapshot = snapshot; const language = languageCode(snapshot?.language), state = snapshot?.sessionWidgets ?? {}, applied = settings(state.settings) ?? { ...DEFAULTS }, revision = this.currentRevision();
+    const signature = JSON.stringify([languageKey(language), applied, revision, state.error ?? null, this.pending, this.dirty, this.baseRevision, this.message]);
     if (signature === this.signature) return; this.signature = signature;
-    const t = TEXT[language], n = this.nodes, stale = this.dirty && this.baseRevision !== revision;
+    const t = wordsFor(TEXT, language), n = this.nodes, stale = this.dirty && this.baseRevision !== revision;
     n.title.textContent = t.title; n.intro.textContent = t.intro; n.guide.textContent = t.guide;
     for (const key of Object.keys(DEFAULTS)) { n[key + 'Label'].textContent = t[key]; n[key].disabled = this.pending; if (!this.dirty) { if (BOOLS.includes(key)) n[key].checked = applied[key]; else n[key].value = String(applied[key]); } }
     n.shareChatPrivacy.textContent = t.chatPrivacy; n.shareActivityPrivacy.textContent = t.activityPrivacy;

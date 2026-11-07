@@ -1,3 +1,4 @@
+import { languageCode, localizedPair } from './locale-text.js';
 export class InputViewerControls {
   constructor({ root, command }) {
     this.root = root; this.command = command; this.snapshot = null; this.busy = false; this.disposed = false;
@@ -22,7 +23,7 @@ export class InputViewerControls {
     this.feedback = make('p'); this.feedback.className = 'helper-text'; this.feedback.setAttribute('role', 'status'); this.feedback.hidden = true;
     this.update(null);
   }
-  tr(fr, en) { return this.snapshot?.language === 'en' ? en : fr; }
+  tr(fr, en) { return localizedPair(languageCode(this.snapshot?.language), fr, en); }
   update(snapshot) {
     if (this.disposed) return; this.snapshot = snapshot;
     this.heading.textContent = this.tr('Input Viewer — guitare et batterie', 'Input Viewer — guitar and drums');

@@ -3,14 +3,14 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const {applicationMenu}=require('../app-menu');
 test('local application menu opens immediately while administrator authorization is pending',async()=>{
  const source=fs.readFileSync(path.join(__dirname,'../main.js'),'utf8'),match=source.match(/ipcMain\.handle\('chartshub:menu',(async[\s\S]*?)\n  \}\);/);assert.ok(match);let opened=0,checks=0;
- const c={allowedSender:()=>true,refreshAdministrator:()=>{checks++;return new Promise(()=>{});},adminAllowed:false,companionAvailable:false,web:{},Menu:{buildFromTemplate:options=>({popup(){opened++;assert.equal(options.visitorPreview,undefined);assert.equal(options.companion,undefined);assert.equal(options.web,c.web);}})},applicationMenu:options=>options,win:{webContents:{},close(){},setFullScreen(){},isFullScreen(){return false;}},load(){},job:null,openGuest(){},showCompanion(){}};vm.createContext(c);vm.runInContext('handler='+match[1]+'\n}',c);await c.handler({},'en');assert.equal(opened,1);assert.equal(checks,1);
+ const c={allowedSender:()=>true,refreshAdministrator:()=>{checks++;return new Promise(()=>{});},adminAllowed:false,companionAvailable:false,companionLanguage:'ja',web:{},Menu:{buildFromTemplate:options=>({popup(){opened++;assert.equal(options.visitorPreview,undefined);assert.equal(options.companion,undefined);assert.equal(options.web,c.web);assert.equal(options.language,'ja');}})},applicationMenu:options=>options,win:{webContents:{},close(){},setFullScreen(){},isFullScreen(){return false;}},load(){},job:null,openGuest(){},showCompanion(){}};vm.createContext(c);vm.runInContext('handler='+match[1]+'\n}',c);await c.handler({},'en');assert.equal(opened,1);assert.equal(checks,1);
  c.allowedSender=()=>false;await c.handler({},'en');assert.equal(opened,1,'untrusted IPC never opens the application menu');
 });
 
 test('native menu offers Companion to ordinary signed-in accounts independently of administrator preview',async()=>{
  const source=fs.readFileSync(path.join(__dirname,'../main.js'),'utf8'),match=source.match(/ipcMain\.handle\('chartshub:menu',(async[\s\S]*?)\n  \}\);/);assert.ok(match);
  let menu,opened=0,reloaded=0;
- const c={allowedSender:()=>true,refreshAdministrator:()=>new Promise(()=>{}),adminAllowed:false,companionAvailable:true,
+ const c={allowedSender:()=>true,refreshAdministrator:()=>new Promise(()=>{}),adminAllowed:false,companionAvailable:true,companionLanguage:'en',
   Menu:{buildFromTemplate:template=>({popup({window}){assert.equal(window,c.win);menu=template;}})},applicationMenu,
   web:{reload(){reloaded++;},getZoomLevel:()=>0,setZoomLevel(){}},
   win:{webContents:{reload(){assert.fail('the menu must target the catalogue view, not the shell renderer');}},close(){},setFullScreen(){},isFullScreen:()=>false},
@@ -27,7 +27,7 @@ test('native menu offers Companion to ordinary signed-in accounts independently 
  c.adminAllowed=true;await c.handler({},'en');
  assert.equal(menu.some(item=>item.label==='Dashboard'),false,'cached administrator authorization cannot replace current Companion availability');
  assert.equal(menu.some(item=>item.label==='View as guest'),true);
- c.companionAvailable=true;await c.handler({},'fr');
+ c.companionAvailable=true;c.companionLanguage='fr';await c.handler({});
  assert.ok(menu.find(item=>item.label==='Tableau de bord'));
  assert.ok(menu.find(item=>item.label==='Voir comme visiteur'));
 });
