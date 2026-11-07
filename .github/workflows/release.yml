@@ -226,11 +226,11 @@ jobs:
           foreach ($flag in @('visibilityUnexpected','rendererSandboxDisabled','realProfileRead','realNetworkUsed','realGameRead','realGameLaunched','realHardwareRead','realAudioOpened','realDesktopCaptured')) { if ($report.$flag -ne $false) { throw 'Catalogue synchronization fixture exceeded synthetic scope' } }
           if (@($report.forbiddenCalls.PSObject.Properties).Count -ne 4) { throw 'Catalogue synchronization forbidden-call evidence incomplete' }
           foreach ($entry in $report.forbiddenCalls.PSObject.Properties) { if ($entry.Value -ne 0) { throw 'Catalogue synchronization fixture performed a forbidden action' } }
-          foreach ($entry in @(@{ Fixture = 'catalogue-sync-controls-electron.cjs'; Directory = 'catalogue-sync-controls'; Result = 'CATALOGUE_SYNC_UI_OK' }, @{ Fixture = 'library-removal-controls-electron.cjs'; Directory = 'library-removal-controls'; Result = 'LIBRARY_REMOVAL_UI_OK' })) {
+          foreach ($entry in @(@{ Fixture = 'catalogue-sync-controls-electron.cjs'; Directory = 'catalogue-sync-controls'; Result = 'CATALOGUE_SYNC_UI_OK'; Checks = 8 }, @{ Fixture = 'library-removal-controls-electron.cjs'; Directory = 'library-removal-controls'; Result = 'LIBRARY_REMOVAL_UI_OK'; Checks = 9 })) {
             node node_modules/electron/cli.js (Join-Path 'tests' $entry.Fixture) (Join-Path $env:RUNNER_TEMP $entry.Directory)
             if ($LASTEXITCODE -ne 0) { throw 'Catalogue synchronization or library cleanup controls verification failed' }
             $uiReport = Get-Content -LiteralPath (Join-Path $env:RUNNER_TEMP ($entry.Directory + '/report.json')) -Raw | ConvertFrom-Json
-            if ($uiReport.result -cne $entry.Result -or @($uiReport.passed).Count -ne 8 -or @($uiReport.passed | Sort-Object -Unique).Count -ne 8 -or $uiReport.hidden -ne $true -or @($uiReport.errors).Count -ne 0 -or @($uiReport.externalRequests).Count -ne 0 -or $uiReport.error) { throw 'Catalogue synchronization or library cleanup UI evidence incomplete' }
+            if ($uiReport.result -cne $entry.Result -or @($uiReport.passed).Count -ne $entry.Checks -or @($uiReport.passed | Sort-Object -Unique).Count -ne $entry.Checks -or $uiReport.hidden -ne $true -or @($uiReport.errors).Count -ne 0 -or @($uiReport.externalRequests).Count -ne 0 -or $uiReport.error) { throw 'Catalogue synchronization or library cleanup UI evidence incomplete' }
           }
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'Windows'
