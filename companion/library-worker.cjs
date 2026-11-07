@@ -58,7 +58,11 @@ async function execute(method, args) {
 parentPort.on('message', message => {
   if (message.type === 'recycle-result') {
     const request = recycleRequests.get(message.id);
-    if (request) { recycleRequests.delete(message.id); if (message.ok) request.resolve(); else request.reject(Error('La Corbeille Windows n’a pas accepté cette copie.')); }
+    if (request) {
+      recycleRequests.delete(message.id);
+      if (message.ok) request.resolve();
+      else request.reject(Object.assign(Error('La Corbeille Windows n’a pas accepté cette copie.'), { code: message.changed === true ? 'LIBRARY_BAD_SONGS_SAFE' : 'LIBRARY_TRASH_REFUSED' }));
+    }
     return;
   }
   const task = requests.run({ id: message.id, method: message.method }, () => execute(message.method, message.args));

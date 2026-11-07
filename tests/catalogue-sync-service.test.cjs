@@ -84,7 +84,7 @@ test('installed-only includes tracked sources and old completed queue provenance
   assert.equal(inspected[1].candidateFolder, 'Legacy');
 });
 
-test('local conflicts remain untouched and retry repeats only failures', async t => {
+test('automatic synchronization retries real failures without leaving a review queue', async t => {
   let attempts = 0, repaired = false;
   const f = await fixture(t, { total: 3, worker: { inspect: async () => ({ state: 'new' }), run: async ({ endpoint }) => {
     attempts++;
@@ -93,9 +93,34 @@ test('local conflicts remain untouched and retry repeats only failures', async t
     return { changed: true, record: { endpoint }, receivedBytes: 30 };
   } } });
   await f.service.analyze(); await f.service.whenIdle(); await f.service.start(); await f.service.whenIdle();
-  assert.equal(f.service.status().counts.conflict, 1); assert.equal(f.service.status().counts.failed, 1); assert.equal(attempts, 3);
+  assert.equal(f.service.status().counts.conflict, 0); assert.equal(f.service.status().counts.failed, 2); assert.equal(attempts, 3);
   repaired = true; await f.service.retry(); await f.service.whenIdle();
-  assert.equal(attempts, 4); assert.equal(f.service.status().counts.failed, 0); assert.equal(f.service.status().counts.completed, 2); assert.equal(f.service.status().counts.conflict, 1);
+  assert.equal(attempts, 5); assert.equal(f.service.status().counts.failed, 1); assert.equal(f.service.status().counts.completed, 2); assert.equal(f.service.status().counts.conflict, 0);
+});
+
+test('a saved review row from an older app is processed with freshly resolved Songs candidates', async t => {
+  const runs = [];
+  const f = await fixture(t, { total: 1, worker: { inspect: async () => ({ state: 'new' }), run: async options => {
+    runs.push(options);
+    return { changed: true, record: { endpoint: options.endpoint }, receivedBytes: 30 };
+  } } });
+  await f.service.analyze();
+  await f.service.whenIdle();
+  const saved = await f.store.readState();
+  const [entry] = await f.store.loadPage(saved.jobId, 0);
+  await f.store.savePage(saved.jobId, 0, [{ ...entry, kind: 'conflict', state: 'conflict', error: 'LOCAL_CHANGED' }]);
+  f.context.findCandidate = async () => ({ candidateFolders: ['Première version', 'Autre version'] });
+  const restored = createCatalogueSyncService(f.options);
+  await restored.load();
+  assert.equal(restored.status().counts.conflict, 1);
+  await restored.start();
+  await restored.whenIdle();
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].automatic, true);
+  assert.equal(runs[0].candidateFolder, 'Première version');
+  assert.deepEqual(runs[0].candidateFolders, ['Autre version']);
+  assert.equal(restored.status().counts.conflict, 0);
+  assert.equal(restored.status().counts.completed, 1);
 });
 
 test('changed catalogue between pages refuses partial plan, root/context change blocks writes', async t => {

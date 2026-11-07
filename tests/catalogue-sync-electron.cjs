@@ -132,7 +132,9 @@ app.whenReady().then(async () => {
   await check('French Analyze plans the catalogue with one batch request and no song bytes', async () => {
     await revealWorkspace({ webContents: contents }, '#catalogue-sync-analyze');
     await evaluate("(()=>{const n=document.querySelector('#catalogue-sync-concurrency');n.value='1';n.dispatchEvent(new Event('change',{bubbles:true}));})()");
+    const revision = host.library.status().revision;
     await click('#catalogue-sync-analyze'); await until(() => host.snapshot().catalogueSync.phase === 'ready', 'analysis ready');
+    assert.ok(host.library.status().revision > revision, 'the local Songs index must be refreshed before comparison');
     assert.equal(host.snapshot().catalogueSync.counts.new, 2); assert.deepEqual(requests, ['/api/catalogue-sync']); assert.equal(completions.length, 0);
   });
   await check('Start installs one verified chart then Pause preserves the interrupted plan', async () => {
@@ -161,15 +163,26 @@ app.whenReady().then(async () => {
     const transfers = requests.slice(before).filter(value => value.includes('/files/')); assert.equal(transfers.length, 2); assert(transfers.every(value => value.endsWith('SyntheticFile2000')));
     for (const row of rows) assert.deepEqual(await fs.readFile(path.join(songs, row.artist + ' - ' + row.title, 'song.ogg')), row.bytes[2]);
   });
-  await check('Local edits remain untouched and are reported for review', async () => {
-    const target = path.join(songs, rows[0].artist + ' - ' + rows[0].title, 'song.ini'), edited = Buffer.from('[song]\nname = Local player edit\n'); await fs.writeFile(target, edited);
-    const before = requests.length; await click('#catalogue-sync-analyze'); await until(() => host.snapshot().catalogueSync.phase === 'ready', 'conflict ready');
-    assert.equal(host.snapshot().catalogueSync.counts.conflict, 1); assert.equal(host.snapshot().catalogueSync.counts.unchanged, 1); assert.deepEqual(await fs.readFile(target), edited); assert.deepEqual(requests.slice(before), ['/api/catalogue-sync']); assert.equal(completions.length, 4);
+  await check('A distinct local chart is preserved and the catalogue copy is installed separately', async () => {
+    const folder = rows[0].artist + ' - ' + rows[0].title;
+    const target = path.join(songs, folder, 'notes.chart'), edited = Buffer.concat([rows[0].bytes[1], Buffer.from('\n[Events]\n{\n}\n')]);
+    await fs.writeFile(target, edited);
+    const before = requests.length; await click('#catalogue-sync-analyze'); await until(() => host.snapshot().catalogueSync.phase === 'ready', 'automatic resolution ready');
+    assert.equal(host.snapshot().catalogueSync.counts.new, 1); assert.equal(host.snapshot().catalogueSync.counts.unchanged, 1);
+    assert.equal(host.snapshot().catalogueSync.counts.conflict, 0); assert.deepEqual(await fs.readFile(target), edited);
+    assert.deepEqual(requests.slice(before), ['/api/catalogue-sync', rows[0].endpoint]); assert.equal(completions.length, 4);
+    await click('#catalogue-sync-start');
+    await until(() => host.snapshot().catalogueSync.phase === 'completed' && !host.library.status().downloadBatchActive, 'separate install complete');
+    const separate = (await fs.readdir(songs)).find(name => name.startsWith(folder + ' [ChartsHub '));
+    assert.ok(separate);
+    assert.deepEqual(await fs.readFile(path.join(songs, separate, 'notes.chart')), rows[0].bytes[1]);
+    assert.deepEqual(await fs.readFile(target), edited);
+    assert.equal(completions.length, 5);
   });
   await check('Trusted IPC rejects renderer paths and unavailable catalogue authorization without requests', async () => {
     const before = requests.length; assert.equal((await command('catalogueSync.analyze', { rootPath: songs })).ok, false);
     catalogueAvailable = false; assert.equal((await command('catalogueSync.analyze', { mode: 'all', concurrency: 1, includeVideo: false })).ok, false); catalogueAvailable = true;
-    assert.equal(requests.length, before); assert.equal(completions.length, 4); host.setLanguage('en'); await delay(100);
+    assert.equal(requests.length, before); assert.equal(completions.length, 5); host.setLanguage('en'); await delay(100);
     await until(() => evaluate("document.querySelector('#catalogue-sync-analyze').textContent==='Analyze'"), 'English sync labels');
     await screenshot('completed');
     assert.deepEqual(errors, []); assert.deepEqual(externalRequests, []); assert(Object.values(forbidden).every(value => value === 0)); assert.equal(visibilityUnexpected, false);

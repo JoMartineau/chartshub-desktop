@@ -51,7 +51,8 @@ test('ready summary precedes download and changing analyzed options requires a f
   const calls = [], { controls } = await fixture(async (...args) => { calls.push(args); return { ok: true }; });
   controls.update(snapshot({ phase: 'ready', total: 100000, processed: 100000, counts: { new: 30, update: 2, unchanged: 99967, conflict: 1 } }));
   assert.equal(controls.nodes.start.disabled, false); assert.equal(controls.nodes.start.hidden, false);
-  assert.equal(controls.countNodes.conflict.value.textContent, '1'); assert.match(controls.nodes.preservation.textContent, /modifiés localement/);
+  assert.equal(controls.countNodes.new.value.textContent, '31'); assert.equal(controls.countNodes.conflict, undefined);
+  assert.match(controls.nodes.preservation.textContent, /dossier séparé/);
   assert.equal(controls.nodes.progress.max, 100000);
   controls.nodes.includeVideo.checked = true; controls.nodes.includeVideo.dispatchEvent(new Event('change'));
   assert.equal(controls.nodes.start.disabled, true); assert.match(controls.nodes.status.textContent, /options ont changé/);
@@ -93,7 +94,7 @@ test('100000-item status is projected into only 50 recent safe text rows', async
   assert.equal(controls.nodes.items.children[0].children[0].textContent, 'Synthetic 99950');
   controls.update(snapshot({ items: [{ title: '<img src=x onerror=secret()>', state: '<script>secret()</script>', error: 'provider-secret' }], error: 'C:/Private/token.txt' }));
   assert.equal(controls.nodes.items.children[0].children[0].textContent, '<img src=x onerror=secret()>');
-  assert.equal(controls.nodes.items.children[0].children[1].textContent, 'À vérifier');
+  assert.equal(controls.nodes.items.children[0].children[1].textContent, 'État indisponible');
   assert.doesNotMatch(controls.nodes.feedback.textContent, /Private|secret|token/);
 });
 
@@ -119,7 +120,7 @@ test('both language variants explain scope, saved progress and preserved user ch
     assert.match(controls.nodes.title.textContent, /ChartsHub/);
     assert.match(controls.nodes.mode.children[1].textContent, language === 'fr' ? /charts suivies/ : /tracked charts/);
     assert.match(controls.nodes.status.textContent, language === 'fr' ? /progression est conservée/ : /Progress is saved/);
-    assert.match(controls.nodes.preservation.textContent, language === 'fr' ? /modifiés localement/ : /Locally modified/);
+    assert.match(controls.nodes.preservation.textContent, language === 'fr' ? /dossier séparé/ : /separate folder/);
     assert.match(controls.nodes.videoHelp.textContent, language === 'fr' ? /conservé/ : /saved/);
   }
 });

@@ -41,6 +41,10 @@ Les archives sont disponibles sur [GitHub Releases](https://github.com/JoMartine
 
 Les pull requests vers `main` exécutent les mêmes tests et compilations et produisent des artefacts suffixés `-candidate`. Elles ne créent ni release ni tag, et leur exécution n’annule pas une compilation de `main`. La publication reste réservée à `main` et exige les notes `docs/RELEASE-<version>.md`.
 
+### Version 0.14.45
+
+La synchronisation compare les fichiers de Songs pour reconnaître les copies identiques et traiter les mises à jour. Le nettoyage de la bibliothèque charge les résultats au défilement. Le rapport Clone Hero permet de sélectionner toutes les erreurs admissibles par lot. [Notes 0.14.45](docs/RELEASE-0.14.45.md).
+
 ### Version 0.14.44
 
 Synchronisez le catalogue ChartsHub dans Songs avec analyse préalable, reprise et vérification des fichiers identiques. Un panneau de bibliothèque permet aussi de préparer jusqu’à 1 000 charts par lot pour la corbeille, avec filtres par artiste ou album et confirmation explicite. [Notes 0.14.44](docs/RELEASE-0.14.44.md).

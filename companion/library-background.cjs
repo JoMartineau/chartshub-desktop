@@ -57,13 +57,14 @@ function createBackgroundLibraryService({ dataDirectory, onChange, recycle, work
           const allowed = !connection.stopping && !connection.recycling && ['recycleDuplicates', 'forceRecycleDuplicate', 'recycleBulkDifferences', 'recycleBadSongs', 'recycleSelectedRemoval'].includes(parent?.method)
             && Number.isSafeInteger(message.id) && message.id > 0 && !connection.recycleIds.has(message.id)
             && typeof recycle === 'function' && typeof message.target === 'string' && path.isAbsolute(message.target) && !message.target.includes('\0');
-          const reply = ok => { try { worker.postMessage({ type: 'recycle-result', id: message.id, ok }); } catch {} };
+          const reply = (ok, changed = false) => { try { worker.postMessage({ type: 'recycle-result', id: message.id, ok, ...(changed ? { changed: true } : {}) }); } catch {} };
           if (!allowed) { reply(false); return; }
           connection.recycleIds.add(message.id); connection.recycling = true;
           const task = Promise.resolve().then(() => {
             if (current !== connection || connection.stopping || connection.pending.get(message.requestId) !== parent) throw Error(STOPPED);
             return recycle(message.target, message.proof);
-          }).then(() => reply(true), () => reply(false)).finally(() => { connection.recycling = false; nativeRecycles.delete(task); });
+          }).then(() => reply(true), error => reply(false, parent.method === 'recycleBadSongs' && error?.code === 'LIBRARY_BAD_SONGS_SAFE'))
+            .finally(() => { connection.recycling = false; nativeRecycles.delete(task); });
           nativeRecycles.add(task);
           return;
         }
