@@ -41,6 +41,30 @@ test('native confirmation submits only explicitly selected IDs; cancelling prese
   assert.equal(ui.calls.length,2);assert.deepEqual(ui.calls[1].payload,{planId:'a'.repeat(32),revision:1,ids:['a'.repeat(64)]});assert.equal(ui.calls[1].name,'library.recycleBadSongs');
   ui.calls[1].resolve({ok:true,cancelled:true});await tick();assert.equal(ui.check('a').checked,true);assert.match(ui.get('#library-bad-songs-status').textContent,/annulée/);
 });
+test('Select all checks at most200 eligible errors, including those outside the rendered list',async t=>{
+  const ui=await fixture(t), entries=Array.from({length:220},(_,index)=>entry('a',{
+    id:index.toString(16).padStart(64,'0'),
+    ...(index%22===0?{severity:'warning',eligible:false,blocked:'warning'}:{})
+  }));
+  await ui.prepare(plan({entries}));
+  ui.get('#library-bad-songs-select-all').click();
+  assert.match(ui.get('#library-bad-songs-selection').textContent,/^200 /);
+  assert.equal(ui.get('#library-bad-songs-select-all').disabled,true);
+  assert.equal(ui.get('#library-bad-songs-list').querySelectorAll('input')[0].checked,false);
+  assert.equal(ui.calls.length,1);
+  ui.get('#library-bad-songs-recycle').click();
+  assert.deepEqual(ui.calls[1].payload.ids,entries.filter(entry=>entry.eligible).slice(0,200).map(entry=>entry.id));
+  ui.calls[1].resolve({ok:true,cancelled:true});await tick();
+  assert.match(ui.get('#library-bad-songs-selection').textContent,/^200 /);
+});
+test('native trash refusals show preserved targets and do not request a refresh without a move',async t=>{
+  const ui=await fixture(t);await ui.prepare();ui.select('a');ui.get('#library-bad-songs-recycle').click();
+  ui.calls[1].resolve({ok:true,result:{recycledIds:[],failed:[{id:'a'.repeat(64),reason:'trash-refused'}],cancelled:false,
+    plan:plan({planId:'c'.repeat(32),entries:[entry('a',{eligible:false,blocked:'trash-refused'})]})}});
+  await tick();assert.equal(ui.check('a').disabled,true);
+  assert.match(ui.get('#library-bad-songs-status').textContent,/refusés par la Corbeille et conservés : 1/);
+  assert.doesNotMatch(ui.get('#library-bad-songs-status').textContent,/Actualiser à la fin/);
+});
 test('a successful batch accepts a fresh plan and never invokes an automatic scan',async t=>{
   const ui=await fixture(t);await ui.prepare();ui.select('a');ui.get('#library-bad-songs-recycle').click();ui.controls.update(snapshot({revision:2,badSongsBusy:true}));
   ui.calls[1].resolve({ok:true,result:{recycledIds:['a'.repeat(64)],failed:[],cancelled:false,plan:plan({planId:'c'.repeat(32),revision:2,entries:[entry('b',{severity:'warning',eligible:false,blocked:'warning'})]})}});

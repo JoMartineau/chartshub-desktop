@@ -1,6 +1,6 @@
 const PHASES = new Set(['idle', 'analyzing', 'ready', 'running', 'paused', 'completed', 'error']);
 const ACTIONS = new Set(['analyze', 'start', 'pause', 'resume', 'retry']);
-const COUNTS = ['new', 'update', 'unchanged', 'conflict', 'failed', 'completed'];
+const COUNTS = ['new', 'update', 'unchanged', 'failed', 'completed'];
 const integer = value => Number.isSafeInteger(value) && value >= 0 ? value : 0;
 const clean = (value, limit = 180) => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, limit) : '';
 const TEXT = {
@@ -12,14 +12,14 @@ const TEXT = {
     root: 'Dossier Songs', noRoot: 'Choisissez le dossier de téléchargement ci-dessus avant de commencer.', unavailable: 'La synchronisation n’est pas disponible dans cette version.',
     idle: 'Prêt à analyser. Aucun téléchargement automatique.', analyzing: 'Analyse du catalogue…', ready: 'Analyse terminée. Vérifiez le résumé, puis démarrez.', pausedAnalysis: 'Analyse interrompue. Relancez Analyser avant de télécharger.',
     running: 'Synchronisation en cours', paused: 'Synchronisation en pause. La progression est conservée.', completed: 'Synchronisation terminée.', error: 'La synchronisation demande votre attention.',
-    counts: { new: 'Nouvelles', update: 'Mises à jour', unchanged: 'Inchangées', conflict: 'À vérifier', failed: 'Erreurs', completed: 'Installées' },
+    counts: { new: 'À télécharger', update: 'Mises à jour', unchanged: 'Inchangées', failed: 'Erreurs', completed: 'Installées' },
     processed: 'charts traitées', transferred: 'transférés', details: 'Dernières opérations', empty: 'Aucune opération à afficher.', bounded: 'Les 50 dernières opérations au maximum sont affichées ici.',
-    preservation: 'Les charts confirmées inchangées sont ignorées. Sans empreinte fiable de la source, certains fichiers doivent être téléchargés pour être vérifiés. Les fichiers modifiés localement restent à vérifier ; vos chansons ne sont jamais supprimées du fait de leur absence dans le catalogue. Lors d’une mise à jour, l’ancienne version est conservée en sauvegarde et continue d’occuper de l’espace.',
+    preservation: 'Les charts identiques sont ignorées. Sans empreinte fiable de la source, certains fichiers sont téléchargés pour comparer leur contenu. Si une copie locale ne peut pas être mise à jour en toute sécurité, ChartsHub installe la version du catalogue dans un dossier séparé. Lors d’une mise à jour, l’ancienne version reste disponible en sauvegarde.',
     pauseHelp: 'Vous pouvez mettre en pause et reprendre plus tard. Après un redémarrage de ChartsHub, utilisez Reprendre.',
     actionError: 'Cette action n’a pas abouti. Vérifiez le dossier et la connexion, puis réessayez.', serverUpdate: 'Le site ChartsHub doit être mis à jour avant de pouvoir synchroniser le catalogue.', storageError: 'La progression enregistrée ne peut pas être chargée ou sauvegardée. Les fichiers existants sont conservés.',
     spaceError: 'L’espace disque est insuffisant. Libérez de l’espace dans le dossier de destination, puis cliquez sur Reprendre.',
-    states: { new: 'Nouvelle', update: 'Mise à jour', unchanged: 'Inchangée', conflict: 'À vérifier', queued: 'En attente', downloading: 'Téléchargement', running: 'Téléchargement', completed: 'Installée', failed: 'Échec', paused: 'En pause' },
-    unknown: 'À vérifier', failedHelp: 'Réessayez les erreurs après avoir vérifié le dossier et la connexion.',
+    states: { new: 'À télécharger', update: 'Mise à jour', unchanged: 'Inchangée', conflict: 'En attente', queued: 'En attente', downloading: 'Téléchargement', running: 'Téléchargement', completed: 'Installée', failed: 'Échec', paused: 'En pause' },
+    unknown: 'État indisponible', failedHelp: 'Réessayez les erreurs après avoir vérifié le dossier et la connexion.',
   },
   en: {
     title: 'Synchronize the ChartsHub catalogue', intro: '1. Choose the download folder above. 2. Analyze the catalogue. 3. Review the summary before starting.',
@@ -29,14 +29,14 @@ const TEXT = {
     root: 'Songs folder', noRoot: 'Choose the download folder above before starting.', unavailable: 'Synchronization is unavailable in this version.',
     idle: 'Ready to analyze. No automatic downloads.', analyzing: 'Analyzing the catalogue…', ready: 'Analysis complete. Review the summary, then start.', pausedAnalysis: 'Analysis interrupted. Analyze again before downloading.',
     running: 'Synchronizing', paused: 'Synchronization paused. Progress is saved.', completed: 'Synchronization complete.', error: 'Synchronization needs your attention.',
-    counts: { new: 'New', update: 'Updates', unchanged: 'Unchanged', conflict: 'Needs review', failed: 'Errors', completed: 'Installed' },
+    counts: { new: 'To download', update: 'Updates', unchanged: 'Unchanged', failed: 'Errors', completed: 'Installed' },
     processed: 'charts processed', transferred: 'transferred', details: 'Recent operations', empty: 'No operations to display.', bounded: 'Up to the 50 most recent operations are shown here.',
-    preservation: 'Confirmed unchanged charts are skipped. Without a reliable source fingerprint, some files must be downloaded for verification. Locally modified files need review; songs are never deleted because they disappear from the catalogue. Updates retain the previous version as a backup, which still uses disk space.',
+    preservation: 'Identical charts are skipped. Without a reliable source fingerprint, some files are downloaded for comparison. If a local copy cannot safely be updated, ChartsHub installs the catalogue version in a separate folder. Updates retain the previous version as a backup.',
     pauseHelp: 'Pause and resume later. After restarting ChartsHub, choose Resume.',
     actionError: 'This action did not finish. Check the folder and connection, then try again.', serverUpdate: 'The ChartsHub website must be updated before the catalogue can be synchronized.', storageError: 'Saved progress could not be loaded or saved. Existing files are preserved.',
     spaceError: 'There is not enough disk space. Free up space in the destination folder, then choose Resume.',
-    states: { new: 'New', update: 'Update', unchanged: 'Unchanged', conflict: 'Needs review', queued: 'Queued', downloading: 'Downloading', running: 'Downloading', completed: 'Installed', failed: 'Failed', paused: 'Paused' },
-    unknown: 'Needs review', failedHelp: 'Check the folder and connection before retrying the errors.',
+    states: { new: 'To download', update: 'Update', unchanged: 'Unchanged', conflict: 'Queued', queued: 'Queued', downloading: 'Downloading', running: 'Downloading', completed: 'Installed', failed: 'Failed', paused: 'Paused' },
+    unknown: 'Status unavailable', failedHelp: 'Check the folder and connection before retrying the errors.',
   },
 };
 
@@ -49,7 +49,7 @@ export function projectCatalogueSync(snapshot = {}) {
     available: Boolean(source) && state.supported !== false,
     language: snapshot?.language === 'en' ? 'en' : 'fr', phase, rootPath,
     mode: state.mode === 'installed' ? 'installed' : 'all', total: integer(state.total), processed: integer(state.processed),
-    counts: Object.fromEntries(COUNTS.map(key => [key, integer(state.counts?.[key])])),
+    counts: Object.fromEntries(COUNTS.map(key => [key, integer(state.counts?.[key]) + (key === 'new' ? integer(state.counts?.conflict) : 0)])),
     receivedBytes: integer(state.receivedBytes), concurrency: [1, 2, 3, 4].includes(state.concurrency) ? state.concurrency : 2, includeVideo: state.includeVideo === true,
     error: Boolean(state.error), errorCode: ['SYNC_SERVER_UPDATE_REQUIRED', 'SYNC_STORAGE', 'SYNC_NO_SPACE', 'SYNC_ANALYSIS_INTERRUPTED'].includes(state.error) ? state.error : null, canResume: state.canResume === true,
     items: Array.isArray(state.items) ? state.items.slice(-50).map(item => ({

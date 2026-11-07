@@ -99,6 +99,66 @@ test('untracked charts are adopted only when every manifest byte matches; differ
   assert.deepEqual((await fs.readdir(f.rootPath)).filter(name => !name.startsWith('.')), ['Projet fictif - Signal de test']);
 });
 
+test('automatic sync scans multiple candidates, adopts a byte match with personal files, and safely installs changed content separately', async t => {
+  const f = await fixture(t);
+  const original = path.join(f.rootPath, 'Projet fictif - Signal de test');
+  const exact = path.join(f.rootPath, 'Collection', 'Copie locale');
+  await fs.mkdir(original); await fs.mkdir(exact, { recursive: true });
+  await fs.writeFile(path.join(original, 'notes.chart'), 'a separate local variant');
+  for (const file of f.manifest().files) await fs.writeFile(path.join(exact, ...file.parts), f.contents.get(file.url));
+  await fs.writeFile(path.join(exact, 'my-notes.txt'), 'keep me');
+  const opts = { ...f.args, automatic: true, candidateFolders: [path.basename(original), 'Collection/Copie locale'] };
+  const adopted = await f.worker.run({ ...opts, id: id() });
+  assert.equal(adopted.changed, false);
+  assert.equal(adopted.destination, exact);
+  assert.equal(adopted.record.preserveExtras, true);
+  assert.equal(f.payloadCalls().length, 0);
+  f.setFiles([['song.ini', '[song]\nname = Signal de test\nartist = Projet fictif\n'], ['notes.chart', 'new notes'], ['song.ogg', 'synthetic audio A']]);
+  const installed = await f.worker.run({ ...opts, id: id(), record: adopted.record });
+  assert.equal(installed.changed, true);
+  assert.notEqual(installed.destination, exact);
+  assert.notEqual(installed.destination, original);
+  assert.equal(await fs.readFile(path.join(installed.destination, 'notes.chart'), 'utf8'), 'new notes');
+  assert.equal(await fs.readFile(path.join(original, 'notes.chart'), 'utf8'), 'a separate local variant');
+  assert.equal(await fs.readFile(path.join(exact, 'my-notes.txt'), 'utf8'), 'keep me');
+  const checked = await f.worker.run({ ...opts, id: id(), record: installed.record });
+  assert.equal(checked.changed, false);
+  assert.equal(checked.destination, installed.destination);
+});
+
+test('automatic sync with a weak manifest compares the downloaded bytes before making a second copy', async t => {
+  const f = await fixture(t), candidateFolder = 'Copie existante';
+  const local = path.join(f.rootPath, candidateFolder);
+  f.setFiles([['song.ini', '[song]\nname = Signal de test\n'], ['notes.chart', 'same notes']], { withoutHashes: true });
+  await fs.mkdir(local);
+  for (const file of f.manifest().files) await fs.writeFile(path.join(local, ...file.parts), f.contents.get(file.url));
+  const transferId = id();
+  const result = await f.worker.run({ ...f.args, id: transferId, automatic: true, candidateFolder });
+  assert.equal(result.destination, local);
+  assert.equal(result.changed, false);
+  assert.equal(f.payloadCalls().length, 2);
+  await f.worker.finalize({ ...f.args, id: transferId, record: result.record });
+  assert.deepEqual(await fs.readdir(f.rootPath), [candidateFolder]);
+});
+
+test('automatic sync repairs song.ini in place when all other files prove one exact chart', async t => {
+  const f = await fixture(t), candidateFolder = 'Copie existante', local = path.join(f.rootPath, candidateFolder);
+  await fs.mkdir(local);
+  for (const file of f.manifest().files) await fs.writeFile(path.join(local, ...file.parts), f.contents.get(file.url));
+  await fs.writeFile(path.join(local, 'song.ini'), '[song]\nname = Signal de test\nartist = Projet fictif\n');
+  // Different local metadata, but exactly the same notes and audio.
+  await fs.appendFile(path.join(local, 'song.ini'), 'album = Local\n');
+  const opts = { ...f.args, automatic: true, candidateFolder };
+  const planned = await f.worker.inspect(opts);
+  assert.equal(planned.state, 'update');
+  assert.equal(planned.record.folderName, candidateFolder);
+  const installed = await f.worker.run({ ...opts, record: planned.record, id: id() });
+  assert.equal(installed.destination, local);
+  assert.equal(f.payloadCalls().length, 1);
+  assert.match(await fs.readFile(path.join(installed.backupPath, 'song.ini'), 'utf8'), /album = Local/);
+  assert.doesNotMatch(await fs.readFile(path.join(local, 'song.ini'), 'utf8'), /album = Local/);
+});
+
 test('a trusted legacy completion can adopt an exact chart at its old suffixed folder', async t => {
   const f = await fixture(t), candidateFolder = 'Projet fictif - Signal de test (2)', directory = path.join(f.rootPath, candidateFolder);
   await fs.mkdir(directory);

@@ -12,6 +12,14 @@ const fileURL = file => pathToFileURL(path.resolve(__dirname, '../companion/ui',
 const evaluate = source => window.webContents.executeJavaScript(source);
 const timer = setTimeout(() => { console.error('Library removal UI fixture timed out'); app.exit(1); }, 60000);
 async function record(label, action) { await action(); passed.push(label); }
+async function waitFor(source) {
+  const deadline = Date.now() + 4000;
+  while (Date.now() < deadline) {
+    if (await evaluate(source)) return;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.fail('Timed out waiting for the scrolled batch: ' + source);
+}
 async function capture(filename, width) { await new Promise(resolve => setTimeout(resolve, 100)); await fs.writeFile(path.join(directory, filename), (await window.webContents.capturePage({ x: 0, y: 0, width, height: 920 }, { stayHidden: true, stayAwake: true })).toPNG()); captures.push(filename); }
 app.whenReady().then(async () => {
   await fs.mkdir(directory, { recursive: true }); const fixture = path.join(directory, 'fixture.html');
@@ -26,6 +34,19 @@ app.whenReady().then(async () => {
   await record('Closed panel never queries or recycles anything', async () => assert.deepEqual(await evaluate('calls'), []));
   await evaluate("document.querySelector('#removal').open=true;document.querySelector('#removal').dispatchEvent(new Event('toggle'))");
   await record('Opening100000-chart index renders at most50 rows', async () => { assert.equal(await evaluate('controls.nodes.list.children.length'), 50); assert.equal(await evaluate('calls.length'), 1); });
+  await record('Scrolling the real list loads subsequent batches and preserves selections', async () => {
+    await evaluate('controls.checks.get(syntheticId(1)).click();controls.nodes.list.scrollTop=3450');
+    await waitFor('controls.checks.has(syntheticId(51))');
+    assert.equal(await evaluate('controls.nodes.list.scrollTop'), 3450);
+    await evaluate('controls.checks.get(syntheticId(51)).click();controls.nodes.list.scrollTop=10000');
+    await waitFor('controls.checks.has(syntheticId(101))');
+    assert.equal(await evaluate('controls.selected.size'), 2);
+    await evaluate('controls.nodes.list.scrollTop=controls.nodes.list.scrollHeight');
+    await waitFor('controls.checks.has(syntheticId(100000))');
+    assert.equal(await evaluate('controls.nodes.list.children.length<=150'), true);
+    await evaluate('controls.nodes.list.scrollTop=0');
+    await waitFor('controls.checks.get(syntheticId(1))?.checked===true');
+  });
   for (const [width, language] of [[1400, 'fr'], [680, 'en']]) {
     window.setContentSize(width, 920); await evaluate(`synthetic.language=${JSON.stringify(language)};controls.update(synthetic);scrollTo(0,0)`);
     await record('No horizontal overflow while browsing ' + width + 'px', async () => assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth'), true));

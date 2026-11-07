@@ -13,7 +13,7 @@ const emptyCounts = () => ({ new: 0, update: 0, unchanged: 0, conflict: 0, faile
 const interrupted = problem => problem?.name === 'AbortError' || problem?.code === 'ABORT_ERR';
 const safeCode = problem => /^(SYNC_|DOWNLOAD_)[A-Z_]+$/.test(problem?.code) ? problem.code : 'SYNC_FAILED';
 
-function createCatalogueSyncService({ dataDirectory, catalogue, worker, getContext, onChange, onInstalled, onStarting, onSettled, store = createCatalogueSyncStore({ dataDirectory }) }) {
+function createCatalogueSyncService({ dataDirectory, catalogue, worker, getContext, onChange, onInstalled, onAnalyzing, onStarting, onSettled, store = createCatalogueSyncStore({ dataDirectory }) }) {
   if (typeof catalogue?.page !== 'function' || typeof worker?.inspect !== 'function' || typeof worker?.run !== 'function' || typeof getContext !== 'function') throw syncError('SYNC_INVALID');
   let state = { version: 1, phase: 'idle', mode: 'all', rootPath: null, rootIdentity: null, jobId: null, revision: null,
     total: 0, analyzed: 0, pageCount: 0, analysisComplete: false, counts: emptyCounts(), receivedBytes: 0, concurrency: 2, includeVideo: false, error: null };
@@ -104,14 +104,25 @@ function createCatalogueSyncService({ dataDirectory, catalogue, worker, getConte
     });
     task = work; notify(true); return status();
   }
-  function legacyCandidate(endpoint, context) {
-    const entry = context.completedDownloads?.find(item => item.endpoint === endpoint && item.rootPath === state.rootPath);
-    return typeof entry?.destination === 'string' && path.dirname(entry.destination) === state.rootPath ? path.basename(entry.destination) : undefined;
+  function legacyCandidates(context) {
+    const completed = typeof context.completedDownloads === 'function' ? context.completedDownloads() : context.completedDownloads;
+    const result = new Map();
+    for (const entry of completed ?? []) {
+      if (entry.rootPath === state.rootPath && typeof entry.destination === 'string' && path.dirname(entry.destination) === state.rootPath) {
+        if (!result.has(entry.endpoint)) result.set(entry.endpoint, path.basename(entry.destination));
+      }
+    }
+    return result;
+  }
+  async function localCandidates(descriptor, context, legacy, signal, previousFolder) {
+    const match = await context.findCandidate?.({ descriptor, rootPath: state.rootPath, signal });
+    const folders = [...new Set([legacy.get(descriptor.endpoint), previousFolder, match?.candidateFolder, ...(match?.candidateFolders ?? [])].filter(safeFolder))];
+    const [candidateFolder, ...otherFolders] = folders;
+    return { candidateFolder, candidateFolders: otherFolders.slice(0, 32), hasMatch: Boolean(candidateFolder || match?.conflict) };
   }
   async function analyze(options = {}, expected = intent) {
     await load(); checkIntent(expected); if (task) throw syncError('SYNC_BUSY');
     const context = getContext(), rootPath = context?.rootPath;
-    if (typeof context?.completedDownloads === 'function') context.completedDownloads = context.completedDownloads();
     checkAllowed(rootPath);
     const mode = options.mode || state.mode, concurrency = options.concurrency ?? state.concurrency, includeVideo = options.includeVideo ?? state.includeVideo;
     if (!['all', 'installed'].includes(mode) || !Number.isInteger(concurrency) || concurrency < 1 || concurrency > 4 || typeof includeVideo !== 'boolean') throw syncError('SYNC_INVALID');
@@ -121,6 +132,8 @@ function createCatalogueSyncService({ dataDirectory, catalogue, worker, getConte
       jobId: randomUUID(), revision: null, total: 0, analyzed: 0, pageCount: 0, analysisComplete: false, counts: emptyCounts(), receivedBytes: 0, error: null };
     recent = []; await serial(save); checkIntent(expected);
     return launch(async signal => {
+      await onAnalyzing?.({ rootPath: root.root, signal });
+      const legacy = legacyCandidates(context);
       let offset = 0, relevant = 0; const seen = new Set();
       do {
         signal.throwIfAborted(); checkAllowed(); await root.guard();
@@ -132,20 +145,17 @@ function createCatalogueSyncService({ dataDirectory, catalogue, worker, getConte
           signal.throwIfAborted(); checkAllowed(); validateDescriptor(descriptor);
           if (seen.has(descriptor.endpoint)) throw syncError('SYNC_INVALID'); seen.add(descriptor.endpoint);
           const record = await store.readRecord(state.rootPath, descriptor.endpoint);
-          let candidateFolder = record ? undefined : legacyCandidate(descriptor.endpoint, context), candidateConflict = false;
-          if (!record && !candidateFolder && typeof context.findCandidate === 'function') {
-            const candidate = await context.findCandidate({ descriptor, rootPath: state.rootPath, signal });
-            if (candidate?.conflict) candidateConflict = true;
-            else if (candidate?.candidateFolder) { if (!safeFolder(candidate.candidateFolder)) throw syncError('SYNC_INVALID'); candidateFolder = candidate.candidateFolder; }
-          }
-          if (mode === 'installed' && !record && !candidateFolder && !candidateConflict) continue;
+          const candidates = record ? {} : await localCandidates(descriptor, context, legacy, signal);
+          const { candidateFolder } = candidates;
+          if (mode === 'installed' && !record && !candidates.hasMatch) continue;
           relevant++;
           const item = { ...descriptor, id: randomUUID(), state: 'new', kind: 'new', ...(candidateFolder ? { candidateFolder } : {}) };
           try {
             // No per-chart HTTP request for new entries during planning. The
             // worker validates collisions and the fresh manifest before writing.
-            const result = candidateConflict ? { state: 'conflict', reason: 'SYNC_EXISTING_AMBIGUOUS' } : record || candidateFolder ? await worker.inspect({ endpoint: item.endpoint, rootPath: state.rootPath, record, candidateFolder, includeVideo, remote: descriptor, signal }) : { state: 'new' };
-            if (!['new', 'update', 'unchanged', 'conflict'].includes(result.state)) throw syncError('SYNC_INVALID');
+            const result = record || candidateFolder ? await worker.inspect({ endpoint: item.endpoint, rootPath: state.rootPath,
+              record, candidateFolder, candidateFolders: candidates.candidateFolders, includeVideo, remote: descriptor, signal, automatic: true }) : { state: 'new' };
+            if (!['new', 'update', 'unchanged'].includes(result.state)) throw syncError('SYNC_INVALID');
             item.state = item.kind = result.state; item.error = result.reason || null;
             if (result.record && result.record !== record && JSON.stringify(result.record) !== JSON.stringify(record)) await store.writeRecord(state.rootPath, item.endpoint, result.record);
           } catch (problem) {
@@ -167,20 +177,25 @@ function createCatalogueSyncService({ dataDirectory, catalogue, worker, getConte
   async function execute(signal) {
     const root = await rootContext(state.rootPath);
     if (root.rootIdentity !== state.rootIdentity) throw syncError('SYNC_CONTEXT');
+    const legacy = legacyCandidates(checkAllowed());
     for (let pageNumber = 0; pageNumber < state.pageCount; pageNumber++) {
       signal.throwIfAborted(); checkAllowed(); await root.guard();
       const entries = await store.loadPage(state.jobId, pageNumber); entries.forEach(validateTask); let cursor = 0;
       const results = await Promise.allSettled(Array.from({ length: state.concurrency }, async () => { try {
         while (cursor < entries.length && !signal.aborted) {
           const index = cursor++, entry = entries[index];
-          if (!['new', 'update'].includes(entry.state)) continue;
+          if (!['new', 'update', 'conflict'].includes(entry.state)) continue;
+          const legacyConflict = entry.state === 'conflict';
           signal.throwIfAborted(); checkAllowed(); await root.guard();
           const liveEntry = { ...entry, state: 'running', receivedBytes: 0 }; live.set(entry.id, liveEntry); notify();
           let installed = null, finalizedRecord = null;
           try {
             const record = await store.readRecord(state.rootPath, entry.endpoint);
+            const context = checkAllowed();
+            const candidates = await localCandidates(entry, context, legacy, signal, entry.candidateFolder);
             const result = await worker.run({ id: entry.id, endpoint: entry.endpoint, rootPath: state.rootPath, record,
-              candidateFolder: entry.candidateFolder, includeVideo: state.includeVideo, signal, onProgress: value => {
+              candidateFolder: candidates.candidateFolder, candidateFolders: candidates.candidateFolders, automatic: true,
+              includeVideo: state.includeVideo, signal, onProgress: value => {
                 if (Number.isSafeInteger(value.receivedBytes) && value.receivedBytes >= 0) liveEntry.receivedBytes = value.receivedBytes;
                 notify();
               } });
@@ -200,7 +215,7 @@ function createCatalogueSyncService({ dataDirectory, catalogue, worker, getConte
             if (problem?.code === 'SYNC_STORAGE') { controller?.abort(); throw problem; }
             if (problem?.code === 'ENOSPC' || problem?.code === 'SYNC_NO_SPACE') throw syncError('SYNC_NO_SPACE');
             if (interrupted(problem) || signal.aborted) throw problem;
-            entry.state = /CONFLICT|LOCAL_CHANGED/.test(problem?.code || '') ? 'conflict' : 'failed'; entry.error = safeCode(problem); entry.receivedBytes = 0;
+            entry.state = 'failed'; entry.error = safeCode(problem); entry.receivedBytes = 0;
           } finally { live.delete(entry.id); }
           await serial(async () => {
             await store.append(state.jobId, pageNumber, { index, state: entry.state, error: entry.error, receivedBytes: entry.receivedBytes });
@@ -210,6 +225,7 @@ function createCatalogueSyncService({ dataDirectory, catalogue, worker, getConte
             // A durable receipt and task completion permit deleting only owned
             // staging data; old-chart backups and unexpected files stay intact.
             if (finalizedRecord) { try { await worker.finalize?.({ id: entry.id, endpoint: entry.endpoint, rootPath: state.rootPath, record: finalizedRecord }); } catch {} }
+            if (legacyConflict) state.counts.conflict--;
             state.counts[entry.state]++; state.receivedBytes += entry.receivedBytes;
             recent.unshift(entry); if (recent.length > 50) recent.length = 50;
             await save(); notify();

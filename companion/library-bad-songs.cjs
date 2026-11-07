@@ -115,26 +115,40 @@ function createBadSongsCleanup({ getDocument, recycle, onCleaned = async () => {
   async function execute(options) {
     if (task || stopping) throw failure(); const { value, entries } = selected(options);
     const result = { recycledIds: [], recycledTargets: [], failed: [], cancelled: false, refreshRequested: false };
+    async function checkReport() {
+      current(value);
+      if ((await readReport(value.filename)).signature !== value.signature) throw failure();
+      current(value);
+    }
     task = (async () => {
       try {
         for (const entry of entries) {
-          current(value);
-          if ((await readReport(value.filename)).signature !== value.signature) throw failure(); current(value);
+          await checkReport();
           const checked = await inspectReportedBundle({ rootPath: value.rootPath, targetRelativePath: entry.targetRelativePath, kind: entry.kind, expected: entry.bundle, signal: value.controller.signal });
-          current(value); if (!checked) throw failure();
-          if ((await readReport(value.filename)).signature !== value.signature) throw failure(); current(value);
-          await recycle(path.resolve(value.rootPath, ...entry.targetRelativePath.split('/')), { type: 'bad-songs', rootPath: value.rootPath, targetRelativePath: entry.targetRelativePath, kind: entry.kind, expected: entry.bundle });
+          current(value);
+          if (!checked) { result.failed.push({ id: entry.id, reason: 'changed' }); continue; }
+          await checkReport();
+          try {
+            await recycle(path.resolve(value.rootPath, ...entry.targetRelativePath.split('/')), { type: 'bad-songs', rootPath: value.rootPath, targetRelativePath: entry.targetRelativePath, kind: entry.kind, expected: entry.bundle });
+          } catch (error) {
+            current(value);
+            result.failed.push({ id: entry.id, reason: error?.code === 'LIBRARY_BAD_SONGS_SAFE' ? 'changed' : 'trash-refused' });
+            continue;
+          }
           result.recycledIds.push(entry.id); result.recycledTargets.push(entry.targetRelativePath);
         }
-      } catch (error) { if (value.controller.signal.aborted || stopping) result.cancelled = true; else result.failed.push({ id: entries[result.recycledIds.length]?.id, reason: 'changed' }); }
+      } catch {
+        if (value.controller.signal.aborted || stopping) result.cancelled = true;
+        else result.reportInvalidated = true;
+      }
       finally {
         if (result.recycledTargets.length) { await onCleaned({ rootPath: value.rootPath, revision: value.revision, items: value.items, recycledTargets: result.recycledTargets }); result.refreshRequested = true; }
         if (plan === value) invalidate();
         const document = getDocument();
-        if (!stopping && !result.cancelled && document.settings.rootPath === value.rootPath) {
-          const removed = new Set(result.recycledIds), failed = new Set(result.failed.map(entry => entry.id));
+        if (!stopping && !result.cancelled && !result.reportInvalidated && document.settings.rootPath === value.rootPath) {
+          const removed = new Set(result.recycledIds), failed = new Map(result.failed.map(entry => [entry.id, entry.reason]));
           plan = { ...value, planId: randomBytes(16).toString('hex'), revision: document.revision, items: document.items, controller: new AbortController(),
-            entries: value.entries.filter(entry => !removed.has(entry.id)).map(entry => failed.has(entry.id) ? { ...entry, eligible: false, blocked: 'changed' } : entry) };
+            entries: value.entries.filter(entry => !removed.has(entry.id)).map(entry => failed.has(entry.id) ? { ...entry, eligible: false, blocked: failed.get(entry.id) } : entry) };
           result.plan = publicPlan(plan);
         }
       }

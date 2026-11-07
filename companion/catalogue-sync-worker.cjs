@@ -21,6 +21,7 @@ const BUFFER_BYTES = 256 * 1024;
 // that valid worst case to survive a restart.
 const MAX_CHECKPOINT_BYTES = 16 * 1024 * 1024;
 const running = new Set();
+const reservedDestinations = new Set();
 const plain = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const keyOf = parts => parts.join('/').normalize('NFC').toLowerCase();
@@ -31,6 +32,9 @@ const safeFolderPath = value => typeof value === 'string' && value.length <= 327
 const validParts = parts => Array.isArray(parts) && parts.length > 0 && parts.length <= 6 && parts.every(part => safePart(part) && part.toLowerCase() !== MARKER);
 const safeSize = value => Number.isSafeInteger(value) && value >= 0 && value <= 2147483644;
 function fail(code = 'SYNC_IO') { return Object.assign(Error(code), { code }); }
+function localMismatch(error) {
+  return ['SYNC_CONFLICT', 'DOWNLOAD_PATH', 'ENOENT', 'ENOTDIR', 'EISDIR', 'EACCES', 'EPERM'].includes(error?.code);
+}
 function abort(signal) { if (signal?.aborted) throw Object.assign(Error('Synchronization paused.'), { name: 'AbortError', code: 'ABORT_ERR' }); }
 function stamp(stat) { return Object.fromEntries(STAMP.map(key => [key, String(stat[key])])); }
 function sameStamp(left, right) { return STAMP.every(key => left?.[key] === right?.[key]); }
@@ -42,7 +46,8 @@ function validStamp(value, size) {
 /** Provenance belongs to one exact root and folder. A title match never authorizes writes. */
 function validateSyncRecord(value) {
   if (!plain(value) || value.version !== 1 || !ENDPOINT.test(value.endpoint) || !safeFolderPath(value.folderName) || !EXACT_IDENTITY.test(value.folderIdentity)
-      || !EXACT_IDENTITY.test(value.rootIdentity) || !HASH.test(value.revision) || typeof value.includeVideo !== 'boolean' || !Array.isArray(value.files) || !value.files.length || value.files.length > 1000) throw fail('SYNC_INVALID');
+      || !EXACT_IDENTITY.test(value.rootIdentity) || !HASH.test(value.revision) || typeof value.includeVideo !== 'boolean'
+      || (value.preserveExtras !== undefined && value.preserveExtras !== true) || !Array.isArray(value.files) || !value.files.length || value.files.length > 1000) throw fail('SYNC_INVALID');
   const parents = value.parentIdentities ?? [];
   if (!Array.isArray(parents) || parents.length !== value.folderName.split('/').length - 1 || parents.some(parent => !EXACT_IDENTITY.test(parent))) throw fail('SYNC_INVALID');
   const keys = new Set(); let bytes = 0;
@@ -55,7 +60,8 @@ function validateSyncRecord(value) {
   if (bytes > 4000000000) throw fail('SYNC_INVALID');
   for (const key of keys) { const parts = key.split('/'); while (parts.length > 1) { parts.pop(); if (keys.has(parts.join('/'))) throw fail('SYNC_INVALID'); } }
   return { version: 1, endpoint: value.endpoint, folderName: value.folderName, folderIdentity: value.folderIdentity, rootIdentity: value.rootIdentity,
-    revision: value.revision, includeVideo: value.includeVideo, files, ...(parents.length ? { parentIdentities: [...parents] } : {}) };
+    revision: value.revision, includeVideo: value.includeVideo, files, ...(parents.length ? { parentIdentities: [...parents] } : {}),
+    ...(value.preserveExtras ? { preserveExtras: true } : {}) };
 }
 
 /** Nested library folders must retain every parent identity throughout promotion.
@@ -125,17 +131,18 @@ async function hashFile(context, target, expectedSize, signal) {
 }
 
 /** This walks only the selected chart folder, never the Songs tree. */
-async function folderInventory(context, directory, expectedFiles, signal, { marker = false, allowMissing = false } = {}) {
+async function folderInventory(context, directory, expectedFiles, signal, { marker = false, allowMissing = false, allowExtras = false } = {}) {
   const expected = new Set(expectedFiles.map(file => keyOf(file.parts))), expectedDirectories = new Set();
   for (const file of expectedFiles) for (let length = 1; length < file.parts.length; length++) expectedDirectories.add(keyOf(file.parts.slice(0, length)));
-  const found = new Map(); let directories = 0;
+  const found = new Map(); let directories = 0, hasExtras = false;
   async function walk(current, parts = []) {
     abort(signal); await context.checked(current, { directory: true });
     for (const entry of await fs.readdir(current, { withFileTypes: true })) {
       abort(signal);
       if (marker && !parts.length && entry.name === MARKER) continue;
-      if (!safePart(entry.name) || entry.isSymbolicLink()) throw fail('SYNC_CONFLICT');
       const names = [...parts, entry.name], key = keyOf(names), target = path.join(current, entry.name);
+      if (allowExtras && !expected.has(key) && !expectedDirectories.has(key)) { hasExtras = true; continue; }
+      if (!safePart(entry.name) || entry.isSymbolicLink()) throw fail('SYNC_CONFLICT');
       if (entry.isDirectory()) {
         if (++directories > 6000 || names.length >= 6 || !expectedDirectories.has(key)) throw fail('SYNC_CONFLICT');
         await walk(target, names);
@@ -149,7 +156,7 @@ async function folderInventory(context, directory, expectedFiles, signal, { mark
   if (!allowMissing && found.size !== expected.size) throw fail('SYNC_CONFLICT');
   // Compare spelling too: a case-folded match must not open another OS path.
   for (const file of expectedFiles) if ((!allowMissing || found.has(keyOf(file.parts))) && JSON.stringify(found.get(keyOf(file.parts))?.parts) !== JSON.stringify(file.parts)) throw fail('SYNC_CONFLICT');
-  return found;
+  return { found, hasExtras };
 }
 
 async function checkLocal(context, record, signal, full = false) {
@@ -158,7 +165,7 @@ async function checkLocal(context, record, signal, full = false) {
   const directory = path.join(context.root, record.folderName), info = await statOrNull(directory);
   if (!info) return null;
   if (identity(await context.checked(directory, { directory: true })) !== record.folderIdentity) throw fail('SYNC_CONFLICT');
-  const inventory = await folderInventory(context, directory, record.files, signal), files = [];
+  const { found: inventory } = await folderInventory(context, directory, record.files, signal, { allowExtras: record.preserveExtras }), files = [];
   for (const file of record.files) {
     const current = inventory.get(keyOf(file.parts));
     if (current.stamp.size !== String(file.size)) throw fail('SYNC_CONFLICT');
@@ -227,9 +234,9 @@ function createCatalogueSyncWorker({ fetcher = globalThis.fetch, manifestTimeout
     return { folderName, files, revision, totalBytes: files.reduce((sum, file) => sum + file.size, 0), reliable: files.every(file => remoteSignature(file) !== null) };
   }
 
-  function recordFor(context, endpoint, includeVideo, remote, folderName, folderIdentity, files, parentIdentities = []) {
+  function recordFor(context, endpoint, includeVideo, remote, folderName, folderIdentity, files, parentIdentities = [], preserveExtras = false) {
     return validateSyncRecord({ version: 1, endpoint, folderName, folderIdentity, rootIdentity: context.rootIdentity, revision: remote.revision, includeVideo, files,
-      ...(parentIdentities.length ? { parentIdentities } : {}) });
+      ...(parentIdentities.length ? { parentIdentities } : {}), ...(preserveExtras ? { preserveExtras: true } : {}) });
   }
 
   async function inspectLoaded(context, endpoint, record, includeVideo, remote, signal, candidateFolder) {
@@ -246,6 +253,7 @@ function createCatalogueSyncWorker({ fetcher = globalThis.fetch, manifestTimeout
           return { ...result, state: 'unchanged', reason: 'IDENTICAL', record: { ...local.record, revision: remote.revision, includeVideo,
             files: local.record.files.map(file => ({ ...file, remoteSignature: remoteSignature(byPath.get(keyOf(file.parts))) })) } };
         }
+        if (clean.preserveExtras) return { ...result, state: 'conflict', reason: 'LOCAL_CHANGED' };
         return { ...result, state: 'update', reason: remote.reliable ? 'SOURCE_CHANGED' : 'SOURCE_RECHECK_REQUIRED', record: local.record };
       }
       if (candidateFolder !== undefined && !safeFolderPath(candidateFolder)) throw fail('SYNC_INVALID');
@@ -271,7 +279,77 @@ function createCatalogueSyncWorker({ fetcher = globalThis.fetch, manifestTimeout
     }
   }
 
-  async function inspect({ endpoint, rootPath, record = null, includeVideo = false, signal, remote: hint, candidateFolder } = {}) {
+  function localFolders(remote, record, candidateFolder, candidateFolders = []) {
+    if (!Array.isArray(candidateFolders) || candidateFolders.length > 32 || !candidateFolders.every(safeFolderPath)
+        || (candidateFolder !== undefined && !safeFolderPath(candidateFolder))) throw fail('SYNC_INVALID');
+    return [...new Set([record?.folderName, candidateFolder, ...candidateFolders, remote.folderName].filter(Boolean))];
+  }
+
+  async function matchLocal(context, endpoint, includeVideo, remote, folders, hashes, signal, allowMetadataUpdate = false) {
+    const hasNotes = remote.files.some(file => /\.(?:chart|mid|midi)$/i.test(file.parts.at(-1)));
+    const hasAudio = remote.files.some(file => /\.(?:ogg|opus|mp3|wav|flac|aiff|aif|m4a)$/i.test(file.parts.at(-1)));
+    let metadataMatch = null, multipleMetadataMatches = false;
+    for (const folderName of folders) {
+      abort(signal);
+      try {
+        const directory = path.join(context.root, folderName);
+        if (!await statOrNull(directory)) continue;
+        const parents = await folderParentContext(context, folderName);
+        const folderIdentity = identity(await context.checked(directory, { directory: true }));
+        const { found, hasExtras } = await folderInventory(context, directory, remote.files, signal, { allowExtras: true });
+        const files = [];
+        let metadataChanged = false;
+        for (const file of remote.files) {
+          const key = keyOf(file.parts);
+          const isMetadata = allowMetadataUpdate && !hasExtras && hasNotes && hasAudio && key === 'song.ini';
+          const size = isMetadata ? Number(found.get(key).stamp.size) : file.size;
+          if (!safeSize(size) || (isMetadata && size > 1024 * 1024)) throw fail('SYNC_CONFLICT');
+          const { sha256, stamp } = await hashFile(context, path.join(directory, ...file.parts), size, signal);
+          const matches = size === file.size && sha256 === hashes.get(key);
+          if (!matches && !isMetadata) throw fail('SYNC_CONFLICT');
+          metadataChanged ||= !matches;
+          files.push({ parts: file.parts, size, sha256, remoteSignature: matches ? remoteSignature(file) : null, stamp });
+        }
+        if (identity(await context.checked(directory, { directory: true })) !== folderIdentity) throw fail('SYNC_CONFLICT');
+        await parents.guard();
+        if (!metadataChanged) return { state: 'unchanged', reason: 'ADOPTED_IDENTICAL',
+          record: recordFor(context, endpoint, includeVideo, remote, folderName, folderIdentity, files, parents.identities, hasExtras) };
+        // All playable files and the complete directory layout were proved.
+        // The original metadata remains recoverable in the usual update backup.
+        if (metadataMatch) multipleMetadataMatches = true;
+        else {
+          const revision = digest(JSON.stringify(['local-metadata', files.map(file => [file.parts, file.sha256])]));
+          metadataMatch = { state: 'update', reason: 'SOURCE_CHANGED',
+            record: recordFor(context, endpoint, includeVideo, { revision }, folderName, folderIdentity, files, parents.identities) };
+        }
+      } catch (error) {
+        abort(signal);
+        if (!localMismatch(error)) throw error;
+      }
+    }
+    return multipleMetadataMatches ? null : metadataMatch;
+  }
+
+  async function inspectAutomatically(context, endpoint, record, includeVideo, remote, signal, candidateFolder, candidateFolders) {
+    const folders = localFolders(remote, record, candidateFolder, candidateFolders);
+    if (record) {
+      try {
+        const inspected = await inspectLoaded(context, endpoint, record, includeVideo, remote, signal);
+        if (inspected.state === 'unchanged' || inspected.state === 'update') return { ...inspected, folders };
+      } catch (error) {
+        abort(signal);
+        if (!localMismatch(error)) throw error;
+      }
+    }
+    if (remote.files.every(file => file.sha256)) {
+      const hashes = new Map(remote.files.map(file => [keyOf(file.parts), file.sha256]));
+      const matched = await matchLocal(context, endpoint, includeVideo, remote, folders, hashes, signal, true);
+      if (matched) return { ...matched, folders };
+    }
+    return { state: 'new', reason: 'NOT_INSTALLED', record: null, folders };
+  }
+
+  async function inspect({ endpoint, rootPath, record = null, includeVideo = false, signal, remote: hint, candidateFolder, candidateFolders, automatic = false } = {}) {
     if (!ENDPOINT.test(endpoint) || typeof includeVideo !== 'boolean') throw fail('SYNC_INVALID');
     abort(signal); const context = await rootContext(rootPath);
     if (record) {
@@ -284,13 +362,14 @@ function createCatalogueSyncWorker({ fetcher = globalThis.fetch, manifestTimeout
           return local ? { ...result, state: 'unchanged', reason: 'IDENTICAL', record: local.record } : { ...result, state: 'new', reason: 'LOCAL_MISSING', record: null };
         } catch (error) {
           abort(signal);
-          if (['SYNC_CONFLICT', 'DOWNLOAD_PATH', 'ENOENT', 'ENOTDIR'].includes(error?.code)) return { ...result, state: 'conflict', reason: 'LOCAL_CHANGED' };
-          throw error;
+          if (!localMismatch(error)) throw error;
+          if (!automatic) return { ...result, state: 'conflict', reason: 'LOCAL_CHANGED' };
         }
       }
     }
     const remote = await manifest(endpoint, includeVideo, signal);
-    return inspectLoaded(context, endpoint, record, includeVideo, remote, signal, candidateFolder);
+    return automatic ? inspectAutomatically(context, endpoint, record, includeVideo, remote, signal, candidateFolder, candidateFolders)
+      : inspectLoaded(context, endpoint, record, includeVideo, remote, signal, candidateFolder);
   }
 
   async function openStage(context, id, endpoint) {
@@ -344,7 +423,7 @@ function createCatalogueSyncWorker({ fetcher = globalThis.fetch, manifestTimeout
 
   async function verifiedRecordAt(context, directory, record, signal, marker = false) {
     if (identity(await context.checked(directory, { directory: true })) !== record.folderIdentity) throw fail('SYNC_CONFLICT');
-    await folderInventory(context, directory, record.files, signal, { marker });
+    await folderInventory(context, directory, record.files, signal, { marker, allowExtras: record.preserveExtras });
     const files = [];
     for (const file of record.files) {
       const checked = await hashFile(context, path.join(directory, ...file.parts), file.size, signal);
@@ -441,23 +520,47 @@ function createCatalogueSyncWorker({ fetcher = globalThis.fetch, manifestTimeout
     } finally { await output?.close(); await handle.close(); }
   }
 
-  async function run({ id, endpoint, rootPath, record = null, includeVideo = false, signal, onProgress = () => {}, candidateFolder } = {}) {
+  async function reserveNewDestination(context, remote, endpoint, signal) {
+    let readable = Array.from(remote.folderName).slice(0, 100).join('');
+    while (Buffer.byteLength(readable, 'utf8') > 180) readable = Array.from(readable).slice(0, -1).join('');
+    const suffix = digest(endpoint).slice(0, 16);
+    for (let index = 0; index < 32; index++) {
+      abort(signal);
+      const name = index === 0 ? remote.folderName : `${readable} [ChartsHub ${suffix}${index === 1 ? '' : '-' + index}]`;
+      const directory = path.join(context.root, name);
+      const key = directory.normalize('NFC').toLowerCase();
+      if (reservedDestinations.has(key)) continue;
+      reservedDestinations.add(key);
+      try {
+        if (!await statOrNull(directory)) return { name, key };
+      } catch (error) {
+        if (!localMismatch(error)) { reservedDestinations.delete(key); throw error; }
+      }
+      reservedDestinations.delete(key);
+    }
+    throw fail('SYNC_CONFLICT');
+  }
+
+  async function run({ id, endpoint, rootPath, record = null, includeVideo = false, signal, onProgress = () => {}, candidateFolder, candidateFolders, automatic = false } = {}) {
     if (!UUID.test(id) || !ENDPOINT.test(endpoint) || typeof includeVideo !== 'boolean') throw fail('SYNC_INVALID');
     const lock = (process.platform === 'win32' ? String(rootPath).toLowerCase() : String(rootPath)) + ':' + endpoint;
     if (running.has(lock)) throw fail('SYNC_BUSY'); running.add(lock);
-    let activePart = null, context, stage;
+    let activePart = null, context, stage, reservation;
     try {
       abort(signal); context = await rootContext(rootPath);
       if (await statOrNull(path.join(context.root, '.chartshub-companion-' + id))) {
         stage = await openStage(context, id, endpoint);
         const recovered = await recover(context, stage, id, endpoint); if (recovered) return recovered;
       }
-      const remote = await manifest(endpoint, includeVideo, signal), inspected = await inspectLoaded(context, endpoint, record, includeVideo, remote, signal, candidateFolder);
+      const remote = await manifest(endpoint, includeVideo, signal);
+      const inspected = automatic ? await inspectAutomatically(context, endpoint, record, includeVideo, remote, signal, candidateFolder, candidateFolders)
+        : await inspectLoaded(context, endpoint, record, includeVideo, remote, signal, candidateFolder);
       if (inspected.state === 'conflict') throw fail('SYNC_CONFLICT');
       if (inspected.state === 'unchanged') return { destination: path.join(context.root, inspected.record.folderName), folderName: inspected.record.folderName,
         files: remote.files.length, totalBytes: remote.totalBytes, receivedBytes: 0, record: inspected.record, changed: false };
       const prior = inspected.record;
-      const folderName = prior?.folderName ?? remote.folderName, destination = path.join(context.root, folderName);
+      if (automatic && !prior) reservation = await reserveNewDestination(context, remote, endpoint, signal);
+      const folderName = prior?.folderName ?? reservation?.name ?? remote.folderName, destination = path.join(context.root, folderName);
       const parents = await folderParentContext(context, folderName, prior?.parentIdentities);
       try { validateDestination(context.root, folderName, remote.files); } catch { throw fail('SYNC_INVALID'); }
       if (!prior && await statOrNull(destination)) throw fail('SYNC_CONFLICT');
@@ -546,6 +649,18 @@ function createCatalogueSyncWorker({ fetcher = globalThis.fetch, manifestTimeout
         if (!saved || checked.sha256 !== saved.sha256 || file.sha256 && checked.sha256 !== file.sha256) throw fail('SYNC_INTEGRITY');
         files.push({ parts: file.parts, size: file.size, sha256: checked.sha256, remoteSignature: remoteSignature(file), stamp: checked.stamp });
       }
+      // A weak manifest can be compared once the staged bytes have been verified.
+      if (automatic && !prior && remote.files.some(file => !file.sha256)) {
+        const hashes = new Map(files.map(file => [keyOf(file.parts), file.sha256]));
+        const matched = (await matchLocal(context, endpoint, includeVideo, remote, inspected.folders, hashes, signal))?.record;
+        if (matched) {
+          stage.state.transaction = { phase: 'verified-unchanged', folderName: matched.folderName, previousIdentity: null, nextIdentity: matched.folderIdentity,
+            previousRecord: null, record: matched, readyIdentity: identity(await context.checked(stage.ready, { directory: true })) };
+          await stage.save();
+          return { destination: path.join(context.root, matched.folderName), folderName: matched.folderName, files: files.length,
+            totalBytes: remote.totalBytes, receivedBytes, record: matched, changed: false };
+        }
+      }
       // A weak remote manifest may still prove identical after downloading its bytes.
       if (prior && prior.files.length === files.length && files.every(file => previousFiles.get(keyOf(file.parts))?.sha256 === file.sha256 && previousFiles.get(keyOf(file.parts))?.size === file.size)) {
         const verified = await checkLocal(context, prior, signal, true);
@@ -596,6 +711,7 @@ function createCatalogueSyncWorker({ fetcher = globalThis.fetch, manifestTimeout
       throw fail('SYNC_IO');
     } finally {
       if (activePart && context && stage) { try { await stage.guard(); await context.checked(activePart); await fs.unlink(activePart); } catch {} }
+      if (reservation) reservedDestinations.delete(reservation.key);
       running.delete(lock);
     }
   }
@@ -633,7 +749,7 @@ function createCatalogueSyncWorker({ fetcher = globalThis.fetch, manifestTimeout
         })) throw fail('SYNC_CONFLICT');
         // Missing owned copies may come from an interrupted previous cleanup.
         // Every remaining member must still match its checkpoint and receipt.
-        const found = await folderInventory(context, stage.ready, clean.files, undefined, { allowMissing: true }), staged = [];
+        const { found } = await folderInventory(context, stage.ready, clean.files, undefined, { allowMissing: true }), staged = [];
         for (const file of clean.files) if (found.has(keyOf(file.parts))) {
           const checked = await hashFile(context, path.join(stage.ready, ...file.parts), file.size);
           if (checked.sha256 !== file.sha256) throw fail('SYNC_CONFLICT');
@@ -641,7 +757,7 @@ function createCatalogueSyncWorker({ fetcher = globalThis.fetch, manifestTimeout
         }
         // Preflight the entire owned copy before the first deletion. Unknown
         // members or changed identities preserve all staged and installed files.
-        const inventory = await folderInventory(context, stage.ready, clean.files, undefined, { allowMissing: true });
+        const { found: inventory } = await folderInventory(context, stage.ready, clean.files, undefined, { allowMissing: true });
         if (inventory.size !== staged.length || staged.some(file => !sameStamp(file.stamp, inventory.get(keyOf(file.parts))?.stamp))) throw fail('SYNC_CONFLICT');
         await stage.guard();
         if (identity(await context.checked(stage.ready, { directory: true })) !== tx.readyIdentity) throw fail('SYNC_CONFLICT');

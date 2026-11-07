@@ -1924,12 +1924,29 @@ test('bad songs native confirmation starts cancelled and recycles only the expli
 test('bad songs report changed during native confirmation blocks every target', async t => {
   const f = await badSongsHostFixture(t), recycled=[];f.shell.trashItem=async target=>{recycled.push(target);};
   f.dialog.showMessageBox=async()=>{await f.fs.appendFile(f.filename,'\n');return{response:1};};
-  const response=await f.command('library.recycleBadSongs',f.payload);assert.equal(response.ok,true,response.error);assert.equal(response.result.failed.length,1);assert.equal(response.result.recycledIds.length,0);assert.deepEqual(recycled,[]);
+  const response=await f.command('library.recycleBadSongs',f.payload);assert.equal(response.ok,true,response.error);assert.equal(response.result.reportInvalidated,true);assert.equal(response.result.plan,undefined);assert.equal(response.result.recycledIds.length,0);assert.deepEqual(recycled,[]);
 });
-test('bad songs batch stops on a changed second chart and keeps its current index row', async t => {
+test('bad songs batch keeps a changed second chart and its current index row', async t => {
   const f = await badSongsHostFixture(t), recycled=[];const before=f.host.library.status().lastScanAt;
   f.dialog.showMessageBox=async()=>({response:1});f.shell.trashItem=async target=>{recycled.push(target);await f.fs.rename(target,path.join(f.base,'fake-bin-'+path.basename(target)));await f.fs.writeFile(path.join(f.songs,'B','notes.chart'),'edited after confirmation');};
   const response=await f.command('library.recycleBadSongs',f.payload);assert.equal(response.ok,true,response.error);assert.equal(response.result.recycledIds.length,1);assert.equal(response.result.failed.length,1);assert.deepEqual(recycled,[path.join(f.songs,'A')]);assert.equal(f.host.library.status().count,1);assert.equal(f.host.library.status().lastScanAt,before);assert.equal(f.host.library.status().cleanupRefreshPending,true);
+});
+test('a Recycle Bin refusal preserves that chart while the next approved folder is processed', async t => {
+  const f = await badSongsHostFixture(t), attempts=[];
+  f.dialog.showMessageBox=async()=>({response:1});
+  f.shell.trashItem=async target=>{
+    const name=path.basename(target); attempts.push(name);
+    if(name==='A') throw Error('Native recycle failed');
+    await f.fs.rename(target,path.join(f.base,'fake-bin-'+name));
+  };
+  const response=await f.command('library.recycleBadSongs',f.payload);
+  assert.equal(response.ok,true,response.error); assert.deepEqual(attempts,['A','B']);
+  assert.deepEqual(response.result.failed,[{id:f.payload.ids[0],reason:'trash-refused'}]);
+  assert.deepEqual(response.result.recycledIds,[f.payload.ids[1]]);
+  assert.equal(response.result.plan.entries[0].blocked,'trash-refused');
+  assert.ok((await f.fs.lstat(path.join(f.songs,'A'))).isDirectory());
+  assert.ok((await f.fs.lstat(path.join(f.base,'fake-bin-B'))).isDirectory());
+  assert.equal(f.host.library.status().count,1);
 });
 
 async function selectedRemovalHostFixture(t, options) {

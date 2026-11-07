@@ -9,12 +9,16 @@
 .library-removal-filters input { min-width: 0; width: 100%; box-sizing: border-box; min-height: 35px; padding: 8px 10px; border: 1px solid var(--border, #31465f); border-radius: 6px; color: var(--text, #eff7ff); background: var(--surface, #101d2c); }
 .library-removal-actions, .library-removal-pagination { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
 .library-removal-status, .library-removal-selected { font-weight: 600; line-height: 1.5; }
-.library-removal-list { max-height: 370px; overflow: auto; }
-.library-removal-row { display: flex; align-items: start; gap: 10px; padding: 9px 4px; border-bottom: 1px solid var(--border, #31465f); cursor: pointer; }
+.library-removal-list { max-height: 370px; overflow: auto; overflow-anchor: none; }
+.library-removal-list::before, .library-removal-list::after { content: ""; display: block; }
+.library-removal-list::before { height: var(--removal-before, 0px); }
+.library-removal-list::after { height: var(--removal-after, 0px); }
+.library-removal-row { display: flex; align-items: start; gap: 10px; box-sizing: border-box; height: var(--removal-row-height, 74px); padding: 7px 4px; border-bottom: 1px solid var(--border, #31465f); cursor: pointer; }
 .library-removal-row > input { margin-top: 4px; flex: 0 0 auto; }
 .library-removal-row > span { min-width: 0; display: grid; gap: 2px; }
+.library-removal-row > span > * { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-removal-row .helper-text { margin: 0; }
-.library-removal-row code { overflow-wrap: anywhere; color: var(--muted, #b3c8df); font-size: 10px; }
+.library-removal-row code { color: var(--muted, #b3c8df); font-size: 10px; }
 .library-removal-preview { padding: 12px; border: 1px solid var(--border, #31465f); border-radius: 8px; margin: 14px 0; }
 .library-removal-preview h4 { margin: 0 0 10px; }
 .library-removal-preview ul { padding: 0; list-style: none; max-height: 240px; overflow: auto; }

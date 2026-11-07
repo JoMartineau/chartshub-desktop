@@ -57,10 +57,15 @@ test('only selected charts reach the fake bin and remaining charts can be cleane
   assert.equal(result.plan.revision,8); assert.notEqual(result.plan.planId,plan.planId);
   const second=await f.cleanup.execute(f.request(result.plan)); assert.equal(second.recycledIds.length,1); assert.equal(f.events.length,2);
 });
-test('a file changed while native confirmation is open blocks that item and stops the batch', async t=>{
+test('a changed folder is preserved while an independent approved folder still reaches the bin', async t=>{
   const f=await fixture(t), plan=await f.cleanup.prepare(f.filename), request=f.request(plan);
   await f.cleanup.review(request); await fs.writeFile(path.join(f.root,'A','notes.mid'),'changed corrupt notes');
-  const result=await f.cleanup.execute(request); assert.equal(result.failed.length,1); assert.deepEqual(result.recycledIds,[]); assert.deepEqual(f.recycled,[]);
+  const result=await f.cleanup.execute(request);
+  assert.deepEqual(result.failed,[{id:plan.entries[0].id,reason:'changed'}]);
+  assert.deepEqual(result.recycledIds,[plan.entries[1].id]);
+  assert.deepEqual(f.recycled,[path.join(f.root,'B')]);
+  assert.equal(await fs.readFile(path.join(f.root,'A','notes.mid'),'utf8'),'changed corrupt notes');
+  assert.equal(result.plan.entries[0].blocked,'changed');
 });
 test('changed report or root revision invalidates the reviewed plan', async t=>{
   const f=await fixture(t), plan=await f.cleanup.prepare(f.filename);

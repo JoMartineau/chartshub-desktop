@@ -688,6 +688,21 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       busy: downloadPickerOpen || !!cleanupTask || cleanupDialogOpen || ['preparing', 'executing'].includes(library.status().selectedRemoval?.phase) || current.busy,
       completedDownloads: downloads.installedSources, findCandidate: findSyncCandidate }; },
     onChange: () => { if (!disposing) publishPanel(); },
+    onAnalyzing: async ({ rootPath, signal }) => {
+      const normalize = value => process.platform === 'win32' ? path.resolve(value).toLowerCase() : path.resolve(value);
+      const sameRoot = value => Boolean(value) && normalize(value) === normalize(rootPath);
+      if (!sameRoot(library.status().settings.rootPath)) return;
+      if (library.status().status !== 'scanning') await library.requestScan('quick');
+      const delay = require('node:timers/promises').setTimeout;
+      while (sameRoot(library.status().settings.rootPath) && library.status().status === 'scanning') {
+        await delay(250, undefined, { signal });
+      }
+      signal.throwIfAborted();
+      const scanned = library.status();
+      if (!sameRoot(scanned.settings.rootPath) || scanned.status !== 'ready') {
+        throw Object.assign(Error('La bibliothèque n’a pas pu être analysée.'), { code: 'SYNC_LOCAL_SCAN' });
+      }
+    },
     onStarting: async ({ rootPath }) => { syncLibraryToken = await library.beginDownloadBatch(rootPath); },
     onSettled: async ({ changed }) => {
       const token = syncLibraryToken; syncLibraryToken = null;

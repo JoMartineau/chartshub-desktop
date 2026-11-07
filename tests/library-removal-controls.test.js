@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 class Element extends EventTarget {
-  constructor(tag, document) { super(); Object.assign(this, { tagName: tag, ownerDocument: document, children: [], open: false, disabled: false, hidden: false, checked: false, textContent: '', value: '', attributes: {} }); }
+  constructor(tag, document) { super(); Object.assign(this, { tagName: tag, ownerDocument: document, children: [], open: false, disabled: false, hidden: false, checked: false, textContent: '', value: '', attributes: {}, scrollTop: 0, clientHeight: 370, scrollHeight: 7400000, style: { setProperty() {} } }); }
   append(...nodes) { this.children.push(...nodes); }
   replaceChildren(...nodes) { this.children = [...nodes]; }
   setAttribute(key, value) { this.attributes[key] = value; }
@@ -44,13 +44,37 @@ test('removal is collapsed and local inventory is queried only after opening', a
   assert.match(controls.nodes.history.textContent, /jamais jouées.*indisponible/);
 });
 
-test('100000-chart paging and artist or album searches keep off-page selection', async () => {
+test('100000-chart scrolling and artist or album searches keep selections across batches', async () => {
   const { controls, calls, open } = await fixture(); await open(); await controls.run('selectPage');
-  await controls.run('next'); controls.select(id(51), true); assert.equal(controls.selected.size, 51);
+  const list = controls.nodes.list;
+  list.scrollTop = 3450; list.dispatchEvent(new Event('scroll')); await settle();
+  assert.equal(calls.at(-1)[1].offset, 50);
+  controls.select(id(51), true); assert.equal(controls.selected.size, 51);
+  for (const offset of [100, 150, 200, 250, 5000, 99950]) {
+    list.scrollTop = offset * 74; list.dispatchEvent(new Event('scroll')); await settle();
+    assert(controls.checks.has(id(offset + 1)));
+    assert(controls.pages.size <= 3); assert(list.children.length <= 150);
+  }
+  list.scrollTop = 0; list.dispatchEvent(new Event('scroll')); await settle();
+  assert.equal(controls.checks.get(id(1)).checked, true);
   controls.inputs.artist.value = 'groupe'; controls.inputs.album.value = 'album'; controls.inputs.search.value = 'signal'; controls.offset = 0; await controls.search();
   assert.deepEqual(calls.at(-1), ['library.selectedRemovalQuery', { query: 'signal', artist: 'groupe', album: 'album', offset: 0, limit: 50 }]);
   assert.equal(controls.selected.size, 51); assert.equal(controls.checks.get(id(1)).checked, true); assert.equal(controls.selected.has(id(51)), true);
   assert.equal(controls.nodes.list.children.length, 50);
+});
+
+test('scroll batches use the submitted filter and stale responses cannot displace a fresh search', async () => {
+  const held = deferred();
+  const { controls, calls, open } = await fixture((name, payload) =>
+    name === 'library.selectedRemovalQuery' && payload.offset === 50 && !payload.artist ? held.promise : undefined);
+  await open(); const list = controls.nodes.list;
+  controls.inputs.artist.value = 'changed but not submitted';
+  list.scrollTop = 3700; list.dispatchEvent(new Event('scroll')); await settle();
+  assert.equal(calls.at(-1)[1].artist, '');
+  await controls.search();
+  assert.equal(calls.at(-1)[1].artist, 'changed but not submitted');
+  held.resolve({ ok: true, result: page(50) }); await settle();
+  assert.equal(controls.offset, 0); assert.deepEqual([...controls.pages.keys()], [0]);
 });
 
 test('selecting all filtered results is bounded to1000 and clearly reports truncation', async () => {
