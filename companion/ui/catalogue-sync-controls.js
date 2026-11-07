@@ -1,3 +1,4 @@
+import { languageCode, languageKey, wordsFor } from './locale-text.js';
 const PHASES = new Set(['idle', 'analyzing', 'ready', 'running', 'paused', 'completed', 'error']);
 const ACTIONS = new Set(['analyze', 'start', 'pause', 'resume', 'retry']);
 const COUNTS = ['new', 'update', 'unchanged', 'failed', 'completed'];
@@ -47,7 +48,7 @@ export function projectCatalogueSync(snapshot = {}) {
   const rootPath = clean(state.rootPath || snapshot?.downloads?.rootPath, 32768);
   return {
     available: Boolean(source) && state.supported !== false,
-    language: snapshot?.language === 'en' ? 'en' : 'fr', phase, rootPath,
+    language: languageCode(snapshot?.language), phase, rootPath,
     mode: state.mode === 'installed' ? 'installed' : 'all', total: integer(state.total), processed: integer(state.processed),
     counts: Object.fromEntries(COUNTS.map(key => [key, integer(state.counts?.[key]) + (key === 'new' ? integer(state.counts?.conflict) : 0)])),
     receivedBytes: integer(state.receivedBytes), concurrency: [1, 2, 3, 4].includes(state.concurrency) ? state.concurrency : 2, includeVideo: state.includeVideo === true,
@@ -101,10 +102,10 @@ export class CatalogueSyncControls {
   update(snapshot) {
     if (this.disposed) return;
     this.snapshot = snapshot; const model = projectCatalogueSync(snapshot);
-    const signature = JSON.stringify([model, this.pending, this.localError, this.selectionDirty]);
+    const signature = JSON.stringify([model, languageKey(model.language), this.pending, this.localError, this.selectionDirty]);
     if (signature === this.signature) return;
     this.signature = signature; this.model = model;
-    const t = TEXT[model.language], n = this.nodes, count = value => value.toLocaleString(model.language);
+    const t = wordsFor(TEXT, model.language), n = this.nodes, count = value => value.toLocaleString(model.language);
     const locked = ['analyzing', 'running'].includes(model.phase) || model.phase === 'paused' && model.canResume;
     for (const key of ['title', 'intro', 'scope', 'preservation', 'pauseHelp', 'bounded']) n[key].textContent = t[key];
     n.modeText.textContent = t.mode; n.concurrencyText.textContent = t.concurrency; n.videoText.textContent = t.includeVideo; n.videoHelp.textContent = t.videoHelp;

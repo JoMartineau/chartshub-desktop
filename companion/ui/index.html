@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'">
   <title>ChartsHub · Tableau de bord</title>
   <link rel="stylesheet" href="./companion.css">
   <link rel="stylesheet" href="./floating-panels-controls.css">
@@ -21,6 +21,9 @@
   <link rel="stylesheet" href="./song-visuals-controls.css">
 <link rel="stylesheet" href="./button-motion.css">
   
+  <link rel="stylesheet" href="/assets/locale-layout.css">
+  <script src="/assets/locale-runtime.js"></script>
+  <script src="/ui/locale-context.js"></script>
   <script src="./localization.js"></script>
 </head>
 <body>
@@ -39,6 +42,12 @@
     <div id="persistence-feedback" class="notice warning-notice" role="status" hidden></div>
     <section id="home-panel" aria-label="Accueil" translate="no"></section>
     <section id="status-panel" class="card" aria-labelledby="status-title"><div id="status-controls" translate="no"></div></section>
+
+    <section id="language-panel" class="card" aria-labelledby="language-title">
+      <h2 id="language-title">Langue</h2>
+      <label><span id="language-label">Langue de ChartsHub</span><select id="desktop-language" class="language-select" disabled></select></label>
+      <p id="language-status" class="helper-text" role="status" hidden></p>
+    </section>
 
     <section id="clonehero-source" class="card clonehero-source" aria-labelledby="clonehero-source-title">
       <div class="card-heading"><div><h2 id="clonehero-source-title">Source des informations</h2><span class="helper-text">Connectez l’export de Clone Hero ou essayez le scénario de démonstration.</span></div><label class="clonehero-mode-field" for="clonehero-mode">Source<select id="clonehero-mode" disabled><option value="live">Direct Clone Hero</option><option value="mock" selected>Démonstration</option></select></label></div>

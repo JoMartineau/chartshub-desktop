@@ -2,8 +2,10 @@ const token = new URLSearchParams(location.search).get('token');
 const element = id => document.querySelector('#request-' + id);
 const queue = element('queue'), status = element('status'), nodes = new Map(), seen = new Set();
 const MAX_RESPONSE_BYTES = 512 * 1024;
-let stopped = false, timer, activeRequest = null, language = 'fr', initialized = false, lastRender = null;
-const tr = (fr, en) => language === 'en' ? en : fr;
+let stopped = false, timer, activeRequest = null, language = 'fr', initialized = false, lastRender = null, lastState = null;
+const locale = globalThis.ChartshubDesktopLocale;
+const tr = (fr, en, values) => locale?.pair(fr, en, values, language) ?? (language === 'fr' ? fr : en).replace(/\{(\w+)\}/g, (slot, key) => values && Object.hasOwn(values, key) ? String(values[key]) : slot);
+window.addEventListener('chartshub:locale-ready', () => { if (lastState) { lastRender = null; render(lastState); } });
 const text = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').slice(0, 512) : '';
 const platforms = { twitch: 'Twitch', tiktok: 'TikTok', youtube: 'YouTube', website: 'Site web' };
 const defaultWidget = Object.freeze({ accentColor: '#38bdf8', fontSize: 24, upcomingCount: 3, showNowPlaying: true, showViewerNames: true });
@@ -65,7 +67,7 @@ function createRow() {
 }
 function render(state) {
   if (!state || typeof state !== 'object' || !Array.isArray(state.requests) || state.requests.length > 50) throw Error();
-  language = state.language === 'en' ? 'en' : 'fr';
+  language = locale?.set(state.language) ?? (state.language === 'en' ? 'en' : 'fr');
   const widget = widgetSettings(state.widget), playing = currentSong(state.nowPlaying, widget);
   const unique = new Set();
   const requests = state.requests.filter(request => request && ['pending', 'accepted'].includes(request.status)).map(request => ({
@@ -73,6 +75,7 @@ function render(state) {
     platform: Object.hasOwn(platforms, request.platform) ? request.platform : '',
     votes: Number.isSafeInteger(request.votes) && request.votes >= 0 ? Math.min(request.votes, 1000) : 0
   })).filter(request => request.id && !unique.has(request.id) && unique.add(request.id));
+  lastState = state;
   const enabled = state.enabled === true, signature = JSON.stringify([language, enabled, requests, widget, playing]);
   if (signature === lastRender) return;
   lastRender = signature; labels();
@@ -110,7 +113,7 @@ function render(state) {
   if (!requests.length) empty(false, enabled);
   const remaining = Math.max(0, requests.length - visible.length);
   element('remaining').hidden = remaining === 0;
-  element('remaining').textContent = remaining ? tr(`+ ${remaining} autre${remaining === 1 ? '' : 's'} demande${remaining === 1 ? '' : 's'} dans la file`, `+ ${remaining} more request${remaining === 1 ? '' : 's'} in the queue`) : '';
+  element('remaining').textContent = remaining ? tr('Autres demandes dans la file : {count}', 'Additional requests in the queue: {count}', { count: remaining }) : '';
 }
 function unavailable() {
   lastRender = null; nodes.clear(); queue.replaceChildren(); labels();

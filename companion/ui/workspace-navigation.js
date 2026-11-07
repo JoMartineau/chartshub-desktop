@@ -12,7 +12,7 @@ export const WORKSPACES=Object.freeze([
  {id:'status',fr:'État',en:'Status',descriptionFr:'Connexions, bibliothèque, OBS et reprise après un redémarrage.',descriptionEn:'Connections, library, OBS and recovery after a restart.'},
  {id:'settings',fr:'Réglages',en:'Settings',descriptionFr:'Connexions du jeu, apparence, sauvegardes et mises à jour.',descriptionEn:'Game connections, appearance, backups and updates.'}
 ]);
-const sections={home:['#home-panel'],drums:['#drum-vst-panel'],library:['#library-panel'],catalogue:['#catalogue-panel','#downloads-panel','.floating-panels-card'],player:['#local-music-player-panel'],stream:['#performance-panel','#profiles-panel','.preview-card','#builder-inspector','.settings-card','.destinations-card','.behavior-note','#stream-panel','#session-widgets-panel','.overlay-switch'],calibration:['#calibration-panel'],chat:['#unified-chat-panel'],requests:['#song-requests-panel'],status:['#status-panel'],settings:['#clonehero-source','#game-filters','#simulation-panel','#theme-panel','.theme-widget-section','#updates-panel','#config-backup-panel']};
+const sections={home:['#home-panel'],drums:['#drum-vst-panel'],library:['#library-panel'],catalogue:['#catalogue-panel','#downloads-panel','.floating-panels-card'],player:['#local-music-player-panel'],stream:['#performance-panel','#profiles-panel','.preview-card','#builder-inspector','.settings-card','.destinations-card','.behavior-note','#stream-panel','#session-widgets-panel','.overlay-switch'],calibration:['#calibration-panel'],chat:['#unified-chat-panel'],requests:['#song-requests-panel'],status:['#status-panel'],settings:['#language-panel','#clonehero-source','#game-filters','#simulation-panel','#theme-panel','.theme-widget-section','#updates-panel','#config-backup-panel']};
 const key='chartshub:companion-workspace-v1';
 export class WorkspaceNavigation{
  constructor(root,{storage,language='fr',gameplayMeasurements=false,calibrationBeta=false}={}){
@@ -27,7 +27,7 @@ export class WorkspaceNavigation{
   this.nav=root.querySelector('#companion-workspace-nav');
   for(const button of this.nav?.querySelectorAll('[data-companion-workspace]')||[]){button.hidden=!this.workspaces.some(item=>item.id===button.dataset.companionWorkspace);if(button.hidden)button.setAttribute('inert','');else button.removeAttribute('inert');}
   this.click=event=>{const button=event.target.closest?.('[data-companion-workspace]');if(button&&this.nav?.contains(button))this.select(button.dataset.companionWorkspace,{scroll:true});};
-  this.keys=event=>{const button=event.target.closest?.('[data-companion-workspace]');if(!button||button.hidden||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const list=[...this.nav.querySelectorAll('[data-companion-workspace]')].filter(item=>!item.hidden),at=list.indexOf(button);const next=event.key==='Home'?0:event.key==='End'?list.length-1:(at+(event.key==='ArrowRight'?1:list.length-1))%list.length;list[next].focus();this.select(list[next].dataset.companionWorkspace,{scroll:true});};
+  this.keys=event=>{const button=event.target.closest?.('[data-companion-workspace]');if(!button||button.hidden||!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();const list=[...this.nav.querySelectorAll('[data-companion-workspace]')].filter(item=>!item.hidden),at=list.indexOf(button);const next=event.key==='Home'?0:event.key==='End'?list.length-1:(at+(event.key===(this.document.documentElement.dir==='rtl'?'ArrowLeft':'ArrowRight')?1:list.length-1))%list.length;list[next].focus();this.select(list[next].dataset.companionWorkspace,{scroll:true});};
   this.nav?.addEventListener('click',this.click);this.nav?.addEventListener('keydown',this.keys);
   this.select(this.active);this.update(language);
  }
@@ -46,10 +46,13 @@ export class WorkspaceNavigation{
  }
  reveal(selector){const target=typeof selector==='string'?this.root.querySelector(selector):selector;if(!target||!this.root.contains(target))return false;const entry=[...this.nodes].find(([node])=>node===target||node.contains(target));return entry?this.select([...entry[1]][0]):false;}
  update(language){
-  this.language=language==='fr'?'fr':'en';const fr=this.language==='fr',item=WORKSPACES.find(value=>value.id===this.active);
-  for(const button of this.nav?.querySelectorAll('[data-companion-workspace]')||[]){const workspace=WORKSPACES.find(value=>value.id===button.dataset.companionWorkspace);if(workspace)button.textContent=fr?workspace.fr:workspace.en;}
-  if(this.nav)this.nav.setAttribute('aria-label',fr?'Rubriques du Tableau de bord':'Dashboard workspaces');
-  const title=this.root.querySelector('#page-title'),description=this.root.querySelector('.page-heading .subtitle');if(title)title.textContent=fr?item.fr:item.en;if(description)description.textContent=fr?item.descriptionFr:item.descriptionEn;
+  const locale=globalThis.ChartshubDesktopLocale;
+  this.language=locale?.runtime.canonicalize(language)??(language==='fr'?'fr':'en');
+  const tr=(fr,en)=>locale?.pair(fr,en,undefined,this.language)??(this.language==='fr'?fr:en);
+  const item=WORKSPACES.find(value=>value.id===this.active);
+  for(const button of this.nav?.querySelectorAll('[data-companion-workspace]')||[]){const workspace=WORKSPACES.find(value=>value.id===button.dataset.companionWorkspace);if(workspace)button.textContent=tr(workspace.fr,workspace.en);}
+  if(this.nav)this.nav.setAttribute('aria-label',tr('Rubriques du Tableau de bord','Dashboard workspaces'));
+  const title=this.root.querySelector('#page-title'),description=this.root.querySelector('.page-heading .subtitle');if(title)title.textContent=tr(item.fr,item.en);if(description)description.textContent=tr(item.descriptionFr,item.descriptionEn);
  }
  dispose(){this.nav?.removeEventListener('click',this.click);this.nav?.removeEventListener('keydown',this.keys);}
 }

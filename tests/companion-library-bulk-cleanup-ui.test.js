@@ -76,7 +76,7 @@ test('bulk cleanup prepares different copies across groups and protects every ke
   assert.deepEqual(ui.get('#library-bulk-cleanup-candidates').querySelectorAll('input').map(item => item.dataset.cleanupId), [id('c'), id('d')]);
   assert.equal(ui.check('c').checked, false); assert.equal(ui.check('d').checked, false);
   assert.equal(ui.get('#library-bulk-cleanup-recycle').disabled, true);
-  assert.match(ui.get('#library-bulk-cleanup-summary').textContent, /1 choix de version requis.*1 groupe\(s\) bloqué/s);
+  assert.match(ui.get('#library-bulk-cleanup-summary').textContent, /Choix de version requis : 1.*Groupes bloqués : 1/s);
   assert.match(ui.get('#library-bulk-cleanup-candidates').textContent, /<title & song>.*Group\/a.*notes.chart.*Modifié/s);
   assert.equal(ui.check('a'), undefined); assert.equal(ui.check('b'), undefined);
   assert.equal(ui.get('#library-bulk-cleanup-candidates').querySelectorAll('.library-file-differences').every(details => details.open), true);
@@ -86,7 +86,7 @@ test('select all is explicit, clear unchecks everything, and selected total span
   const ui = await fixture(t); await ui.prepare();
   ui.get('#library-bulk-cleanup-select-all').click();
   assert.equal(ui.check('c').checked, true); assert.equal(ui.check('d').checked, true);
-  assert.match(ui.get('#library-bulk-cleanup-selection').textContent, /2 copie.*300 octets/);
+  assert.match(ui.get('#library-bulk-cleanup-selection').textContent, /Copies sélectionnées : 2.*300 octets/);
   ui.get('#library-bulk-cleanup-clear').click();
   assert.equal(ui.check('c').checked, false); assert.equal(ui.check('d').checked, false);
   assert.equal(ui.get('#library-bulk-cleanup-recycle').disabled, true); assert.equal(ui.calls.length, 1);
@@ -102,7 +102,7 @@ test('one execution submits exactly the selected copies from two groups and defe
   call.resolve({ ok: true, result: { recycledIds: [id('c'), id('d')], failed: [], cancelled: false, refreshRequested: false } }); await tick();
   assert.equal(ui.refreshes, 1); assert.equal(ui.calls.some(item => item.name === 'library.scan'), false);
   assert.equal(ui.get('#library-bulk-cleanup-plan').hidden, true); assert.equal(ui.get('#library-bulk-cleanup-result').hidden, false);
-  assert.match(ui.get('#library-bulk-cleanup-result').textContent, /2 copie.*Actualiser à la fin/s);
+  assert.match(ui.get('#library-bulk-cleanup-result').textContent, /Corbeille Windows : 2.*Actualiser à la fin/s);
   assert.equal(ui.document.activeElement, ui.get('#library-bulk-cleanup-result'));
   assert.equal(ui.controls.busy, false);
 });
@@ -111,7 +111,7 @@ test('individual selection submits only that copy and a partial result reports t
   const ui = await fixture(t); await ui.prepare(); ui.select('d'); ui.get('#library-bulk-cleanup-recycle').click();
   assert.deepEqual(ui.calls[1].payload.ids, [id('d')]);
   ui.calls[1].resolve({ ok: true, result: { recycledIds: [], failed: [{ id: id('d'), reason: 'Locked' }], cancelled: false, refreshRequested: false } }); await tick();
-  assert.equal(ui.refreshes, 0); assert.match(ui.get('#library-bulk-cleanup-result').textContent, /0 copie.*1 échec.*restent en place/s);
+  assert.equal(ui.refreshes, 0); assert.match(ui.get('#library-bulk-cleanup-result').textContent, /Corbeille Windows : 0.*Échecs : 1.*restent en place/s);
   assert.equal(ui.get('#library-bulk-cleanup-result').attributes['is-error'], true);
 });
 
@@ -128,7 +128,7 @@ test('stopping a running batch requests one cancellation and reports partial com
   ui.get('#library-bulk-cleanup-cancel').click(); ui.get('#library-bulk-cleanup-cancel').click();
   assert.equal(ui.calls.length, 3); assert.equal(ui.calls[2].name, 'library.cancelBulkCleanup');
   ui.calls[2].resolve({ ok: true }); ui.calls[1].resolve({ ok: true, result: { recycledIds: [id('c')], failed: [], cancelled: true, refreshRequested: false } }); await tick();
-  assert.match(ui.get('#library-bulk-cleanup-result').textContent, /1 copie.*interrompue.*1 copie\(s\) non traitée\(s\) restent en place/s);
+  assert.match(ui.get('#library-bulk-cleanup-result').textContent, /Corbeille Windows : 1.*interrompue.*Copies non traitées conservées : 1/s);
   assert.doesNotMatch(ui.get('#library-bulk-cleanup-result').textContent, /Aucun fichier/);
   assert.equal(ui.refreshes, 1);
 });
@@ -174,7 +174,7 @@ test('failure after one successful target reports the remaining unprocessed sele
   ui.get('#library-bulk-cleanup-select-all').click(); ui.get('#library-bulk-cleanup-recycle').click();
   assert.deepEqual(ui.calls[1].payload.ids, [id('c'), id('d'), id('e')]);
   ui.calls[1].resolve({ ok: true, result: { recycledIds: [id('c')], failed: [{ id: id('d'), reason: 'Locked' }], cancelled: false, refreshRequested: false } }); await tick();
-  assert.match(ui.get('#library-bulk-cleanup-result').textContent, /1 copie.*1 échec.*1 copie\(s\) non traitée\(s\) restent en place/s);
+  assert.match(ui.get('#library-bulk-cleanup-result').textContent, /Corbeille Windows : 1.*Échecs : 1.*Copies non traitées conservées : 1/s);
   assert.equal(ui.refreshes, 1); assert.equal(ui.get('#library-bulk-cleanup-plan').hidden, true);
 });
 
@@ -188,11 +188,11 @@ test('real FR/EN language switches preserve selection and translate dynamic file
   const ui = await fixture(t); await ui.prepare(); ui.select('c');
   ui.window.ChartshubCompanionLanguage.apply('en');
   assert.equal(ui.get('#library-bulk-cleanup-prepare').textContent, 'Prepare different copies');
-  assert.match(ui.get('#library-bulk-cleanup-selection').textContent, /1 selected copy.*120 bytes/);
+  assert.match(ui.get('#library-bulk-cleanup-selection').textContent, /Selected copies: 1.*120 bytes/);
   assert.match(ui.get('#library-bulk-cleanup-candidates').textContent, /Delete this different copy anyway.*Changed/s);
   assert.equal(ui.check('c').checked, true); assert.equal(ui.check('d').checked, false);
   ui.window.ChartshubCompanionLanguage.apply('fr');
-  assert.match(ui.get('#library-bulk-cleanup-selection').textContent, /1 copie.*120 octets/);
+  assert.match(ui.get('#library-bulk-cleanup-selection').textContent, /Copies sélectionnées : 1.*120 octets/);
   assert.equal(ui.check('c').checked, true); assert.match(ui.get('#library-bulk-cleanup-candidates').textContent, /Modifié/);
 });
 

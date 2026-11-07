@@ -13,3 +13,7 @@ html[data-theme=light]{color-scheme:light;--page:#f4f7fb;--nav:#ffffff;--title:#
 .tab-spinner{flex:0 0 11px}
 .tab-spinner[hidden]{display:block!important;visibility:hidden;animation:none}
 /* Both tabs use the effective Catalogue palette. */
+
+/* The window controls retain their physical position in every language. */
+.titlebar{direction:ltr}
+:root{font-family:var(--font,"Segoe UI",Arial,sans-serif)}

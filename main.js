@@ -7,12 +7,22 @@ const {attachEditContextMenu}=require('./desktop/edit-context-menu.cjs');
 const {createDownloadNotifications}=require('./desktop/download-notifications.cjs');
 const {createDownloadCompletion}=require('./desktop/download-completion.cjs');
 const {createCloneHeroProcessProbe}=require('./companion/clonehero-process.cjs');
+const {runtime:localeRuntime,pair:localePair,createLanguagePreferences}=require('./desktop/language.cjs');
 registerCompanionScheme();
 const profileIndex=process.argv.indexOf('--companion-profile');
 if(profileIndex>=0&&process.argv[profileIndex+1])app.setPath('userData',path.resolve(process.argv[profileIndex+1]));
 let desktop,web,companionHostPromise,closing=false,allowClose=false,companionAvailable=false,companionLanguage='en';
 let loadCatalogue=()=>{},canOpenCompanion=async()=>false;
-let notificationBroker=null;
+let notificationBroker=null,languagePreferences;
+async function applyLanguage(value){
+ const locale=localeRuntime.canonicalize(value);if(!locale||closing||!languagePreferences)return false;
+ if(!await languagePreferences.set(locale))return false;
+ if(closing||companionLanguage===locale)return true;
+ companionLanguage=locale;desktop?.setLanguage?.(locale);
+ activeCompanionHost?.setLanguage(locale);
+ if(web&&!web.isDestroyed()&&trusted(web.getURL()))web.send('chartshub:language-state',locale);
+ return true;
+}
 let reportDownloadCompletion;
 let songRequestSharing=null;
 let activeCompanionHost=null,maintenance=null,updater=null,maintenanceLocked=false,pendingUpdate=false;
@@ -31,7 +41,7 @@ const openCompanion=async()=>{
  loadCatalogue();
  if(!await canOpenCompanion()){if(!closing&&requestedTab==='companion')await selectTab('catalogue');return;}
  if(closing||requestedTab!=='companion')return;
- if(!companionHostPromise)companionHostPromise=createCompanionHost({sharingClient:songRequestSharing,isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),reportDownloadCompletion,downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
+ if(!companionHostPromise)companionHostPromise=createCompanionHost({initialLanguage:companionLanguage,saveLanguage:applyLanguage,sharingClient:songRequestSharing,isCatalogueAvailable:()=>companionAvailable&&!closing,authorizeCatalogue:()=>canOpenCompanion(),reportDownloadCompletion,downloadNotifications:{capture:()=>notificationBroker?.capture(),track:(...args)=>notificationBroker?.trackCompanion(...args),observe:value=>notificationBroker?.observeCompanion(value)},embedded:{ownerWindow:win,attachView:view=>desktop.attachCompanion(view),activate:()=>{if(!closing&&companionAvailable&&requestedTab==='companion'){desktop.showTab('companion');focusWindow();}}}}).catch(error=>{companionHostPromise=null;throw error;});
  const host=await companionHostPromise;
  activeCompanionHost=host;
  desktop.setLanguage?.(companionLanguage);
@@ -70,14 +80,19 @@ async function external(url){
 if(!app.requestSingleInstanceLock())app.quit();
 else{
  app.on('second-instance',(_event,argv)=>{requestedTab=argv.includes('--companion')?'companion':'catalogue';if(desktop)void selectTab(requestedTab).catch(()=>dialog.showErrorBox('ChartsHub','Cet onglet ne peut pas être ouvert.'));});
- app.whenReady().then(()=>{
+ app.whenReady().then(async()=>{
+  languagePreferences=createLanguagePreferences({filename:path.join(app.getPath('userData'),'language.json'),preferredLanguages:()=>app.getPreferredSystemLanguages?.()||[app.getLocale?.()||'en']});
+  companionLanguage=await languagePreferences.load();
   const ses=session.fromPartition('persist:chartshub');
   reportDownloadCompletion=createDownloadCompletion((url,options)=>ses.fetch(url,options));
   ses.setPermissionRequestHandler((_web,permission,callback)=>callback(false));
   ses.setPermissionCheckHandler(()=>false);
   ses.on('will-download',(event)=>event.preventDefault());
-  desktop=createDesktopShell({cataloguePreferences:{session:ses,preload:path.join(__dirname,'preload.js'),additionalArguments:['--chartshub-tabbed'],contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,backgroundThrottling:false},onSelectTab:selectTab,isMaintenanceLocked:()=>maintenanceLocked,onButtonMotion:value=>{buttonMotion={...value};if(companionHostPromise&&!closing)void companionHostPromise.then(host=>host.setButtonMotion?.(buttonMotion)).catch(()=>{});}});
+  const catalogueArguments=['--chartshub-tabbed','--chartshub-desktop-language='+companionLanguage];
+  if(languagePreferences.hasSaved())catalogueArguments.push('--chartshub-desktop-language-saved');
+  desktop=createDesktopShell({cataloguePreferences:{session:ses,preload:path.join(__dirname,'preload.js'),additionalArguments:catalogueArguments,contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,webviewTag:false,backgroundThrottling:false},onSelectTab:selectTab,isMaintenanceLocked:()=>maintenanceLocked,onButtonMotion:value=>{buttonMotion={...value};if(companionHostPromise&&!closing)void companionHostPromise.then(host=>host.setButtonMotion?.(buttonMotion)).catch(()=>{});}});
   win=desktop.window;web=desktop.catalogueView.webContents;
+  desktop.setLanguage?.(companionLanguage);
   attachEditContextMenu({contents:web,ownerWindow:win,buildMenu:template=>Menu.buildFromTemplate(template),language:()=>companionLanguage,isAllowed:()=>!closing&&trusted(web.getURL())});
   if(process.platform==='win32')app.setAppUserModelId?.('ca.chartshub.desktop');
   notificationBroker=createDownloadNotifications({fetcher:(url,options)=>ses.fetch(url,options),probeGame:createCloneHeroProcessProbe(),language:()=>companionLanguage,
@@ -136,7 +151,7 @@ else{
   const {createUpdateReminders,updateReminderPreferences}=require('./desktop/update-reminders.cjs');
   const updateWindowCurrent=()=>!closing&&!win.isDestroyed();
   const canPromptUpdate=()=>updateWindowCurrent()&&!maintenanceLocked&&!job&&!maintenance.isConfirming()&&!win.isMinimized?.();
-  const updateText=(fr,en)=>companionLanguage==='fr'?fr:en;
+  const updateText=(fr,en,values)=>localePair(companionLanguage,fr,en,values);
   const updateNotice=(message,type='info')=>dialog.showMessageBox(win,{type,title:'ChartsHub',message,noLink:true});
   const updateReminders=createUpdateReminders({
    updater,preferences:updateReminderPreferences(app.getPath('userData')),canPrompt:canPromptUpdate,
@@ -145,7 +160,7 @@ else{
      type:'info',title:'ChartsHub',buttons:[updateText('Mettre à jour','Update'),updateText('Plus tard','Later')],
      defaultId:1,cancelId:1,noLink:true,
      message:updateText('Une mise à jour de ChartsHub est disponible.','A ChartsHub update is available.'),
-     detail:updateText('Version '+state.latestVersion+' · installée '+state.currentVersion,'Version '+state.latestVersion+' · installed '+state.currentVersion)
+     detail:updateText("Version {latestVersion} · installée {installedVersion}", "Version {latestVersion} · installed {installedVersion}", { latestVersion: state.latestVersion, installedVersion: state.currentVersion })
     });
     return answer.response===0;
    },
@@ -251,12 +266,16 @@ else{
   ses.cookies.on('changed',(_event,cookie)=>{if(cookie.name==='chartshub_session'&&cookie.domain.replace(/^\./,'')===new URL(ORIGIN).hostname)resetAdministrator();});
   ipcMain.handle('chartshub:account-changed',event=>{if(allowedSender(event)){beginNavigationRevalidation();void refreshAdministrator();}});
   ipcMain.handle('chartshub:language',(event,value)=>{
-   if(!allowedSender(event)||!['fr','en'].includes(value))return false;
-   companionLanguage=value;
-   desktop.setLanguage?.(value);
-   if(companionHostPromise)void companionHostPromise.then(host=>host.setLanguage(value)).catch(()=>{});
-   return true;
+   const locale=localeRuntime.canonicalize(value);
+   if(!allowedSender(event)||!locale)return false;
+   return applyLanguage(locale);
   });
+  ipcMain.handle('chartshub:language-current',event=>allowedSender(event)?{language:companionLanguage,saved:languagePreferences.hasSaved()}:null);
+  ipcMain.handle('chartshub:toolbar-labels',event=>allowedSender(event)?{
+   application:localePair(companionLanguage,'Application','Application'),
+   enterFullscreen:localePair(companionLanguage,'Plein écran','Full screen'),
+   exitFullscreen:localePair(companionLanguage,'Quitter le plein écran','Exit full screen'),
+  }:null);
   const openGuest=async()=>{
    if(!await administrator()||closing||!win||win.isDestroyed())return;
    if(guest&&!guest.isDestroyed()){guest.focus();return;}
@@ -287,10 +306,10 @@ else{
   ipcMain.handle('chartshub:close-guest',event=>{
    if(guest&&!guest.isDestroyed()&&event.sender===guest.webContents&&event.senderFrame===guest.webContents.mainFrame&&trusted(event.senderFrame.url))guest.close();
   });
-  ipcMain.handle('chartshub:menu',async(event,language)=>{
-   if(!allowedSender(event)||!['fr','en'].includes(language))return;
+  ipcMain.handle('chartshub:menu',async event=>{
+   if(!allowedSender(event))return;
    void refreshAdministrator();
-   Menu.buildFromTemplate(applicationMenu({language,load,companion:companionAvailable?showCompanion:undefined,visitorPreview:adminAllowed?()=>void openGuest():undefined,web,close:()=>win.close(),cancel:()=>job?.abort(),downloading:Boolean(job),manualUpdate:()=>void updateReminders.checkManually(),toggleFullscreen:()=>win.setFullScreen(!win.isFullScreen())})).popup({window:win});
+   Menu.buildFromTemplate(applicationMenu({language:companionLanguage,load,companion:companionAvailable?showCompanion:undefined,visitorPreview:adminAllowed?()=>void openGuest():undefined,web,close:()=>win.close(),cancel:()=>job?.abort(),downloading:Boolean(job),manualUpdate:()=>void updateReminders.checkManually(),toggleFullscreen:()=>win.setFullScreen(!win.isFullScreen())})).popup({window:win});
   });
   web.on('before-input-event',(event,input)=>{
    if(input.type!=='keyDown')return;
@@ -380,7 +399,7 @@ else{
    try{if(companionHostPromise)await (await companionHostPromise).dispose();}
    catch(error){shutdownSucceeded=false;console.error('Companion shutdown:',error.message);}
    finally{
-    try{await notificationBroker?.dispose();await desktop.dispose();}catch(error){shutdownSucceeded=false;console.error('Desktop shutdown:',error.message);}
+    try{await languagePreferences?.flush();await notificationBroker?.dispose();await desktop.dispose();}catch(error){shutdownSucceeded=false;console.error('Desktop shutdown:',error.message);}
     if(pendingUpdate){try{if(!shutdownSucceeded)throw Error('Normal shutdown failed');await updater.authorizeInstallation();}catch{await updater.cancelInstallation();}}
     if(pendingBackupId){
      try{if(!shutdownSucceeded)throw Error('Normal shutdown failed');await backupEngine.apply(pendingBackupId,{quiesced:true});}

@@ -1,7 +1,7 @@
 'use strict';
 const {contextBridge,ipcRenderer}=require('electron');
 if(location.href==='chartshub-companion://app/ui/input-viewer.html'&&process.isMainFrame!==false){
- const arg=process.argv.find(value=>value.startsWith('--chartshub-input-viewer-language=')),language=arg?.split('=')[1]==='en'?'en':'fr';
+ const arg=process.argv.find(value=>value.startsWith('--chartshub-input-viewer-language=')),language=['fr','en','es-MX','zh-Hans','ja','pt-BR','hi','ar','bn','ru','ur','id'].includes(arg?.split('=')[1])?arg.split('=')[1]:'fr';
  contextBridge.exposeInMainWorld('ChartsHubInputViewer',Object.freeze({language,
   command:(name,payload={})=>['snapshot','start','stop','close','showOutput','hideOutput','counterSnapshot','resetCounts'].includes(name)?ipcRenderer.invoke('companion:input-viewer',name,payload):Promise.reject(TypeError('Invalid viewer command')),
   configure:config=>ipcRenderer.invoke('companion:input-viewer','configure',{config}),

@@ -179,7 +179,7 @@ test('published snapshots can be copied or withdrawn despite library loss and ne
     error: 'Private C:\\Songs\\authoring-token', root: 'C:\\Songs', token: 'never-render-authoring-key', privateIds: ['private-id-123'] };
   ui.controls.update({ ...ui.snapshot, library: { status: 'error', count: 3 } });
   assert.equal(ui.get('#song-requests-publish-library').disabled, true); assert.equal(ui.get('#song-requests-copy-library').disabled, false); assert.equal(ui.get('#song-requests-remove-library').disabled, false);
-  assert.equal(ui.get('#song-requests-publish-library').textContent, 'Actualiser la liste'); assert.match(ui.get('#song-requests-sharing-status').textContent, /2 morceaux/); assert.match(ui.get('#song-requests-sharing-status').textContent, /1 morceau indisponible exclu/);
+  assert.equal(ui.get('#song-requests-publish-library').textContent, 'Actualiser la liste'); assert.match(ui.get('#song-requests-sharing-status').textContent, /Morceaux publiés : 2/); assert.match(ui.get('#song-requests-sharing-status').textContent, /Morceaux indisponibles écartés : 1/);
   assert.match(ui.get('#song-requests-items').textContent, /YouTube Reader/); assert.match(ui.get('#song-requests-items').textContent, /My personal song/);
   assert.doesNotMatch(ui.root.textContent, /authoring-token|never-render-authoring-key|C:\\Songs|private-id-123/);
   ui.get('#song-requests-copy-library').click(); assert.equal(ui.calls[0].name, 'songRequests.copyLibraryUrl'); assert.deepEqual(ui.calls[0].payload, {});
@@ -187,7 +187,7 @@ test('published snapshots can be copied or withdrawn despite library loss and ne
   ui.get('#song-requests-remove-library').click(); assert.equal(ui.calls[1].name, 'songRequests.removeLibrary'); assert.deepEqual(ui.calls[1].payload, {});
   ui.calls[1].resolve({ ok: true }); await tick(); assert.match(ui.get('#song-requests-feedback').textContent, /Partage retiré/);
   ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
-  assert.equal(ui.get('#song-requests-copy-library').textContent, 'Copy public link'); assert.match(ui.get('#song-requests-sharing-status').textContent, /1 unavailable song excluded/);
+  assert.equal(ui.get('#song-requests-copy-library').textContent, 'Copy public link'); assert.match(ui.get('#song-requests-sharing-status').textContent, /Unavailable songs excluded: 1/);
   assert.match(ui.get('#song-requests-feedback').textContent, /Sharing removed/); assert.match(ui.get('#song-requests-items').textContent, /YouTube Reader/);
 });
 
@@ -390,7 +390,7 @@ test('direct receiving status is independent of bridge availability and control 
 test('request readiness overview distinguishes chat, library and public sharing and opens existing resolution controls', async t => {
   const ui = await fixture(t); ui.snapshot.songRequests.connections = connections({ twitch: { state: 'connected', displayName: 'Fixture channel', error: null, canReply: true } });
   ui.snapshot.songRequests.sharing = { supported: true, url: 'https://example.invalid/list', count: 3, updatedAt: null, busy: false, error: null };
-  ui.controls.update(ui.snapshot); assert.match(ui.get('#song-requests-health-chat').textContent, /Chat connecté/); assert.match(ui.get('#song-requests-health-chat-help').textContent, /quand vous êtes prêt/); assert.match(ui.get('#song-requests-health-library').textContent, /3 morceaux prêts/); assert.equal(ui.get('#song-requests-health-sharing').textContent, 'Liste publiée');
+  ui.controls.update(ui.snapshot); assert.match(ui.get('#song-requests-health-chat').textContent, /Chat connecté/); assert.match(ui.get('#song-requests-health-chat-help').textContent, /quand vous êtes prêt/); assert.match(ui.get('#song-requests-health-library').textContent, /Morceaux prêts : 3/); assert.equal(ui.get('#song-requests-health-sharing').textContent, 'Liste publiée');
   assert.equal(ui.calls.length, 0); ui.get('#song-requests-resolve-chat').click(); assert.equal(ui.get('#song-requests-connections-details').open, true); ui.get('#song-requests-resolve-sharing').click(); assert.equal(ui.get('#song-requests-sharing').open, true); assert.equal(ui.calls.length, 0);
   let openedLibrary = false; ui.document.defaultView.addEventListener('companion:library-focus', () => { openedLibrary = true; }); ui.get('#song-requests-resolve-library').click(); assert.equal(openedLibrary, true);
   ui.controls.update({ ...ui.snapshot, library: { status: 'scanning', count: 3 }, songRequests: { ...ui.snapshot.songRequests, publicRequests: { supported: true, active: true, connected: true, error: null, pendingAcknowledgements: 0 }, sharing: { ...ui.snapshot.songRequests.sharing, error: 'PRIVATE TOKEN C:\\secret' } } });

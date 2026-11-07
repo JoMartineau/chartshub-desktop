@@ -38,6 +38,7 @@ function fixture(t, { state = { enabled: true, language: 'fr', requests: [] }, f
     fetch: (url, options) => { requests.push({ url, options }); return fetcher ? fetcher(url, options) : Promise.resolve(new Response(JSON.stringify(current))); },
     setTimeout: (callback, delay) => { const id = ++sequence; timers.set(id, { callback, delay }); return id; }, clearTimeout: id => timers.delete(id),
     addEventListener: (name, callback) => events.set(name, callback) });
+  context.window = context;
   vm.runInContext(source, context, { filename: 'song-requests-overlay.js' });
   const poll = async next => {
     if (next !== undefined) current = next;
@@ -65,7 +66,7 @@ test('OBS defaults to three active requests in exact queue order, a featured nex
   assert.equal(ui.rows()[0].children[1].children[0].hidden, false);
   assert.equal(ui.rows()[1].children[1].children[0].hidden, true);
   assert.equal(ui.rows()[1].children[1].children[1].textContent, 'Song following-0');
-  assert.match(ui.get('remaining').textContent, /5 autres demandes/);
+  assert.match(ui.get('remaining').textContent, /Autres demandes dans la file : 5/);
   assert.equal(ui.get('command').textContent, '!sr artiste titre');
   assert.doesNotMatch(ui.root.textContent, /En cours|Now playing|never-render-private-field|aaaaaaaaaaaaaaaa/);
   assert.ok(ui.rows().every(row => !row.className.includes('is-new')), 'opening OBS does not animate the entire queue');
@@ -78,7 +79,7 @@ test('OBS applies saved count, text size and accent; changing settings rerenders
   const widget = { accentColor: '#AABBCC', fontSize: 48, upcomingCount: 10, showNowPlaying: true, showViewerNames: true };
   await ui.poll({ enabled: true, language: 'en', requests, widget });
   assert.equal(ui.rows().length, 10); assert.equal(ui.styles.get('--request-accent'), '#aabbcc'); assert.equal(ui.styles.get('--request-font-size'), '48px');
-  assert.equal(ui.get('count').textContent, '12'); assert.match(ui.get('remaining').textContent, /2 more requests/);
+  assert.equal(ui.get('count').textContent, '12'); assert.match(ui.get('remaining').textContent, /Additional requests in the queue: 2/);
   await ui.poll({ enabled: true, requests, widget: { ...widget, fontSize: 16, upcomingCount: 1, showViewerNames: false } });
   assert.equal(ui.rows().length, 1); assert.equal(ui.styles.get('--request-font-size'), '16px');
   assert.equal(ui.rows()[0].children[1].children[3].hidden, true); assert.doesNotMatch(ui.rows()[0].textContent, /Fixture viewer/);

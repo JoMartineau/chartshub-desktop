@@ -2,7 +2,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 if (location.protocol === 'chartshub-companion:' && location.hostname === 'app') {
   const languageArg = (typeof process !== 'undefined' && Array.isArray(process.argv) ? process.argv : []).find(value => value.startsWith('--chartshub-companion-language='));
-  const initialLanguage = ['fr','en'].includes(languageArg?.split('=')[1]) ? languageArg.split('=')[1] : 'en';
+  const initialLanguage = ['fr','en','es-MX','zh-Hans','ja','pt-BR','hi','ar','bn','ru','ur','id'].includes(languageArg?.split('=')[1]) ? languageArg.split('=')[1] : 'en';
   const playerPage = location.href === 'chartshub-companion://app/ui/music-player.html' && process.isMainFrame !== false;
   const panelPage = location.href === 'chartshub-companion://app/ui/index.html' && process.isMainFrame !== false;
   const capturePage = ['song-requests.html', 'session-feed.html'].some(page => location.href === 'chartshub-companion://app/ui/' + page) && process.isMainFrame !== false;

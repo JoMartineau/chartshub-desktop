@@ -25,7 +25,8 @@ const engine = new LocalMusicPlayerEngine({
 });
 function update(snapshot) {
   if (disposed || !snapshot?.player) return;
-  document.documentElement.lang = snapshot.language === 'fr' ? 'fr' : 'en';
+  if (globalThis.ChartshubDesktopLocale) globalThis.ChartshubDesktopLocale.set(snapshot.language);
+  else document.documentElement.lang = snapshot.language === 'fr' ? 'fr' : 'en';
   lastSnapshot = snapshot; controls.update(snapshot);
   applyFloatingAppearance(document.body, snapshot.floatingPanels?.appearance?.player);
   applyButtonMotion(document.documentElement, snapshot.buttonMotion);
@@ -36,7 +37,7 @@ async function connect() {
     unsubscribeActions = api.player.subscribeAction(action => engine.action(action));
     unsubscribe = api.subscribe(snapshot => { received = true; update(snapshot); });
     const snapshot = await api.getSnapshot(); if (!received) update(snapshot);
-  } catch { document.querySelector('#local-player-status').textContent = document.documentElement.lang === 'fr' ? 'Lecteur indisponible.' : 'Player unavailable.'; }
+  } catch { document.querySelector('#local-player-status').textContent = globalThis.ChartshubDesktopLocale?.pair('Lecteur indisponible.', 'Player unavailable.') ?? 'Player unavailable.'; }
 }
 window.addEventListener('beforeunload', () => { disposed = true; unsubscribe(); unsubscribeActions(); engine.dispose(); controls.dispose(); }, { once: true });
 void connect();

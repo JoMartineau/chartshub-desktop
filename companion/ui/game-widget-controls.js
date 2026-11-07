@@ -1,3 +1,4 @@
+import { languageCode, languageKey, wordsFor, localizedPair } from './locale-text.js';
 const COPY = {
   fr: {
     heading: 'Intégrations Clone Hero · BÊTA', title: 'Paroles synchronisées et Accuracy',
@@ -94,9 +95,9 @@ export class GameWidgetControls {
     this.update(null);
   }
   update(snapshot) {
-    if(this.disposed)return;this.snapshot=snapshot;const language=snapshot?.language==='en'?'en':'fr',t=COPY[language],state=snapshot?.gameWidgets,diagnostic=snapshot?.gameModPreflight;
+    if(this.disposed)return;this.snapshot=snapshot;const language=languageCode(snapshot?.language),t=wordsFor(COPY,language),state=snapshot?.gameWidgets,diagnostic=snapshot?.gameModPreflight;
     this.root.hidden=!state;
-    const key=JSON.stringify([language,state,diagnostic,this.pending,[...this.actionPending],this.dirty,this.error]);if(key===this.key)return;this.key=key;
+    const key=JSON.stringify([languageKey(language),state,diagnostic,this.pending,[...this.actionPending],this.dirty,this.error]);if(key===this.key)return;this.key=key;
     const n=this.nodes,heading=this.root.ownerDocument.querySelector('#game-integrations-title');if(heading)heading.textContent=t.heading;
     for(const name of ['title','intro','compatibility','note','lyricsNote','accuracyNote'])n[name].textContent=t[name];
     n.accuracyText.textContent=t.accuracy;n.lyricsText.textContent=t.lyrics;n.apply.textContent=t.apply;n.display.textContent=t.display;n.openPackage.textContent=t.package;n.requirements.textContent=t.requirements;n.summary.textContent=t.help;
@@ -112,7 +113,7 @@ export class GameWidgetControls {
     n.report.replaceChildren(...(diagnostic?.checks??[]).slice(0,12).map(item=>{const li=this.root.ownerDocument.createElement('li');li.textContent=this.checkText(item,language);li.dataset.level=['ok','warning','error'].includes(item.level)?item.level:'warning';return li;}));
   }
   checkText(item,language) {
-    if(Object.hasOwn(CHECK_MESSAGES,item.code))return CHECK_MESSAGES[item.code][language==='fr'?0:1];
+    if(Object.hasOwn(CHECK_MESSAGES,item.code))return localizedPair(language,...CHECK_MESSAGES[item.code]);
     const names=language==='fr'?{game:'Jeu',build:'Compatibilité',architecture:'Architecture',process:'Jeu et lanceur',loader:'MelonLoader',module:'Module des widgets',runtime:'.NET Desktop Runtime',permissions:'Accès au dossier',space:'Espace disponible',integrity:'Intégrité des fichiers'}:{game:'Game',build:'Compatibility',architecture:'Architecture',process:'Game and launcher',loader:'MelonLoader',module:'Widget module',runtime:'.NET Desktop Runtime',permissions:'Folder access',space:'Free space',integrity:'File integrity'};
     const state=item.level==='ok'?(language==='fr'?'vérifié':'verified'):item.level==='error'?(language==='fr'?'à corriger avant installation':'needs attention before setup'):(language==='fr'?'à vérifier':'check required');
     return (names[item.id]??(language==='fr'?'Vérification':'Check'))+' : '+state;

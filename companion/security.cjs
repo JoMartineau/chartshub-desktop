@@ -1,9 +1,11 @@
 'use strict';
 const path = require('node:path');
 const fs = require('node:fs');
+const { isLocaleAsset, localeAssetPath } = require('../desktop/locale-assets.cjs');
 function assetPath(root, value) {
   let url, pathname;
   try { url = new URL(value); pathname = decodeURIComponent(url.pathname); } catch { return null; }
+  if (url.protocol === 'chartshub-companion:' && url.hostname === 'app' && !url.username && !url.password && !url.port && !url.search && !url.hash && isLocaleAsset(pathname)) return localeAssetPath(path.dirname(root), pathname);
   if (url.protocol !== 'chartshub-companion:' || url.hostname !== 'app' || url.username || url.password || url.port || !/^\/(ui|dist)\//.test(pathname) || pathname.includes('\\') || pathname.includes('\0')) return null;
   const candidate = path.resolve(root, '.' + pathname);
   if (!candidate.startsWith(path.resolve(root) + path.sep)) return null;
@@ -43,6 +45,7 @@ function trustedCatalogueWidgetCommand(event, window, command, payload) {
     || (command === 'panels.appearance' && payload?.panel === 'catalogue')) && trustedSender(event, window, 'catalogue-widget.html');
 }
 function validCommand(command, payload, widgetIds) {
+  if (command === 'language.set') return payload != null && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 1 && typeof payload.language === 'string' && ['fr','en','es-MX','zh-Hans','ja','pt-BR','hi','ar','bn','ru','ur','id'].includes(payload.language);
   if (command === 'library.cancelSelectedRemoval') return payload != null && typeof payload === 'object' && !Array.isArray(payload) && Object.keys(payload).length === 0;
   if (['library.selectedRemovalQuery', 'library.selectedRemovalIds'].includes(command)) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload) || !Object.keys(payload).every(key => ['query', 'artist', 'album', ...(command.endsWith('Query') ? ['offset', 'limit'] : [])].includes(key))) return false;

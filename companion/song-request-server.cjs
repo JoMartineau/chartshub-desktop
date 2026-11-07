@@ -1,11 +1,13 @@
 'use strict';
 const http = require('node:http');
+const { runtime: localeRuntime, pair: localePair } = require('../desktop/language.cjs');
+const { localeAssetPath, contentType } = require('../desktop/locale-assets.cjs');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { timingSafeEqual } = require('node:crypto');
 const { DEFAULT_WIDGET, validateWidget, widgetNowPlaying } = require('./song-request-widget.cjs');
 const TOKENS = /^[a-f0-9]{64}$/;
-const ASSETS = { '/overlay': 'song-requests.html', '/ui/song-requests-overlay.js': 'song-requests-overlay.js', '/ui/song-requests-overlay.css': 'song-requests-overlay.css' };
+const ASSETS = { '/overlay': 'song-requests.html', '/ui/song-requests-overlay.js': 'song-requests-overlay.js', '/ui/song-requests-overlay.css': 'song-requests-overlay.css', '/ui/locale-context.js': 'locale-context.js' };
 const text = value => typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f\u202a-\u202e\u2066-\u2069]/g, '').slice(0, 512) : '';
 function overlayState(snapshot, settings = DEFAULT_WIDGET, nowPlaying = null) {
   const widget = validateWidget(settings);
@@ -17,10 +19,10 @@ function overlayState(snapshot, settings = DEFAULT_WIDGET, nowPlaying = null) {
   })) };
 }
 function replyFor(result, language = 'fr') {
-  const tr = (fr, en) => language === 'en' ? en : fr;
+  const tr = (fr, en, values) => localePair(language, fr, en, values);
   if (result?.ok && result.command === 'queue') {
     const queue = (result.items ?? []).slice(0, 5).map((song, i) => `${i + 1}. ${text(song.title)} — ${text(song.artist)}`).join(' | ');
-    return queue ? tr('Prochains morceaux : ', 'Up next: ') + queue + (result.position ? tr(` · Ta demande : #${result.position}`, ` · Your request: #${result.position}`) : '') : tr('La file est vide.', 'The queue is empty.');
+    return queue ? tr('Prochains morceaux : ', 'Up next: ') + queue + (result.position ? tr(" · Ta demande : #{position}", " · Your request: #{position}", { position: result.position }) : '') : tr('La file est vide.', 'The queue is empty.');
   }
   if (result?.ok && result.command === 'song') return tr(result.song?.exported ? 'Dernier morceau exporté : ' : 'Morceau actuel : ', result.song?.exported ? 'Last exported song: ' : 'Current song: ') + `${text(result.song?.title)} — ${text(result.song?.artist)} · ${text(result.song?.charter)}`;
   if (result?.ok && result.request) return tr(result.action === 'vote' ? 'Vote ajouté : ' : 'Demande ajoutée : ', result.action === 'vote' ? 'Vote added: ' : 'Request added: ') + `${text(result.request.title)} — ${text(result.request.artist)}`;
@@ -89,8 +91,14 @@ function createSongRequestServer({ root, ingestToken, readToken, receive, getSna
     if (url.pathname === '/state' || url.pathname === '/overlay') {
       if (read.length !== 1 || [...url.searchParams.keys()].some(key => key !== 'token') || !tokenMatches(read[0], readSecret)) return finish(403, 'Forbidden');
     } else if (url.search) return finish(404, 'Not found');
-    if (url.pathname === '/state') return finish(200, { ...overlayState(getSnapshot(), getWidget(), getNowPlaying()), language: getLanguage() === 'en' ? 'en' : 'fr' }, true);
-    const asset = ASSETS[url.pathname];
+    if (url.pathname === '/state') return finish(200, { ...overlayState(getSnapshot(), getWidget(), getNowPlaying()), language: localeRuntime.canonicalize(getLanguage()) || 'fr' }, true);
+    const localeFile = localeAssetPath(path.dirname(directory), url.pathname);
+    if (localeFile) {
+      const bytes = await fs.readFile(localeFile);
+      if (ctx.closing || ctx !== context) return finish(503, 'Unavailable');
+      response.writeHead(200, { ...headers(), 'Content-Type': contentType(localeFile) }); response.end(bytes); return;
+    }
+    const asset = Object.hasOwn(ASSETS, url.pathname) ? ASSETS[url.pathname] : null;
     if (!asset) return finish(404, 'Not found');
     const filename = path.join(directory, 'ui', asset), resolved = await fs.realpath(filename), base = await fs.realpath(path.join(directory, 'ui'));
     if (!resolved.startsWith(base + path.sep) || (await fs.stat(resolved)).size > 256 * 1024) return finish(404, 'Not found');

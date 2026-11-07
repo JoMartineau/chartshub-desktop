@@ -199,9 +199,9 @@ test('OBS native window controls remain unavailable until each host permission i
 
 test('Stream counter names only widget connections while independent media URLs are available',async t=>{
  const ui=await controlsFixture(t),snapshot={...ui.snapshot,stream:{...ui.snapshot.stream,clients:0,backgroundUrl:'http://127.0.0.1/background',videoUrl:'http://127.0.0.1/video'}};
- ui.controls.update(snapshot);assert.equal(ui.get('#stream-clients').textContent,'0 connexions aux widgets');
- ui.document.documentElement.lang='en';ui.controls.update(snapshot);assert.equal(ui.get('#stream-clients').textContent,'0 widget connections');
- ui.controls.update({...snapshot,stream:{...snapshot.stream,clients:2}});assert.equal(ui.get('#stream-clients').textContent,'2 widget connections');
+ ui.controls.update(snapshot);assert.equal(ui.get('#stream-clients').textContent,'Connexions aux widgets : 0');
+ ui.document.documentElement.lang='en';ui.controls.update(snapshot);assert.equal(ui.get('#stream-clients').textContent,'Widget connections: 0');
+ ui.controls.update({...snapshot,stream:{...snapshot.stream,clients:2}});assert.equal(ui.get('#stream-clients').textContent,'Widget connections: 2');
 });
 
 test('OBS opens only the selected existing native window and preserves stream/game settings', async t => {

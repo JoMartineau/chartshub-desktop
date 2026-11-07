@@ -29,7 +29,7 @@ async function setup(t) {
 
 test('the native local widget uses a restrictive CSP and waits for explicit searching and downloading', async t => {
   const ui = await setup(t); ui.controls.update(snapshot());
-  assert.match(ui.html, /connect-src 'none'/); assert.match(ui.html, /script-src 'self'/); assert.match(ui.html, /frame-src 'none'/);
+  assert.match(ui.html, /connect-src 'self';/); assert.match(ui.html, /script-src 'self'/); assert.match(ui.html, /frame-src 'none'/);
   assert.equal(ui.calls.length, 0); assert.equal(ui.get('#catalogue-widget-downloads-panel').hidden, true);
   ui.get('#catalogue-widget-artist').value = 'Artist'; ui.get('#catalogue-widget-charter').value = 'Creator'; ui.get('#catalogue-widget-instrument').value = 'guitar'; ui.get('#catalogue-widget-difficulty').value = 'expert';
   ui.search('Title');
@@ -308,7 +308,7 @@ test('selection is explicit, can be cleared without transfer, and downloads only
   const ui = await setup(t); ui.controls.update(snapshot()); ui.search('batch');
   await ui.respond(0, { items: [chart('a'), chart('b'), chart('c', { title: '<img src=x onerror=evil()>' })] });
   selectChart(ui, 'a'); selectChart(ui, 'c');
-  assert.match(ui.get('#catalogue-widget-selection-summary').textContent, /^2 charts sélectionnées/);
+  assert.equal(ui.get('#catalogue-widget-selection-summary').textContent, 'Charts sélectionnées : 2');
   assert.equal(ui.get('#catalogue-widget-selection-items').children.length, 2); assert.equal(ui.get('#catalogue-widget-selection-items').querySelectorAll('img').length, 0); assert.equal(ui.calls.length, 1);
   ui.get('#catalogue-widget-clear-selection').click(); assert.equal(ui.get('#catalogue-widget-selection').hidden, true); assert.equal(ui.calls.length, 1);
   selectChart(ui, 'a'); selectChart(ui, 'c'); ui.get('#catalogue-widget-download-selected').click();
@@ -318,7 +318,7 @@ test('selection is explicit, can be cleared without transfer, and downloads only
   ui.calls[1].resolve({ ok: true, result: { id: uuid(1) } }); await tick(); assert.deepEqual(ui.calls[2].payload, { chartId: 'c' });
   ui.calls[2].resolve({ ok: false, error: 'synthetic failure' }); await tick();
   assert.equal(cardFor(ui, 'a').querySelector('.catalogue-selection-check').checked, false); assert.equal(cardFor(ui, 'b').querySelector('.catalogue-selection-check').checked, false); assert.equal(cardFor(ui, 'c').querySelector('.catalogue-selection-check').checked, true);
-  assert.match(ui.get('#catalogue-widget-batch-status').textContent, /1 ajout\(s\).*1 échec\(s\)/);
+  assert.match(ui.get('#catalogue-widget-batch-status').textContent, /Ajouts à la file : 1.*Échecs : 1/);
   ui.get('#catalogue-widget-download-selected').click(); assert.deepEqual(ui.calls[3].payload, { chartId: 'c' }); ui.calls[3].resolve({ ok: true, result: { id: uuid(3) } }); await tick();
   assert.deepEqual(ui.calls.filter(call => call.name === 'downloads.enqueue').map(call => call.payload.chartId), ['a', 'c', 'c']);
   assert.equal(ui.controls.selectedCharts.size, 0);
@@ -330,7 +330,7 @@ test('batch cancellation stops future additions, retains remaining selection and
   ui.get('#catalogue-widget-cancel-batch').click(); ui.calls[1].resolve({ ok: true, result: { id: uuid(1) } }); await tick();
   assert.equal(ui.calls.length, 2); assert.equal(cardFor(ui, 'b').querySelector('.catalogue-selection-check').checked, true);
   ui.document.documentElement.lang = 'en'; ui.document.defaultView.dispatchEvent(new Event('chartshub:languagechange'));
-  assert.equal(ui.get('#catalogue-widget-selection-summary').textContent, '1 selected chart'); assert.match(ui.get('#catalogue-widget-batch-status').textContent, /Remaining additions stopped/);
+  assert.equal(ui.get('#catalogue-widget-selection-summary').textContent, 'Selected charts: 1'); assert.match(ui.get('#catalogue-widget-batch-status').textContent, /Remaining additions stopped/);
   assert.equal(cardFor(ui, 'b').querySelector('.catalogue-selection-check').checked, true); assert.equal(ui.calls.length, 2);
   ui.get('#catalogue-widget-download-selected').click(); ui.calls[2].resolve({ ok: true, cancelled: true }); await tick();
   assert.equal(cardFor(ui, 'b').querySelector('.catalogue-selection-check').checked, true); assert.equal(ui.calls.length, 3);
@@ -387,7 +387,7 @@ test('a library update during a native batch does not silently skip the remainin
   selectChart(ui, 'a'); selectChart(ui, 'b'); ui.get('#catalogue-widget-download-selected').click();
   ui.controls.update(snapshot({ catalogue: { revision: 2, status: 'ready', demo: false } }));
   ui.calls[1].resolve({ ok: true }); await tick(); assert.equal(ui.calls[2].name, 'downloads.enqueue'); assert.deepEqual(ui.calls[2].payload, { chartId: 'b' });
-  ui.calls[2].resolve({ ok: true }); await tick(); assert.match(ui.get('#catalogue-widget-batch-status').textContent, /2 ajout\(s\).*0 échec\(s\).*0 ignorée/);
+  ui.calls[2].resolve({ ok: true }); await tick(); assert.match(ui.get('#catalogue-widget-batch-status').textContent, /Ajouts à la file : 2.*Échecs : 0.*Ignorées : 0/);
 });
 
 test('live search waits for a typing pause, searches only the latest draft and never runs on mount or snapshots', async t => {

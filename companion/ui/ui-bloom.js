@@ -18,9 +18,10 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
     saveError: ['Not saved. Your preview is kept; retry Apply or Cancel to restore the saved appearance.', 'Non enregistré. Votre aperçu est conservé ; réessayez Appliquer ou Annuler pour rétablir l’apparence enregistrée.']
   };
   const fr = () => document.documentElement.lang.toLowerCase().startsWith('fr');
+  const tr = (frText, enText) => globalThis.ChartshubDesktopLocale?.pair(frText, enText) ?? (fr() ? frText : enText);
   function node(tag, cls = '', en = '', french = en) {
     const el = document.createElement(tag); if (cls) el.className = cls;
-    if (en) { labels.push({ el, en, fr: french }); el.textContent = fr() ? french : en; }
+    if (en) { labels.push({ el, en, fr: french }); el.textContent = tr(french, en); }
     return el;
   }
   function button(id, en, french) { const el = node('button', 'ch-bloom-button', en, french); el.id = 'ch-bloom-' + id; el.type = 'button'; return el; }
@@ -115,12 +116,12 @@ if (bridge && host && !document.getElementById('ch-bloom-dialog')) {
   if (sections) dialog.append(sections);
   host.parentElement.append(dialog);
   function translate() {
-    for (const item of labels) item.el.textContent = fr() ? item.fr : item.en;
-    palette.setAttribute('aria-label', fr() ? 'Couleurs rapides du bloom' : 'Quick bloom colors');
-    status.textContent = messages[message]?.[fr() ? 1 : 0] || '';
+    for (const item of labels) item.el.textContent = tr(item.fr, item.en);
+    palette.setAttribute('aria-label', tr('Couleurs rapides du bloom', 'Quick bloom colors'));
+    const pair = messages[message]; status.textContent = pair ? tr(pair[1], pair[0]) : '';
   }
   function say(key) { message = key; translate(); }
-  function valid(input, ok) { input.setCustomValidity(ok ? '' : (fr() ? 'Valeur invalide.' : 'Invalid value.')); input.setAttribute('aria-invalid', String(!ok)); return ok; }
+  function valid(input, ok) { input.setCustomValidity(ok ? '' : tr('Valeur invalide.', 'Invalid value.')); input.setAttribute('aria-invalid', String(!ok)); return ok; }
   function paint(value) {
     const p = model.normalize(value);
     const colors = paintCataloguePalette(p.followCatalogue), effective = colors ? { ...p, color: colors.bloom } : p;

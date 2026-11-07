@@ -1,3 +1,4 @@
+import { localizedPair } from '../localization/locale-pair.js';
 interface CatalogueItem {
   source?: 'chartshub' | 'chorusencore';
   id: string; title: string; artist: string; charter: string; verified: boolean | null;
@@ -29,10 +30,10 @@ interface Response { ok: boolean; result?: SearchResult | CandidateResult; error
 interface Options { root: HTMLElement; command: (name: string, payload?: unknown) => Promise<unknown>; }
 const emptyFilters = (): Filters => ({ source: 'all', query: '', artist: '', charter: '', genre: '', year: '', instrument: '', difficulty: '', verified: 'all', installed: 'all' });
 const readable = (value: string, fallback = 'Non renseigné'): string => value?.trim() || fallback;
-const locale = (): string => typeof document === 'undefined' || document.documentElement.lang.startsWith('fr') ? 'fr-FR' : 'en-US';
+const locale = (): string => typeof document === 'undefined' ? 'fr-FR' : document.documentElement.lang || 'en-US';
 const count = (value: number): string => Math.max(0, Math.trunc(value || 0)).toLocaleString(locale());
 const externalItem = (item: CatalogueItem): boolean => item.source === 'chorusencore' || item.id.startsWith('enchor:');
-const tr = (french: string, english: string): string => locale().startsWith('fr') ? french : english;
+const tr = (fr: string, en: string, values?: Record<string, unknown>): string => localizedPair(locale(), fr, en, values);
 
 /** Catalogue requests only follow an explicit search, comparison, paging or refresh action. */
 export class CatalogueControls {
@@ -206,8 +207,8 @@ export class CatalogueControls {
       }
       if (action === 'download' && response.cancelled) { this.feedback('Aucun téléchargement ajouté.'); return; }
       success = true;
-      this.feedback(action === 'download' ? 'Cette chart figure dans la file de téléchargements ci-dessous.' : action === 'open' ? tr(`La fiche ${provider} a été ouverte dans votre navigateur.`, `The ${provider} page was opened in your browser.`) : action === 'link' ? 'Cette chart est maintenant liée à votre morceau local.' : 'Le lien a été retiré. Votre morceau local est conservé.');
-    } catch { if (!this.disposed) this.feedback(action === 'download' ? 'Cette chart n’a pas pu être ajoutée à la file de téléchargements.' : action === 'open' ? tr(`La fiche ${provider} n’a pas pu être ouverte.`, `The ${provider} page could not be opened.`) : 'Le lien n’a pas pu être modifié. Rechargez les résultats puis réessayez.', true); }
+      this.feedback(action === 'download' ? 'Cette chart figure dans la file de téléchargements ci-dessous.' : action === 'open' ? tr("La fiche {provider} a été ouverte dans votre navigateur.", "The {provider} page was opened in your browser.", { provider }) : action === 'link' ? 'Cette chart est maintenant liée à votre morceau local.' : 'Le lien a été retiré. Votre morceau local est conservé.');
+    } catch { if (!this.disposed) this.feedback(action === 'download' ? 'Cette chart n’a pas pu être ajoutée à la file de téléchargements.' : action === 'open' ? tr("La fiche {provider} n’a pas pu être ouverte.", "The {provider} page could not be opened.", { provider }) : 'Le lien n’a pas pu être modifié. Rechargez les résultats puis réessayez.', true); }
     finally { this.changing = false; if (!this.disposed) this.renderStatus(); }
     if (success && (action === 'link' || action === 'unlink') && !this.disposed) {
       await this.request(1);
@@ -290,7 +291,7 @@ export class CatalogueControls {
       else if (external.status === 'maintenance') providerMessage = tr('ChartsHub est en maintenance. Les résultats déjà chargés restent disponibles. Vous pouvez continuer à écrire et relancer la recherche dès la réouverture.', 'ChartsHub is under maintenance. Loaded results remain available. You can keep typing and search again as soon as the site reopens.');
       else if (external.status === 'cooldown') {
         const seconds = typeof external.retryAfterSeconds === 'number' && Number.isFinite(external.retryAfterSeconds) ? Math.max(1, Math.ceil(external.retryAfterSeconds)) : null;
-        providerMessage = seconds ? tr(`Chorus Encore : réessayez dans ${seconds} s en cliquant sur Rechercher.`, `Chorus Encore: wait ${seconds} s, then choose Search again.`) : tr('Chorus Encore demande de patienter. Relancez la recherche plus tard.', 'Chorus Encore needs more time. Search again later.');
+        providerMessage = seconds ? tr("Chorus Encore : réessayez dans {seconds} s en cliquant sur Rechercher.", "Chorus Encore: wait {seconds} s, then choose Search again.", { seconds }) : tr('Chorus Encore demande de patienter. Relancez la recherche plus tard.', 'Chorus Encore needs more time. Search again later.');
       } else if (external.status === 'error') providerMessage = tr('Chorus Encore est indisponible. Relancez la recherche pour réessayer.', 'Chorus Encore is unavailable. Search again to retry.');
       else if (external.status === 'ready') providerMessage = tr('Résultats Chorus Encore · source externe.', 'Chorus Encore results · external source.');
       if (['error', 'suspended', 'disabled'].includes(external.status) && external.error) providerMessage += ' ' + external.error.slice(0, 512);
@@ -304,7 +305,7 @@ export class CatalogueControls {
     const loadedAt = this.status?.lastLoadedAt ? new Date(this.status.lastLoadedAt) : null;
     this.element('#catalogue-last-loaded').textContent = loadedAt && !Number.isNaN(loadedAt.getTime()) ? `Catalogue chargé le ${loadedAt.toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })}` : 'Le catalogue sera chargé à votre demande.';
     const warning = this.element('#catalogue-warning'); warning.textContent = this.status?.warning ?? ''; warning.hidden = !warning.textContent;
-    this.element('#catalogue-status').textContent = this.loading || this.status?.status === 'loading' ? 'Chargement…' : this.status?.demo ? 'Démonstration' : this.status?.status === 'ready' ? tr(`${count(this.status.availableCount)} charts ChartsHub chargées`, `${count(this.status.availableCount)} ChartsHub charts loaded`) : this.status?.status === 'error' ? 'Indisponible' : 'À la demande';
+    this.element('#catalogue-status').textContent = this.loading || this.status?.status === 'loading' ? 'Chargement…' : this.status?.demo ? 'Démonstration' : this.status?.status === 'ready' ? tr("{count} charts ChartsHub chargées", "{count} ChartsHub charts loaded", { count: count(this.status.availableCount) }) : this.status?.status === 'error' ? 'Indisponible' : 'À la demande';
     this.element('#catalogue-local-context').hidden = !this.localId;
     this.element('#catalogue-local-title').textContent = this.context ? `${readable(this.context.local.title)} · ${readable(this.context.local.artist)}` : 'Chargement du morceau local…';
     this.element('#catalogue-local-description').textContent = this.context ? `Créateur local : ${readable(this.context.local.charter)}. Comparez les versions avant de confirmer une association.` : 'Recherche de versions à partir du titre et de l’artiste.';

@@ -1,3 +1,4 @@
+import { localizedPair } from '../localization/locale-pair.js';
 interface BackupPreview { id: string; createdAt: string; sourceVersion: string; groups: {key: string; count: number}[]; }
 interface BackupBridge {
  getState(): Promise<{backup?: {preview?: BackupPreview|null; busy?: boolean; error?: string|null}; updater?: {status?: string; busyReasons?: string[]}}|null>;
@@ -21,9 +22,9 @@ export class ConfigurationBackupControls {
   this.feedback=d.createElement('p');this.feedback.setAttribute('role','status');this.feedback.className='helper-text';this.feedback.dataset.backupFeedback='';options.root.replaceChildren(this.heading,this.description,actions,this.previewBox,this.feedback);
   this.unsubscribe=options.bridge.subscribe(state=>this.receive(state));this.render();void this.read();
  }
- update(value:{language?:string}):void{if(this.disposed)return;this.language=value.language==='fr'?'fr':'en';this.render();}
+ update(value:{language?:string}):void{if(this.disposed)return;this.language=globalThis.ChartshubDesktopLocale?.runtime.canonicalize(value.language) ?? (value.language === 'fr' ? 'fr' : 'en');this.render();}
  dispose():void{this.disposed=true;this.abort.abort();this.unsubscribe();}
- private tr(fr:string,en:string):string{return this.language==='fr'?fr:en;}
+ private tr(fr:string,en:string):string{return localizedPair(this.language,fr,en);}
  private receive(state:Awaited<ReturnType<BackupBridge['getState']>>):void{if(this.disposed||!state)return;this.locked=!!state.backup?.busy||['downloading','staging'].includes(state.updater?.status||'')||!!state.updater?.busyReasons?.length;if(state.backup?.preview&&validPreview(state.backup.preview))this.preview=state.backup.preview;else if(state.backup&&Object.hasOwn(state.backup,'preview')&&state.backup.preview===null)this.preview=null;if(state.backup?.error){this.errorCode=state.backup.error;this.result='error';}this.render();}
  private async read():Promise<void>{try{this.receive(await this.options.bridge.getState());}catch{if(!this.disposed){this.result='error';this.render();}}}
  private async send(action:string):Promise<void>{const b=this.buttons.get(action);if(this.disposed||this.busy||!b||b.disabled||b.hidden)return;this.busy=true;this.result='';this.errorCode='';this.render();

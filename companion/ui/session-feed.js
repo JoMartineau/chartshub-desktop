@@ -1,19 +1,28 @@
 // Display only. The floating window uses a read-only local bridge.
 const root = document.getElementById('feed'), list = document.getElementById('items');
 const captureBridge = globalThis.ChartsHubStreamCapture;
+const locale = globalThis.ChartshubDesktopLocale;
 const kind = captureBridge || location.pathname === '/chat' ? 'chat' : location.pathname === '/activity' ? 'activity' : null;
 const query = new URLSearchParams(location.search), tokens = query.getAll('token');
 const allowed = kind && location.protocol === 'http:' && location.hostname === '127.0.0.1' && tokens.length === 1 && /^[a-f0-9]{64}$/i.test(tokens[0]) && [...query.keys()].every(key => key === 'token');
 const labels = { fr: { chat: 'Chat du stream', activity: 'Activité du stream', added: 'Nouvelle demande', accepted: 'Demande acceptée', played: 'Morceau joué', completed: 'Téléchargement terminé' }, en: { chat: 'Stream chat', activity: 'Stream activity', added: 'New request', accepted: 'Request accepted', played: 'Song played', completed: 'Download completed' } };
-let active = true, signature = '', timer = null, request = null;
+let active = true, signature = '', timer = null, request = null, latest = null;
+window.addEventListener('chartshub:locale-ready', () => { signature = ''; render(latest); });
 function node(tag, className, text) { const result = document.createElement(tag); result.className = className; result.textContent = text; return result; }
 function render(value) {
-  const valid = value?.enabled === true && ['fr', 'en'].includes(value.language) && Number.isInteger(value.settings?.fontSize) && value.settings.fontSize >= 12 && value.settings.fontSize <= 48 && /^#[a-f0-9]{6}$/i.test(value.settings.accent) && Array.isArray(value.items) && value.items.length <= 20;
+  latest = value;
+  const language = locale?.runtime.canonicalize(value?.language) ?? (['fr', 'en'].includes(value?.language) ? value.language : null);
+  if (language) {
+    if (locale) locale.set(language);
+    else document.documentElement.lang = language;
+  }
+  const valid = value?.enabled === true && language && Number.isInteger(value.settings?.fontSize) && value.settings.fontSize >= 12 && value.settings.fontSize <= 48 && /^#[a-f0-9]{6}$/i.test(value.settings.accent) && Array.isArray(value.items) && value.items.length <= 20;
   const next = valid ? JSON.stringify(value) : '';
   if (next === signature) return;
   signature = next; list.replaceChildren();
   if (!valid) return;
-  document.documentElement.lang = value.language; root.setAttribute('aria-label', labels[value.language][kind]); root.style.fontSize = value.settings.fontSize + 'px'; root.style.setProperty('--feed-accent', value.settings.accent);
+  const text = locale?.dictionary(labels.fr, labels.en, language) ?? labels[language];
+  root.setAttribute('aria-label', text[kind]); root.style.fontSize = value.settings.fontSize + 'px'; root.style.setProperty('--feed-accent', value.settings.accent);
   for (const item of value.items) {
     const row = node('li', 'feed-item', '');
     if (kind === 'chat') {
@@ -25,7 +34,7 @@ function render(value) {
       }
       row.append(heading, node('p', 'feed-message', String(item.text ?? '').slice(0, 500)));
     }
-    else { row.append(node('span', 'feed-action', labels[value.language][item.action] ?? ''), node('span', 'feed-title', String(item.title ?? '').slice(0, 200))); if (value.settings.showViewerNames && item.name) row.append(node('p', 'feed-name', String(item.name).slice(0, 80))); }
+    else { row.append(node('span', 'feed-action', text[item.action] ?? ''), node('span', 'feed-title', String(item.title ?? '').slice(0, 200))); if (value.settings.showViewerNames && item.name) row.append(node('p', 'feed-name', String(item.name).slice(0, 80))); }
     list.append(row);
   }
 }
@@ -45,17 +54,19 @@ if (captureBridge) {
   root.prepend(header, status);
   let receivedUpdate = false;
   const show = state => {
-    const french = state?.language === 'fr';
-    header.textContent = french ? 'Chat multistream' : 'Multistream chat';
+    locale?.set(state?.language);
+    const tr = (fr, en) => locale?.pair(fr, en) ?? (state?.language === 'en' ? en : fr);
+    header.textContent = tr('Chat multistream', 'Multistream chat');
     status.hidden = state?.enabled === true && state.items?.length > 0;
-    status.textContent = state?.enabled === true ? (french ? 'En attente de messages.' : 'Waiting for messages.')
-      : (french ? 'Activez le chat et son partage dans le tableau de bord.' : 'Enable chat and chat sharing in the Dashboard.');
+    status.textContent = state?.enabled === true ? tr('En attente de messages.', 'Waiting for messages.')
+      : tr('Activez le chat et son partage dans le tableau de bord.', 'Enable chat and chat sharing in the Dashboard.');
     if (typeof state?.backgroundColor === 'string' && /^#[a-f0-9]{6}$/i.test(state.backgroundColor)) {
       document.documentElement.style.setProperty('--feed-capture-background', state.backgroundColor);
     }
     document.documentElement.dataset.badgeStyle = ['solid', 'stripe'].includes(state?.badgeStyle) ? state.badgeStyle : 'outline';
     render(state);
   };
+  window.addEventListener('chartshub:locale-ready', () => show(latest));
   const unsubscribe = captureBridge.subscribe(state => { receivedUpdate = true; show(state); });
   captureBridge.getSnapshot().then(state => { if (active && !receivedUpdate) show(state); },
     () => { if (active && !receivedUpdate) show(null); });

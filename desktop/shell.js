@@ -4,18 +4,19 @@
   const tabs = [...document.querySelectorAll('[data-tab]')];
   const panel = document.getElementById('content-state'), title = document.getElementById('state-title');
   const detail = document.getElementById('state-detail'), retry = document.getElementById('retry');
-  let activeTab = 'catalogue', received = 0, language = 'en';
-  const tr = (fr, en) => language === 'fr' ? fr : en;
+  let activeTab = 'catalogue', received = 0, language = 'en', latestState = null;
+  const locale = globalThis.ChartshubDesktopLocale;
+  const tr = (fr, en, values) => locale.pair(fr, en, values, language);
   function render(state) {
     if (!state || !['catalogue', 'companion'].includes(state.activeTab) || !state.tabs) return;
-    activeTab = state.activeTab;
-    language = state.language === 'fr' ? 'fr' : 'en'; document.documentElement.lang = language;
-    const current = state.tabs[activeTab], name = activeTab === 'catalogue' ? 'Catalogue' : tr('Tableau de bord', 'Dashboard');
+    activeTab = state.activeTab; latestState = state;
+    language = locale.set(state.language);
+    const current = state.tabs[activeTab], name = activeTab === 'catalogue' ? tr('Catalogue', 'Catalogue') : tr('Tableau de bord', 'Dashboard');
     document.querySelector('.tabs').setAttribute('aria-label', tr('Sections de ChartsHub', 'ChartsHub sections'));
     retry.textContent = tr('Réessayer', 'Retry');
     for (const tab of tabs) {
       const selected = tab.dataset.tab === activeTab;
-      tab.querySelector('span:not(.tab-spinner)').textContent = tab.dataset.tab === 'catalogue' ? 'Catalogue' : tr('Tableau de bord', 'Dashboard');
+      tab.querySelector('span:not(.tab-spinner)').textContent = tab.dataset.tab === 'catalogue' ? tr('Catalogue', 'Catalogue') : tr('Tableau de bord', 'Dashboard');
       tab.hidden = tab.dataset.tab === 'companion' && !state.companionAvailable;
       tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1;
       tab.setAttribute('aria-busy', String(Boolean(state.tabs[tab.dataset.tab]?.loading)));
@@ -25,7 +26,7 @@
     panel.setAttribute('aria-busy', String(Boolean(current.loading)));
     panel.hidden = Boolean(current.ready && !current.error);
     panel.classList.toggle('failed', Boolean(current.error));
-    title.textContent = current.error ? tr(`${name} indisponible`, `${name} unavailable`) : tr(`Chargement du ${activeTab === 'catalogue' ? 'catalogue' : name}…`, `Loading ${name}…`);
+    title.textContent = current.error ? tr("{name} indisponible", "{name} unavailable", { name }) : tr('Chargement de la section {name}…', 'Loading {name}…', { name });
     detail.textContent = current.error || (activeTab === 'catalogue' ? tr('Votre espace ChartsHub s’ouvre ici.', 'Your ChartsHub space opens here.') : tr('Vos widgets, filtres et réglages seront prêts dans un instant.', 'Your widgets, filters and settings will be ready shortly.'));
     retry.hidden = !current.error;
     if (state.theme && ['dark', 'light'].includes(state.theme.mode) && /^#[a-f0-9]{6}$/i.test(state.theme.accent)) {
@@ -59,10 +60,12 @@
       if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
       event.preventDefault();
       const available = tabs.filter(item => !item.hidden);
-      const next = event.key === 'Home' ? available[0] : event.key === 'End' ? available.at(-1) : available[(available.indexOf(tab) + 1) % available.length];
+      const forward = event.key === (locale.direction() === 'rtl' ? 'ArrowLeft' : 'ArrowRight');
+      const next = event.key === 'Home' ? available[0] : event.key === 'End' ? available.at(-1) : available[(available.indexOf(tab) + (forward ? 1 : available.length - 1)) % available.length];
       next.focus(); select(next.dataset.tab);
     });
   }
+  window.addEventListener('chartshub:locale-ready', () => render(latestState));
   retry.addEventListener('click', () => select(activeTab));
   const unsubscribe = api.onState(state => { received++; render(state); });
   api.getState().then(state => { if (received === 0) render(state); }).catch(failed);

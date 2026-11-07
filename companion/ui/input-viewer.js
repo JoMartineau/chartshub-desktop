@@ -1,32 +1,43 @@
+import { localizedPair } from '../dist/localization/locale-pair.js';
 import{preset,readConfig,writeConfig,validateConfig,sampleControls,updateTrails,trailGeometry,learnGamepadMapping,KEY_CODES,gridPosition}from'./input-viewer-model.js';
 import{paintControl,paintTrail}from'./input-viewer-paint.js';
-const api=window.ChartsHubInputViewer,$=id=>document.getElementById(id),canvas=$('viewer'),ctx=canvas.getContext('2d'),en=api?.language==='en',tr=(fr,english)=>en?english:fr;
-document.documentElement.lang=en?'en':'fr';
-if(en)$('preview-tip').textContent='Drag controls to place them. Colors and dimensions remain fully editable.';
-if(en){for(const [selector,value]of [['label:has(#preset)','Instrument'],['label:has(#background)','Background #RRGGBBAA'],['label:has(#visible)','Visible']]){const node=document.querySelector(selector)?.firstChild;if(node?.nodeType===Node.TEXT_NODE)node.textContent=value;}}
+const api=window.ChartsHubInputViewer,$=id=>document.getElementById(id),canvas=$('viewer'),ctx=canvas.getContext('2d');
+const locale=globalThis.ChartshubDesktopLocale;
+const tr=(fr,english,values)=>localizedPair(locale?.get() || api?.language || 'fr',fr,english,values);
+const presetLanguage=()=>(locale?.get() || api?.language || 'fr')==='fr'?'fr':'en';
+const copy=new Map();
+function staticText(node,fr,en){copy.set(node,[fr,en]);node.textContent=tr(fr,en);}
+staticText($('preview-tip'),'Glissez les éléments pour les placer. Toutes les couleurs et dimensions restent modifiables.','Drag controls to place them. Colors and dimensions remain fully editable.');
+canvas.setAttribute('aria-label',tr('Affichage des entrées','Input display'));
 const translations={'Démarrer':'Start','Arrêter':'Stop','Masquer les réglages':'Hide settings','Guitare · 5 frettes':'Guitar · 5 frets','Batterie · 4 pads':'Drums · 4 pads','Batterie · 5 pads':'Drums · 5 pads','Rétablir ce preset':'Reset this preset','Manette / guitare compatible':'Compatible gamepad / guitar','Clavier · fenêtre active':'Keyboard · focused window','Manette':'Gamepad','Démarrer puis choisir':'Start, then choose','Composition et apparence':'Layout and appearance','Largeur':'Width','Hauteur':'Height','Afficher les noms':'Show labels','Zone morte des axes':'Axis dead zone','Élément et affectation':'Element and mapping','Élément':'Element','Nom':'Label','Couleur':'Color','Forme':'Shape','Cercle':'Circle','Rectangle':'Rectangle','Losange':'Diamond','Police':'Font size','Entrée manette':'Gamepad input','Non assignée':'Unassigned','Bouton':'Button','Axe':'Axis','Index (à partir de 0)':'Index (starts at 0)','Sens de l’axe':'Axis direction','Positif':'Positive','Négatif':'Negative','Seuil':'Threshold','Touche':'Key','Attribuer une touche':'Assign a key','Traînées':'Trails','Activer':'Enable','Durée (ms)':'Duration (ms)','Opacité / intensité':'Opacity / intensity','Longueur maximale (px)':'Maximum length (px)','Vitesse (px/s)':'Speed (px/s)','Épaisseur (%)':'Thickness (%)','Direction':'Direction','Haut':'Up','Bas':'Down','Gauche':'Left','Droite':'Right','Fondu':'Fade'};
 Object.assign(translations,{'Éléments affichés':'Visible controls','À l’appui':'Pressed','Au repos':'Idle','Texte':'Text','Lueur':'Afterglow','Lueur liée à l’appui':'Afterglow follows pressed color','Cymbale':'Cymbal','Étoile':'Star','Style des trails':'Trail style','Lueur douce':'Soft glow','Comète':'Comet','Étincelles':'Sparks','Ondes':'Ripples','Ruban néon':'Neon ribbon','Lueur après l’appui · trails':'Afterglow · trails','Cristal':'Crystal','Industriel':'Industrial','Aimantation':'Snap to grid','Afficher la grille':'Show grid','Grille':'Grid','Aligner les éléments':'Align controls','Lueur après l’appui':'Afterglow','Style de rendu':'Render style','Cyberpunk néon':'Cyberpunk neon','Métal':'Metal','Hologramme':'Hologram','Verre':'Glass','Filaire':'Wireframe','Énergie':'Energy','Direction de cet élément':'This control’s direction','Direction générale':'Global direction'});
-if(en){const walk=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);let n;while(n=walk.nextNode()){const text=n.textContent.trim();if(translations[text])n.textContent=n.textContent.replace(text,translations[text]);}}
-$('privacy').textContent=tr('Réglez votre guitare ici, puis cliquez sur Démarrer. Fermer les réglages laisse la manette et les widgets Jeu / OBS actifs. Pour arrêter la lecture, utilisez Arrêter ici ou dans le Tableau de bord. Le clavier nécessite cette fenêtre active ; sa fermeture arrête sa lecture. Aucun historique de touches n’est enregistré.','Set up your guitar here, then click Start. Closing settings keeps the controller and Game / OBS widgets active. To stop reading, use Stop here or in the Dashboard. Keyboard input requires this window to be focused; closing it stops keyboard reading. No input history is saved.');
-$('mapping-help').textContent=tr('Choisissez votre guitare, puis associez chaque élément : relâchez et appuyez sur le bouton ou l’axe souhaité. Windows propose aussi les contrôleurs XInput, dont les guitares compatibles, sans pilote à installer.','Choose your guitar, then map each element: release and press the desired button or axis. Windows also lists XInput controllers, including compatible guitars, without installing a driver.');
+Object.assign(translations,{'Fond #RRGGBBAA':'Background #RRGGBBAA','Visible':'Visible','Instrument':'Instrument'});
+const walk=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
+for(let n=walk.nextNode();n;n=walk.nextNode()){
+ const text=n.textContent.trim();
+ if(Object.hasOwn(translations,text))staticText(n,text,translations[text]);
+}
+staticText($('privacy'),'Réglez votre guitare ici, puis cliquez sur Démarrer. Fermer les réglages laisse la manette et les widgets Jeu / OBS actifs. Pour arrêter la lecture, utilisez Arrêter ici ou dans le Tableau de bord. Le clavier nécessite cette fenêtre active ; sa fermeture arrête sa lecture. Aucun historique de touches n’est enregistré.','Set up your guitar here, then click Start. Closing settings keeps the controller and Game / OBS widgets active. To stop reading, use Stop here or in the Dashboard. Keyboard input requires this window to be focused; closing it stops keyboard reading. No input history is saved.');
+staticText($('mapping-help'),'Choisissez votre guitare, puis associez chaque élément : relâchez et appuyez sur le bouton ou l’axe souhaité. Windows propose aussi les contrôleurs XInput, dont les guitares compatibles, sans pilote à installer.','Choose your guitar, then map each element: release and press the desired button or axis. Windows also lists XInput controllers, including compatible guitars, without installing a driver.');
 let storage;try{storage=window.localStorage;}catch{}
-let config=readConfig(storage,en?'en':'fr'),selected=config.controls[0].id,running=false,frame=null,keys=new Set(),pressed={},trails=[],selectedDevice=null,deviceIdentity=null,listSignature='',learning=false,drag=null,disposed=false;
+let config=readConfig(storage,presetLanguage()),selected=config.controls[0].id,running=false,frame=null,keys=new Set(),pressed={},trails=[],selectedDevice=null,deviceIdentity=null,listSignature='',learning=false,drag=null,disposed=false;
 let windowsControllers=[],windowsSample=null,windowsSampleAt=0,windowsError=false,windowsPending=false;
 let intent=0,deviceRequest=0,windowsLease=null,starting=false,stateRevision=-1;
 let demo=false,demoFrame=null,demoAt=0,editorVisible=true;
 let configurationTask=Promise.resolve(),outputLease=null,lastOutputPublish=0,outputPublishPending=false;
 let counts={},counterTimer=null,counterRequest=0,lastPublishedPressed='';
-$('counts-help').textContent=tr('Un appui = un point, même si la touche reste enfoncée. Totaux en mémoire seulement ; la démo ne compte pas. Les automatismes nécessitent le module Widgets du jeu installé et une version compatible. Démarrer active leur suivi sans activer Accuracy ou Paroles.','One press = one count, even while held. Totals stay in memory only; the demo does not count. Automation requires the installed Game Widgets module and a compatible game version. Start enables chart tracking without enabling Accuracy or Lyrics.');
-$('counts-help').parentNode.querySelector('summary').textContent=tr('Compteurs d’appuis','Press counters');
-$('counts-reset').textContent=tr('Remettre les compteurs à zéro','Reset press counters');
-for(const[id,fr,english]of[['counts','Afficher les compteurs','Show press counters'],['counts-auto-reset','Remettre à zéro à la fin du morceau','Reset at the end of the song'],['auto-show-chart','Afficher au début et masquer à la fin du morceau','Show at song start and hide at its end']]){const label=$(id).parentNode;label.lastChild.textContent=tr(fr,english);}
+staticText($('counts-help'),'Un appui = un point, même si la touche reste enfoncée. Totaux en mémoire seulement ; la démo ne compte pas. Les automatismes nécessitent le module Widgets du jeu installé et une version compatible. Démarrer active leur suivi sans activer Accuracy ou Paroles.','One press = one count, even while held. Totals stay in memory only; the demo does not count. Automation requires the installed Game Widgets module and a compatible game version. Start enables chart tracking without enabling Accuracy or Lyrics.');
+staticText($('counts-help').parentNode.querySelector('summary'),'Compteurs d’appuis','Press counters');
+staticText($('counts-reset'),'Remettre les compteurs à zéro','Reset press counters');
+for(const[id,fr,english]of[['counts','Afficher les compteurs','Show press counters'],['counts-auto-reset','Remettre à zéro à la fin du morceau','Reset at the end of the song'],['auto-show-chart','Afficher au début et masquer à la fin du morceau','Show at song start and hide at its end']]){const label=$(id).parentNode;staticText(label.lastChild,fr,english);}
 function acceptCounts(value){if(!value?.ok||value.mode!==config.mode||!value.counts)return;counts=Object.fromEntries(config.controls.map(c=>[c.id,Number.isSafeInteger(value.counts[c.id])&&value.counts[c.id]>=0?value.counts[c.id]:0]));const text=config.controls.filter(c=>c.visible).map(c=>c.label+': '+counts[c.id]).join(' · ');if($('counts-status').textContent!==text)$('counts-status').textContent=text;if(!running&&!demo)draw();}
 async function pollCounts(){const ticket=++counterRequest;try{const result=await api.command('counterSnapshot');if(!disposed&&ticket===counterRequest)acceptCounts(result);}catch{}if(!disposed)counterTimer=setTimeout(pollCounts,100);}
 $('counts-reset').addEventListener('click',async()=>{const button=$('counts-reset');button.disabled=true;counterRequest++;try{acceptCounts(await api.command('resetCounts'));$('feedback').textContent=tr('Compteurs remis à zéro.','Press counters reset.');}catch{$('feedback').textContent=tr('Remise à zéro indisponible. Réessayez.','Reset unavailable. Try again.');}finally{button.disabled=false;}});
 const revokedLeases=new Set(),leaseKey=value=>value.run+':'+value.selection;
 const deviceKey=pad=>pad.windows===true?'windows:'+pad.index:String(pad.index);
 const windowsName=p=>[6,7].includes(p.subtype)?tr('Guitare','Guitar'):p.subtype===8?tr('Batterie','Drums'):p.subtype===11?tr('Basse','Bass guitar'):tr('Manette','Controller');
-const status=(fr,english)=>{$('status').textContent=tr(fr,english);};
+let lastStatus=null;
+const status=(fr,english)=>{lastStatus=[fr,english];$('status').textContent=tr(fr,english);};
  const fieldIds=['source','width','height','background','bloom','names','counts','counts-auto-reset','auto-show-chart','deadzone','visible','label','color','shape','font','x','y','pad-width','pad-height','kind','index','direction','threshold','key','trails','duration','intensity','length','speed','thickness','trail-direction','fade','render-style','idle-color','trail-color','label-color','trail-follow','control-trail-direction','grid-snap','grid-size','trail-style','grid-visible'];
 function option(parent,value,label){const node=document.createElement('option');node.value=value;node.textContent=label;parent.append(node);return node;}
 for(const code of KEY_CODES)option($('key'),code,code);
@@ -50,7 +61,7 @@ function form(){
  $('device').disabled=config.source!=='gamepad'||!running;
  $('learn').textContent=tr('Associer cette entrée','Map this input');
  const shown=config.controls.filter(item=>item.visible),mapped=shown.filter(item=>config.source==='keyboard'||item.mapping.kind!=='none');
- $('mapping-count').textContent=tr(mapped.length+'/'+shown.length+' touches associées',mapped.length+'/'+shown.length+' controls mapped');
+ $('mapping-count').textContent=tr("{mapped}/{total} touches associées", "{mapped}/{total} controls mapped", { mapped: mapped.length, total: shown.length });
 }
 function draw(now=performance.now()){
  const active=config.controls.filter(c=>pressed[c.id]===true).map(c=>c.id).join(' ');if(canvas.dataset.active!==active)canvas.dataset.active=active;
@@ -97,21 +108,21 @@ $('start').addEventListener('click',async()=>{if(running||starting)return;if(dem
 $('stop').addEventListener('click',()=>{stopLocal();void api.command('stop').catch(()=>{});});
 $('device').addEventListener('change',async()=>{const request=++deviceRequest;learning=false;windowsLease=null;outputLease=null;windowsSample=null;windowsSampleAt=0;clear();try{const p=pads().find(p=>deviceKey(p)===$('device').value);selectedDevice=p?deviceKey(p):null;deviceIdentity=p?identity(p):null;const result=await api.selectController(p?.windows?p.index:null);if(request!==deviceRequest||!running)return;if(!result?.ok||(p?.windows&&revokedLeases.has(leaseKey(result)))){selectedDevice=null;deviceIdentity=null;$('device').value='';clear();}else{outputLease={run:result.run,selection:result.selection};if(p?.windows)windowsLease={...outputLease};}}catch{if(request!==deviceRequest)return;selectedDevice=null;deviceIdentity=null;$('device').value='';}});
 $('element').addEventListener('change',()=>{learning=false;selected=$('element').value;form();});
-function applyPreset(){const wasDemo=demo,mode=$('preset').value;stopLocal();void api.command('stop').catch(()=>{});const next=preset(mode,en?'en':'fr');next.renderStyle=config.renderStyle;next.grid=JSON.parse(JSON.stringify(config.grid));selected=next.controls[0].id;save(next);if(wasDemo)startDemo();}
+function applyPreset(){const wasDemo=demo,mode=$('preset').value;stopLocal();void api.command('stop').catch(()=>{});const next=preset(mode,presetLanguage());next.renderStyle=config.renderStyle;next.grid=JSON.parse(JSON.stringify(config.grid));selected=next.controls[0].id;save(next);if(wasDemo)startDemo();}
 $('preset').addEventListener('change',applyPreset);
 $('reset').addEventListener('click',applyPreset);
-$('reset').textContent=tr('Rétablir les réglages du modèle','Reset this layout');
+staticText($('reset'),'Rétablir les réglages du modèle','Reset this layout');
 $('preset').title=tr('Changer de modèle rétablit ses réglages, ses couleurs et ses affectations.','Changing layout resets its settings, colors and mappings.');
 $('presentation').textContent=tr('Agrandir l’aperçu','Enlarge preview');
 $('presentation').addEventListener('click',()=>{document.body.classList.toggle('presentation');$('presentation').textContent=document.body.classList.contains('presentation')?tr('Afficher les réglages','Show settings'):tr('Agrandir l’aperçu','Enlarge preview');draw();});
 $('presentation').title=tr('Agrandit l’aperçu dans cet éditeur. Le widget du jeu est une fenêtre séparée.','Enlarges this editor’s preview. The game widget is a separate window.');
 $('close-editor').addEventListener('click',()=>{void api.command('close');});
-$('close-editor').textContent=tr('Fermer','Close');$('close-editor').setAttribute('aria-label',tr('Fermer l’éditeur','Close editor'));
-$('show-output').textContent=tr('Afficher sur le jeu','Show over game');
+staticText($('close-editor'),'Fermer','Close');$('close-editor').setAttribute('aria-label',tr('Fermer l’éditeur','Close editor'));
+staticText($('show-output'),'Afficher sur le jeu','Show over game');
 $('show-output').addEventListener('click',async()=>{await configurationTask;await api.command('showOutput',{editing:true});});
-$('mapping-guide').textContent=tr('1. Démarrer → 2. Choisir la guitare → 3. Associer les touches','1. Start → 2. Choose your guitar → 3. Map the controls');
-$('mapping-steps').textContent=tr('Pour chaque élément : cliquez sur Associer cette entrée, relâchez la touche puis appuyez sur la frette ou le bouton souhaité.','For each control: click Map this input, release the button, then press the desired fret or button.');
-$('configure-mapping').textContent=tr('Configurer les touches','Configure controls');
+staticText($('mapping-guide'),'1. Démarrer → 2. Choisir la guitare → 3. Associer les touches','1. Start → 2. Choose your guitar → 3. Map the controls');
+staticText($('mapping-steps'),'Pour chaque élément : cliquez sur Associer cette entrée, relâchez la touche puis appuyez sur la frette ou le bouton souhaité.','For each control: click Map this input, release the button, then press the desired fret or button.');
+staticText($('configure-mapping'),'Configurer les touches','Configure controls');
 $('configure-mapping').addEventListener('click',()=>{document.body.classList.remove('presentation');$('mapping-settings').open=true;$('mapping-settings').scrollIntoView({block:'nearest'});$('learn').focus({preventScroll:true});});
 canvas.addEventListener('dblclick',()=>{document.body.classList.remove('presentation');draw();});
 window.addEventListener('keydown',event=>{if(event.code==='Escape'&&document.body.classList.contains('presentation')){document.body.classList.remove('presentation');draw();}});
@@ -133,9 +144,13 @@ const point=event=>{const rect=canvas.getBoundingClientRect();return{x:(event.cl
 canvas.addEventListener('pointerdown',event=>{canvas.focus({preventScroll:true});if(document.body.classList.contains('presentation'))return;const p=point(event),c=[...config.controls].reverse().find(c=>c.visible&&p.x>=c.x&&p.x<=c.x+c.width&&p.y>=c.y&&p.y<=c.y+c.height);if(c){selected=c.id;drag={id:c.id,from:p,x:c.x,y:c.y};canvas.setPointerCapture(event.pointerId);form();draw();}});
 canvas.addEventListener('pointermove',event=>{if(!drag)return;const p=point(event),c=config.controls.find(c=>c.id===drag.id);c.x=gridPosition(drag.x+p.x-drag.from.x,config.width-c.width,config.grid);c.y=gridPosition(drag.y+p.y-drag.from.y,config.height-c.height,config.grid);$('x').value=c.x;$('y').value=c.y;draw();});
 const finishDrag=()=>{if(drag){drag=null;save(config);}};canvas.addEventListener('pointerup',finishDrag);canvas.addEventListener('pointercancel',finishDrag);
+let lastState=null;
 function applyState(value){
  // An asynchronous Start reply can arrive after a newer device-list event.
- if(!Number.isSafeInteger(value?.revision)||value.revision<stateRevision)return;stateRevision=value.revision;editorVisible=value.open===true;if(!editorVisible){learning=false;drag=null;}
+ if(!Number.isSafeInteger(value?.revision)||value.revision<stateRevision)return;
+ lastState=value;
+ if(value.language&&value.language!==locale?.get()){locale?.set(value.language);renderCopy();}
+ stateRevision=value.revision;editorVisible=value.open===true;if(!editorVisible){learning=false;drag=null;}
  const automation=value.chartAutomation;
  if(automation&&!automation.showOnChart&&!automation.resetOnEnd)$('chart-auto-status').textContent=tr('Automatismes désactivés. La lecture manette et les compteurs manuels restent disponibles.','Automation is off. Controller reading and manual counters remain available.');
  else if(!automation?.requested)$('chart-auto-status').textContent=tr('Cliquez sur Démarrer pour suivre les débuts et fins des charts.','Click Start to track chart starts and ends.');
@@ -149,6 +164,18 @@ const leaseMatches=value=>windowsLease&&value?.run===windowsLease.run&&value?.se
 const unsubscribeInput=api?.subscribeInput(value=>{if(!running||!selectedDevice?.startsWith('windows:')||!leaseMatches(value)||value.sample?.index!==Number(selectedDevice.slice(8)))return;windowsSample=value.sample;windowsSampleAt=performance.now();});
 const unsubscribeDisconnect=api?.subscribeDisconnect(value=>{if(!Number.isSafeInteger(value?.run)||!Number.isSafeInteger(value?.selection))return;revokedLeases.add(leaseKey(value));if(revokedLeases.size>32)revokedLeases.delete(revokedLeases.values().next().value);if(!running||!leaseMatches(value))return;deviceRequest++;windowsLease=null;windowsSample=null;windowsSampleAt=0;selectedDevice=null;deviceIdentity=null;learning=false;$('device').value='';clear();});
 window.addEventListener('beforeunload',()=>{disposed=true;counterRequest++;clearTimeout(counterTimer);stopLocal();unsubscribe?.();unsubscribeInput?.();unsubscribeDisconnect?.();});window.addEventListener('resize',()=>draw());
+function renderCopy(){
+ for(const [node,values]of copy)if(node.isConnected)node.textContent=tr(...values);
+ if(lastStatus)status(...lastStatus);
+ $('demo').textContent=demo?tr('Arrêter la démo','Stop demo'):tr('Démo visuelle','Visual demo');
+ $('presentation').textContent=document.body.classList.contains('presentation')?tr('Afficher les réglages','Show settings'):tr('Agrandir l’aperçu','Enlarge preview');
+ $('presentation').title=tr('Agrandit l’aperçu dans cet éditeur. Le widget du jeu est une fenêtre séparée.','Enlarges this editor’s preview. The game widget is a separate window.');
+ $('preset').title=tr('Changer de modèle rétablit ses réglages, ses couleurs et ses affectations.','Changing layout resets its settings, colors and mappings.');
+ $('close-editor').setAttribute('aria-label',tr('Fermer l’éditeur','Close editor'));
+ canvas.setAttribute('aria-label',tr('Affichage des entrées','Input display'));
+ listSignature=''; form();
+}
+window.addEventListener('chartshub:locale-ready',()=>{renderCopy();if(lastState)applyState(lastState);});
 form();stopLocal();void pollCounts();void publishConfiguration().then(()=>api.command('snapshot')).then(result=>applyState(result?.state)).catch(()=>{});
 
 $('align-grid').addEventListener('click',()=>{const next=JSON.parse(JSON.stringify(config));for(const c of next.controls)if(c.visible){c.x=gridPosition(c.x,next.width-c.width,next.grid);c.y=gridPosition(c.y,next.height-c.height,next.grid);}save(next);});

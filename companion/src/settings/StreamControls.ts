@@ -1,3 +1,4 @@
+import { localizedPair } from '../localization/locale-pair.js';
 import type { AppState } from '../core/state/AppState.js';
 import type { StreamSettings } from '../overlay/stream/StreamConfig.js';
 import { createDefaultStream } from '../overlay/stream/StreamConfig.js';
@@ -66,7 +67,7 @@ export class StreamControls {
 
   private get settings(): StreamSettings { return this.snapshot?.state.stream ?? createDefaultStream(this.snapshot?.state.widgets.instances ?? []); }
   private get revision(): number { return this.snapshot?.editor?.revision ?? 0; }
-  private tr(fr: string, en: string): string { return this.options.root.ownerDocument.documentElement.lang.startsWith('fr') ? fr : en; }
+  private tr(fr: string, en: string, values?: Record<string, unknown>): string { return localizedPair(this.options.root.ownerDocument.documentElement.lang, fr, en, values); }
 
   private async openWindow(name: 'catalogue' | 'filters' | 'player'): Promise<void> {
     if (this.disposed || this.busy || this.snapshot?.captureWindows?.[name]?.canOpen !== true) return;
@@ -164,7 +165,7 @@ export class StreamControls {
     this.element('#stream-status').textContent = enabled ? 'Serveur actif' : 'Serveur arrêté';
     this.element('#stream-status').classList.toggle('is-visible', enabled);
     const clients = Math.max(0, status?.clients ?? 0);
-    this.element('#stream-clients').textContent = this.tr(`${clients} connexion${clients === 1 ? '' : 's'} aux widgets`, `${clients} widget connection${clients === 1 ? '' : 's'}`);
+    this.element('#stream-clients').textContent = this.tr('Connexions aux widgets : {count}', 'Widget connections: {count}', { count: clients });
     const error = this.element('#stream-error');
     error.hidden = !status?.error;
     error.textContent = status?.error ? 'Le serveur Stream est indisponible. Vérifiez que le port est libre, puis réactivez-le.' : '';

@@ -1,3 +1,4 @@
+import { languageCode, languageKey, wordsFor } from './locale-text.js';
 const TEXT = {
   fr: {
     title: 'Quick Import · BÊTA',
@@ -258,26 +259,26 @@ export class QuickImportControls {
   update(snapshot) {
     if (this.disposed) return;
     this.snapshot = snapshot;
-    const state = snapshot?.quickImport ?? {}, language = snapshot?.language === 'en' ? 'en' : 'fr';
+    const state = snapshot?.quickImport ?? {}, language = languageCode(snapshot?.language);
     const detectedPlatform = platformName(state.platform), guidePlatform = this.guideSelection ?? detectedPlatform;
     const windows = detectedPlatform === 'win32';
     const hasRoot = typeof snapshot?.library?.settings?.rootPath === 'string' && snapshot.library.settings.rootPath.length > 0;
-    const signature = JSON.stringify([state, language, guidePlatform, hasRoot, this.pending, this.localError, [...this.helpPending].sort(), this.helpError, this.helpNotice]);
+    const signature = JSON.stringify([state, languageKey(language), guidePlatform, hasRoot, this.pending, this.localError, [...this.helpPending].sort(), this.helpError, this.helpNotice]);
     if (signature === this.signature) return;
     this.signature = signature;
-    const t = TEXT[language], n = this.nodes, busy = this.pending || state.busy === true;
+    const t = wordsFor(TEXT, language), n = this.nodes, busy = this.pending || state.busy === true;
     n.title.textContent = t.title; n.compatibility.textContent = t.compatibility; n.optional.textContent = t.optional;
     n.intro.textContent = t.intro; n.scope.textContent = t.scope;
-    const guideSignature = [language, guidePlatform, detectedPlatform].join(':');
+    const guideSignature = [languageKey(language), guidePlatform, detectedPlatform].join(':');
     if (this.helpLanguage !== guideSignature) {
       this.helpLanguage = guideSignature;
-      const guide = guidePlatform === 'win32' ? { intro: t.installIntro, steps: t.installSteps } : PLATFORM_GUIDES[language][guidePlatform];
+      const guide = guidePlatform === 'win32' ? { intro: t.installIntro, steps: t.installSteps } : wordsFor(PLATFORM_GUIDES, language)[guidePlatform];
       for (const name of ['installTitle', 'installExample', 'installShared', 'installRemoval', 'removalReview', 'setup', 'runtimeDownload', 'openPackage', 'prerequisites', 'release', 'hideConsole', 'showConsole', 'uninstallMelonLoader', 'uninstallMelonLoaderHelp', 'guideLabel', 'guideOnly']) n[name].textContent = t[name];
       n.guideLabel.textContent = t.guideLabel; n.detected.textContent = t.detected + t.systems[detectedPlatform];
       n.prerequisites.textContent = t.prerequisites + ' · ' + t.systems[detectedPlatform];
       for (const option of n.guideSystem.children) option.textContent = t.systems[option.value];
       n.guideSystem.value = guidePlatform; n.installIntro.textContent = guide.intro;
-      n.installCommand.textContent = windows && guidePlatform === 'win32' ? GUIDED_INSTALL + language : '';
+      n.installCommand.textContent = windows && guidePlatform === 'win32' ? GUIDED_INSTALL + (language === 'fr' ? 'fr' : 'en') : '';
       n.removalCommand.textContent = windows && guidePlatform === 'win32' ? PREVIEW_REMOVAL : '';
       n.installSteps.replaceChildren(...guide.steps.map(([label, detail]) => {
         const row = this.root.ownerDocument.createElement('li'), heading = this.root.ownerDocument.createElement('strong'), description = this.root.ownerDocument.createElement('p');

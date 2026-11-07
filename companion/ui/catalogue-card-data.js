@@ -1,9 +1,10 @@
+import { localizedPair } from '../dist/localization/locale-pair.js';
 // Same bounded name/color contract as ChartsHub chart-text.js. The profile
 // accent color is intentionally unrelated to a chart's song.ini charter name.
 export const isExternalCatalogueItem = item => item?.source === 'chorusencore' || typeof item?.id === 'string' && item.id.startsWith('enchor:');
 export function externalCatalogueStatus(external, source, locale) {
   if (!external || source === 'chartshub') return '';
-  const fr = locale.startsWith('fr'), tr = (french, english) => fr ? french : english;
+  const tr = (fr, en, values) => localizedPair(locale, fr, en, values);
   let message = '';
   if (external.status === 'idle') message = tr('Chorus Encore : saisissez un titre, un artiste ou un créateur, puis lancez Rechercher.', 'Chorus Encore: enter a title, artist or charter, then choose Search.');
   else if (external.status === 'loading') message = tr('Recherche Chorus Encore en cours…', 'Searching Chorus Encore…');
@@ -12,7 +13,7 @@ export function externalCatalogueStatus(external, source, locale) {
   else if (external.status === 'maintenance') message = tr('ChartsHub est en maintenance. Les résultats déjà chargés restent disponibles. Vous pouvez continuer à écrire et relancer la recherche dès la réouverture.', 'ChartsHub is under maintenance. Loaded results remain available. You can keep typing and search again as soon as the site reopens.');
   else if (external.status === 'cooldown') {
     const seconds = Number.isFinite(external.retryAfterSeconds) ? Math.max(1, Math.ceil(external.retryAfterSeconds)) : null;
-    message = seconds ? tr(`Chorus Encore : réessayez dans ${seconds} s en cliquant sur Rechercher.`, `Chorus Encore: wait ${seconds} s, then choose Search again.`) : tr('Chorus Encore demande de patienter. Relancez la recherche plus tard.', 'Chorus Encore needs more time. Search again later.');
+    message = seconds ? tr("Chorus Encore : réessayez dans {seconds} s en cliquant sur Rechercher.", "Chorus Encore: wait {seconds} s, then choose Search again.", { seconds }) : tr('Chorus Encore demande de patienter. Relancez la recherche plus tard.', 'Chorus Encore needs more time. Search again later.');
   } else if (external.status === 'error') message = tr('Chorus Encore est indisponible. Relancez la recherche pour réessayer.', 'Chorus Encore is unavailable. Search again to retry.');
   else if (external.status === 'ready') message = tr('Résultats Chorus Encore · source externe.', 'Chorus Encore results · external source.');
   if (['error', 'suspended', 'disabled'].includes(external.status) && typeof external.error === 'string' && external.error.trim()) message += ' ' + external.error.slice(0, 512);

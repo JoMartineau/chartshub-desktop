@@ -58,6 +58,7 @@ const { createDrumVstService } = require('./drum-vst-service.cjs');
 const { createQuickImportService, PUBLIC_QUICK_IMPORT_CODES } = require('./quick-import-service.cjs');
 const { expectedBuild: quickImportExpectedBuild } = require('./quick-import-build.cjs');
 const { validateUIPalette } = require('../desktop/ui-palette.cjs');
+const { runtime: localeRuntime, loadLanguage, pair: localePair, createLanguagePreferences } = require('../desktop/language.cjs');
 const SCHEME = 'chartshub-companion';
 const CAPTURE_WINDOW_TITLES = Object.freeze({ catalogue: 'ChartsHub — Mini Catalogue', filters: 'ChartsHub — Filtres du jeu', player: 'ChartsHub — Lecteur Songs' });
 const STREAM_CAPTURE_DEFAULT_BACKGROUND = '#101827';
@@ -65,7 +66,7 @@ const QUICK_IMPORT_CODES = new Set(PUBLIC_QUICK_IMPORT_CODES);
 function registerCompanionScheme() {
   protocol.registerSchemesAsPrivileged([{ scheme: SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, stream: true } }]);
 }
-async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, catalogueSyncClient, catalogueSyncWorker, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, quickImportService, quickImportRuntimePlatform = process.platform, gameWidgetTelemetrySource, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, reportDownloadCompletion, sharingClient, songRequestConnectionOptions = {} } = {}) {
+async function createCompanionHost({ dataDirectory = path.join(app.getPath('userData'), 'companion'), catalogueClient, catalogueSyncClient, catalogueSyncWorker, downloadWorker, cloneHeroCandidates, cloneHeroProcessProbe, calibrationHardwareService, connectorSetupService, drumVstService, quickImportService, quickImportRuntimePlatform = process.platform, gameWidgetTelemetrySource, gameplayMeasurements = false, calibrationBeta = false, filtersService, reshadeService, reshadeSetupService, embedded, isCatalogueAvailable = () => true, authorizeCatalogue = async () => true, downloadNotifications, reportDownloadCompletion, sharingClient, songRequestConnectionOptions = {}, initialLanguage, saveLanguage } = {}) {
   if (typeof isCatalogueAvailable !== 'function' || typeof authorizeCatalogue !== 'function') throw Error('Invalid catalogue availability');
   if (embedded && (!embedded.ownerWindow || typeof embedded.ownerWindow.isDestroyed !== 'function' || typeof embedded.attachView !== 'function' || typeof embedded.activate !== 'function')) throw Error('Invalid embedded Companion host');
   const measurementFactories = loadMeasurementFactories(gameplayMeasurements);
@@ -176,7 +177,8 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   let reshade = null, reshadeRefresh = null, reshadePickerOpen = false, reshadeConfirmationOpen = false;
   let reshadeSetup = null, reshadeSetupStarting = false;
   let lifecycleRevision = 0;
-  let language = 'fr';
+  const languagePreferences = typeof saveLanguage === 'function' ? null : createLanguagePreferences({ filename: path.join(dataDirectory, 'language.json'), preferredLanguages: () => ['fr'] });
+  let language = languagePreferences ? await languagePreferences.load() : loadLanguage(initialLanguage) ?? 'fr';
   let telemetry = null, gameWidgetIntegrations = null, gameModPreflight = null;
   const inputViewerGameEvents = createInputViewerGameEvents({
     getViewer: () => inputViewer,
@@ -198,7 +200,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     }, onChange: () => { if (!disposing) publishPanel(); } }) : null;
   let buttonMotion = { economy: false };
   let uiPalette = null;
-  const tr = (fr, en) => language === 'fr' ? fr : en;
+  const tr = (fr, en, values) => localePair(language, fr, en, values);
   let preferredProfileId = null;
   const profileWrites = new Set();
   const logger = Object.fromEntries(['info','warn','error'].map(level => [level, message => {
@@ -317,7 +319,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     const raw = measurementsEnabled ? telemetry?.snapshot() : gameWidgetIntegrations?.readings();
     const view = raw ? telemetryStateView(services.store.getState(), raw, { language, liveMetadata: integration.status().mode === 'live' }) : { ...services.store.getState(), performance: null };
     const flags = gameWidgetIntegrations?.status();
-    return { ...(measurementsEnabled || editor ? view : publicWidgetState(view, flags)), lyrics: measurementsEnabled || flags?.lyrics === true ? songVisuals?.lyricsSnapshot() ?? null : null };
+    return { ...(measurementsEnabled || editor ? view : publicWidgetState(view, flags)), language, lyrics: measurementsEnabled || flags?.lyrics === true ? songVisuals?.lyricsSnapshot() ?? null : null };
   };
   const telemetryPanel = () => { const value = measurementsEnabled ? telemetry?.snapshot() : null; return value ? { ...publicTelemetrySnapshot(value, language), enabled: value.enabled, canWrite: value.canWrite, persistenceError: value.persistenceError, settings: value.settings, calibration: value.calibration, hardware: calibrationHardware.snapshot(), connectorSetup: connectorSetup.snapshot(), reason: value.reason } : null; };
   const snapshot = () => ({ language, features: { gameplayMeasurements: measurementsEnabled, calibrationBeta: measurementsEnabled && calibrationBeta === true, gameWidgets: !measurementsEnabled }, gameWidgets: gameWidgetIntegrations?.status() ?? null, gameModPreflight: gameModPreflight?.status() ?? null, uiPalette: uiPalette ? validateUIPalette(uiPalette) : null, buttonMotion: { ...buttonMotion }, state: stateView({ editor: true }), telemetry: telemetryPanel(), visuals: songVisuals?.snapshot(), gameCapture: gameCaptureStatus(), inputViewer: inputViewerStatus(), drums: drums.status(), quickImport: quickImportView(), requestDiscovery: songRequestDiscovery?.status() ?? null, chat: chatSnapshot(), sessionActivity: sessionActivity?.snapshot() ?? null, sessionWidgets: { revision: sessionWidgetRevision, settings: { ...sessionWidgetSettings } }, profiles: profiles.status({ version: 3, ...editorDocument() }, preferredProfileId), cloneHero: integration.status(), overlayEnabled, stream: streamStatus(), songRequests: songRequestSnapshot(), player: musicPlayer?.snapshot(), captureWindows: captureWindows(), library: library?.status(), catalogue: catalogue?.status(), downloads: downloads?.status(), catalogueSync: catalogueSync?.status(), filters: filters?.status(), reshade: reshade?.status(), reshadeSetup: reshadeSetup?.status(), filtersWidgetEnabled, filtersFocusRevision, catalogueWidgetEnabled, catalogueShortcut: catalogueShortcut(), floatingPanels: floatingPanels.status(), editor: { revision: editorRevision, canUndo: history.canUndo, canRedo: history.canRedo }, logs: [...logs], ...(persistenceError ? { persistenceError } : {}) });
@@ -395,7 +397,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       capture.window.webContents.send('companion:changed', streamCaptureSnapshot(kind, playing));
     }
   }
-  function setLanguage(value) { if (!['fr','en'].includes(value) || language === value) return language; language=value; if (!embedded && panelAlive()) panel.setTitle?.(tr('ChartsHub — Tableau de bord', 'ChartsHub — Dashboard')); publish(); return language; }
+  function setLanguage(value) { const locale=localeRuntime.canonicalize(value); if (!locale || language === locale) return language; language=locale; loadLanguage(locale); if (!embedded && panelAlive()) panel.setTitle?.(tr('ChartsHub — Tableau de bord', 'ChartsHub — Dashboard')); publish(); inputViewer?.refreshLanguage(); gameCapture?.refreshLanguage(); return language; }
   function setButtonMotion(value) {
     if (!value || typeof value !== 'object' || Array.isArray(value) || typeof value.economy !== 'boolean' || Object.keys(value).some(key => !['economy', 'hoverLift'].includes(key)) || (Object.hasOwn(value, 'hoverLift') && ![1, 3, 5].includes(value.hoverLift))) return false;
     const next = { economy: value.economy, ...(Object.hasOwn(value, 'hoverLift') ? { hoverLift: value.hoverLift } : {}) };
@@ -778,7 +780,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: false, error: 'Le panneau a été fermé.' };
       const status = reshade.status();
       if (!status.rootPath || status.busy || status.running !== false || !status.supported || !status.binaryAvailable) return { ok: false, error: status.running === true ? 'Fermez Clone Hero avant d’installer l’intégration ReShade.' : status.running !== false ? 'L’état de Clone Hero ne peut pas être vérifié. Actualisez l’état avant l’installation.' : status.message || 'L’intégration ReShade ne peut pas être installée dans cet état.' };
-      const choice = await dialog.showMessageBox(owner, { type: 'question', title: tr('Connecter les effets ReShade', 'Connect ReShade effects'), message: tr('Installer l’intégration ReShade dans ce dossier ?', 'Install the ReShade integration in this folder?'), detail: tr(`${status.rootPath}\n\nChartsHubReShade.addon64 sera installé dans ce dossier. Si le moteur ChartsHub classique remplace votre ancien ReShade, sa sauvegarde sera restaurée. Vos effets ne seront pas tous activés : vous les choisirez dans le panneau. Relancez Clone Hero pour établir la connexion.`, `${status.rootPath}\n\nChartsHubReShade.addon64 will be installed in this folder. If the classic ChartsHub engine replaced your previous ReShade installation, its backup will be restored. Effects will not all be enabled automatically: choose them in the panel. Restart Clone Hero to establish the connection.`), buttons: [tr('Annuler', 'Cancel'), tr('Installer', 'Install')], defaultId: 0, cancelId: 0, noLink: true });
+      const choice = await dialog.showMessageBox(owner, { type: 'question', title: tr('Connecter les effets ReShade', 'Connect ReShade effects'), message: tr('Installer l’intégration ReShade dans ce dossier ?', 'Install the ReShade integration in this folder?'), detail: tr("{folder}\n\nChartsHubReShade.addon64 sera installé dans ce dossier. Si le moteur ChartsHub classique remplace votre ancien ReShade, sa sauvegarde sera restaurée. Vos effets ne seront pas tous activés : vous les choisirez dans le panneau. Relancez Clone Hero pour établir la connexion.", "{folder}\n\nChartsHubReShade.addon64 will be installed in this folder. If the classic ChartsHub engine replaced your previous ReShade installation, its backup will be restored. Effects will not all be enabled automatically: choose them in the panel. Restart Clone Hero to establish the connection.", { folder: status.rootPath }), buttons: [tr('Annuler', 'Cancel'), tr('Installer', 'Install')], defaultId: 0, cancelId: 0, noLink: true });
       if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed() || status.rootPath !== reshade.status().rootPath) return { ok: false, error: 'Le panneau ou le dossier a changé.' };
       if (choice.response !== 1) return { ok: true, cancelled: true };
       await reshade.install();
@@ -808,7 +810,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       const status = filters.status();
       if (!status.rootPath || status.busy || status.running === true || (action === 'install' && (!status.supported || !status.binaryAvailable))) return { ok: false, error: status.running ? 'Fermez Clone Hero avant de modifier son module de filtres.' : status.message || 'Le module ne peut pas être modifié dans cet état.' };
       const install = action === 'install';
-      const choice = await dialog.showMessageBox(owner, { type: 'question', title: install ? tr('Installer les filtres ChartsHub', 'Install ChartsHub filters') : tr('Restaurer le module précédent', 'Restore previous module'), message: install ? tr('Installer le module ChartsHub dans ce dossier ?', 'Install the ChartsHub module in this folder?') : tr('Retirer le module ChartsHub et restaurer la sauvegarde ?', 'Remove the ChartsHub module and restore the backup?'), detail: install ? tr(`${status.rootPath}\n\nLe fichier dxgi.dll sera installé dans ce dossier. Le module précédent sera sauvegardé avant remplacement. Les filtres prendront effet au prochain lancement de Clone Hero.`, `${status.rootPath}\n\ndxgi.dll will be installed in this folder. The previous module will be backed up before replacement. Filters will take effect the next time Clone Hero starts.`) : tr(`${status.rootPath}\n\nLe fichier dxgi.dll de ChartsHub sera retiré. La sauvegarde du module précédent, si elle existe, sera remise à sa place.`, `${status.rootPath}\n\nThe ChartsHub dxgi.dll will be removed. The previous module backup, if available, will be restored.`), buttons: [tr('Annuler', 'Cancel'), install ? tr('Installer', 'Install') : tr('Restaurer', 'Restore')], defaultId: 0, cancelId: 0, noLink: true });
+      const choice = await dialog.showMessageBox(owner, { type: 'question', title: install ? tr('Installer les filtres ChartsHub', 'Install ChartsHub filters') : tr('Restaurer le module précédent', 'Restore previous module'), message: install ? tr('Installer le module ChartsHub dans ce dossier ?', 'Install the ChartsHub module in this folder?') : tr('Retirer le module ChartsHub et restaurer la sauvegarde ?', 'Remove the ChartsHub module and restore the backup?'), detail: install ? tr("{folder}\n\nLe fichier dxgi.dll sera installé dans ce dossier. Le module précédent sera sauvegardé avant remplacement. Les filtres prendront effet au prochain lancement de Clone Hero.", "{folder}\n\ndxgi.dll will be installed in this folder. The previous module will be backed up before replacement. Filters will take effect the next time Clone Hero starts.", { folder: status.rootPath }) : tr("{folder}\n\nLe fichier dxgi.dll de ChartsHub sera retiré. La sauvegarde du module précédent, si elle existe, sera remise à sa place.", "{folder}\n\nThe ChartsHub dxgi.dll will be removed. The previous module backup, if available, will be restored.", { folder: status.rootPath }), buttons: [tr('Annuler', 'Cancel'), install ? tr('Installer', 'Install') : tr('Restaurer', 'Restore')], defaultId: 0, cancelId: 0, noLink: true });
       if (disposing || stopTask || revision !== lifecycleRevision || owner !== panel || owner.isDestroyed() || status.rootPath !== filters.status().rootPath) return { ok: false, error: 'Le panneau ou le dossier a changé.' };
       if (choice.response !== 1) return { ok: true, cancelled: true };
       await filters[action]();
@@ -1149,6 +1151,11 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     if (catalogueSync?.isBusy() && ['library.recycleDuplicates', 'library.forceRecycleDuplicate', 'library.recycleBulkDifferences', 'library.recycleBadSongs', 'library.prepareSelectedRemoval', 'library.recycleSelectedRemoval'].includes(command)) return { ok: false, code: 'SYNC_BUSY', error: tr('Mettez la synchronisation en pause avant de nettoyer la bibliothèque.', 'Pause synchronization before cleaning the library.') };
     if (['widget.layout', 'widget.visibility', 'widget.appearance', 'widget.fontSize', 'widget.accuracy', 'widget.lyrics', 'widget.locked', 'theme.preset', 'theme.color', 'theme.effects', 'stream.settings', 'profile.save', 'profile.apply'].includes(command) && payload.revision !== editorRevision) return { ok: false, code: 'STALE_REVISION', error: 'Les réglages ont changé. Réessaie avec leur version actuelle.' };
     try {
+      if (command === 'language.set') {
+        const saved = await (languagePreferences ? languagePreferences.set(payload.language) : saveLanguage(payload.language));
+        if (!saved) return { ok: false, code: 'LANGUAGE_SAVE_FAILED' };
+        return { ok: true, language: languagePreferences ? setLanguage(payload.language) : language };
+      }
       if (command.startsWith('gameWidgets.')) {
         if (!trustedPanel(event) || !gameWidgetIntegrations) return { ok: false, code: 'GAME_WIDGETS_UNAVAILABLE' };
         const owner = panelContents, revision = lifecycleRevision;
@@ -1280,7 +1287,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
             const systemRoot = process.env.SystemRoot;
             if (!systemRoot || !path.isAbsolute(systemRoot)) return { ok: false, code: 'QUICK_IMPORT_FAILED' };
             const powershell = path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-            const args = ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', installer, '-Guided', '-Language', language];
+            const args = ['-NoProfile', '-STA', '-ExecutionPolicy', 'Bypass', '-File', installer, '-Guided', '-Language', language === 'fr' ? 'fr' : 'en'];
             const rememberedGame = quickImport.selectedGameRoot?.();
             if (rememberedGame) args.push('-InitialGameRoot', rememberedGame);
             const rememberedSongs = library.status().settings.rootPath;
@@ -1571,10 +1578,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
           if (disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
           const keepers = new Map(review.keepers.map(keep => [keep.id, keep]));
           const totalBytes = review.candidates.reduce((sum, candidate) => sum + candidate.bytes, 0);
+          const keptPaths = review.keepers.map(keep => keep.targetRelativePath).join('\n');
+          const copyPaths = review.candidates.map(candidate => tr('{copy} → conserver {kept}', '{copy} → keep {kept}', { copy: candidate.targetRelativePath, kept: keepers.get(candidate.keeperId)?.targetRelativePath })).join('\n');
           const choice = await dialog.showMessageBox(owner, { type: 'warning',
             title: tr('Supprimer les versions différentes sélectionnées ?', 'Delete the selected different versions?'),
-            message: tr(`${review.candidates.length} copie(s) différente(s) sélectionnée(s) · ${totalBytes} octets.`, `${review.candidates.length} selected different copy/copies · ${totalBytes} bytes.`),
-            detail: tr(`Versions conservées :\n${review.keepers.map(keep => keep.targetRelativePath).join('\n')}\n\nCopies sélectionnées :\n${review.candidates.map(candidate => `${candidate.targetRelativePath} → conserver ${keepers.get(candidate.keeperId)?.targetRelativePath}`).join('\n')}\n\nLes notes, l’audio et/ou des fichiers non audio peuvent être différents. Seules les copies sélectionnées seront envoyées à la Corbeille Windows, avec tous leurs fichiers. Aucune suppression définitive ne sera utilisée.`, `Kept versions:\n${review.keepers.map(keep => keep.targetRelativePath).join('\n')}\n\nSelected copies:\n${review.candidates.map(candidate => `${candidate.targetRelativePath} → keep ${keepers.get(candidate.keeperId)?.targetRelativePath}`).join('\n')}\n\nNotes, audio and/or non-audio files may differ. Only the selected copies and all their files will be sent to the Windows Recycle Bin. Permanent deletion is never used.`),
+            message: tr('Copies différentes sélectionnées : {count} · {bytes} octets.', 'Selected different copies: {count} · {bytes} bytes.', { count: review.candidates.length, bytes: totalBytes }),
+            detail: tr("Versions conservées :\n{kept}\n\nCopies sélectionnées :\n{copies}\n\nLes notes, l’audio et/ou des fichiers non audio peuvent être différents. Seules les copies sélectionnées seront envoyées à la Corbeille Windows, avec tous leurs fichiers. Aucune suppression définitive ne sera utilisée.", "Kept versions:\n{kept}\n\nSelected copies:\n{copies}\n\nNotes, audio and/or non-audio files may differ. Only the selected copies and all their files will be sent to the Windows Recycle Bin. Permanent deletion is never used.", { kept: keptPaths, copies: copyPaths }),
             buttons: [tr('Annuler', 'Cancel'), tr('Envoyer la sélection à la Corbeille', 'Send selection to Recycle Bin')], defaultId: 0, cancelId: 0, noLink: true });
           if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
           const keeps = new Map(review.candidates.map(candidate => {
@@ -1598,7 +1607,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
           const choice = await dialog.showMessageBox(owner, { type: 'warning',
             title: tr('Supprimer quand même cette copie ?', 'Delete this copy anyway?'),
             message: tr('Cette copie vérifiée diffère de la version conservée.', 'This verified copy differs from the kept version.'),
-            detail: tr(`Version conservée : ${review.keep.targetRelativePath}\n\nCopie à supprimer : ${candidate.targetRelativePath}\nTaille conservée : ${review.keep.bytes} octets\nTaille de la copie : ${candidate.bytes} octets\nAudio conservé : ${review.keep.audio.bytes} octets\nAudio de la copie : ${candidate.audio.bytes} octets\n\nLes notes, l’audio et/ou des fichiers non audio peuvent être différents. La copie complète sera envoyée à la Corbeille Windows. Cette action n’est pas automatique et aucune suppression définitive ne sera utilisée.`, `Kept version: ${review.keep.targetRelativePath}\n\nCopy to delete: ${candidate.targetRelativePath}\nKept size: ${review.keep.bytes} bytes\nCopy size: ${candidate.bytes} bytes\nKept audio: ${review.keep.audio.bytes} bytes\nCopy audio: ${candidate.audio.bytes} bytes\n\nNotes, audio and/or non-audio files may differ. The complete copy will be sent to the Windows Recycle Bin. This action is not automatic and permanent deletion is never used.`),
+            detail: tr("Version conservée : {value1}\n\nCopie à supprimer : {value2}\nTaille conservée : {value3} octets\nTaille de la copie : {value4} octets\nAudio conservé : {value5} octets\nAudio de la copie : {value6} octets\n\nLes notes, l’audio et/ou des fichiers non audio peuvent être différents. La copie complète sera envoyée à la Corbeille Windows. Cette action n’est pas automatique et aucune suppression définitive ne sera utilisée.", "Kept version: {value1}\n\nCopy to delete: {value2}\nKept size: {value3} bytes\nCopy size: {value4} bytes\nKept audio: {value5} bytes\nCopy audio: {value6} bytes\n\nNotes, audio and/or non-audio files may differ. The complete copy will be sent to the Windows Recycle Bin. This action is not automatic and permanent deletion is never used.", { value1: review.keep.targetRelativePath, value2: candidate.targetRelativePath, value3: review.keep.bytes, value4: candidate.bytes, value5: review.keep.audio.bytes, value6: candidate.audio.bytes }),
             buttons: [tr('Annuler', 'Cancel'), tr('Supprimer quand même', 'Delete anyway')], defaultId: 0, cancelId: 0, noLink: true });
           if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
           cleanupApproval = { owner, lifecycle, root, keep: path.resolve(root, review.keep.targetRelativePath), targets: new Set([path.resolve(root, candidate.targetRelativePath)]) };
@@ -1613,9 +1622,10 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
           const review = await library.cleanupReview(request);
           const root = library.status().settings.rootPath;
           if (disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
+          const copies = review.candidates.map(item => tr('{kind} : {path}', '{kind}: {path}', { kind: item.kind === 'folder' ? tr('Dossier entier', 'Entire folder') : tr('Fichier SNG', 'SNG file'), path: item.targetRelativePath })).join('\n');
           const choice = await dialog.showMessageBox(owner, { type: 'warning', title: tr('Envoyer les copies à la Corbeille Windows', 'Send copies to Windows Recycle Bin'),
-            message: tr(`Envoyer ${review.candidates.length} copie(s) sélectionnée(s) à la Corbeille ?`, `Send ${review.candidates.length} selected copy/copies to the Recycle Bin?`),
-            detail: tr(`Version conservée : ${review.keep.targetRelativePath}\n\nCopies sélectionnées :\n${review.candidates.map(item => `${item.kind === 'folder' ? 'Dossier entier' : 'Fichier SNG'} : ${item.targetRelativePath}`).join('\n')}\n\nLes dossiers sont déplacés avec tous leurs fichiers. Aucune suppression définitive ne sera utilisée si la Corbeille est indisponible.`, `Kept version: ${review.keep.targetRelativePath}\n\nSelected copies:\n${review.candidates.map(item => `${item.kind === 'folder' ? 'Entire folder' : 'SNG file'} : ${item.targetRelativePath}`).join('\n')}\n\nFolders are moved with all their files. Permanent deletion is never used if the Recycle Bin is unavailable.`),
+            message: tr('Copies à envoyer à la Corbeille : {count}.', 'Copies to send to the Recycle Bin: {count}.', { count: review.candidates.length }),
+            detail: tr("Version conservée : {kept}\n\nCopies sélectionnées :\n{copies}\n\nLes dossiers sont déplacés avec tous leurs fichiers. Aucune suppression définitive ne sera utilisée si la Corbeille est indisponible.", "Kept version: {kept}\n\nSelected copies:\n{copies}\n\nFolders are moved with all their files. Permanent deletion is never used if the Recycle Bin is unavailable.", { kept: review.keep.targetRelativePath, copies }),
             buttons: [tr('Annuler', 'Cancel'), tr('Envoyer à la Corbeille', 'Send to Recycle Bin')], defaultId: 0, cancelId: 0, noLink: true });
           if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
           cleanupApproval = { owner, lifecycle, root, keep: path.resolve(root, review.keep.targetRelativePath), targets: new Set(review.candidates.map(item => path.resolve(root, item.targetRelativePath))) };
@@ -1641,9 +1651,9 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
           const size = new Intl.NumberFormat(language === 'fr' ? 'fr-CA' : 'en-US', { maximumFractionDigits: 2 }).format(review.totalBytes / (1024 ** 3));
           const choice = await dialog.showMessageBox(owner, { type: 'warning', noLink: true,
             title: tr('Mettre les charts sélectionnées à la corbeille ?', 'Move the selected charts to the trash?'),
-            message: tr(`${paths.length} chart(s) sélectionnée(s) · ${size} Gio`, `${paths.length} selected chart(s) · ${size} GiB`),
+            message: tr('Charts sélectionnées : {count} · {size} Gio', 'Selected charts: {count} · {size} GiB', { count: paths.length, size }),
             detail: tr('Dossier Songs : ', 'Songs folder: ') + root + '\n\n' + paths.slice(0, 30).join('\n')
-              + (paths.length > 30 ? '\n\n' + tr(`Aperçu de 30 dossiers sur ${paths.length}.`, `Showing 30 of ${paths.length} folders.`) : '')
+              + (paths.length > 30 ? '\n\n' + tr("Aperçu de 30 dossiers sur {value1}.", "Showing 30 of {value1} folders.", { value1: paths.length }) : '')
               + '\n\n' + tr('Les dossiers sélectionnés et tout leur contenu seront mis à la corbeille du système. Pour libérer effectivement l’espace disque, videz ensuite cette corbeille après vérification.', 'Selected folders and all their contents will be moved to the system trash. To actually free disk space, empty that trash after checking its contents.'),
             buttons: [tr('Annuler', 'Cancel'), tr('Mettre la sélection à la corbeille', 'Move selection to trash')], defaultId: 0, cancelId: 0 });
           if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed() || catalogueSync?.isBusy()) return { ok: true, cancelled: true };
@@ -1673,7 +1683,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
           if (disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
           const paths = review.entries.map(entry => path.resolve(root, ...entry.targetRelativePath.split('/')));
           const choice = await dialog.showMessageBox(owner, { type: 'warning', title: tr('Supprimer les charts signalées par Clone Hero ?', 'Delete charts reported by Clone Hero?'),
-            message: tr(paths.length + ' chart(s) sélectionnée(s).', paths.length + ' selected chart(s).'),
+            message: tr('Charts sélectionnées : {count}.', 'Selected charts: {count}.', { count: paths.length }),
             detail: tr('Dossier Songs : ', 'Songs folder: ') + root + '\n\n' + review.entries.map((entry, index) => paths[index] + '\n' + entry.reasons.join('\n')).join('\n\n') + '\n\n' + tr('Les dossiers sélectionnés et tout leur contenu seront envoyés à la Corbeille Windows. Les charts non cochées restent en place.', 'Selected folders and all their contents will be sent to the Windows Recycle Bin. Unchecked charts stay in place.'),
             buttons: [tr('Annuler', 'Cancel'), tr('Envoyer la sélection à la Corbeille', 'Send selection to Recycle Bin')], defaultId: 0, cancelId: 0, noLink: true });
           if (choice.response !== 1 || disposing || stopTask || lifecycle !== lifecycleRevision || owner !== panel || owner.isDestroyed()) return { ok: true, cancelled: true };
@@ -1918,7 +1928,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     else app.removeListener('before-quit', beforeQuit);
     unsubscribe(); ipcMain.removeHandler('companion:snapshot'); ipcMain.removeHandler('companion:command');
     disposeTask = (async () => {
-      await stop(); if (gameCaptureTask) await gameCaptureTask; await gameCapture?.dispose(); if (inputViewerTask) await inputViewerTask.catch(() => {}); await inputViewer?.dispose(); await drums.dispose(); await quickImport?.dispose(); sessionActivity?.dispose(); gameWidgetIntegrations?.dispose(); gameModPreflight?.dispose(); await telemetry?.dispose(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
+      await languagePreferences?.flush(); await stop(); if (gameCaptureTask) await gameCaptureTask; await gameCapture?.dispose(); if (inputViewerTask) await inputViewerTask.catch(() => {}); await inputViewer?.dispose(); await drums.dispose(); await quickImport?.dispose(); sessionActivity?.dispose(); gameWidgetIntegrations?.dispose(); gameModPreflight?.dispose(); await telemetry?.dispose(); await reshadeSetup.dispose(); await reshade.dispose(); await filters.dispose();
       if (embedded && panelContents && !panelContents.isDestroyed()) {
         const contents = panelContents;
         await new Promise(resolve => { contents.once('destroyed', resolve); contents.close(); });

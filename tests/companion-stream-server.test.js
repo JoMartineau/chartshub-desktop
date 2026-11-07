@@ -79,7 +79,7 @@ test('stream HTTP serves a token-protected overlay with a complete, public-only 
   assert.equal(overlay.status, 200); assert.match(overlay.text, /id="stream-overlay"/);
   assert.equal(overlay.headers['access-control-allow-origin'], undefined);
   assert.equal(overlay.headers['referrer-policy'], 'no-referrer');
-  assert.match(overlay.headers['content-security-policy'], new RegExp(`connect-src ws://127\\.0\\.0\\.1:${port}`));
+  assert.match(overlay.headers['content-security-policy'], new RegExp(`connect-src 'self' ws://127\\.0\\.0\\.1:${port}`));
   assert.equal((await request(port, '/ui/stream.css')).status, 200);
   const pending = ['/ui/stream.js'], visited = new Set();
   while (pending.length) {

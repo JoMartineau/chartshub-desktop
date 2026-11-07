@@ -1,5 +1,6 @@
 'use strict';
-const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const { GameplayControls } = require('../companion/ui/gameplay-controls.js');
 const {parseProbe,createCalibrationHardware}=require('../companion/calibration-hardware.cjs');
 const {runPowerShellFixture,POWERSHELL_FIXTURE_TIMEOUT_MS}=require('./helpers/powershell-fixture.cjs');
 const audio={status:'available',outputName:'Speakers',sampleRateHz:48000,channels:2,defaultPeriodMs:10,minimumPeriodMs:3};
@@ -15,9 +16,8 @@ test('Refreshing output candidates performs no startup enumeration, is coalesced
  assert.equal(calls,0);assert.deepEqual(service.snapshot().outputs,[]);const a=service.refresh(),b=service.refresh();assert.equal(calls,1);
  reply(null,JSON.stringify({audio,outputs:[{name:'Headset',kind:'candidate',windowsDefault:false}],inputs:[]}));await Promise.all([a,b]);const snapshot=service.snapshot();assert.equal(snapshot.outputs.length,2);snapshot.outputs[0].name='changed';assert.equal(service.snapshot().outputs[0].name,'Headset');
 });
-function controls(){const source=fs.readFileSync(path.join(__dirname,'../companion/ui/gameplay-controls.js'),'utf8').replace('export class GameplayControls','class GameplayControls');const scope={};vm.runInNewContext(source+'\nthis.Controls=GameplayControls;',scope);return scope.Controls.prototype;}
 test('Hardware refresh is independently available during unrelated settings writes and handles a failed request',async()=>{
- const proto=controls();let resolve,calls=0;const state={busy:true,disposed:false,hardwareRefresh:{},snapshot:{hardware:{status:'idle'}},command(name,payload){calls++;assert.equal(name,'telemetry.hardwareRefresh');assert.deepEqual(Object.keys(payload),[]);return new Promise(r=>resolve=r);},renderHardware(){}};
+ const proto=GameplayControls.prototype;let resolve,calls=0;const state={busy:true,disposed:false,hardwareRefresh:{},snapshot:{hardware:{status:'idle'}},command(name,payload){calls++;assert.equal(name,'telemetry.hardwareRefresh');assert.deepEqual(Object.keys(payload),[]);return new Promise(r=>resolve=r);},renderHardware(){}};
  const pending=proto.refreshHardware.call(state);assert.equal(calls,1);assert.equal(state.hardwareRefreshPending,true);await proto.refreshHardware.call(state);assert.equal(calls,1);resolve({ok:false});await pending;assert.equal(state.hardwareRefreshPending,false);assert.equal(state.hardwareRefreshError,true);assert.equal(state.busy,true);
 });
 test('Hardware detection stays metadata-only: no capture endpoint, ID read, initialization or device setting is invoked',()=>{

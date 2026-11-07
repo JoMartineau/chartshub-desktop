@@ -6,10 +6,11 @@ import { createDefaultStream } from '../../../overlay/stream/StreamConfig.js';
 import type { WidgetComponent, WidgetContent } from '../../engine/WidgetRegistry.js';
 import { validateAccuracyConfig, type AccuracyConfig } from './AccuracyConfig.js';
 import { validateLyricsConfig } from './LyricsConfig.js';
+import { localizedPair } from '../../../localization/locale-pair.js';
 
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value);
-const language = (p: GameplayTelemetry) => p.language === 'en' ? 'en' : 'fr';
-const label = (p: GameplayTelemetry, fr: string, en: string) => language(p) === 'fr' ? fr : en;
+const language = (p: GameplayTelemetry) => p.language || 'fr';
+const label = (p: GameplayTelemetry, fr: string, en: string) => localizedPair(language(p), fr, en);
 const format = (p: GameplayTelemetry, value: number | null | undefined, decimals = 0) => finite(value) ? new Intl.NumberFormat(language(p), {minimumFractionDigits: decimals, maximumFractionDigits: decimals}).format(value) : '—';
 const ms = (p: GameplayTelemetry, value: number | null | undefined, signed = false) => finite(value) ? `${signed && value > 0 ? '+' : ''}${format(p, value, 1)} ms` : '—';
 const time = (value: number) => { const n = Math.max(0, Math.floor(value)); return n >= 3600 ? `${Math.floor(n / 3600)}:${String(Math.floor(n % 3600 / 60)).padStart(2,'0')}:${String(n % 60).padStart(2,'0')}` : `${Math.floor(n / 60)}:${String(n % 60).padStart(2,'0')}`; };

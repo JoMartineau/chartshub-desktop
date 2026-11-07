@@ -8,6 +8,8 @@ const { WebSocket, WebSocketServer } = require('ws');
 const { publicTelemetrySnapshot } = require('./clonehero-telemetry-view.cjs');
 const { projectOutputSnapshot } = require('./input-viewer-output-state.cjs');
 const { projectSessionFeed } = require('./session-widget-model.cjs');
+const { localeAssetPath, contentType } = require('../desktop/locale-assets.cjs');
+const { runtime: localeRuntime } = require('../desktop/language.cjs');
 
 const MAX_SNAPSHOT = 256 * 1024, MAX_CLIENTS = 8, MAX_BUFFERED = 1024 * 1024;
 const MAX_INPUT_VIEWER_SNAPSHOT = 32 * 1024;
@@ -115,10 +117,11 @@ function publicState(input) {
     const width = number(item.width, 200, 24, 1280), height = number(item.height, 40, 16, 720);
     return { id: instance.id, x: number(item.x, 0, 0, 1280 - width), y: number(item.y, 0, 0, 720 - height), width, height };
   });
-  const resolvedTheme = theme(source.theme);
+  const language = localeRuntime.canonicalize(source.language), resolvedTheme = theme(source.theme);
   const performance = publicTelemetrySnapshot(source.performance, source.performance?.language);
   return {
     gameplay: { state, isChartActive }, nowPlaying, serviceHealth: {}, widgets: { instances },
+    ...(language ? { language } : {}),
     lyrics: isChartActive && lyricText(source.lyrics?.current) ? { current: lyricText(source.lyrics.current), next: lyricText(source.lyrics.next) || null } : null,
     ...(resolvedTheme ? { theme: resolvedTheme } : {}),
     ...(performance ? { performance } : {}),
@@ -168,10 +171,14 @@ function createLocalOverlayServer({ root, token, onStatus, visuals, inputViewer,
     return {
       'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
       'Cross-Origin-Resource-Policy': 'same-origin',
-      'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ${visual || viewer ? "'self'" : `ws://127.0.0.1:${context.server.address()?.port ?? context.port}`}; img-src ${visual ? "'self'" : "'none'"}; media-src ${visual ? "'self'" : "'none'"}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`
+      'Content-Security-Policy': `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ${visual || viewer ? '' : `ws://127.0.0.1:${context.server.address()?.port ?? context.port}`}; img-src ${visual ? "'self'" : "'none'"}; media-src ${visual ? "'self'" : "'none'"}; object-src 'none'; base-uri 'none'; frame-ancestors 'none'`
     };
   }
   async function asset(urlPath) {
+    const localeFile = localeAssetPath(path.dirname(directory), urlPath);
+    if (localeFile) {
+      try { return { bytes: await fs.readFile(localeFile), type: contentType(localeFile) }; } catch { return null; }
+    }
     let relative;
     if (urlPath === '/overlay') relative = 'ui/stream.html';
     else if (sessionFeeds && ['/chat', '/activity'].includes(urlPath)) relative = 'ui/session-feed.html';
@@ -180,7 +187,7 @@ function createLocalOverlayServer({ root, token, onStatus, visuals, inputViewer,
     else if (inputViewer && INPUT_VIEWER_ASSETS.has(urlPath)) relative = urlPath.slice(1);
     else if (visuals && ['/background', '/video'].includes(urlPath)) relative = 'ui/song-visuals.html';
     else if (visuals && ['/ui/song-visuals.js', '/ui/song-visuals.css', '/ui/song-visuals-sync.js'].includes(urlPath)) relative = urlPath.slice(1);
-    else if (urlPath === '/ui/stream.js' || urlPath === '/ui/stream.css') relative = urlPath.slice(1);
+    else if (['/ui/stream.js', '/ui/stream.css', '/ui/locale-context.js', '/dist/localization/locale-pair.js'].includes(urlPath)) relative = urlPath.slice(1);
     else if (/^\/dist\/(?:widgets\/(?:engine|core)\/[a-zA-Z0-9_/-]+|themes\/[a-zA-Z0-9_-]+|overlay\/stream\/[a-zA-Z0-9_-]+|core\/types\/[a-zA-Z0-9_-]+|layout\/WidgetLayoutEngine|overlay\/game\/GameOverlay)\.js$/.test(urlPath)) relative = urlPath.slice(1);
     else return null;
     try {

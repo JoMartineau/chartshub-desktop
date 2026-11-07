@@ -74,7 +74,12 @@ test('shell separates local privileges from catalogue session and only trusts it
   assert.notEqual(prefs.partition, 'persist:chartshub'); assert.match(prefs.preload, /desktop[\\/]preload\.cjs$/);
   assert.equal(f.shell.catalogueView.options.webPreferences.session, f.preferences.session);
   assert.equal(f.shell.catalogueView.options.webPreferences.preload, f.preferences.preload);
-  assert.deepEqual([...f.handlers.keys()].sort(), ['chartshub-shell:select-tab', 'chartshub-shell:state']);
+  assert.deepEqual([...f.handlers.keys()].sort(), ['chartshub-shell:locale-pack', 'chartshub-shell:select-tab', 'chartshub-shell:state']);
+  const localePack = f.handlers.get('chartshub-shell:locale-pack');
+  assert.equal(localePack(f.event(), 'ja')?.locale, 'ja');
+  assert.equal(localePack(f.event(), '../package.json'), null);
+  assert.equal(localePack({ ...f.event(), sender: f.shell.catalogueView.webContents }, 'ja'), null);
+  assert.equal(localePack({ ...f.event(), senderFrame: { ...f.event().senderFrame } }, 'ja'), null);
   const read = f.handlers.get('chartshub-shell:state'), select = f.handlers.get('chartshub-shell:select-tab');
   assert.equal(read(f.event()).activeTab, 'catalogue');
   assert.equal(read({ ...f.event(), sender: f.shell.catalogueView.webContents }), null);
@@ -257,7 +262,7 @@ test('theme is validated, copied and updates native titlebar without changing th
   if (process.platform !== 'darwin') assert.equal(f.shell.window.titlebar.height, 36);
 });
 
-test('shell preload exposes only validated tab selection and snapshots, never raw Electron events', async () => {
+test('shell preload exposes only validated tab selection, snapshots and locale packs', async () => {
   let api, notification; const invocations = [], removed = [];
   const electron = { contextBridge: { exposeInMainWorld: (name, value) => { assert.equal(name, 'chartsHubShell'); api = value; } }, ipcRenderer: {
     invoke: (...args) => { invocations.push(args); return Promise.resolve({}); },
@@ -265,9 +270,10 @@ test('shell preload exposes only validated tab selection and snapshots, never ra
     removeListener: (channel, listener) => removed.push([channel, listener])
   } };
   vm.runInNewContext(fs.readFileSync(require.resolve('../desktop/preload.cjs'), 'utf8'), { require: name => { assert.equal(name, 'electron'); return electron; } });
-  assert.deepEqual(Object.keys(api).sort(), ['getState', 'onState', 'selectTab']);
+  assert.deepEqual(Object.keys(api).sort(), ['getState', 'localePack', 'onState', 'selectTab']);
   await api.getState(); await api.selectTab('companion'); await assert.rejects(api.selectTab('companion:command'));
-  assert.deepEqual(invocations, [['chartshub-shell:state'], ['chartshub-shell:select-tab', 'companion']]);
+  await api.localePack('ja'); await assert.rejects(api.localePack({ locale: 'ja' }));
+  assert.deepEqual(invocations, [['chartshub-shell:state'], ['chartshub-shell:select-tab', 'companion'], ['chartshub-shell:locale-pack', 'ja']]);
   const received = [], unsubscribe = api.onState((...args) => received.push(args));
   notification({ sender: 'secret privileged event' }, { activeTab: 'catalogue' });
   assert.deepEqual(received, [[{ activeTab: 'catalogue' }]]); unsubscribe(); assert.equal(removed[0][1], notification);

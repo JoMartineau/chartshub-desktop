@@ -93,6 +93,7 @@ async function fixture({ user: initialUser = member, argv = [], hostInitializati
   };
   const localRequire = name => {
     if (name === 'electron') return electron;
+    if (name === './desktop/language.cjs') return {...require('../desktop/language.cjs'), createLanguagePreferences:()=>({load:async()=>'fr',hasSaved:()=>false,flush:async()=>{}})};
     if (name === './desktop/controller.cjs') return { createDesktopShell };
     if (name === './companion/host.cjs') return { registerCompanionScheme() {}, async createCompanionHost(options) { hostCreates++; hostOptions = options; if (hostInitialization) await hostInitialization.promise; return host; } };
     // These persistence/network engines are covered by their own synthetic and
@@ -170,10 +171,10 @@ test('right-click editing targets the remote catalogue view and stops after navi
   const params = { frame: f.web.mainFrame, isEditable: true, selectionText: 'chart', menuSourceType: 'mouse', editFlags: { canCopy: true, canPaste: true } };
   f.web.emit('context-menu', {}, params);
   const menu = f.menus.at(-1); assert.ok(menu);
-  menu.find(item => item.label === 'Copy').click(); menu.find(item => item.label === 'Paste').click();
+  menu.find(item => item.label === 'Copier').click(); menu.find(item => item.label === 'Coller').click();
   assert.deepEqual(f.web.edits, ['copy', 'paste']); assert.deepEqual(f.shell.window.webContents.edits, []);
   f.web.emit('did-start-navigation', {}, ORIGIN + '/next', false, true);
-  menu.find(item => item.label === 'Paste').click(); assert.deepEqual(f.web.edits, ['copy', 'paste']);
+  menu.find(item => item.label === 'Coller').click(); assert.deepEqual(f.web.edits, ['copy', 'paste']);
   f.web.mainFrame.url = 'https://other.test/'; f.web.emit('context-menu', {}, params); assert.equal(f.menus.length, 1);
   f.shell.window.close(); await until(() => f.shell.window.isDestroyed(), 'window closed');
   assert.equal(f.web.listenerCount('context-menu'), 0);

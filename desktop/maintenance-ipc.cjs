@@ -1,5 +1,6 @@
 'use strict';
 const {trustedContentsSender}=require('../companion/security.cjs');
+const {pair:localePair}=require('./language.cjs');
 const STATE='chartshub-maintenance:state',COMMAND='chartshub-maintenance:command',CHANGED='chartshub-maintenance:changed';
 const ACTIONS=['update.check','update.download','update.cancel','update.openRelease','update.install','update.rollback'];
 function createMaintenanceIpc({ipcMain,updater,getContents,getOwner,isAvailable,dialog,beginInstall,language=()=> 'en'}={}){
@@ -12,10 +13,10 @@ function createMaintenanceIpc({ipcMain,updater,getContents,getOwner,isAvailable,
   if(disposed||confirming||!isCurrent()||!allowed())return {ok:false,error:'UPDATE_OPERATIONS_ACTIVE'};
   confirming=true;
   try{
-   const owner=getOwner(),fr=language()==='fr';
-   const answer=await dialog.showMessageBox(owner,{type:'question',buttons:fr?['Annuler',rollback?'Restaurer et redémarrer':'Installer et redémarrer']:['Cancel',rollback?'Restore and restart':'Install and restart'],defaultId:0,cancelId:0,noLink:true,
-    message:rollback?(fr?'Revenir à la version '+updater.snapshot().previousVersion+' ?':'Restore version '+updater.snapshot().previousVersion+'?'):(fr?'Installer la nouvelle version de ChartsHub ?':'Install the new ChartsHub version?'),
-    detail:fr?'ChartsHub va fermer normalement, installer les fichiers officiels vérifiés, puis redémarrer. Vos chansons et réglages sont conservés. L’ancienne application est sauvegardée.':'ChartsHub will close normally, install the verified official files, then restart. Songs and settings are preserved. The previous application is backed up.'});
+   const owner=getOwner(),locale=language(),tr=(fr,en,values)=>localePair(locale,fr,en,values);
+   const answer=await dialog.showMessageBox(owner,{type:'question',buttons:[tr('Annuler','Cancel'),rollback?tr('Restaurer et redémarrer','Restore and restart'):tr('Installer et redémarrer','Install and restart')],defaultId:0,cancelId:0,noLink:true,
+    message:rollback?tr('Revenir à la version {version} ?','Restore version {version}?',{version:updater.snapshot().previousVersion}):tr('Installer la nouvelle version de ChartsHub ?','Install the new ChartsHub version?'),
+    detail:tr('ChartsHub va fermer normalement, installer les fichiers officiels vérifiés, puis redémarrer. Vos chansons et réglages sont conservés. L’ancienne application est sauvegardée.','ChartsHub will close normally, install the verified official files, then restart. Songs and settings are preserved. The previous application is backed up.')});
    if(answer.response!==1)return {ok:true,cancelled:true};
    if(disposed||!isCurrent()||getOwner()!==owner||!allowed())return {ok:false,error:'UPDATE_OPERATIONS_ACTIVE'};
    await beginInstall(()=>!disposed&&isCurrent()&&getOwner()===owner,kind);

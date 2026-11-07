@@ -7,7 +7,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 const { createPlayerFixtureRequestGuard, playerFixtureConsoleError } = require('./music-player-network-fixture.cjs');
 
-test('player fixture permits protocol file fetches only for existing bundle ui/dist assets', async t => {
+test('player fixture permits protocol file fetches only for existing bundle UI, dist, and locale assets', async t => {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'chartshub-player-network-'));
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const bundle = path.join(directory, 'companion'), allow = createPlayerFixtureRequestGuard(bundle);
@@ -16,6 +16,13 @@ test('player fixture permits protocol file fetches only for existing bundle ui/d
   }
   for (const filename of ['ui/index.html', 'dist/player/Engine.js']) assert.equal(allow(pathToFileURL(path.join(bundle, filename)).href), true, filename);
   for (const filename of ['Songs/song.wav', 'settings/private.json', 'host.cjs', 'ui/missing.js']) assert.equal(allow(pathToFileURL(path.join(bundle, filename)).href), false, filename);
+  const assets = path.join(directory, 'assets');
+  await fs.mkdir(assets);
+  for (const [filename, expected] of [['locale-runtime.js', true], ['locale-layout.css', true], ['locale.fr.json', true], ['locale.unknown.json', false], ['private.json', false]]) {
+    const file = path.join(assets, filename);
+    await fs.writeFile(file, 'fixture');
+    assert.equal(allow(pathToFileURL(file).href), expected, filename);
+  }
   const index = pathToFileURL(path.join(bundle, 'ui/index.html')).href;
   assert.equal(allow(index + '?secret=1'), false); assert.equal(allow(index + '#fragment'), false);
   assert.equal(allow(pathToFileURL(path.join(directory, 'companion-other/ui/index.html')).href), false);

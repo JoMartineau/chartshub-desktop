@@ -1,11 +1,32 @@
 'use strict';
-const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const root=path.join(__dirname,'..'),read=file=>fs.readFileSync(path.join(root,file),'utf8');
-test('catalogue preload forwards only the active FR/EN language to the trusted main process',()=>{
+test('catalogue preload forwards only recognized languages to the trusted main process',()=>{
  const preload=read('preload.js'),main=read('main.js'),host=read('companion/host.cjs');
- assert.match(preload,/chartshub:languagechange/);assert.match(preload,/ipcRenderer\.invoke\('chartshub:language',value\)/);
- assert.match(main,/!\['fr','en'\]\.includes\(value\)/);assert.match(main,/host=>host\.setLanguage\(value\)/);
+ assert.match(preload,/ipcRenderer\.invoke\('chartshub:language',value\)/);
+ assert.match(preload,/languageCurrent:\(\)=>ipcRenderer\.invoke\('chartshub:language-current'\)/);
+ assert.match(preload,/if\(!event\.isTrusted\|\|document\.documentElement\.hasAttribute\('data-chartshub-language-bridge'\)/);
+ assert.doesNotMatch(preload,/MutationObserver\(syncLanguage\)/);
+ assert.match(main,/const locale=localeRuntime\.canonicalize\(value\);\s*if\(!allowedSender\(event\)\|\|!locale\)return false/);
+ assert.match(main,/ipcMain\.handle\('chartshub:language-current',event=>allowedSender\(event\)\?/);
+ assert.match(main,/activeCompanionHost\?\.setLanguage\(locale\)/);
+ const {validCommand}=require('../companion/security.cjs');
+ for(const {code} of require('../assets/locale-runtime.js').locales) assert.equal(validCommand('language.set',{language:code}),true,code);
+ for(const input of [{language:'en-US'},{language:'../../config.json'},{language:'fr',path:'Songs'},'fr',null]) assert.equal(validCommand('language.set',input),false);
  assert.match(host,/function setLanguage\(value\)/);assert.match(host,/snapshot = \(\) => \(\{ language,/);
+});
+test('desktop locale persists the last choice after a new preference instance loads',async t=>{
+ const {createLanguagePreferences}=require('../desktop/language.cjs');
+ const directory=await fs.promises.mkdtemp(path.join(os.tmpdir(),'chartshub-locale-test-'));
+ const filename=path.join(directory,'language.json');
+ t.after(async()=>{await fs.promises.rm(filename,{force:true});await fs.promises.rmdir(directory);});
+ const first=createLanguagePreferences({filename,preferredLanguages:()=>['fr-CA']});
+ assert.equal(await first.load(),'fr');assert.equal(first.hasSaved(),false);
+ assert.deepEqual(await Promise.all([first.set('es-MX'),first.set('ja')]),[true,true]);
+ await first.flush();assert.equal(first.hasSaved(),true);
+ const restarted=createLanguagePreferences({filename,preferredLanguages:()=>['en-US']});
+ assert.equal(await restarted.load(),'ja');assert.equal(restarted.hasSaved(),true);
+ assert.deepEqual(JSON.parse(await fs.promises.readFile(filename,'utf8')),{version:1,locale:'ja'});
 });
 test('Companion localization loads before panel code and protects user-content selectors',()=>{
  const html=read('companion/ui/index.html'),locale=read('companion/ui/localization.js');

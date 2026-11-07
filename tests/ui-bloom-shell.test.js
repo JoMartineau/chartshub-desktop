@@ -40,7 +40,7 @@ async function fixture(t, initialSettings) {
 }
 test('bloom IPC starts at attachment, restores on reload and never grants catalogue access', async t => {
   const f = await fixture(t);
-  assert.deepEqual([...f.handlers.keys()].sort(),['chartshub-shell:select-tab','chartshub-shell:state']);
+  assert.deepEqual([...f.handlers.keys()].sort(),['chartshub-shell:locale-pack','chartshub-shell:select-tab','chartshub-shell:state']);
   f.shell.setCompanionAvailable(true); f.shell.attachCompanion(f.companion);
   assert.equal(f.companion.webContents.sent.at(-1),READY);
   const read = f.handlers.get(READ);

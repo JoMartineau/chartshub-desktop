@@ -3,11 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-src 'none'">
   <title>ChartsHub · Catalogue flottant</title>
   <link rel="stylesheet" href="./catalogue-widget.css">
   <link rel="stylesheet" href="./button-motion.css">
-  <script src="./localization.js" defer></script>
+  <link rel="stylesheet" href="/assets/locale-layout.css">
+  <script src="/assets/locale-runtime.js"></script>
+  <script src="/ui/locale-context.js"></script>
+  <script src="./localization.js"></script>
 </head>
 <body>
   <main id="catalogue-widget-app" class="catalogue-widget-app">

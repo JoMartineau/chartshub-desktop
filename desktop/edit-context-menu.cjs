@@ -1,4 +1,5 @@
 'use strict';
+const { pair: localePair } = require('./language.cjs');
 
 /** Install native text editing without exposing the clipboard to page scripts. */
 function attachEditContextMenu({ contents, ownerWindow, buildMenu, language = () => 'en', isAllowed = () => true }) {
@@ -19,7 +20,7 @@ function attachEditContextMenu({ contents, ownerWindow, buildMenu, language = ()
     if (!editable && !(flags.canCopy === true && typeof params.selectionText === 'string' && params.selectionText.length)) return;
     close();
     const revision = generation, frame = contents.mainFrame;
-    const fr = language() === 'fr', t = (french, english) => fr ? french : english;
+    const locale = language(), t = (fr, en) => localePair(locale, fr, en);
     const command = (method, flag, french, english) => ({
       label: t(french, english), enabled: flags[flag] === true,
       click: () => {

@@ -1,3 +1,4 @@
+import { languageCode, languageKey, wordsFor } from './locale-text.js';
 const MAX_SELECTION = 1000, PAGE_SIZE = 50, ROW_HEIGHT = 74, ID = /^[a-f0-9]{64}$/, UUID = /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 const integer = value => Number.isSafeInteger(value) && value >= 0;
 const clean = (value, limit = 512) => typeof value === 'string' ? value.replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, limit) : '';
@@ -93,7 +94,7 @@ export class LibraryRemovalControls {
     const library = snapshot?.library ?? {}, rootPath = typeof library.settings?.rootPath === 'string' ? library.settings.rootPath : null;
     const revision = integer(library.revision) ? library.revision : 0, rootChanged = this.model.rootPath !== rootPath, indexChanged = this.model.revision !== revision;
     const ready = library.status === 'ready' && Boolean(rootPath);
-    this.model = { rootPath, revision, ready, language: snapshot?.language === 'en' ? 'en' : 'fr', backendPhase: library.selectedRemoval?.phase ?? 'idle', processed: library.selectedRemoval?.processed ?? 0, total: library.selectedRemoval?.total ?? 0,
+    this.model = { rootPath, revision, ready, language: languageCode(snapshot?.language), backendPhase: library.selectedRemoval?.phase ?? 'idle', processed: library.selectedRemoval?.processed ?? 0, total: library.selectedRemoval?.total ?? 0,
       blocked: !ready || library.downloadBatchActive === true || Boolean(library.bulkCleanup) || library.badSongsBusy === true || library.duplicateVerification?.running === true || ['analyzing', 'running'].includes(snapshot?.catalogueSync?.phase) };
     if (rootChanged || indexChanged) {
       this.resetPages(); this.rootKey = null; this.selected.clear(); this.selectionRevision++; this.plan = null;
@@ -224,9 +225,9 @@ export class LibraryRemovalControls {
   }
   render() {
     if (this.disposed) return;
-    const m = this.model, signature = JSON.stringify([m, this.querying, this.loadingPage, this.pending, this.selectionRevision, this.pageVersion, this.plan, this.message]);
+    const m = this.model, signature = JSON.stringify([m, languageKey(m.language), this.querying, this.loadingPage, this.pending, this.selectionRevision, this.pageVersion, this.plan, this.message]);
     if (signature === this.signature) return;
-    this.signature = signature; const t = TEXT[m.language], n = this.nodes, locked = this.blocked() || this.querying || Boolean(this.plan), count = value => value.toLocaleString(m.language);
+    this.signature = signature; const t = wordsFor(TEXT, m.language), n = this.nodes, locked = this.blocked() || this.querying || Boolean(this.plan), count = value => value.toLocaleString(m.language);
     n.summary.textContent = t.title; for (const key of ['intro', 'history', 'preservation', 'trashHelp', 'selectionHelp']) n[key].textContent = t[key];
     for (const [key, label] of Object.entries(this.labels)) label.textContent = t[key];
     n.searchButton.textContent = t.searchButton; n.reset.textContent = t.reset;
@@ -240,7 +241,7 @@ export class LibraryRemovalControls {
       : !m.rootPath ? t.noRoot : !m.ready ? t.unavailable : this.querying ? t.loading : this.loadingPage ? t.loadingMore : this.total !== null ? count(this.total) + ' ' + t.results : t.idle;
     n.pageText.textContent = this.total !== null ? t.page + ' ' + count(Math.floor(this.offset / PAGE_SIZE) + 1) + ' ' + t.of + ' ' + count(Math.max(1, Math.ceil(this.total / PAGE_SIZE))) : '';
     n.list.setAttribute('aria-label', t.listLabel);
-    const rowSignature = JSON.stringify([m.language, this.pageVersion]);
+    const rowSignature = JSON.stringify([languageKey(m.language), this.pageVersion]);
     if (rowSignature !== this.rowSignature) {
       this.rowSignature = rowSignature; for (const [node, type, listener] of this.rowListeners) node.removeEventListener(type, listener); this.rowListeners = [];
       const focused = [...this.checks].find(([, check]) => check === this.document.activeElement)?.[0]; this.checks.clear();
@@ -259,7 +260,7 @@ export class LibraryRemovalControls {
     for (const [id, check] of this.checks) { check.checked = this.selected.has(id); check.disabled = locked || !check.checked && this.selected.size >= MAX_SELECTION; }
     n.preview.hidden = !this.plan; n.previewTitle.textContent = t.preview;
     if (this.plan) { n.previewSummary.textContent = count(this.plan.eligibleCount) + ' ' + t.eligible + ' · ' + count(this.plan.blockedCount) + ' ' + t.blocked; n.previewSize.textContent = t.size + ' · ' + formatBytes(this.plan.totalBytes, m.language); n.previewLimit.textContent = this.plan.previewTruncated ? t.previewLimit : '';
-      const previewSignature = JSON.stringify([m.language, this.plan]); if (previewSignature !== this.previewSignature) { this.previewSignature = previewSignature; n.previewItems.replaceChildren(...this.plan.entries.map(entry => { const li = this.node('li'), name = this.node('code'), state = this.node('strong'); name.textContent = clean(entry.targetRelativePath || entry.relativePath, 32768); state.textContent = entry.eligible ? t.verified : t.kept; li.append(name, state); return li; })); } }
+      const previewSignature = JSON.stringify([languageKey(m.language), this.plan]); if (previewSignature !== this.previewSignature) { this.previewSignature = previewSignature; n.previewItems.replaceChildren(...this.plan.entries.map(entry => { const li = this.node('li'), name = this.node('code'), state = this.node('strong'); name.textContent = clean(entry.targetRelativePath || entry.relativePath, 32768); state.textContent = entry.eligible ? t.verified : t.kept; li.append(name, state); return li; })); } }
     n.recycle.disabled = this.blocked() || !this.plan?.eligibleCount; n.cancel.disabled = this.pending === 'cancel'; n.cancelPending.textContent = t.cancel; n.cancelPending.hidden = !['prepare', 'recycle', 'cancel'].includes(this.pending); n.cancelPending.disabled = this.pending === 'cancel';
     n.progress.hidden = !['preparing', 'executing'].includes(m.backendPhase); n.progress.textContent = count(integer(m.processed) ? m.processed : 0) + ' / ' + count(integer(m.total) ? m.total : 0);
     this.root.setAttribute('aria-busy', this.pending || this.querying ? 'true' : 'false');

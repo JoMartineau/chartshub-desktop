@@ -1,3 +1,4 @@
+import { localizedPair } from '../dist/localization/locale-pair.js';
 import { applyFloatingAppearance } from './floating-panels-controls.js';
 import { applyButtonMotion } from './button-motion.js';
 import { createCatalogueCard } from './catalogue-card.js';
@@ -49,8 +50,8 @@ export class CatalogueWidgetControls {
   element(selector) { const element = this.root.querySelector(selector); if (!element) throw Error(`Missing catalogue widget control: ${selector}`); return element; }
   make(tag, content = '', className = '') { const element = this.root.ownerDocument.createElement(tag); if (content) element.textContent = content; if (className) element.className = className; return element; }
   feedback(message, error = false) { const node = this.element('#catalogue-widget-feedback'); node.textContent = message; node.hidden = !message; node.classList.toggle('is-error', error); }
-  locale() { return this.root.ownerDocument.documentElement?.lang?.startsWith('en') ? 'en-US' : 'fr-FR'; }
-  tr(fr, en) { return this.locale().startsWith('fr') ? fr : en; }
+  locale() { return this.root.ownerDocument.documentElement?.lang || 'fr'; }
+  tr(fr, en, values) { return localizedPair(this.locale(), fr, en, values); }
   renderFeatureLabels() {
     const labels = { 'source-label': ['Source', 'Source'], 'source-all': ['Toutes les sources', 'All sources'], 'installed-label': ['Installation', 'Installation'], 'installed-all': ['Toutes les charts', 'All charts'], 'installed-linked': ['Déjà installées', 'Already installed'],
       'installed-unlinked': ['Sans installation confirmée', 'No confirmed installation'], 'favorites-label': ['Favoris', 'Favorites'], 'favorites-all': ['Toutes les charts', 'All charts'], 'favorites-yes': ['Mes favoris', 'My favorites'] };
@@ -194,17 +195,17 @@ export class CatalogueWidgetControls {
     if (signature === this.selectionSignature) return;
     this.selectionSignature = signature;
     panel.hidden = !count && !this.batchRunning && !this.batchReport;
-    this.element('#catalogue-widget-selection-summary').textContent = this.tr(`${count} chart${count === 1 ? '' : 's'} sélectionnée${count === 1 ? '' : 's'}`, `${count} selected chart${count === 1 ? '' : 's'}`);
+    this.element('#catalogue-widget-selection-summary').textContent = this.tr('Charts sélectionnées : {count}', 'Selected charts: {count}', { count });
     const list = this.element('#catalogue-widget-selection-items'); list.textContent = '';
     for (const item of selected) list.append(this.make('li', `${text(item.title)} · ${text(item.artist)}`));
-    const start = this.element('#catalogue-widget-download-selected'); start.textContent = this.tr(`Télécharger la sélection (${count})`, `Download selection (${count})`);
+    const start = this.element('#catalogue-widget-download-selected'); start.textContent = this.tr("Télécharger la sélection ({count})", "Download selection ({count})", { count });
     start.disabled = !canStart;
     const clear = this.element('#catalogue-widget-clear-selection'); clear.textContent = this.tr('Effacer la sélection', 'Clear selection'); clear.disabled = !count || this.batchRunning;
     const cancel = this.element('#catalogue-widget-cancel-batch'); cancel.textContent = this.tr('Arrêter les ajouts restants', 'Stop remaining additions'); cancel.hidden = !this.batchRunning; cancel.disabled = this.batchCancelled;
     const report = this.element('#catalogue-widget-batch-status'); report.hidden = !this.batchReport;
     if (this.batchReport) {
       const { added, failed, skipped } = this.batchReport;
-      report.textContent = this.tr(`${added} ajout(s) à la file · ${failed} échec(s) · ${skipped} ignorée(s).`, `${added} added to queue · ${failed} failed · ${skipped} skipped.`) +
+      report.textContent = this.tr("Ajouts à la file : {added} · Échecs : {failed} · Ignorées : {skipped}.", "Added to queue: {added} · Failed: {failed} · Skipped: {skipped}.", { added, failed, skipped }) +
         (this.batchCancelled ? this.tr(' Ajouts restants arrêtés. Un ajout déjà en cours peut encore se terminer.', ' Remaining additions stopped. An addition already in progress may still finish.') : '') +
         (!this.batchRunning && count ? this.tr(' Les charts restantes restent sélectionnées.', ' Remaining charts stay selected.') : '');
     }

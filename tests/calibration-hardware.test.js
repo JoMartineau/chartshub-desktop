@@ -1,6 +1,7 @@
 'use strict';
 const test = require('node:test'), assert = require('node:assert/strict');
-const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
+const fs = require('node:fs'), path = require('node:path');
+const { GameplayControls } = require('../companion/ui/gameplay-controls.js');
 const { createCalibrationHardware, parseProbe, readDisplays, frameIntervalMs, validHardwareContext } = require('../companion/calibration-hardware.cjs');
 const { validCommand, trustedCatalogueWidgetCommand, trustedFiltersWidgetCommand } = require('../companion/security.cjs');
 const { createTelemetryModel } = require('../companion/clonehero-telemetry-model.cjs');
@@ -69,8 +70,7 @@ test('confirmed hardware is copied into trial history without changing timing, r
 });
 
 test('comparison keeps legacy confirmation and rejects mismatched or half-known setups', () => {
-    const source=fs.readFileSync(path.join(__dirname,'../companion/ui/gameplay-controls.js'),'utf8').replace('export class GameplayControls','class GameplayControls');
-    const scope={};vm.runInNewContext(source+'\nthis.GameplayControls=GameplayControls;',scope);const matches=scope.GameplayControls.prototype.matchingHardware;
+    const matches = GameplayControls.prototype.matchingHardware;
     const audio={stage:{value:'audio'}},video={stage:{value:'video'}};
     assert.equal(matches.call(audio,undefined,undefined),true);assert.equal(matches.call(audio,context(),undefined),false);assert.equal(matches.call(audio,context(),context()),true);assert.equal(matches.call(audio,context(),{...context(),note:'Bluetooth'}),false);
     assert.equal(matches.call(video,{...context(),display:null},{...context(),display:null}),false);assert.equal(matches.call(video,context(),context()),true);

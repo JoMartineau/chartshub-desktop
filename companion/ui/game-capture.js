@@ -6,7 +6,9 @@ let snapshot = null, stream = null, starting = false, disposed = false, drag = n
 let listed = [], selectedId = '', lastWidth = 0, lastHeight = 0, startAbort = null;
 const peers = new Map(), canvases = new Map(), pendingCandidates = new Map();
 const regions = ['highway','score','lyrics'];
-const tr = (fr, en) => snapshot?.language === 'en' ? en : fr;
+const locale = globalThis.ChartshubDesktopLocale;
+const tr = (fr, en) => locale.pair(fr, en);
+window.addEventListener('chartshub:locale-ready', () => { if (snapshot) render(snapshot); });
 function status(fr, en) { $('status').textContent = tr(fr, en); }
 async function command(name, value) { const result = await api.command(name, value); if (!result?.ok) throw Error('capture'); return result; }
 function candidate(value) { return { candidate: value.candidate, sdpMid: value.sdpMid ?? null, sdpMLineIndex: value.sdpMLineIndex ?? null, usernameFragment: value.usernameFragment ?? null }; }
@@ -88,7 +90,8 @@ async function receiveSignal({kind, revision, signal}) {
 }
 function render(value) {
   snapshot = value; const active = value.phase !== 'stopped';
-  document.documentElement.lang = value.language;
+  locale.set(value.language);
+  if ($('source').options.length) $('source').options[0].textContent = tr('Choisir une fenêtre…','Choose a window…');
   $('heading').textContent = tr('Highway, score et paroles du jeu', 'Game highway, score and lyrics');
   $('intro').textContent = tr('Choisissez la fenêtre Clone Hero, démarrez l’aperçu, puis tracez les zones souhaitées à la souris. Les notes, le score et les paroles sont ceux du jeu ; le fond présent dans chaque zone est également capturé. Les paroles ne demandent ni connecteur ni horloge.', 'Choose the Clone Hero window, start the preview, then draw the regions you want. Notes, score and lyrics come directly from the game, including the background inside each region. Lyrics require neither a connector nor a clock.');
   $('refresh').textContent = tr('Actualiser les fenêtres', 'Refresh windows');
