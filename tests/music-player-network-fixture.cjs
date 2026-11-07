@@ -5,16 +5,20 @@ const { assetPath } = require('../companion/security.cjs');
 
 function createPlayerFixtureRequestGuard(bundleDirectory) {
   const bundle = path.resolve(bundleDirectory);
+  const sharedAssets = path.join(path.dirname(bundle), 'assets');
   return value => {
     let url;
     try { url = new URL(value); } catch { return false; }
     if (url.protocol === 'file:') {
       if (url.hostname || url.search || url.hash || url.username || url.password || url.port) return false;
       try {
-        const filename = fileURLToPath(url), relative = path.relative(bundle, filename);
+        const filename = fileURLToPath(url);
+        const relative = path.dirname(filename) === sharedAssets
+          ? path.join('assets', path.basename(filename))
+          : path.relative(bundle, filename);
         if (!relative || path.isAbsolute(relative) || relative === '..' || relative.startsWith('..' + path.sep)) return false;
         const route = 'chartshub-companion://app/' + relative.split(path.sep).map(encodeURIComponent).join('/');
-        // The real protocol uses net.fetch(file://...) on defaultSession for bundled UI/dist assets.
+        // The real protocol uses net.fetch(file://...) for bundled UI, dist, and locale assets.
         // Reuse its canonical containment check; neither Songs nor the fixture profile is permitted.
         return assetPath(bundle, route) === filename;
       } catch { return false; }

@@ -201,13 +201,13 @@ async function verifyBatch(items) {
   await selectionIs([first.id, second.id]);
   assert.equal(runs.length, runsBefore, 'checking individual cards never starts transfers');
   assert.equal(await evaluate("document.querySelector('#catalogue-widget-selection-summary').getAttribute('aria-live')"), 'polite');
-  assert.match(await evaluate("document.querySelector('#catalogue-widget-selection-summary').textContent"), /^2\b/);
+  assert.equal(await evaluate("document.querySelector('#catalogue-widget-selection-summary').textContent"), 'Charts sélectionnées : 2');
   const summary = await evaluate("document.querySelector('#catalogue-widget-selection-items').textContent");
   assert.ok(summary.includes(first.title) && summary.includes(second.title) && !summary.includes(untouched.title), 'summary names only the two checked charts');
   await capture('batch-two-selected');
-  host.setLanguage('en'); await waitFor(() => evaluate("document.querySelector('#catalogue-widget-selection-summary').textContent==='2 selected charts'"), 'English batch count');
+  host.setLanguage('en'); await waitFor(() => evaluate("document.querySelector('#catalogue-widget-selection-summary').textContent==='Selected charts: 2'"), 'English batch count');
   await selectionIs([first.id, second.id]); await capture('batch-two-selected-english');
-  host.setLanguage('fr'); await waitFor(() => evaluate("document.querySelector('#catalogue-widget-selection-summary').textContent==='2 charts sélectionnées'"), 'French batch count');
+  host.setLanguage('fr'); await waitFor(() => evaluate("document.querySelector('#catalogue-widget-selection-summary').textContent==='Charts sélectionnées : 2'"), 'French batch count');
   await click('#catalogue-widget-clear-selection'); await selectionIs([]);
   assert.deepEqual(host.downloads.status().items.map(item => item.id).sort(), queueBefore);
   for (const item of [first, second]) await click(selectionSelector(item.id));
@@ -228,7 +228,7 @@ async function verifyBatch(items) {
     assert.deepEqual(added.map(item => item.chartId), [first.id]);
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(selectionSelector(first.id))}).disabled`), true, 'queued chart cannot be selected again');
     assert.equal(host.downloads.status().items.some(item => item.chartId === untouched.id), false);
-    assert.match(await evaluate("document.querySelector('#catalogue-widget-batch-status').textContent"), /1 ajout\(s\).*1 échec\(s\)/);
+    assert.match(await evaluate("document.querySelector('#catalogue-widget-batch-status').textContent"), /Ajouts à la file : 1 · Échecs : 1 · Ignorées : 0\./);
     await capture('batch-partial-failure');
     await click('#catalogue-widget-download-selected'); await selectionIs([]);
     await waitFor(() => host.downloads.status().items.some(item => item.chartId === second.id), 'explicit retry adds only failed selected chart');
