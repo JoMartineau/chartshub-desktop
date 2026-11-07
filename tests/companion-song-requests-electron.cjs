@@ -132,6 +132,8 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
   const byTitle = title => state().requests.find(item => item.title === title);
   const selector = (request, action) => `#song-requests-items [data-request-id="${request.id}"] [data-action="${action}"]`;
   const shot = async name => { await delay(80); await fs.writeFile(path.join(data, name), (await panel.webContents.capturePage()).toPNG()); };
+  const getQueueWindow = () => BrowserWindow.getAllWindows().find(window => window.getTitle() === 'ChartsHub — Song Request Queue');
+  const captureBackground = window => window.webContents.executeJavaScript('getComputedStyle(document.documentElement).backgroundColor');
   let configuration, obsWindow = null;
   try {
     assert.ok(sharingFixture?.connections.providers.twitch && sharingFixture.connections.providers.tiktok, 'native provider fixtures must be injected before testing connection controls');
@@ -253,7 +255,38 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
       }
     }
     obsWindow.destroy(); obsWindow = null; host.setLanguage(initialLanguage);
-    passed.push('Song Requests OBS: real sandboxed browser source, saved color/text-size/row-count/privacy options, default three requests, plain text and transparent bilingual 480px/320px captures');
+    assert.equal((await command('songRequests.queueWindowBackground', { color: '#00ff00' })).ok, true);
+    assert.equal((await command('songRequests.openQueueWindow', {})).ok, true);
+    const solidQueue = getQueueWindow();
+    await waitFor(async () => await captureBackground(solidQueue) === 'rgb(0, 255, 0)', 'native queue shows the chosen chroma color');
+    const queueBounds = solidQueue.getBounds();
+    assert.equal((await command('songRequests.queueWindowTransparency', { enabled: true })).ok, true);
+    const transparentQueue = getQueueWindow();
+    assert.ok(solidQueue.isDestroyed() && transparentQueue.isVisible());
+    assert.equal(transparentQueue.isResizable(), false);
+    assert.deepEqual(transparentQueue.getBounds(), queueBounds);
+    await waitFor(async () => await captureBackground(transparentQueue) === 'rgba(0, 0, 0, 0)', 'native queue clears its background');
+    assert.equal(await transparentQueue.webContents.executeJavaScript("getComputedStyle(document.querySelector('.request-header')).webkitAppRegion"), 'drag');
+    assert.equal(await transparentQueue.webContents.executeJavaScript("document.querySelectorAll('#request-queue > li').length"), 3);
+    const transparentCapture = await transparentQueue.webContents.capturePage();
+    assert.equal(transparentCapture.toBitmap()[3], 0, 'native window has alpha outside the queue card');
+    await fs.writeFile(path.join(data, 'song-requests-floating-transparent.png'), transparentCapture.toPNG());
+    assert.equal((await command('songRequests.queueWindowTransparency', { enabled: false })).ok, true);
+    assert.ok(transparentQueue.isDestroyed());
+    const restoredQueue = getQueueWindow();
+    assert.deepEqual(restoredQueue.getBounds(), queueBounds);
+    await waitFor(async () => await captureBackground(restoredQueue) === 'rgb(0, 255, 0)', 'native queue restores the previous chroma color');
+    restoredQueue.close();
+    await waitFor(() => restoredQueue.isDestroyed(), 'native close completes before changing the closed widget');
+    assert.equal((await command('songRequests.queueWindowTransparency', { enabled: true })).ok, true);
+    assert.equal(getQueueWindow(), undefined, 'changing the mode leaves a closed widget closed');
+    assert.equal((await command('songRequests.openQueueWindow', {})).ok, true);
+    const reopenedQueue = getQueueWindow();
+    reopenedQueue.focus();
+    reopenedQueue.webContents.focus();
+    reopenedQueue.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' });
+    await waitFor(() => reopenedQueue.isDestroyed(), 'Escape closes the frameless native queue');
+    passed.push('Song Requests OBS: sandboxed browser source, saved appearance and privacy, and native queue switches from solid color to real alpha and back');
 
     await click(selector(byTitle('SR Fixture Beta'), 'move-up')); await waitFor(() => state().requests.filter(item => ['pending', 'accepted'].includes(item.status))[0].title === 'SR Fixture Beta', 'manual queue order');
     await click(selector(byTitle('SR Fixture Alpha'), 'accept')); await waitFor(() => byTitle('SR Fixture Alpha').status === 'accepted', 'explicit acceptance');
@@ -299,6 +332,7 @@ async function verifySongRequests(panel, host, data, passed, sharingFixture) {
   } finally {
     try {
       if (obsWindow && !obsWindow.isDestroyed()) obsWindow.destroy();
+      getQueueWindow()?.destroy();
       if (host.snapshot().songRequests?.enabled) await command('songRequests.configure', { enabled: false, port: state().bridge.port, rules: state().rules });
     } finally {
       clipboard.writeText = originalWriteText; host.setLanguage(initialLanguage); if (!panel.isDestroyed()) panel.setSize(...initialSize);

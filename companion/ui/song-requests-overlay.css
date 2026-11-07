@@ -3,6 +3,7 @@
 html, body { margin: 0; background: transparent; }
 .request-capture { min-height: 100%; background: var(--request-capture-background, #101827); scrollbar-width: none; }
 .request-capture .request-widget { margin-inline: auto; }
+.request-capture-transparent .request-header { -webkit-app-region: drag; user-select: none; }
 .request-capture .request-card .request-platform { color: #fff; border-color: var(--badge-color, #8c9dbb); background: var(--badge-dim, #242c3d); }
 .request-capture [data-platform="twitch"] { --badge-color: #b879ff; --badge-solid: #592790; --badge-dim: #241633; }
 .request-capture [data-platform="tiktok"] { --badge-color: #ff5668; --badge-solid: #a91e38; --badge-dim: #381620; }

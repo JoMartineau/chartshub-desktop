@@ -56,6 +56,19 @@ test('The floating request widget works without the browser bridge and shows its
   assert.equal(ui.calls[2].name, 'songRequests.queueWindowBadgeStyle');
   assert.deepEqual(ui.calls[2].payload, { style: 'solid' });
   ui.calls[2].resolve({ ok: true });
+  await tick();
+  const transparent = ui.get('#song-requests-queue-window-transparent');
+  transparent.checked = true;
+  transparent.dispatchEvent(new Event('change'));
+  assert.equal(ui.calls[3].name, 'songRequests.queueWindowTransparency');
+  assert.deepEqual(ui.calls[3].payload, { enabled: true });
+  ui.snapshot.songRequests.queueWindow.transparent = true;
+  ui.controls.update(ui.snapshot);
+  ui.calls[3].resolve({ ok: true });
+  await tick();
+  assert.equal(transparent.checked, true);
+  assert.equal(background.disabled, true);
+  assert.equal(background.value, '#223344');
 });
 
 const connections = changes => ({ receiving: false, persistent: true, storageError: null, lastResponse: null,

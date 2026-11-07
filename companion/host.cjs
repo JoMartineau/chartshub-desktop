@@ -129,7 +129,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     }, openMtPage: url => shell.openExternal(url) });
   let songRequests = null, songRequestServer = null, songRequestConnections = null, songRequestBusy = false;
   const streamCaptures = {
-    requests: { title: 'ChartsHub — Song Request Queue', page: 'song-requests.html', backgroundColor: STREAM_CAPTURE_DEFAULT_BACKGROUND, badgeStyle: 'outline', window: null, load: null, lastState: '' },
+    requests: { title: 'ChartsHub — Song Request Queue', page: 'song-requests.html', backgroundColor: STREAM_CAPTURE_DEFAULT_BACKGROUND, badgeStyle: 'outline', transparent: false, window: null, load: null, lastState: '' },
     chat: { title: 'ChartsHub — Multistream Chat', page: 'session-feed.html', backgroundColor: STREAM_CAPTURE_DEFAULT_BACKGROUND, badgeStyle: 'outline', window: null, load: null, lastState: '' }
   };
   const captureAppearance = ({ title, backgroundColor, badgeStyle }) => ({ title, backgroundColor, badgeStyle });
@@ -305,7 +305,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
     player: { canOpen: hostActive && !disposing && !stopTask && panelAlive(), title: CAPTURE_WINDOW_TITLES.player }
   });
   const songRequestSnapshot = () => ({ ...songRequests?.snapshot(), widget: songRequestPreferences.status().widget,
-    queueWindow: captureAppearance(streamCaptures.requests),
+    queueWindow: { ...captureAppearance(streamCaptures.requests), transparent: streamCaptures.requests.transparent },
     publicRequests: songRequestShareBroker?.status(), connections: songRequestConnections?.status(), sharing: { ...songRequestShare, autoSync: songRequestShareSync?.status(),
     progress: songRequestShare.busy && songRequestShare.progress?.phase === 'preparing' ? (library?.status().sharingPreparation ?? songRequestShare.progress) : songRequestShare.progress }, bridge: songRequestServer?.status() ?? { enabled: false, port: songRequestPreferences.status().port, url: null, overlayUrl: null, error: songRequestPreferences.status().error, platforms: ['twitch', 'tiktok', 'youtube'] } });
   const chatSnapshot = () => ({ ...unifiedChat?.status(), captureWindow: captureAppearance(streamCaptures.chat) });
@@ -1081,21 +1081,24 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   }
   function trustedPlayer(event) { return trustedSender(event, playerWindow, 'music-player.html'); }
   function streamCaptureSnapshot(kind, playing = kind === 'requests' ? requestNowPlaying() : null) {
-    const { backgroundColor, badgeStyle } = streamCaptures[kind];
+    const { backgroundColor, badgeStyle, transparent } = streamCaptures[kind];
     if (kind === 'chat') {
       const chat = unifiedChat.status();
       return { ...projectSessionFeed('chat', { enabled: chat.enabled && catalogueAllowed() && !maintenanceLocked, language,
         settings: sessionWidgetSettings, items: chat.messages }), backgroundColor, badgeStyle };
     }
-    return { ...requestOverlayState(songRequests.snapshot(), songRequestPreferences.status().widget, playing), language, backgroundColor, badgeStyle };
+    return { ...requestOverlayState(songRequests.snapshot(), songRequestPreferences.status().widget, playing),
+      language, backgroundColor: transparent ? 'transparent' : backgroundColor, badgeStyle };
   }
-  async function openStreamCapture(kind) {
+  async function openStreamCapture(kind, bounds) {
     if (!hostActive || !panelAlive() || kind === 'chat' && !catalogueAllowed()) return { ok: false };
     const capture = streamCaptures[kind];
     const revision = lifecycleRevision;
     if (!capture.window || capture.window.isDestroyed()) {
-      const window = new BrowserWindow({ width: 450, height: 590, minWidth: 260, minHeight: 210, show: false,
-        title: capture.title, backgroundColor: capture.backgroundColor, alwaysOnTop: true, webPreferences: preferences });
+      const window = new BrowserWindow({ width: 450, height: 590, ...bounds, minWidth: 260, minHeight: 210, show: false,
+        title: capture.title, backgroundColor: capture.transparent ? '#00000000' : capture.backgroundColor,
+        alwaysOnTop: true, webPreferences: preferences,
+        ...(capture.transparent ? { transparent: true, frame: false, resizable: false, hasShadow: false } : {}) });
       capture.window = window;
       harden(window, capture.page);
       window.on('page-title-updated', event => event.preventDefault());
@@ -1104,6 +1107,12 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
         capture.window = null; capture.load = null; capture.lastState = '';
       });
       window.webContents.on('render-process-gone', () => { if (!window.isDestroyed()) window.destroy(); });
+      if (capture.transparent) window.webContents.on('before-input-event', (event, input) => {
+        const closeKey = input.key === 'Escape' || (process.platform === 'darwin' && input.meta && input.key?.toLowerCase() === 'w');
+        if (input.type !== 'keyDown' || !closeKey) return;
+        event.preventDefault();
+        window.close();
+      });
       capture.load = window.loadURL(`${SCHEME}://app/ui/${capture.page}`).catch(error => {
         if (!window.isDestroyed()) window.destroy();
         throw error;
@@ -1118,9 +1127,22 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
   function setStreamCaptureBackground(kind, color) {
     const capture = streamCaptures[kind];
     capture.backgroundColor = color.toLowerCase();
-    if (capture.window && !capture.window.isDestroyed()) capture.window.setBackgroundColor(capture.backgroundColor);
+    if (!capture.transparent && capture.window && !capture.window.isDestroyed()) capture.window.setBackgroundColor(capture.backgroundColor);
     publishPanel();
     return { ok: true };
+  }
+  async function setRequestCaptureTransparency(transparent) {
+    const capture = streamCaptures.requests;
+    if (capture.transparent === transparent) return { ok: true };
+    capture.transparent = transparent;
+    const window = capture.window;
+    let bounds;
+    if (window && !window.isDestroyed()) {
+      if (window.isVisible()) bounds = window.getBounds();
+      window.destroy();
+    }
+    publishPanel();
+    return bounds ? openStreamCapture('requests', bounds) : { ok: true };
   }
   function setStreamCaptureBadgeStyle(kind, badgeStyle) {
     const capture = streamCaptures[kind];
@@ -1393,6 +1415,7 @@ async function createCompanionHost({ dataDirectory = path.join(app.getPath('user
       if (command === 'songRequests.widget') { await songRequestPreferences.saveWidget(payload.settings); requestWidgetRevision++; publishPanel(); return { ok: true }; }
       if (command === 'songRequests.openQueueWindow') return await openStreamCapture('requests');
       if (command === 'songRequests.queueWindowBackground') return setStreamCaptureBackground('requests', payload.color);
+      if (command === 'songRequests.queueWindowTransparency') return await setRequestCaptureTransparency(payload.enabled);
       if (command === 'songRequests.queueWindowBadgeStyle') return setStreamCaptureBadgeStyle('requests', payload.style);
       if (['songRequests.connect', 'songRequests.disconnect', 'songRequests.cancelAuth'].includes(command) && !hostActive) return { ok: false };
       if (command === 'songRequests.connect') {

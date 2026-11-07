@@ -15,11 +15,14 @@ test('Song Request IPC accepts complete bounded rules and opaque request IDs, ne
     assert.equal(validCommand('songRequests.' + action, {}, []), true);
     assert.equal(validCommand('songRequests.' + action, { songs: [] }, []), false);
   }
+  const transparency = 'songRequests.queueWindowTransparency';
+  for (const enabled of [true, false]) assert.equal(validCommand(transparency, { enabled }, []), true);
+  for (const payload of [null, [], {}, { enabled: 'true' }, { enabled: true, color: '#101827' }]) assert.equal(validCommand(transparency, payload, []), false);
 });
 test('Catalogue and filter mini windows cannot administer, publish or obtain Song Request capabilities', () => {
   for (const [page, authorize] of [['catalogue-widget.html', trustedCatalogueWidgetCommand], ['filters-widget.html', trustedFiltersWidgetCommand]]) {
     const frame = { url: 'chartshub-companion://app/ui/' + page }, contents = { mainFrame: frame }, window = { webContents: contents, isDestroyed: () => false };
-    for (const action of ['configure', 'accept', 'move', 'copyBridgeConfiguration', 'copyOverlayUrl', 'publishLibrary', 'removeLibrary', 'copyLibraryUrl']) assert.equal(authorize({ sender: contents, senderFrame: frame }, window, 'songRequests.' + action, {}), false);
+    for (const action of ['configure', 'accept', 'move', 'copyBridgeConfiguration', 'copyOverlayUrl', 'queueWindowTransparency', 'publishLibrary', 'removeLibrary', 'copyLibraryUrl']) assert.equal(authorize({ sender: contents, senderFrame: frame }, window, 'songRequests.' + action, {}), false);
   }
 });
 test('floating capture badge commands accept only one supported style', () => {
