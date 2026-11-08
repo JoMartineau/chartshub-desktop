@@ -4,7 +4,7 @@ const ORIGIN='https://chartshub.ca',endpoint='/api/admin/charts/12345678-1234-12
 const settle=()=>new Promise(r=>setImmediate(r));
 async function desktop(){
  const ipc=new Map(),events=[],completions=[];let win,web,user={id:'staff-a',emailVerified:true,staffRole:'moderator'},transfer,resolveDownload,shown=0;
- const session=new EventEmitter();Object.assign(session,{setPermissionRequestHandler(){},setPermissionCheckHandler(){},cookies:new EventEmitter(),fetch:async(url,options)=>{
+ const session=new EventEmitter();Object.assign(session,{setPermissionRequestHandler(){},setPermissionCheckHandler(){},registerPreloadScript:()=> 'rhythmverse-preload',unregisterPreloadScript(){},cookies:new EventEmitter(),fetch:async(url,options)=>{
   if(url.endsWith('/download-complete')){completions.push({url,options});return new Response(null,{status:204});}
   return Response.json({user});
  }});

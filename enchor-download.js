@@ -168,4 +168,4 @@ async function transfer({request,directory,outputPath,format='folder',includeVid
   if(!committed&&reserved&&path.dirname(reserved)===root){try{await removeOwnedTree(reserved,publishedDirectories,publishedFiles,guardReserved);}catch{/* Preserve replaced destinations and foreign descendants. */}}
  }
 }
-module.exports={normalizeEnchorRequest,normalizeEnchorDownloadRequest,enchorIdentity,validateSngHeader,validateSng,downloadEnchor,downloadError,ownedIdentity,MAX_BYTES,MAX_FILE_BYTES};
+module.exports={normalizeEnchorRequest,normalizeEnchorDownloadRequest,enchorIdentity,validateSngHeader,validateSng,downloadEnchor,downloadError,ownedIdentity,prepareSavePath,publishSavedFile,MAX_BYTES,MAX_FILE_BYTES};

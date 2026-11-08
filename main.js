@@ -29,7 +29,8 @@ let activeCompanionHost=null,maintenance=null,updater=null,maintenanceLocked=fal
 let backupModule=null,backupEngine=null,backupReady=Promise.resolve(),pendingBackupId=null;
 let buttonMotion={economy:false};
 let cataloguePalette=null,paletteIpc=null;
-let requestedTab=process.argv.includes('--companion')?'companion':'catalogue';
+const startupTab=argv=>argv.includes('--companion')?'companion':'catalogue';
+let requestedTab=startupTab(process.argv);
 const focusWindow=()=>{if(win&&!win.isDestroyed()){if(win.isMinimized())win.restore();win.show();win.focus();}};
 const openCompanion=async()=>{
  if(!desktop||closing)return;
@@ -68,7 +69,7 @@ const {batchValid,normalizeBatch,downloadBatch}=require('./batch-download');
 const {folderPreferences}=require('./download-folder');
 const {windowTheme}=require('./window-theme');
 const {createAccountBoundDownloads}=require('./download-state');
-let win,job=null,guest=null;
+let win,job=null,publicDownloadJob=null,guest=null;
 function trusted(url){try{const u=new URL(url);return u.origin===ORIGIN&&!u.username&&!u.password;}catch{return false;}}
 function allowedSender(event){return !closing&&!maintenanceLocked&&win&&!win.isDestroyed()&&web&&!web.isDestroyed()&&event.sender===web&&event.senderFrame===web.mainFrame&&trusted(event.senderFrame.url);}
 function resumeUIPalette(){if(!closing&&!maintenanceLocked&&win&&!win.isDestroyed()&&web&&!web.isDestroyed()&&trusted(web.getURL()))web.send('chartshub:ui-palette-resume');}
@@ -79,11 +80,14 @@ async function external(url){
 }
 if(!app.requestSingleInstanceLock())app.quit();
 else{
- app.on('second-instance',(_event,argv)=>{requestedTab=argv.includes('--companion')?'companion':'catalogue';if(desktop)void selectTab(requestedTab).catch(()=>dialog.showErrorBox('ChartsHub','Cet onglet ne peut pas être ouvert.'));});
+ app.on('second-instance',(_event,argv)=>{requestedTab=startupTab(argv);if(desktop)void selectTab(requestedTab).catch(()=>dialog.showErrorBox('ChartsHub','Cet onglet ne peut pas être ouvert.'));});
  app.whenReady().then(async()=>{
   languagePreferences=createLanguagePreferences({filename:path.join(app.getPath('userData'),'language.json'),preferredLanguages:()=>app.getPreferredSystemLanguages?.()||[app.getLocale?.()||'en']});
   companionLanguage=await languagePreferences.load();
   const ses=session.fromPartition('persist:chartshub');
+  const rhythmVersePreload=ses.registerPreloadScript({
+   type:'frame',filePath:path.join(__dirname,'desktop/rhythmverse-catalogue-preload.cjs')
+  });
   reportDownloadCompletion=createDownloadCompletion((url,options)=>ses.fetch(url,options));
   ses.setPermissionRequestHandler((_web,permission,callback)=>callback(false));
   ses.setPermissionCheckHandler(()=>false);
@@ -104,7 +108,11 @@ else{
   web.on('will-redirect',(event,url)=>{if(!trusted(url))event.preventDefault();});
   web.on('will-attach-webview',event=>event.preventDefault());
   let catalogueStarted=false;
-  const load=route=>{catalogueStarted=true;return web.loadURL(ORIGIN+route).catch(()=>{if(!closing&&!win.isDestroyed())return dialog.showMessageBox(win,{type:'error',message:'Connexion à ChartsHub impossible.',detail:'Vérifiez votre connexion Internet, puis utilisez Ctrl+R (ou Cmd+R sur Mac).'});});};
+  const load=route=>{
+   catalogueStarted=true;
+   // The shell handles main-frame errors and ignores cancelled navigation.
+   return web.loadURL(ORIGIN+route).catch(()=>{});
+  };
   loadCatalogue=()=>{if(!catalogueStarted)void load('/');};
   Menu.setApplicationMenu(null);
   win.setMenuBarVisibility(false);
@@ -115,7 +123,7 @@ else{
    const data=await response.json();if(!Object.hasOwn(data,'user'))throw Error('Réponse du compte invalide.');return data.user;
   };
   const catalogueAlive=()=>win&&!win.isDestroyed()&&web&&!web.isDestroyed();
-  const downloads=createAccountBoundDownloads({readAccount,cancel:()=>job?.abort(),publish:snapshot=>{if(catalogueAlive()&&trusted(web.getURL()))web.send('chartshub:download-state',snapshot);}});
+  const downloads=createAccountBoundDownloads({readAccount,cancel:()=>{if(job!==publicDownloadJob)job?.abort();},publish:snapshot=>{if(catalogueAlive()&&trusted(web.getURL()))web.send('chartshub:download-state',snapshot);}});
   const completedForQuickImport=require('./desktop/quick-import-download-completion.cjs').createQuickImportDownloadCompletion({
    getHost:()=>activeCompanionHost,isAvailable:()=>!closing&&!maintenanceLocked&&companionAvailable
   });
@@ -123,7 +131,8 @@ else{
   let accountRevision=0;
   songRequestSharing=require('./desktop/song-request-sharing.cjs').createSongRequestSharing({fetcher:(url,options)=>ses.fetch(url,options),readAccount,generation:()=>accountRevision});
   let reminderDownload=false;
-  updater=require('./desktop/update-service.cjs').createUpdateService({currentVersion:require('./package.json').version,platform:process.platform,arch:process.arch,packaged:app.isPackaged===true,
+  const productionInstall=app.isPackaged===true;
+  updater=require('./desktop/update-service.cjs').createUpdateService({currentVersion:require('./package.json').version,platform:process.platform,arch:process.arch,packaged:productionInstall,
    applicationDirectory:path.dirname(process.execPath),dataDirectory:app.getPath('userData'),
    busyReasons:()=>[...(job?['chart_downloads']:[]),...(backupModule?.getState().busy?['configuration_busy']:[]),...(activeCompanionHost?.maintenanceStatus?.().busyReasons??[])],
    openExternal:url=>shell.openExternal(url),launchHelper:require('./desktop/update-launcher.cjs').launchWindowsHelper,
@@ -181,7 +190,7 @@ else{
    },
    onManualResult:failed=>updateNotice(failed?updateText('La vérification a échoué. Réessayez plus tard.','The update check failed. Try again later.'):updateText('ChartsHub est à jour.','ChartsHub is up to date.'),failed?'warning':'info')
   });
-  if(app.isPackaged===true)updateReminders.start();
+  if(productionInstall)updateReminders.start();
   win.once('closed',()=>updateReminders.dispose());
   const profileDirectory=path.join(app.getPath('userData'),'companion');
   backupReady=require('./desktop/config-backup.cjs').createConfigBackup({directory:profileDirectory,version:require('./package.json').version,onChange:()=>maintenance?.publish()}).then(engine=>{
@@ -229,6 +238,42 @@ else{
    if(!allowedSender(event)||typeof change!=='boolean')return {ok:false};
    if(job&&change)return {ok:false,error:'Attendez la fin du téléchargement pour changer le dossier.'};
    try{const directory=change?await chooseFolder('catalogue',true):await folders.get('catalogue');return {ok:!!directory,folderName:directory?path.basename(directory):'',cancelled:change&&!directory};}catch(error){return {ok:false,error:error.message};}
+  });
+  const rhythmVerseDownloadError=error=>typeof error?.code==='string'&&error.code.startsWith('RV_ARCHIVE_')?error.message:'Le chart n’a pas pu être téléchargé ou extrait. Essayez depuis la fiche RhythmVerse.';
+  const rhythmVerseCatalogue=require('./desktop/rhythmverse-catalogue.cjs').createRhythmVerseCatalogue({
+   ipcMain,contents:web,allowedSender,openExternal:url=>shell.openExternal(url),
+   nativeArchiveSupport:require('./desktop/rhythmverse-archive.cjs').canUseNativeRhythmVerseArchives(),
+   download:async(record,current,{format,includeVideo})=>{
+    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
+    const controller=new AbortController();job=publicDownloadJob=controller;
+    try{
+     let directory,outputPath;
+     if(format==='folder'){
+      directory=await chooseFolder('catalogue');
+      if(!directory)return {ok:false,cancelled:true};
+     }else{
+      const choice=await dialog.showSaveDialog(win,{title:'Enregistrer la chart en '+format.toUpperCase(),defaultPath:path.join(app.getPath('downloads'),songFolderName(record)+'.'+format),filters:[{name:format.toUpperCase(),extensions:[format]}],properties:['showOverwriteConfirmation','createDirectory']});
+      if(choice.canceled||!choice.filePath)return {ok:false,cancelled:true};
+      outputPath=choice.filePath;
+     }
+     if(!current())return {ok:false,cancelled:true};
+     controller.signal.throwIfAborted();
+     win.setProgressBar(2);
+     const {installRhythmVerseChart}=require('./desktop/rhythmverse-install.cjs');
+     const destination=await installRhythmVerseChart({record,directory,outputPath,format,includeVideo,signal:controller.signal});
+     controller.signal.throwIfAborted();
+     const folderName=path.basename(destination);
+     if(format!=='folder'){
+      if(current())shell.showItemInFolder(destination);
+      return {ok:true,format,folderName};
+     }
+     const openFailed=!current()||await shell.openPath(destination).then(Boolean,()=>true);
+     return {ok:true,format,folderName,...(openFailed?{openFailed:true}:{})};
+    }catch(error){
+     if(controller.signal.aborted)return {ok:false,cancelled:true};
+     return {ok:false,error:rhythmVerseDownloadError(error)};
+    }finally{job=publicDownloadJob=null;if(!win.isDestroyed())win.setProgressBar(-1);}
+   }
   });
   ipcMain.handle('chartshub:theme',(event,value)=>{
    if(!allowedSender(event))return;
@@ -321,6 +366,9 @@ else{
    if(!allowedSender(event)||typeof includeVideo!=='boolean'||!batchValid(endpoints))return {ok:false,error:'Sélection non autorisée.'};
    if(job)return {ok:false,error:'Un téléchargement est déjà en cours.'};
    const items=normalizeBatch(endpoints),identities=items.map(item=>item.endpoint),requests=items.map(item=>item.request||item.endpoint);
+   const rhythmVerseIds=items.filter(item=>item.rhythmVerseId).map(item=>item.rhythmVerseId);
+   const rhythmVerseDownloads=rhythmVerseIds.length?rhythmVerseCatalogue?.authorizeDownloads(event,rhythmVerseIds):null;
+   if(rhythmVerseIds.length&&!rhythmVerseDownloads)return {ok:false,error:'Une chart RhythmVerse sélectionnée n’est plus disponible. Relancez la recherche.'};
    const controller=new AbortController();job=controller;
    const completedFolders=[];
    let result,token,notificationScope;
@@ -331,8 +379,18 @@ else{
     notificationScope=notificationBroker.capture();
     const directory=await chooseFolder('catalogue');
     if(!directory)return result={ok:false,cancelled:true,results:[]};
-    if(!allowedSender(event))throw Error('La page a changé. Réessayez.');
-    result=await downloadBatch({endpoints:requests,directory,includeVideo,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data),onDownloaded:value=>completedFolders.push(value),reportDownloadCompletion});
+    controller.signal.throwIfAborted();
+    if(!allowedSender(event)||rhythmVerseDownloads&&!rhythmVerseDownloads.current())throw Error('La page a changé. Réessayez.');
+    const downloadRhythmVerse=rhythmVerseDownloads?async({id,directory,includeVideo,signal,progress})=>{
+     if(!rhythmVerseDownloads.current())throw Error('La page a changé. Réessayez.');
+     progress({percent:0,message:'Téléchargement et extraction RhythmVerse…'});
+     try{
+      const {installRhythmVerseChart}=require('./desktop/rhythmverse-install.cjs');
+      const destination=await installRhythmVerseChart({record:rhythmVerseDownloads.get(id),directory,format:'folder',includeVideo,signal});
+      return {folderName:path.basename(destination),destination,format:'folder'};
+     }catch(error){throw Error(rhythmVerseDownloadError(error));}
+    }:undefined;
+    result=await downloadBatch({endpoints:requests,directory,includeVideo,fetcher:(url,options)=>ses.fetch(url,options),signal:controller.signal,progress:data=>reportProgress(token,data),onDownloaded:value=>completedFolders.push(value),reportDownloadCompletion,downloadRhythmVerse});
     await refreshAccount();
     if(!downloads.current(token))return {ok:false,cancelled:true,results:[]};
     for(const value of completedFolders)noteCompletedDownload(value.endpoint,value.result,event,token,controller.signal);
@@ -394,6 +452,8 @@ else{
   ipcMain.handle('chartshub:cancel',event=>{if(allowedSender(event))job?.abort();});
   const finishClose=async()=>{
    closing=true;
+   rhythmVerseCatalogue?.dispose();
+   if(rhythmVersePreload)ses.unregisterPreloadScript(rhythmVersePreload);
    notificationBroker?.invalidate();
    let shutdownSucceeded=true;
    try{if(companionHostPromise)await (await companionHostPromise).dispose();}

@@ -1,17 +1,23 @@
 'use strict';
 const {endpointValid,downloadChart}=require('./download');
 const {normalizeEnchorRequest,enchorIdentity,downloadEnchor}=require('./enchor-download');
+const RHYTHMVERSE_ENDPOINT=/^rhythmverse:([a-zA-Z0-9_-]{1,80})$/;
 function normalizeBatch(endpoints){
  if(!Array.isArray(endpoints)||!endpoints.length)throw Error('Sélection de charts invalide.');
  const seen=new Set();return endpoints.map(value=>{
-  let item;if(typeof value==='string'){if(!endpointValid(value)||value.includes('/admin/'))throw Error('Sélection de charts invalide.');item={endpoint:value};}
+  let item;if(typeof value==='string'){
+   const rhythmVerseId=RHYTHMVERSE_ENDPOINT.exec(value)?.[1];
+   if(rhythmVerseId)item={endpoint:value,rhythmVerseId};
+   else{if(!endpointValid(value)||value.includes('/admin/'))throw Error('Sélection de charts invalide.');item={endpoint:value};}
+  }
   else{let request;try{request=normalizeEnchorRequest(value);}catch{throw Error('Sélection de charts invalide.');}item={endpoint:enchorIdentity(request.md5),request};}
   if(seen.has(item.endpoint))throw Error('Sélection de charts invalide.');seen.add(item.endpoint);return item;
  });
 }
 function batchValid(endpoints){try{normalizeBatch(endpoints);return true;}catch{return false;}}
-async function downloadBatch({endpoints,directory,includeVideo=true,fetcher,signal,progress=()=>{},onDownloaded=()=>{},reportDownloadCompletion,download=downloadChart,downloadExternal=downloadEnchor,idleTimeoutMs}){
+async function downloadBatch({endpoints,directory,includeVideo=true,fetcher,signal,progress=()=>{},onDownloaded=()=>{},reportDownloadCompletion,download=downloadChart,downloadExternal=downloadEnchor,downloadRhythmVerse,idleTimeoutMs}){
  const items=normalizeBatch(endpoints);
+ if(items.some(item=>item.rhythmVerseId)&&typeof downloadRhythmVerse!=='function')throw Error('Sélection de charts invalide.');
  const results=[];let stopped;
  for(let i=0;i<items.length;i++){
   if(signal.aborted)break;
@@ -19,10 +25,13 @@ async function downloadBatch({endpoints,directory,includeVideo=true,fetcher,sign
   try{
    progress({endpoint:item.endpoint,state:'downloading',itemPercent:0,percent:Math.floor(i/items.length*100),message:`${i+1}/${items.length} · Préparation…`});
    const options={directory,includeVideo,fetcher,signal,idleTimeoutMs,progress:p=>progress({...p,endpoint:item.endpoint,state:'downloading',itemPercent:p.percent,itemMessage:p.message,percent:Math.floor((i+p.percent/100)/items.length*100),message:`${i+1}/${items.length} · ${p.message}`})};
-   const result=await(item.request?downloadExternal({...options,request:item.request}):download({...options,endpoint:item.endpoint}));
-   results.push({endpoint:item.endpoint,ok:true,folderName:result.folderName,files:result.files,...(item.request?{fileName:result.fileName,format:result.format||(result.fileName?'sng':'folder')}:{})});
+   let result;
+   if(item.rhythmVerseId)result=await downloadRhythmVerse({...options,id:item.rhythmVerseId});
+   else if(item.request)result=await downloadExternal({...options,request:item.request});
+   else result=await download({...options,endpoint:item.endpoint});
+   results.push({endpoint:item.endpoint,ok:true,folderName:result.folderName,files:result.files,...(item.request?{fileName:result.fileName,format:result.format||(result.fileName?'sng':'folder')}:item.rhythmVerseId?{format:'folder'}:{})});
    // A cancelled batch can still contain a chart already saved to disk.
-   if(!item.request&&reportDownloadCompletion){
+   if(!item.request&&!item.rhythmVerseId&&reportDownloadCompletion){
     void Promise.resolve().then(()=>reportDownloadCompletion(item.endpoint)).catch(()=>{});
    }
    // Trusted main-process completion only. The private destination never enters

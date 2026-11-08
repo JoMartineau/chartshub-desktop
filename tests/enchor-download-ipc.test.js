@@ -4,7 +4,7 @@ const ORIGIN='https://chartshub.ca',md5='0123456789abcdef0123456789abcdef',paylo
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 async function desktop({saveDialog,quickImport=false}={}){
  const ipc=new Map(),events=[],shown=[],saved=[],imports=[],completions=[];let win,web,user={id:'member-a',emailVerified:true,staffRole:null},transfer,resolveDownload,calls=0,shellOptions,accountFails=false;
- const session=Object.assign(new EventEmitter(),{setPermissionRequestHandler(){},setPermissionCheckHandler(){},cookies:new EventEmitter(),fetch:async url=>{
+ const session=Object.assign(new EventEmitter(),{setPermissionRequestHandler(){},setPermissionCheckHandler(){},registerPreloadScript:()=> 'rhythmverse-preload',unregisterPreloadScript(){},cookies:new EventEmitter(),fetch:async url=>{
   if(url.endsWith('/download-complete')){completions.push(url);return new Response(null,{status:204});}
   if(accountFails)throw Error('account unavailable');return Response.json({user});
  }});

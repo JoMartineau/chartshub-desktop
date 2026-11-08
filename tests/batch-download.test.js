@@ -54,6 +54,32 @@ test('batch video preference applies to both sources',async()=>{
  assert.equal(result.ok,true);
  assert.deepEqual(received,[false,false]);
 });
+
+test('RhythmVerse batch entries are opaque IDs and require a trusted downloader',async()=>{
+ const identity='rhythmverse:RV_123-abc';
+ const {normalizeBatch}=require('../batch-download');
+ assert.deepEqual(normalizeBatch([identity]),[{endpoint:identity,rhythmVerseId:'RV_123-abc'}]);
+ for(const list of [[identity,identity],['rhythmverse:'],['rhythmverse:123\n'],['rhythmverse:'+'a'.repeat(81)],['rhythmverse:https://rhythmverse.co/download/123'],[{rhythmVerseId:'RV_123-abc'}]])assert.equal(batchValid(list),false);
+ await assert.rejects(downloadBatch({endpoints:[identity],signal:new AbortController().signal}),/Sélection de charts invalide/);
+});
+
+test('RhythmVerse folder batch shares the export destination, reports progress, and stops on cancellation',async()=>{
+ const controller=new AbortController(),identity='rhythmverse:RV_123-abc',events=[],completed=[],native=[];
+ const result=await downloadBatch({endpoints:[endpoint(1),identity,endpoint(2)],directory:'Songs',includeVideo:false,signal:controller.signal,
+  progress:event=>events.push(event),reportDownloadCompletion:value=>completed.push(value),
+  download:async options=>{native.push(options.endpoint);return {folderName:'Native',files:3};},
+  downloadRhythmVerse:async options=>{
+   assert.equal(options.id,'RV_123-abc');assert.equal(options.directory,'Songs');assert.equal(options.includeVideo,false);assert.equal(options.signal,controller.signal);
+   options.progress({percent:40,message:'Extracting'});controller.abort();
+   return {folderName:'External',destination:'C:/Private/Songs/External',format:'folder'};
+  }});
+ assert.deepEqual(native,[endpoint(1)]);
+ assert.deepEqual(completed,[endpoint(1)]);
+ assert.deepEqual(result.results.map(item=>[item.endpoint,item.ok,item.format]),[[endpoint(1),true,undefined],[identity,true,'folder']]);
+ assert.equal(result.cancelled,true);
+ assert.equal(events.find(item=>item.itemPercent===40)?.endpoint,identity);
+ assert.equal(JSON.stringify({result,events}).includes('C:/Private'),false);
+});
 test('cancelling a mixed batch preserves an already imported SNG and skips following native charts',async()=>{
  const md5='0123456789abcdef0123456789abcdef',controller=new AbortController();let native=0;
  const result=await downloadBatch({endpoints:[{md5},endpoint(1)],signal:controller.signal,download:async()=>{native++;},downloadExternal:async()=>{controller.abort();return {folderName:'External',fileName:'External.sng',files:3};}});
