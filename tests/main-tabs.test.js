@@ -14,11 +14,17 @@ async function until(check, label) { for (let index = 0; index < 100; index++) {
 // Execute the actual main process against deterministic Electron boundaries.
 // The companion host and native shell have their own real-Electron harnesses.
 async function fixture({ user: initialUser = member, argv = [], hostInitialization, hostOpening, hostDisposal } = {}) {
-  const ipc = new Map(), menus = [], requests = [], windows = [], tabs = [], availability = [], errors = [];
+  const ipc = new Map(), menus = [], requests = [], windows = [], tabs = [], availability = [], errors = [], messages = [];
   let user = initialUser, shell, hostOptions, hostCreates = 0, hostOpens = 0, hostDisposes = 0;
   let fetchAccount = async () => Response.json({ user });
   const session = Object.assign(new EventEmitter(), {
     cookies: new EventEmitter(), setPermissionRequestHandler() {}, setPermissionCheckHandler() {},
+    registerPreloadScript({ type, filePath }) {
+      assert.equal(type, 'frame');
+      assert.equal(filePath, path.join(__dirname, '../desktop/rhythmverse-catalogue-preload.cjs'));
+      return 'rhythmverse-preload';
+    },
+    unregisterPreloadScript: id => assert.equal(id, 'rhythmverse-preload'),
     fetch: (...args) => { requests.push(args); return fetchAccount(...args); }
   });
   class Contents extends EventEmitter {
@@ -66,7 +72,7 @@ async function fixture({ user: initialUser = member, argv = [], hostInitializati
     app, BrowserWindow: Window, ipcMain: { handle: (name, handler) => ipc.set(name, handler), removeHandler: name => ipc.delete(name) },
     session: { fromPartition: name => { assert.equal(name, 'persist:chartshub'); return session; } },
     Menu: { setApplicationMenu() {}, buildFromTemplate: template => ({ popup() { menus.push(template); } }) },
-    dialog: { showErrorBox: (...args) => errors.push(args), showMessageBox: async () => ({ response: 0 }), showSaveDialog: async () => ({canceled:true}), showOpenDialog: async () => ({canceled:true,filePaths:[]}) },
+    dialog: { showErrorBox: (...args) => errors.push(args), showMessageBox: async (...args) => { messages.push(args); return { response: 0 }; }, showSaveDialog: async () => ({canceled:true}), showOpenDialog: async () => ({canceled:true,filePaths:[]}) },
     shell: {}, nativeTheme: {}
   };
   const host = {
@@ -113,7 +119,7 @@ async function fixture({ user: initialUser = member, argv = [], hostInitializati
   const web = shell.catalogueView.webContents;
   const invokeAs = (sender, name, ...args) => ipc.get('chartshub:' + name)({ sender, senderFrame: sender.mainFrame }, ...args);
   return {
-    app, ipc, shell, web, windows, tabs, availability, requests, menus, errors, host,
+    app, ipc, shell, web, windows, tabs, availability, requests, menus, errors, messages, host,
     get hostCreates() { return hostCreates; }, get hostOpens() { return hostOpens; }, get hostDisposes() { return hostDisposes; },
     setUser(value) { user = value; }, setFetch(fn) { fetchAccount = fn; },
     cookieChanged() { session.cookies.emit('changed', {}, { name: 'chartshub_session', domain: 'chartshub.ca' }); },
@@ -131,6 +137,23 @@ test('guest startup refuses --companion and opens the catalogue without initiali
   assert.ok(!f.menus.at(-1).some(item => item.label === 'Tableau de bord'));
   f.app.emit('second-instance', {}, ['ChartsHub.exe', '--companion']); await settle();
   assert.equal(f.hostCreates, 0); assert.equal(f.shell.activeTab, 'catalogue');
+});
+
+test('Application menu keeps account navigation and does not show a connection modal for cancelled loads', async () => {
+  const f = await fixture();
+  await until(() => f.web.loads.length > 0, 'catalogue');
+  await f.invoke('menu');
+  const menu = f.menus.at(-1);
+  await menu.find(item => item.label === 'Mon compte').click();
+  assert.equal(f.web.loads.at(-1), ORIGIN + '/account.html');
+  let cancelledUrl;
+  f.web.loadURL = async url => {
+    cancelledUrl = url;
+    throw Object.assign(Error('ERR_ABORTED (-3)'), { code: 'ERR_ABORTED', errno: -3 });
+  };
+  await menu.find(item => item.label === 'Catalogue').click();
+  assert.equal(cancelledUrl, ORIGIN + '/');
+  assert.deepEqual(f.messages, []);
 });
 
 test('ordinary members see Companion without administrator or verified-email privileges and logout hides it', async () => {

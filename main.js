@@ -108,12 +108,12 @@ else{
   web.on('will-redirect',(event,url)=>{if(!trusted(url))event.preventDefault();});
   web.on('will-attach-webview',event=>event.preventDefault());
   let catalogueStarted=false;
-  loadCatalogue=()=>{
-   if(catalogueStarted)return;
+  const load=route=>{
    catalogueStarted=true;
-   // The shell displays a retry for real main-frame load failures.
-   void web.loadURL(ORIGIN+'/').catch(()=>{});
+   // The shell handles main-frame errors and ignores cancelled navigation.
+   return web.loadURL(ORIGIN+route).catch(()=>{});
   };
+  loadCatalogue=()=>{if(!catalogueStarted)void load('/');};
   Menu.setApplicationMenu(null);
   win.setMenuBarVisibility(false);
   const readAccount=async()=>{
